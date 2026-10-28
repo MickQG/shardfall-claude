@@ -4,6 +4,8 @@
  */
 import { writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
+import { bakeModel } from '../src/render/voxel/bake';
+import { BUILDING_MODELS } from '../src/render/voxel/buildings';
 import { composeUnit, type Layer } from '../src/render/voxel/compose';
 import { UNIT_MODELS } from '../src/render/voxel/models';
 
@@ -76,19 +78,23 @@ function png(w: number, h: number, rgba: Uint8ClampedArray): Buffer {
 
 const out = process.argv[2] ?? 'sprites.png';
 const kinds = process.argv.slice(3).length ? process.argv.slice(3) : Object.keys(UNIT_MODELS);
-const FACINGS = 16;
-const COLS = 8;
+/** Building kinds are laid out as one grid (one picture each); units get a row pair of 16 facings each. */
+const BUILDINGS = kinds.every((k) => k in BUILDING_MODELS);
+const FACINGS = BUILDINGS ? kinds.length : 16;
+const COLS = BUILDINGS ? 4 : 8;
 const GROUND = [0x2f, 0x4f, 0x3c];
 
-const sheets = kinds.map((k) => {
+const sheets = BUILDINGS
+  ? [kinds.map((k) => flatten([{ sprite: bakeModel((BUILDING_MODELS[k] as NonNullable<(typeof BUILDING_MODELS)[string]>)(), { team: 0x3fa0ff, facing: 0, facings: 1 }), dx: 0, dy: 0 }]))]
+  : kinds.map((k) => {
   const model = (UNIT_MODELS[k] as NonNullable<(typeof UNIT_MODELS)[string]>)();
   return Array.from({ length: FACINGS }, (_, f) => flatten(composeUnit(model, 0x3fa0ff, f, f, FACINGS)));
 });
 const cw = Math.max(...sheets.flat().map((s) => s.width));
 const ch = Math.max(...sheets.flat().map((s) => s.height));
-const rowsPer = FACINGS / COLS;
+const rowsPer = Math.ceil(FACINGS / COLS);
 const W = cw * COLS;
-const H = ch * rowsPer * kinds.length;
+const H = ch * rowsPer * sheets.length;
 const img = new Uint8ClampedArray(W * H * 4);
 for (let i = 0; i < W * H; i++) {
   img[i * 4] = GROUND[0] as number;

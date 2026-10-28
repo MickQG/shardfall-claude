@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { UNIT_DEFS } from '../../src/data/defs';
+import { BUILDING_DEFS, UNIT_DEFS } from '../../src/data/defs';
+import { damageTint, revealLine } from '../../src/render/gfx';
+import { BUILDING_MODELS, buildingHeightPx } from '../../src/render/voxel/buildings';
 import { bakeModel, faceIntensity, facingOf } from '../../src/render/voxel/bake';
 import { composeUnit } from '../../src/render/voxel/compose';
 import { UNIT_MODELS } from '../../src/render/voxel/models';
@@ -260,5 +262,48 @@ describe('sprite cache', () => {
     expect(cache.turret('hum_rifleman', 0x3fa0ff, 3)).toBeNull(); // no turret, nothing baked
     expect(made).toBe(4);
     expect(cache.size).toBe(4);
+  });
+});
+
+describe('building models', () => {
+  const kinds = Object.keys(BUILDING_DEFS);
+
+  it('VOX-12: every building kind has a model exactly as big as its tile footprint, with a distinct silhouette', () => {
+    expect(Object.keys(BUILDING_MODELS).sort()).toEqual([...kinds].sort());
+    const seen = new Set<string>();
+    for (const k of kinds) {
+      const d = BUILDING_DEFS[k]!;
+      const m = BUILDING_MODELS[k]!();
+      expect([m.sx, m.sy, m.scale], k).toEqual([d.w * 16, d.h * 16, 0.5]);
+      expect(voxelCount(m), k).toBeGreaterThan(300);
+      const s = bakeModel(m, { team: 0x3fa0ff, facing: 0, facings: 1 });
+      expect(s.anchorX).toBeGreaterThan(0);
+      let rows = '';
+      for (let y = 0; y < s.height; y++) {
+        let n = 0;
+        for (let x = 0; x < s.width; x++) if (px(s, x, y)[3] > 128) n++;
+        rows += n + ',';
+      }
+      seen.add(`${s.width}x${s.height}:${rows}`);
+    }
+    expect(seen.size).toBe(kinds.length);
+  });
+
+  it('VOX-12: the roof height comes from the model, so superweapons stand tallest and a turret is short', () => {
+    expect(buildingHeightPx('hum_lance')).toBeGreaterThan(buildingHeightPx('hum_hq'));
+    expect(buildingHeightPx('ali_rift')).toBeGreaterThan(buildingHeightPx('ali_hq'));
+    expect(buildingHeightPx('hum_turret')).toBeLessThan(buildingHeightPx('hum_barracks') + 10);
+    const hq = BUILDING_MODELS['hum_hq']!();
+    expect(buildingHeightPx('hum_hq')).toBe((topLayer(hq) + 1) * 4 * hq.scale);
+  });
+
+  it('VOX-13: the reveal line rises from the base to above the roof, and damage darkens the tint', () => {
+    expect(revealLine(0, 200, 40)).toBe(200);
+    expect(revealLine(1, 200, 40)).toBe(40);
+    expect(revealLine(0.5, 200, 40)).toBe(120);
+    const lum = (c: number): number => (c >> 16) + ((c >> 8) & 255) + (c & 255);
+    expect(damageTint('intact')).toBe(0xffffff);
+    expect(lum(damageTint('damaged'))).toBeLessThan(lum(damageTint('intact')));
+    expect(lum(damageTint('critical'))).toBeLessThan(lum(damageTint('damaged')));
   });
 });

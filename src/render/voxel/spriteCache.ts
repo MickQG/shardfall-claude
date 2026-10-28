@@ -1,5 +1,7 @@
 import { Texture } from 'pixi.js';
 import { bakeModel, type Sprite } from './bake';
+import { BUILDING_MODELS } from './buildings';
+import type { VoxelModel } from './model';
 import { UNIT_MODELS, type UnitModel } from './models';
 
 export const FACINGS = 16;
@@ -51,6 +53,15 @@ export class SpriteCache {
 
   hull(kind: string, team: number, facing: number): Baked {
     return this.bake(`${kind}|${team}|h|${facing}`, () => bakeModel(this.model(kind).hull, { team, facing, facings: FACINGS }));
+  }
+
+  /** A building's single facing in a team colour. */
+  building(kind: string, team: number): Baked {
+    return this.bake(`${kind}|${team}|b`, () => {
+      const make = BUILDING_MODELS[kind];
+      if (!make) throw new Error(`no voxel model for ${kind}`);
+      return bakeModel(make() as VoxelModel, { team, facing: 0, facings: 1 });
+    });
   }
 
   turret(kind: string, team: number, facing: number): Baked | null {
