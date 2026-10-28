@@ -3,7 +3,7 @@ import { createGame, FP, submit, tick, type UnitSpawn } from '../src/sim';
 
 const map = demoMap();
 const units: UnitSpawn[] = [];
-for (let i = 0; i < 200; i++) units.push({ owner: i % 2, kind: i % 5 === 0 ? 'scout' : 'trooper', tx: 4 + (i % 20), ty: 4 + Math.floor(i / 20) });
+for (let i = 0; i < 200; i++) units.push({ owner: i % 2, kind: i % 5 === 0 ? 'hum_buggy' : 'hum_rifleman', tx: 4 + (i % 20), ty: 4 + Math.floor(i / 20) });
 const game = createGame({ seed: 1, map, units });
 submit(game, { type: 'move', player: 0, units: units.map((_, i) => i + 1).filter((id) => id % 2 === 1), x: 80 * FP, y: 80 * FP });
 submit(game, { type: 'move', player: 1, units: units.map((_, i) => i + 1).filter((id) => id % 2 === 0), x: 20 * FP, y: 80 * FP });

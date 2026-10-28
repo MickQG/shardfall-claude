@@ -8,8 +8,8 @@ const idx = (w: number, x: number, y: number): number => y * w + x;
 
 describe('fog of war', () => {
   const spawns: UnitSpawn[] = [
-    { owner: 0, kind: 'trooper', tx: 5, ty: 5 }, // vision 7
-    { owner: 1, kind: 'trooper', tx: 40, ty: 40 },
+    { owner: 0, kind: 'hum_rifleman', tx: 5, ty: 5 }, // vision 7
+    { owner: 1, kind: 'hum_rifleman', tx: 40, ty: 40 },
   ];
 
   it('FOG-1: only tiles within vision of own units are known at start', () => {
@@ -61,8 +61,8 @@ describe('commands', () => {
       seed: 1,
       map: open(40, 10),
       units: [
-        { owner: 0, kind: 'trooper', tx: 2, ty: 5 },
-        { owner: 1, kind: 'trooper', tx: 2, ty: 8 },
+        { owner: 0, kind: 'hum_rifleman', tx: 2, ty: 5 },
+        { owner: 1, kind: 'hum_rifleman', tx: 2, ty: 8 },
       ],
     });
     submit(g, { type: 'move', player: 0, units: [1], x: 35 * FP, y: 5 * FP });
@@ -81,7 +81,7 @@ describe('commands', () => {
 
 describe('selection', () => {
   const su = (id: number, owner: number, kind: string, sx: number, sy: number): ScreenUnit => ({ id, owner, kind, sx, sy });
-  const units = [su(1, 0, 'trooper', 100, 100), su(2, 0, 'trooper', 110, 104), su(3, 1, 'trooper', 105, 100), su(4, 0, 'scout', 300, 200), su(5, 0, 'trooper', 5000, 5000)];
+  const units = [su(1, 0, 'hum_rifleman', 100, 100), su(2, 0, 'hum_rifleman', 110, 104), su(3, 1, 'hum_rifleman', 105, 100), su(4, 0, 'hum_buggy', 300, 200), su(5, 0, 'hum_rifleman', 5000, 5000)];
   const vp = { width: 1280, height: 720 };
 
   it('CTL-1: click selects the nearest own unit in the pick radius and never an enemy', () => {

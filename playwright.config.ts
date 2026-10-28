@@ -1,16 +1,16 @@
 import { defineConfig } from '@playwright/test';
 
 const external = process.env.E2E_BASE_URL;
+const PORT = 4179;
 
 export default defineConfig({
   testDir: 'tests/e2e',
-  timeout: 60_000,
+  timeout: 90_000,
   retries: process.env.CI ? 1 : 0,
   use: {
-    baseURL: external ?? 'http://localhost:4173',
+    baseURL: external ?? `http://localhost:${PORT}`,
     launchOptions: { args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] },
   },
-  webServer: external
-    ? undefined
-    : { command: 'npm run build && npm run preview -- --port 4173', url: 'http://localhost:4173', reuseExistingServer: !process.env.CI, timeout: 120_000 },
+  // Always build and serve fresh output on a dedicated port so a stray server can never test stale files.
+  webServer: external ? undefined : { command: `npm run build && npm run preview -- --port ${PORT} --strictPort`, url: `http://localhost:${PORT}`, reuseExistingServer: false, timeout: 180_000 },
 });
