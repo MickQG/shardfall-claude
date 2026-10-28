@@ -11,3 +11,5 @@ test-results/
 
 # local scratch (patch scripts, screenshots)
 tmp/
+
+release/

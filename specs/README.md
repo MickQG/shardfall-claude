@@ -14,5 +14,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `008-controls-and-cursors.md` | Select-all-combat key, rally line, cursors, Ctrl-attack-move | 8 |
 | `009-visual-upgrade.md` | Construction, damage, facing, terrain, effects, polish | 9 |
 | `010-voxel-art.md` | Procedural voxel sprite engine; unit and building models | 10 |
+| `011-desktop.md` | Desktop app (Electron shell around the same build) | 11 |
 
 Umbrella spec: GitHub issue #1.
