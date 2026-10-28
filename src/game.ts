@@ -1,14 +1,18 @@
 import { DIFFICULTIES } from './ai/ai';
-import { duelConfig, skirmishConfig } from './data/maps';
+import { duelConfig, rushConfig, skirmishConfig } from './data/maps';
 import { buildingDef, unitDef } from './data/defs';
+import { AudioEngine } from './audio/engine';
+import { soundFor } from './audio/plan';
 import { SimClient } from './host/client';
 import { mapBounds, pan, screenToWorld, zoomAt, type Camera } from './render/camera';
 import { GameView, type PlacementPreview } from './render/gameView';
 import { interpolate } from './render/interp';
 import { screenToTile, tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
+import { AlertTracker } from './ui/alerts';
 import { createHud } from './ui/hud';
 import { Minimap, miniToTile } from './ui/minimap';
+import { effectsEnabled, loadSettings, saveSettings } from './ui/settings';
 import { Sidebar } from './ui/sidebar';
 import { boxSelect, pickEnemy, pickUnit, Selection, selectSameKind, toScreenUnits } from './ui/selection';
 
@@ -22,7 +26,7 @@ const level = (['easy', 'medium', 'hard'] as const).find((d) => d === params.get
 const scenario = params.get('scenario');
 const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number] };
 const seed = Number(params.get('seed') ?? Date.now() % 100000);
-const cfg = scenario === 'duel' ? duelConfig(seed, opts) : skirmishConfig(seed, opts);
+const cfg = scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
 const map = cfg.map;
 const bounds = mapBounds(map.width, map.height);
 // Scenarios are scripted fights without an AI opponent; a normal game has the AI play player 1.
@@ -30,6 +34,33 @@ const sim = new SimClient(cfg, scenario ? [] : [{ player: 1, difficulty: level }
 const view = new GameView();
 const selection = new Selection();
 const hud = createHud();
+const settings = loadSettings(safeStorage(), matchMedia('(prefers-reduced-motion: reduce)').matches);
+const audio = new AudioEngine();
+audio.setMuted(settings.muted);
+audio.setVolume(settings.volume);
+const alerts = new AlertTracker(PLAYER);
+let paused = false;
+let speedIdx = 1;
+const SPEEDS = [0.5, 1, 2, 4];
+
+function safeStorage(): Storage | null {
+  try {
+    return localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function topbar(): void {
+  hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q quality: ${settings.quality}`);
+}
+topbar();
+
+function setPaused(p: boolean): void {
+  paused = p;
+  sim.setPaused(p);
+  hud.showPause(p, { resume: () => setPaused(false), quit: () => (location.search = '') });
+}
 
 let cam: Camera = { x: 0, y: 0, zoom: 1 };
 const keys = new Set<string>();
@@ -40,6 +71,7 @@ let minimap: Minimap | null = null;
 let amoveMode = false;
 let targeting: { building: number } | null = null;
 let resultShown = false;
+let lastAlertTick = -1;
 
 const EDGE = 12;
 const PAN_SPEED = 900;
@@ -120,7 +152,11 @@ function frame(prevTime: number): (t: number) => void {
     if (keys.has('s') || keys.has('arrowdown') || (mouse.y > v.height - EDGE && mouse.y <= v.height)) dy += 1;
     if (dx || dy) cam = pan(cam, dx * PAN_SPEED * dt, dy * PAN_SPEED * dt, bounds);
 
-    for (const ev of sim.events.splice(0)) view.effects.spawn(ev, t);
+    for (const ev of sim.events.splice(0)) {
+      view.effects.spawn(ev, t);
+      const s = soundFor(ev, PLAYER);
+      audio.play(s.name, s.gain);
+    }
     view.app.canvas.style.cursor = amoveMode || targeting ? 'crosshair' : 'default';
     const curr = sim.curr;
     if (curr && curr.over && !resultShown) {
@@ -133,7 +169,15 @@ function frame(prevTime: number): (t: number) => void {
       if (selectedBuilding !== null && !curr.buildings.some((b) => b.id === selectedBuilding)) selectedBuilding = null;
       const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
       const ru = interpolate(sim.prev.units, curr.units, alpha);
-      view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), time: t }, curr);
+      view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), time: t, fx: effectsEnabled(settings) }, curr);
+      if (curr.tick !== lastAlertTick) {
+        lastAlertTick = curr.tick;
+        for (const a of alerts.update(curr)) {
+          hud.toast(a.text, a.level);
+          audio.play(a.level === 'info' ? 'ready' : 'alert');
+          if (a.at && minimap) minimap.ping(a.at.tx, a.at.ty, t, a.level === 'bad' ? '#ff5a4a' : '#ffd34a');
+        }
+      }
       sidebar.update(curr, selectedBuilding, t);
 
       const own = curr.units.filter((u) => selection.has(u.id));
@@ -152,7 +196,7 @@ function frame(prevTime: number): (t: number) => void {
         [v.width, v.height],
         [0, v.height],
       ].map(([x, y]) => tileFromScreen(x as number, y as number));
-      minimap.draw(curr, corners);
+      minimap.draw(curr, corners, t);
     }
     requestAnimationFrame(frame(t));
   };
@@ -217,10 +261,30 @@ async function boot(): Promise<void> {
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     keys.add(k);
+    audio.unlock();
     if (k === 'escape') {
-      placing = null;
-      amoveMode = false;
-      targeting = null;
+      if (placing || amoveMode || targeting) {
+        placing = null;
+        amoveMode = false;
+        targeting = null;
+      } else setPaused(!paused);
+    }
+    if (k === 'p') setPaused(!paused);
+    if (k === 'm') {
+      settings.muted = !settings.muted;
+      audio.setMuted(settings.muted);
+      saveSettings(safeStorage(), settings);
+      topbar();
+    }
+    if (k === 'q') {
+      settings.quality = settings.quality === 'high' ? 'low' : 'high';
+      saveSettings(safeStorage(), settings);
+      topbar();
+    }
+    if (k === '+' || k === '=' || k === '-') {
+      speedIdx = Math.max(0, Math.min(SPEEDS.length - 1, speedIdx + (k === '-' ? -1 : 1)));
+      sim.setSpeed(SPEEDS[speedIdx] as number);
+      topbar();
     }
     if (k === 'a' && !e.ctrlKey && selection.selected.length > 0) amoveMode = true;
     if (/^[1-9]$/.test(k) && sim.curr) {
@@ -262,6 +326,8 @@ async function boot(): Promise<void> {
   let drag: { x0: number; y0: number } | null = null;
   let lastClick = { t: 0, id: -1 };
   canvas.addEventListener('pointerdown', (e) => {
+    audio.unlock();
+    audio.startMusic(seed);
     if (e.button === 2) {
       if (placing || amoveMode || targeting) {
         placing = null;
@@ -376,6 +442,9 @@ async function boot(): Promise<void> {
       return s;
     },
   };
+  const vig = document.createElement('div');
+  vig.style.cssText = 'position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 55%,rgba(2,6,10,.55) 100%)';
+  document.body.insertBefore(vig, document.getElementById('hud'));
   document.body.dataset.ready = 'true';
   requestAnimationFrame(frame(performance.now()));
 }

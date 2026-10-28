@@ -1,21 +1,25 @@
 import { Application, Container, Graphics } from 'pixi.js';
+import { AdvancedBloomFilter } from 'pixi-filters';
 import { buildingDef } from '../data/defs';
 import type { BuildingSnap, Snapshot } from '../sim';
 import { buildingHeight, buildingOrigin, drawBuilding } from './buildingArt';
 import type { Camera } from './camera';
-import { OWNER_COLORS } from './colors';
 import { Effects } from './effects';
 import { FogView } from './fogView';
 import type { RenderUnit } from './interp';
 import { HEIGHT_PX, TILE_H, TILE_W, tileToScreen } from './iso';
-
-const PALETTE = [0x2f4a3a, 0x3f6b4c, 0x57896a];
+import { animateUnit, drawUnit, type UnitArt } from './unitArt';
 
 interface UnitSprite {
   root: Container;
+  art: UnitArt;
   ring: Graphics;
   bar: Graphics;
   maxHp: number;
+  lastTx: number;
+  lastTy: number;
+  facing: number;
+  moving: number;
 }
 
 interface BuildingSprite {
@@ -36,8 +40,10 @@ export interface ViewState {
   selectedUnits: ReadonlySet<number>;
   selectedBuilding: number | null;
   placement: PlacementPreview | null;
-  /** Hovered tile, for the rally flag / hover effects. */
+  /** Clock in ms (for animation). */
   time: number;
+  /** Decorative effects allowed by the quality / reduced-motion settings. */
+  fx: { bloom: boolean; particles: boolean; shake: boolean };
 }
 
 const tilePoly = (tx: number, ty: number, w: number, h: number): number[] => {
@@ -60,6 +66,10 @@ export class GameView {
   private fog: FogView | null = null;
   private lastFogTick = -1;
   private lastShardTick = -1;
+  private bloom: AdvancedBloomFilter | null = null;
+  private bloomOn = false;
+  private dust = new Graphics();
+  private motes = Array.from({ length: 46 }, (_, i) => ({ x: ((i * 97) % 100) / 100, y: ((i * 61) % 100) / 100, s: 0.4 + ((i * 29) % 10) / 14, p: i }));
 
   async mount(host: HTMLElement, snap: Snapshot): Promise<void> {
     await this.app.init({ resizeTo: host, background: 0x0b1015, antialias: true });
@@ -72,7 +82,25 @@ export class GameView {
     }
     this.effects.layer.sortableChildren = true;
     this.world.addChild(this.effects.layer);
-    this.app.stage.addChild(this.world);
+    this.app.stage.addChild(this.world, this.dust);
+    this.bloom = new AdvancedBloomFilter({ threshold: 0.55, bloomScale: 0.85, brightness: 1.05, blur: 5, quality: 3 });
+  }
+
+  /** Bloom on the crystals and combat effects, plus drifting dust motes; all optional for weak machines / reduced motion. */
+  private applyFx(fx: ViewState['fx'], t: number): void {
+    if (fx.bloom !== this.bloomOn && this.bloom) {
+      this.bloomOn = fx.bloom;
+      this.shardGfx.filters = fx.bloom ? [this.bloom] : [];
+      this.effects.layer.filters = fx.bloom ? [this.bloom] : [];
+    }
+    this.dust.clear();
+    if (!fx.particles) return;
+    const v = this.viewport;
+    for (const m of this.motes) {
+      const x = ((m.x + t * 0.000012 * m.s + Math.sin(t / 3000 + m.p) * 0.004) % 1 + 1) % 1;
+      const y = ((m.y - t * 0.000006 * m.s) % 1 + 1) % 1;
+      this.dust.circle(x * v.width, y * v.height, 1.2 * m.s).fill({ color: 0xcdeee0, alpha: 0.12 + 0.12 * Math.sin(t / 700 + m.p) ** 2 });
+    }
   }
 
   get viewport(): { width: number; height: number } {
@@ -81,17 +109,36 @@ export class GameView {
 
   private drawTerrain(snap: Snapshot): Graphics {
     const g = new Graphics();
+    const hash = (x: number, y: number): number => {
+      let h = (x * 374761393 + y * 668265263) | 0;
+      h = (h ^ (h >> 13)) * 1274126177;
+      return ((h ^ (h >> 16)) >>> 0) / 4294967295;
+    };
+    const mix = (c: number, f: number): number => {
+      const r = Math.max(0, Math.min(255, Math.round(((c >> 16) & 255) * f)));
+      const gg = Math.max(0, Math.min(255, Math.round(((c >> 8) & 255) * f)));
+      const b = Math.max(0, Math.min(255, Math.round((c & 255) * f)));
+      return (r << 16) | (gg << 8) | b;
+    };
     for (let y = 0; y < snap.mapHeight; y++) {
       for (let x = 0; x < snap.mapWidth; x++) {
         const lvl = snap.heights[y * snap.mapWidth + x] ?? 0;
         const p = tileToScreen(x, y, lvl);
-        const shade = (x + y) & 1 ? 0 : 0x050505;
-        const col = (PALETTE[Math.min(lvl, 2)] ?? 0x2f4a3a) + shade;
-        g.poly([p.x, p.y, p.x + TILE_W / 2, p.y + TILE_H / 2, p.x, p.y + TILE_H, p.x - TILE_W / 2, p.y + TILE_H / 2]).fill(col);
-        if (lvl > 0) {
+        const n = hash(x, y);
+        const f = 0.9 + n * 0.2 + ((x + y) & 1 ? 0 : -0.04);
+        const top = mix(lvl === 0 ? 0x2f4f3c : lvl === 1 ? 0x5a6b73 : 0x77899a, f);
+        g.poly([p.x, p.y, p.x + TILE_W / 2, p.y + TILE_H / 2, p.x, p.y + TILE_H, p.x - TILE_W / 2, p.y + TILE_H / 2]).fill(top);
+        if (lvl === 0) {
+          // Ground detail: pebbles and moss patches.
+          if (n > 0.82) g.ellipse(p.x + (n - 0.5) * 30, p.y + 16 + (hash(y, x) - 0.5) * 8, 3.5, 1.8).fill({ color: 0x1f3a2c, alpha: 0.7 });
+          if (n < 0.1) g.circle(p.x + (hash(x + 9, y) - 0.5) * 24, p.y + 16, 1.4).fill({ color: 0x8fb39b, alpha: 0.6 });
+        } else {
+          // Faceted rock: shaded walls, a lit edge and crystal spires on the tall cores.
           const side = lvl * HEIGHT_PX;
-          g.poly([p.x - TILE_W / 2, p.y + TILE_H / 2, p.x, p.y + TILE_H, p.x, p.y + TILE_H + side, p.x - TILE_W / 2, p.y + TILE_H / 2 + side]).fill(0x1c2d24);
-          g.poly([p.x + TILE_W / 2, p.y + TILE_H / 2, p.x, p.y + TILE_H, p.x, p.y + TILE_H + side, p.x + TILE_W / 2, p.y + TILE_H / 2 + side]).fill(0x16241d);
+          g.poly([p.x - TILE_W / 2, p.y + TILE_H / 2, p.x, p.y + TILE_H, p.x, p.y + TILE_H + side, p.x - TILE_W / 2, p.y + TILE_H / 2 + side]).fill(mix(0x3a4650, f));
+          g.poly([p.x + TILE_W / 2, p.y + TILE_H / 2, p.x, p.y + TILE_H, p.x, p.y + TILE_H + side, p.x + TILE_W / 2, p.y + TILE_H / 2 + side]).fill(mix(0x27313a, f));
+          g.moveTo(p.x - TILE_W / 2, p.y + TILE_H / 2).lineTo(p.x, p.y).lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2).stroke({ color: 0xb9c8d4, width: 1.2, alpha: 0.5 });
+          if (lvl >= 2 && n > 0.55) g.poly([p.x - 5, p.y + 20, p.x, p.y - 12 - n * 18, p.x + 5, p.y + 20]).fill({ color: 0x7fd8ff, alpha: 0.55 });
         }
       }
     }
@@ -125,22 +172,17 @@ export class GameView {
   }
 
   private makeUnit(u: RenderUnit): UnitSprite {
-    const root = new Container();
-    const body = new Graphics();
-    const color = OWNER_COLORS[u.owner] ?? 0xffffff;
-    const big = u.kind.endsWith('hauler') || u.kind.endsWith('gorger') || u.kind.endsWith('tank') || u.kind.endsWith('brute');
-    const r = u.kind.endsWith('buggy') || u.kind.endsWith('stalker') ? 7 : big ? 13 : 10;
-    body.ellipse(0, 4, r + 2, (r + 2) / 2).fill({ color: 0x000000, alpha: 0.35 });
-    if (u.kind.startsWith('ali_')) body.poly([0, -r * 1.7, r, -r / 2, 0, r / 3, -r, -r / 2]).fill(color).stroke({ color: 0x0b1015, width: 2 });
-    else body.circle(0, -r / 2, r).fill(color).stroke({ color: 0x0b1015, width: 2 });
+    const art = drawUnit(u.kind, u.owner);
+    const root = art.root;
+    const r = 11 * art.size;
     const ring = new Graphics();
     ring.ellipse(0, 3, r + 6, (r + 6) / 2).stroke({ color: 0xffffff, width: 2 });
     ring.visible = false;
     const bar = new Graphics();
     bar.visible = false;
-    root.addChild(body, ring, bar);
+    root.addChild(ring, bar);
     this.unitLayer.addChild(root);
-    return { root, ring, bar, maxHp: Math.max(u.hp, 1) };
+    return { root, art, ring, bar, maxHp: Math.max(u.hp, 1), lastTx: u.tx, lastTy: u.ty, facing: 1, moving: 0 };
   }
 
   private makeBuilding(b: BuildingSnap, ghost: boolean): BuildingSprite {
@@ -211,7 +253,8 @@ export class GameView {
   update(units: readonly RenderUnit[], cam: Camera, vs: ViewState, snap: Snapshot | null): void {
     const v = this.viewport;
     this.world.scale.set(cam.zoom);
-    const sh = this.effects.update(vs.time);
+    this.applyFx(vs.fx, vs.time);
+    const sh = vs.fx.shake ? this.effects.update(vs.time) : (this.effects.update(vs.time), { x: 0, y: 0 });
     this.world.position.set(v.width / 2 - cam.x * cam.zoom + sh.x, v.height / 2 - cam.y * cam.zoom + sh.y);
 
     if (snap) {
@@ -238,13 +281,20 @@ export class GameView {
       const p = tileToScreen(u.tx, u.ty);
       s.root.position.set(p.x, p.y);
       s.root.zIndex = p.y;
+      const dxs = (u.tx - s.lastTx - (u.ty - s.lastTy)) * 32;
+      if (Math.abs(dxs) > 0.05) s.facing = dxs > 0 ? 1 : -1;
+      s.moving = Math.abs(u.tx - s.lastTx) + Math.abs(u.ty - s.lastTy) > 0.002 ? 6 : Math.max(0, s.moving - 1);
+      s.lastTx = u.tx;
+      s.lastTy = u.ty;
+      animateUnit(s.art, vs.time + u.id * 37, s.moving > 0, s.facing, u.load / 200, vs.fx.particles || vs.fx.shake);
       const sel = vs.selectedUnits.has(u.id);
       s.ring.visible = sel;
       const hurt = u.hp < s.maxHp;
       s.bar.visible = sel || hurt;
       if (s.bar.visible) {
         const frac = Math.max(0, Math.min(1, u.hp / s.maxHp));
-        s.bar.clear().rect(-12, -26, 24, 4).fill(0x000000).rect(-12, -26, 24 * frac, 4).fill(frac > 0.5 ? 0x4cd964 : frac > 0.25 ? 0xffcc00 : 0xff3b30);
+        const top = s.art.air ? -44 : -30;
+        s.bar.clear().rect(-12, top, 24, 4).fill(0x000000).rect(-12, top, 24 * frac, 4).fill(frac > 0.5 ? 0x4cd964 : frac > 0.25 ? 0xffcc00 : 0xff3b30);
       }
     }
     for (const [id, s] of this.sprites) {

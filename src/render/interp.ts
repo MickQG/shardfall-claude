@@ -8,6 +8,8 @@ export interface RenderUnit {
   tx: number;
   ty: number;
   hp: number;
+  /** Shards carried (haulers). */
+  load: number;
 }
 
 const SCALE = 256;
@@ -26,6 +28,7 @@ export function interpolate(prev: readonly UnitSnap[], curr: readonly UnitSnap[]
       tx: (p.x + (u.x - p.x) * a) / SCALE,
       ty: (p.y + (u.y - p.y) * a) / SCALE,
       hp: u.hp,
+      load: u.load,
     };
   });
 }
