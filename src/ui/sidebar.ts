@@ -56,6 +56,7 @@ export interface SidebarActions {
   startPlacement(source: number, kind: string): void;
   sell(id: number): void;
   repair(id: number, on: boolean): void;
+  fire(id: number): void;
 }
 
 const own = (snap: Snapshot): BuildingSnap[] => snap.buildings.filter((b) => b.owner === snap.viewer);
@@ -110,6 +111,7 @@ export class Sidebar {
     } else if (a === 'train') this.actions.produce(src, kind);
     else if (a === 'sell') this.actions.sell(src);
     else if (a === 'repair') this.actions.repair(src, el.dataset.on === '1');
+    else if (a === 'fire') this.actions.fire(src);
   }
 
   update(snap: Snapshot, selectedBuilding: number | null, now: number): void {
@@ -202,6 +204,6 @@ export class Sidebar {
     const d = buildingDef(b.kind);
     this.selEl.style.display = 'block';
     const sellable = !d.hq;
-    this.selEl.innerHTML = `<div class="sel-name">${d.name}</div><div style="color:#9fb4c6;margin-bottom:6px">HP ${b.hp}/${d.hp}${d.superweapon ? ` · charge ${b.charge}%` : ''}</div>${sellable ? `<button class="act" data-act="sell" data-src="${b.id}">Sell</button>` : ''}<button class="act" data-act="repair" data-src="${b.id}" data-on="${b.repairing ? 0 : 1}">${b.repairing ? 'Stop repair' : 'Repair'}</button><div style="margin-top:6px;color:#7f93a6">Right-click ground to set rally</div>`;
+    this.selEl.innerHTML = `<div class="sel-name">${d.name}</div><div style="color:#9fb4c6;margin-bottom:6px">HP ${b.hp}/${d.hp}${d.superweapon ? ` · charge ${b.charge}%` : ''}</div>${d.superweapon ? `<button class="act" data-act="fire" data-src="${b.id}" ${b.charge < 100 ? 'disabled style="opacity:.4"' : ''}>Fire superweapon</button>` : ''}${sellable ? `<button class="act" data-act="sell" data-src="${b.id}">Sell</button>` : ''}<button class="act" data-act="repair" data-src="${b.id}" data-on="${b.repairing ? 0 : 1}">${b.repairing ? 'Stop repair' : 'Repair'}</button><div style="margin-top:6px;color:#7f93a6">Right-click ground to set rally</div>`;
   }
 }

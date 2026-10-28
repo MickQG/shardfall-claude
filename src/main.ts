@@ -1,4 +1,4 @@
-import { skirmishConfig } from './data/maps';
+import { duelConfig, skirmishConfig } from './data/maps';
 import { buildingDef, unitDef } from './data/defs';
 import { SimClient } from './host/client';
 import { mapBounds, pan, screenToWorld, zoomAt, type Camera } from './render/camera';
@@ -9,13 +9,14 @@ import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { createHud } from './ui/hud';
 import { Minimap, miniToTile } from './ui/minimap';
 import { Sidebar } from './ui/sidebar';
-import { boxSelect, pickUnit, Selection, selectSameKind, toScreenUnits } from './ui/selection';
+import { boxSelect, pickEnemy, pickUnit, Selection, selectSameKind, toScreenUnits } from './ui/selection';
 
 const PLAYER = 0;
 const host = document.getElementById('app');
 if (!host) throw new Error('missing #app');
 
-const cfg = skirmishConfig(1);
+const params = new URLSearchParams(location.search);
+const cfg = params.get('scenario') === 'duel' ? duelConfig(1) : skirmishConfig(1);
 const map = cfg.map;
 const bounds = mapBounds(map.width, map.height);
 const sim = new SimClient(cfg);
@@ -29,6 +30,9 @@ let mouse = { x: -1, y: -1 };
 let selectedBuilding: number | null = null;
 let placing: { source: number; kind: string } | null = null;
 let minimap: Minimap | null = null;
+let amoveMode = false;
+let targeting: { building: number } | null = null;
+let resultShown = false;
 
 const EDGE = 12;
 const PAN_SPEED = 900;
@@ -91,6 +95,9 @@ const sidebar = new Sidebar({
   },
   sell: (id) => sim.send({ type: 'sell', player: PLAYER, building: id }),
   repair: (id, on) => sim.send({ type: 'repair', player: PLAYER, building: id, on }),
+  fire: (id) => {
+    targeting = { building: id };
+  },
 });
 
 function frame(prevTime: number): (t: number) => void {
@@ -106,7 +113,14 @@ function frame(prevTime: number): (t: number) => void {
     if (keys.has('s') || keys.has('arrowdown') || (mouse.y > v.height - EDGE && mouse.y <= v.height)) dy += 1;
     if (dx || dy) cam = pan(cam, dx * PAN_SPEED * dt, dy * PAN_SPEED * dt, bounds);
 
+    for (const ev of sim.events.splice(0)) view.effects.spawn(ev, t);
+    view.app.canvas.style.cursor = amoveMode || targeting ? 'crosshair' : 'default';
     const curr = sim.curr;
+    if (curr && curr.over && !resultShown) {
+      resultShown = true;
+      const won = curr.winner === PLAYER;
+      hud.showResult(won ? 'VICTORY' : curr.winner === null ? 'DRAW' : 'DEFEAT', won ? 'The enemy base has fallen.' : 'Your base has fallen.', won ? '#7ff5cd' : '#ff5a4a');
+    }
     if (curr && sim.prev) {
       selection.prune(aliveOwn(curr));
       if (selectedBuilding !== null && !curr.buildings.some((b) => b.id === selectedBuilding)) selectedBuilding = null;
@@ -196,7 +210,12 @@ async function boot(): Promise<void> {
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     keys.add(k);
-    if (k === 'escape') placing = null;
+    if (k === 'escape') {
+      placing = null;
+      amoveMode = false;
+      targeting = null;
+    }
+    if (k === 'a' && !e.ctrlKey && selection.selected.length > 0) amoveMode = true;
     if (/^[1-9]$/.test(k) && sim.curr) {
       const n = Number(k);
       if (e.ctrlKey) {
@@ -237,13 +256,39 @@ async function boot(): Promise<void> {
   let lastClick = { t: 0, id: -1 };
   canvas.addEventListener('pointerdown', (e) => {
     if (e.button === 2) {
-      if (placing) {
+      if (placing || amoveMode || targeting) {
         placing = null;
+        amoveMode = false;
+        targeting = null;
         return;
+      }
+      const snap = sim.curr;
+      if (snap && selection.selected.length > 0) {
+        const su = toScreenUnits(interpolate(sim.prev?.units ?? snap.units, snap.units, (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND)), cam, view.viewport);
+        const enemyUnit = pickEnemy(su, e.offsetX, e.offsetY, PLAYER);
+        const bid = enemyUnit === null ? buildingAt(snap, e.offsetX, e.offsetY) : null;
+        const enemyBuilding = bid !== null && snap.buildings.find((b) => b.id === bid)?.owner !== PLAYER ? bid : null;
+        const target = enemyUnit ?? enemyBuilding;
+        if (target !== null) {
+          sim.send({ type: 'attack', player: PLAYER, units: selection.selected, target });
+          return;
+        }
       }
       const t = tileFromScreen(e.offsetX, e.offsetY);
       order(t.x, t.y);
     } else if (e.button === 0) {
+      if (targeting) {
+        const t = tileFromScreen(e.offsetX, e.offsetY);
+        sim.send({ type: 'superweapon', player: PLAYER, building: targeting.building, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
+        targeting = null;
+        return;
+      }
+      if (amoveMode) {
+        const t = tileFromScreen(e.offsetX, e.offsetY);
+        sim.send({ type: 'attackmove', player: PLAYER, units: selection.selected, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
+        amoveMode = false;
+        return;
+      }
       if (placing && sim.curr) {
         const p = placementPreview(sim.curr);
         if (p?.ok) {
@@ -302,6 +347,7 @@ async function boot(): Promise<void> {
     camera: () => cam,
     selected: () => selection.selected,
     selectedBuilding: () => selectedBuilding,
+    modes: () => ({ amoveMode, targeting }),
     placing: () => placing,
     send: (c: Parameters<SimClient['send']>[0]) => sim.send(c),
     setSpeed: (v: number) => sim.setSpeed(v),

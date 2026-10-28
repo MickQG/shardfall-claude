@@ -45,7 +45,21 @@ export type Command =
   | { type: 'place'; player: number; source: number; tx: number; ty: number }
   | { type: 'sell'; player: number; building: number }
   | { type: 'repair'; player: number; building: number; on: boolean }
-  | { type: 'rally'; player: number; building: number; x: number; y: number };
+  | { type: 'rally'; player: number; building: number; x: number; y: number }
+  /** Attack a specific unit or building. */
+  | { type: 'attack'; player: number; units: number[]; target: number }
+  /** Move to x, y (fixed-point), engaging enemies met on the way. */
+  | { type: 'attackmove'; player: number; units: number[]; x: number; y: number }
+  /** Fire a charged superweapon at x, y (fixed-point). */
+  | { type: 'superweapon'; player: number; building: number; x: number; y: number };
+
+/** One-tick effects for the renderer and audio. Positions are fixed-point world units. */
+export type SimEvent =
+  | { t: 'shot'; x: number; y: number; tx: number; ty: number; weapon: string; owner: number; air: boolean; flight: number }
+  | { t: 'boom'; x: number; y: number; r: number }
+  | { t: 'die'; x: number; y: number; big: boolean; owner: number }
+  | { t: 'launch'; x: number; y: number; owner: number; kind: string; delay: number }
+  | { t: 'strike'; x: number; y: number; owner: number; kind: string; r: number };
 
 export interface UnitSnap {
   id: number;
@@ -104,6 +118,12 @@ export interface Snapshot {
   shards: Uint16Array;
   /** Viewer's own data, or every player's in the god view. */
   players: PlayerSnap[];
+  /** Effects of the tick that produced this snapshot (visible ones for a viewer). */
+  events: SimEvent[];
+  /** True once at most one player still has buildings. */
+  over: boolean;
+  /** Winning player, or null (game running, or a draw). */
+  winner: number | null;
   /** Viewer this snapshot is limited to; null for the god view. */
   viewer: number | null;
   /** Viewer fog grid (bit 1 explored, bit 2 visible); null for the god view. */

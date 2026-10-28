@@ -4,6 +4,7 @@ import type { BuildingSnap, Snapshot } from '../sim';
 import { buildingHeight, buildingOrigin, drawBuilding } from './buildingArt';
 import type { Camera } from './camera';
 import { OWNER_COLORS } from './colors';
+import { Effects } from './effects';
 import { FogView } from './fogView';
 import type { RenderUnit } from './interp';
 import { HEIGHT_PX, TILE_H, TILE_W, tileToScreen } from './iso';
@@ -49,6 +50,7 @@ const tilePoly = (tx: number, ty: number, w: number, h: number): number[] => {
 
 export class GameView {
   readonly app = new Application();
+  readonly effects = new Effects();
   private world = new Container();
   private unitLayer = new Container();
   private shardGfx = new Graphics();
@@ -68,6 +70,8 @@ export class GameView {
       this.fog = new FogView(snap.mapWidth, snap.mapHeight);
       this.world.addChild(this.fog.sprite);
     }
+    this.effects.layer.sortableChildren = true;
+    this.world.addChild(this.effects.layer);
     this.app.stage.addChild(this.world);
   }
 
@@ -207,7 +211,8 @@ export class GameView {
   update(units: readonly RenderUnit[], cam: Camera, vs: ViewState, snap: Snapshot | null): void {
     const v = this.viewport;
     this.world.scale.set(cam.zoom);
-    this.world.position.set(v.width / 2 - cam.x * cam.zoom, v.height / 2 - cam.y * cam.zoom);
+    const sh = this.effects.update(vs.time);
+    this.world.position.set(v.width / 2 - cam.x * cam.zoom + sh.x, v.height / 2 - cam.y * cam.zoom + sh.y);
 
     if (snap) {
       if (this.fog && snap.fog && snap.tick !== this.lastFogTick) {
