@@ -116,7 +116,7 @@ export const BUILDING_DEFS: Readonly<Record<string, BuildingDef>> = {
 
 export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // ---- Humans ----
-  hum_hauler: { faction: 'human', name: 'Shard Hauler', speed: 30, hp: 400, radius: 96, vision: 6, cost: 700, buildTime: 450, builtAt: 'hum_factory', requires: ['hum_refinery'], armor: 'heavy', capacity: 200, role: 'harvester' },
+  hum_hauler: { faction: 'human', name: 'Shard Hauler', speed: 30, hp: 400, radius: 96, vision: 6, cost: 400, buildTime: 450, builtAt: 'hum_factory', requires: ['hum_refinery'], armor: 'heavy', capacity: 200, role: 'harvester' },
   hum_rifleman: {
     faction: 'human', name: 'Rifleman', speed: 38, hp: 100, radius: 80, vision: 7, cost: 100, buildTime: 120, builtAt: 'hum_barracks', requires: [], armor: 'light', role: 'infantry',
     weapon: { damage: 8, range: 5, cooldown: 10, type: 'pierce', antiAir: true, antiGround: true },
@@ -143,7 +143,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   },
 
   // ---- Aliens ----
-  ali_gorger: { faction: 'alien', name: 'Gorger', speed: 34, hp: 350, radius: 96, vision: 6, cost: 600, buildTime: 420, builtAt: 'ali_pit', requires: ['ali_extractor'], armor: 'heavy', capacity: 200, regen: 2, role: 'harvester' },
+  ali_gorger: { faction: 'alien', name: 'Gorger', speed: 34, hp: 350, radius: 96, vision: 6, cost: 350, buildTime: 420, builtAt: 'ali_pit', requires: ['ali_extractor'], armor: 'heavy', capacity: 200, regen: 2, role: 'harvester' },
   ali_skitter: {
     faction: 'alien', name: 'Skitterer', speed: 60, hp: 74, radius: 70, vision: 7, cost: 80, buildTime: 100, builtAt: 'ali_nest', requires: [], armor: 'light', regen: 1, role: 'raider',
     weapon: { damage: 8, range: 1.5, cooldown: 8, type: 'claw', antiAir: false, antiGround: true },

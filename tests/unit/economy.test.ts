@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildingDef } from '../../src/data/defs';
+import { buildingDef, unitDef } from '../../src/data/defs';
 import { canPlace, createGame, FP, hash, snapshot, submit, tick, type Game, type GameConfig, type MapDef } from '../../src/sim';
 
 const W = 48;
@@ -354,5 +354,12 @@ describe('determinism and UI agreement', () => {
       }
     }
     expect(accepted).toBeGreaterThan(5);
+  });
+});
+
+describe('harvester pricing', () => {
+  it('ECO-6: training a harvester costs less than the refinery that spawns one', () => {
+    expect(unitDef('hum_hauler').cost).toBeLessThan(buildingDef('hum_refinery').cost);
+    expect(unitDef('ali_gorger').cost).toBeLessThan(buildingDef('ali_extractor').cost);
   });
 });
