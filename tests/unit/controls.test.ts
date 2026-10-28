@@ -40,7 +40,7 @@ describe('rally line', () => {
   });
 });
 
-const base: CursorState = { mode: 'normal', ctrl: false, combatSelected: false, anySelected: false, hover: 'ground' };
+const base: CursorState = { mode: 'normal', combatSelected: false, harvesterSelected: false, anySelected: false, hover: 'ground' };
 
 describe('cursor', () => {
   it('CUR-1: default, select, move, attack, attack-move, invalid and superweapon are all distinct states', () => {
@@ -49,23 +49,32 @@ describe('cursor', () => {
       cursorFor({ ...base, hover: 'ownUnit' }),
       cursorFor({ ...base, anySelected: true }),
       cursorFor({ ...base, anySelected: true, combatSelected: true, hover: 'enemy' }),
-      cursorFor({ ...base, ctrl: true, combatSelected: true, anySelected: true }),
+      cursorFor({ ...base, mode: 'amove' }),
+      cursorFor({ ...base, anySelected: true, harvesterSelected: true, hover: 'resource' }),
       cursorFor({ ...base, anySelected: true, hover: 'blocked' }),
       cursorFor({ ...base, mode: 'targeting' }),
     ]);
-    expect(ids.size).toBe(7);
+    expect(ids.size).toBe(8);
   });
-  it('CUR-1: attack-move cursor shows only while Ctrl is held with combat units selected, never from panning keys', () => {
+  it('CUR-1: a harvester over a shard field shows the harvest cursor; other selections and nothing selected do not', () => {
+    const over = { ...base, hover: 'resource' as const };
+    expect(cursorFor({ ...over, anySelected: true, harvesterSelected: true })).toBe('harvest');
+    expect(cursorFor({ ...over, anySelected: true, harvesterSelected: true, combatSelected: true })).toBe('harvest'); // a mixed group still harvests
+    expect(cursorFor({ ...over, anySelected: true, combatSelected: true })).toBe('move'); // soldiers just walk there
+    expect(cursorFor(over)).toBe('default');
+    expect(cursorFor({ ...base, hover: 'enemy', anySelected: true, harvesterSelected: true })).not.toBe('harvest'); // harvesters cannot attack
+  });
+  it('CUR-1: the attack-move cursor shows only while attack-move is armed, never merely because units are selected', () => {
     expect(cursorFor({ ...base, anySelected: true, combatSelected: true })).not.toBe('attackmove');
-    expect(cursorFor({ ...base, ctrl: true, combatSelected: true, anySelected: true })).toBe('attackmove');
-    expect(cursorFor({ ...base, ctrl: true })).not.toBe('attackmove');
+    expect(cursorFor({ ...base, mode: 'amove', anySelected: true, combatSelected: true })).toBe('attackmove');
+    expect(cursorFor({ ...base, mode: 'amove', hover: 'enemy', anySelected: true, combatSelected: true })).toBe('attackmove');
   });
   it('CUR-2: placement shows valid versus blocked', () => {
     expect(cursorFor({ ...base, mode: 'placing', placementOk: true })).toBe('place-ok');
     expect(cursorFor({ ...base, mode: 'placing', placementOk: false })).toBe('place-bad');
   });
   it('CUR-3: every cursor is an inline SVG data URI with a CSS fallback and needs no image file', () => {
-    for (const id of ['default', 'select', 'move', 'attack', 'attackmove', 'invalid', 'place-ok', 'place-bad', 'superweapon'] as const) {
+    for (const id of ['default', 'select', 'move', 'attack', 'attackmove', 'harvest', 'invalid', 'place-ok', 'place-bad', 'superweapon'] as const) {
       const css = cursorCss(id);
       expect(css).toMatch(/^url\("data:image\/svg\+xml;utf8,.+"\) \d+ \d+, (default|pointer|crosshair|not-allowed|move)$/);
     }

@@ -1,12 +1,13 @@
-export type CursorId = 'default' | 'select' | 'move' | 'attack' | 'attackmove' | 'invalid' | 'place-ok' | 'place-bad' | 'superweapon';
+export type CursorId = 'default' | 'select' | 'move' | 'attack' | 'attackmove' | 'harvest' | 'invalid' | 'place-ok' | 'place-bad' | 'superweapon';
 
 export interface CursorState {
-  mode: 'normal' | 'placing' | 'targeting';
-  ctrl: boolean;
+  mode: 'normal' | 'placing' | 'targeting' | 'amove';
   combatSelected: boolean;
+  /** A harvester (shard hauler) is among the selected units. */
+  harvesterSelected: boolean;
   anySelected: boolean;
   /** What is under the pointer. */
-  hover: 'ground' | 'ownUnit' | 'ownBuilding' | 'enemy' | 'blocked';
+  hover: 'ground' | 'ownUnit' | 'ownBuilding' | 'enemy' | 'blocked' | 'resource';
   placementOk?: boolean;
 }
 
@@ -14,8 +15,9 @@ export interface CursorState {
 export function cursorFor(s: CursorState): CursorId {
   if (s.mode === 'targeting') return 'superweapon';
   if (s.mode === 'placing') return s.placementOk ? 'place-ok' : 'place-bad';
-  if (s.ctrl && s.combatSelected) return 'attackmove';
+  if (s.mode === 'amove') return 'attackmove';
   if (s.anySelected && s.combatSelected && s.hover === 'enemy') return 'attack';
+  if (s.anySelected && s.harvesterSelected && s.hover === 'resource') return 'harvest';
   if (s.anySelected && s.hover === 'blocked') return 'invalid';
   if (s.hover === 'ownUnit' || s.hover === 'ownBuilding') return 'select';
   if (s.anySelected) return 'move';
@@ -33,6 +35,7 @@ const ART: Record<CursorId, { body: string; hot: [number, number]; fallback: str
   move: { body: `${ring('#7ff5cd')}<path d='M16 5l4 5h-8zM16 27l4-5h-8zM5 16l5 4v-8zM27 16l-5 4v-8z' fill='#7ff5cd'/>`, hot: [16, 16], fallback: 'move' },
   attack: { body: `${ring('#ff5a4a')}${cross('#ff5a4a')}<circle cx='16' cy='16' r='2' fill='#ff5a4a'/>`, hot: [16, 16], fallback: 'crosshair' },
   attackmove: { body: `${ring('#ff9a3c')}${cross('#ff3b30')}<path d='M12 12l8 8M20 12l-8 8' stroke='#ff9a3c' stroke-width='2'/>`, hot: [16, 16], fallback: 'crosshair' },
+  harvest: { body: `<path d='M16 4l7 8-3 14h-8L9 12z' fill='#35e0a1' stroke='${OUT}' stroke-width='1.5' stroke-linejoin='round'/><path d='M16 4l7 8h-7z' fill='#bffbe6'/><path d='M5 27h22' stroke='#35e0a1' stroke-width='2.5' stroke-linecap='round'/>`, hot: [16, 16], fallback: 'pointer' },
   invalid: { body: `${ring('#ff5a4a')}<path d='M10 10l12 12' stroke='#ff5a4a' stroke-width='3'/>`, hot: [16, 16], fallback: 'not-allowed' },
   'place-ok': { body: `<path d='M6 17l7 7 13-14' fill='none' stroke='#3cff8a' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/>`, hot: [16, 16], fallback: 'default' },
   'place-bad': { body: `<path d='M8 8l16 16M24 8L8 24' stroke='#ff4a4a' stroke-width='4' stroke-linecap='round'/>`, hot: [16, 16], fallback: 'not-allowed' },

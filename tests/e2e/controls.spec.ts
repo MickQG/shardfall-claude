@@ -5,10 +5,10 @@ interface Hook {
   selected: () => number[];
   tileScreen: (tx: number, ty: number) => { x: number; y: number };
   send: (c: unknown) => void;
-  modes: () => { placing: boolean; targeting: boolean };
+  modes: () => { placing: boolean; targeting: boolean; amove: boolean };
 }
 
-test('CTL-1 CTL-2 CTL-3 CTL-4 CUR-1 CUR-3: Q selects combat units, F2 toggles quality, Ctrl+right-click attack-moves, cursors change', async ({ page }) => {
+test('CTL-1 CTL-2 CTL-3 CTL-4 CTL-5 CUR-1 CUR-3: Q selects combat units, F2 toggles quality, F then click attack-moves, Ctrl+S is blocked, cursors change', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/?faction=human&scenario=calm&seed=3');
@@ -33,24 +33,42 @@ test('CTL-1 CTL-2 CTL-3 CTL-4 CUR-1 CUR-3: Q selects combat units, F2 toggles qu
   await expect.poll(() => page.locator('canvas').first().evaluate((c) => (c as HTMLCanvasElement).style.cursor)).toContain('data:image/svg+xml');
   const moveCursor = await page.locator('canvas').first().evaluate((c) => (c as HTMLCanvasElement).style.cursor);
   const cursor = (): Promise<string> => page.locator('canvas').first().evaluate((c) => (c as HTMLCanvasElement).style.cursor);
-  // Holding Ctrl with combat units selected shows the attack-move cursor.
+  const modes = (): Promise<{ placing: boolean; targeting: boolean; amove: boolean }> => page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.modes());
+  // Panning keys and Ctrl never arm an order or show the attack-move cursor.
+  for (const key of ['a', 'd', 'w', 's']) {
+    await page.keyboard.down(key);
+    await page.waitForTimeout(150);
+    expect(await modes()).toEqual({ placing: false, targeting: false, amove: false });
+    await page.keyboard.up(key);
+  }
   await page.keyboard.down('Control');
-  await expect.poll(cursor).not.toBe(moveCursor);
-  const amoveCursor = await cursor();
+  await page.waitForTimeout(150);
+  expect(await cursor()).toBe(moveCursor);
   await page.keyboard.up('Control');
-  await expect.poll(cursor).toBe(moveCursor);
-  // Panning keys never arm an order or show the attack-move cursor (the map moves under the pointer, so only compare against it).
-  await page.keyboard.down('a');
-  await page.waitForTimeout(300);
-  expect(await cursor()).not.toBe(amoveCursor);
-  expect(await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.modes())).toEqual({ placing: false, targeting: false });
-  await page.keyboard.up('a');
 
-  // CTL-3: Ctrl+right-click sends the selected units walking to the target.
+  // CTL-5: Ctrl+S (S pans the map) must not open the browser's save dialog, so the game cancels that key press.
+  await page.evaluate(() => {
+    const w = window as unknown as { __prevented?: boolean };
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key.toLowerCase() === 's') w.__prevented = e.defaultPrevented;
+    });
+  });
+  await page.keyboard.press('Control+s');
+  expect(await page.evaluate(() => (window as unknown as { __prevented?: boolean }).__prevented)).toBe(true);
+
+  // CTL-3: F arms attack-move (crosshair cursor); Escape disarms it without an order.
+  await page.keyboard.press('f');
+  await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: true });
+  await expect.poll(cursor).not.toBe(moveCursor);
+  await page.keyboard.press('Escape');
+  await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: false });
+  await expect.poll(cursor).toBe(moveCursor);
+
+  // CTL-3: F then a left click sends the selected units attack-moving to the target and disarms the mode.
   const before = snap!.units.find((u) => u.id === riflemen[0])!;
-  await page.keyboard.down('Control');
-  await page.mouse.click(p.x, p.y, { button: 'right' });
-  await page.keyboard.up('Control');
+  await page.keyboard.press('f');
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: false });
   await page.waitForTimeout(2500);
   const after = (await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.snapshot()))!.units.find((u) => u.id === riflemen[0])!;
   expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(256);
@@ -98,5 +116,38 @@ test('PRD-10: right-click cancels one queued item, Ctrl + right-click cancels up
   await expect.poll(queued).toBe(4);
   await reactor.click({ button: 'right', modifiers: ['Control'] });
   await expect.poll(queued).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('CUR-1 CUR-4: a selected harvester shows the harvest cursor over shards, riflemen do not', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/?faction=human&scenario=calm&seed=3');
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
+  const cursor = (): Promise<string> => page.locator('canvas').first().evaluate((c) => (c as HTMLCanvasElement).style.cursor);
+  const hook = (): Promise<{ hauler: number; shard: { x: number; y: number }; ground: { x: number; y: number } }> =>
+    page.evaluate(() => {
+      const h = (window as unknown as { __shardfall: Hook & { screenPos: (id: number) => { x: number; y: number } | null } }).__shardfall;
+      const s = h.snapshot() as unknown as { units: { id: number; owner: number; kind: string }[] };
+      const hauler = s.units.find((u) => u.owner === 0 && u.kind === 'hum_hauler')!.id;
+      return { hauler, shard: h.tileScreen(22.5, 12.5), ground: h.tileScreen(16.5, 20.5) };
+    });
+  const { hauler, shard, ground } = await hook();
+
+  // Riflemen (Q): shards are just ground to them.
+  await page.keyboard.press('q');
+  await page.mouse.move(ground.x, ground.y);
+  await expect.poll(cursor).toContain('data:image/svg+xml');
+  const walk = await cursor();
+  await page.mouse.move(shard.x, shard.y);
+  await expect.poll(cursor).toBe(walk);
+
+  // Select just the hauler: the same shard tile now shows a different (harvest) cursor, plain ground still the move cursor.
+  await page.evaluate((id) => (window as unknown as { __shardfall: { select: (ids: number[]) => void } }).__shardfall.select([id]), hauler);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.selected().length)).toBe(1);
+  await page.mouse.move(ground.x, ground.y);
+  await expect.poll(cursor).toBe(walk);
+  await page.mouse.move(shard.x, shard.y);
+  await expect.poll(cursor).not.toBe(walk);
   expect(errors).toEqual([]);
 });

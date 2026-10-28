@@ -56,7 +56,7 @@ function safeStorage(): Storage | null {
 }
 
 function topbar(): void {
-  hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · F2 quality: ${settings.quality}`);
+  hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · F attack-move · F2 quality: ${settings.quality}`);
 }
 topbar();
 
@@ -73,7 +73,7 @@ let selectedBuilding: number | null = null;
 let placing: { source: number; kind: string } | null = null;
 let minimap: Minimap | null = null;
 let targeting: { building: number } | null = null;
-let ctrlHeld = false;
+let amoveMode = false;
 const qTap = new DoubleTap(350);
 let resultShown = false;
 let lastAlertTick = -1;
@@ -102,6 +102,7 @@ function hitContext(snap: Snapshot): HitContext {
     buildings: snap.buildings,
     toWorld: (sx, sy) => screenToWorld(cam, view.viewport, sx, sy),
     blocked: (tx, ty) => !!map.blocked?.[ty * map.width + tx],
+    shardAt: (tx, ty) => (snap.shards[ty * snap.mapWidth + tx] ?? 0) > 0,
   };
 }
 
@@ -147,10 +148,11 @@ function cursorState(): CursorState {
   const snap = sim.curr;
   const anySelected = selection.selected.length > 0;
   const combatSelected = !!snap && combatUnitIds(snap.units.filter((u) => selection.has(u.id)), PLAYER).length > 0;
-  const mode: CursorState['mode'] = targeting ? 'targeting' : placing ? 'placing' : 'normal';
+  const mode: CursorState['mode'] = targeting ? 'targeting' : placing ? 'placing' : amoveMode ? 'amove' : 'normal';
   const hover: CursorState['hover'] = snap && mouse.x >= 0 ? hoverKind(hitTest(hitContext(snap), mouse.x, mouse.y), anySelected) : 'ground';
   const p = snap && mode === 'placing' ? placementPreview(snap) : null;
-  return { mode, ctrl: ctrlHeld, combatSelected, anySelected, hover, placementOk: p?.ok };
+  const harvesterSelected = !!snap && snap.units.some((u) => selection.has(u.id) && unitDef(u.kind).capacity !== undefined);
+  return { mode, combatSelected, harvesterSelected, anySelected, hover, placementOk: p?.ok };
 }
 
 function frame(prevTime: number): (t: number) => void {
@@ -276,14 +278,17 @@ async function boot(): Promise<void> {
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     keys.add(k);
-    ctrlHeld = e.ctrlKey;
     audio.unlock();
+    // S pans the map, so Ctrl + S must not reach the browser's save dialog.
+    if (e.ctrlKey && k === 's') e.preventDefault();
     if (k === 'escape') {
-      if (placing || targeting) {
+      if (placing || targeting || amoveMode) {
         placing = null;
         targeting = null;
+        amoveMode = false;
       } else setPaused(!paused);
     }
+    if (k === 'f' && !e.ctrlKey && !e.repeat && sim.curr && combatUnitIds(sim.curr.units.filter((u) => selection.has(u.id)), PLAYER).length > 0) amoveMode = true;
     if (k === 'p') setPaused(!paused);
     if (k === 'm') {
       settings.muted = !settings.muted;
@@ -332,14 +337,8 @@ async function boot(): Promise<void> {
       if (home) centerOn(home.tx + 1.5, home.ty + 1.5);
     }
   });
-  window.addEventListener('blur', () => {
-    ctrlHeld = false;
-    keys.clear();
-  });
-  window.addEventListener('keyup', (e) => {
-    keys.delete(e.key.toLowerCase());
-    ctrlHeld = e.ctrlKey;
-  });
+  window.addEventListener('blur', () => keys.clear());
+  window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   canvas.addEventListener('pointermove', (e) => (mouse = { x: e.offsetX, y: e.offsetY }));
   canvas.addEventListener('pointerleave', () => (mouse = { x: -1, y: -1 }));
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -359,17 +358,13 @@ async function boot(): Promise<void> {
     audio.unlock();
     audio.startMusic(seed);
     if (e.button === 2) {
-      if (placing || targeting) {
+      if (placing || targeting || amoveMode) {
         placing = null;
         targeting = null;
+        amoveMode = false;
         return;
       }
       const snap = sim.curr;
-      if (snap && e.ctrlKey && combatUnitIds(snap.units.filter((u) => selection.has(u.id)), PLAYER).length > 0) {
-        const t = tileFromScreen(e.offsetX, e.offsetY);
-        sim.send({ type: 'attackmove', player: PLAYER, units: selection.selected, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
-        return;
-      }
       if (snap && selection.selected.length > 0) {
         const o = rightClickOrder(hitTest(hitContext(snap), e.offsetX, e.offsetY));
         if (o.kind === 'attack') {
@@ -384,6 +379,12 @@ async function boot(): Promise<void> {
         const t = tileFromScreen(e.offsetX, e.offsetY);
         sim.send({ type: 'superweapon', player: PLAYER, building: targeting.building, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
         targeting = null;
+        return;
+      }
+      if (amoveMode) {
+        const t = tileFromScreen(e.offsetX, e.offsetY);
+        sim.send({ type: 'attackmove', player: PLAYER, units: selection.selected, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
+        amoveMode = false;
         return;
       }
       if (placing && sim.curr) {
@@ -442,8 +443,12 @@ async function boot(): Promise<void> {
     snapshot: () => sim.curr,
     camera: () => cam,
     selected: () => selection.selected,
+    select: (ids: number[]) => {
+      selectedBuilding = null;
+      selection.set(ids);
+    },
     selectedBuilding: () => selectedBuilding,
-    modes: () => ({ placing: placing !== null, targeting: targeting !== null }),
+    modes: () => ({ placing: placing !== null, targeting: targeting !== null, amove: amoveMode }),
     placing: () => placing,
     send: (c: Parameters<SimClient['send']>[0]) => sim.send(c),
     setSpeed: (v: number) => sim.setSpeed(v),
