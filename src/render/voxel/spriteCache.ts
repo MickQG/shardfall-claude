@@ -64,6 +64,11 @@ export class SpriteCache {
     });
   }
 
+  /** Any single-facing model with no team colour (rocks, crystals, props), baked once per key. */
+  prop(key: string, make: () => VoxelModel): Baked {
+    return this.bake(`p|${key}`, () => bakeModel(make(), { team: 0xffffff, facing: 0, facings: 1 }));
+  }
+
   turret(kind: string, team: number, facing: number): Baked | null {
     const t = this.model(kind).turret;
     return t ? this.bake(`${kind}|${team}|t|${facing}`, () => bakeModel(t.model, { team, facing, facings: FACINGS })) : null;

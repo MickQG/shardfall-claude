@@ -91,3 +91,11 @@ export const revealLine = (progress: number, bottom: number, top: number): numbe
 
 /** Sprite tint for a building's damage state: darker as it weakens, untinted when intact. */
 export const damageTint = (state: DamageState): number => (state === 'intact' ? 0xffffff : state === 'damaged' ? 0xe4dcd8 : 0xc9bab2);
+
+const scaleRgb = (c: number, f: number): number => {
+  const ch = (s: number): number => Math.max(0, Math.min(255, Math.round(((c >> s) & 255) * f)));
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+};
+
+/** Face colours of a lit cube: bright top, mid left, dark right (the same light as the voxel baker). */
+export const shadeCube = (c: number): { top: number; left: number; right: number } => ({ top: scaleRgb(c, 1.1), left: scaleRgb(c, 0.82), right: scaleRgb(c, 0.55) });

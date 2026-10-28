@@ -1,4 +1,4 @@
-import { Application, Container, Graphics } from 'pixi.js';
+import { Application, Container, Graphics, Sprite } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
 import { buildingDef } from '../data/defs';
 import type { BuildingSnap, SimEvent, Snapshot } from '../sim';
@@ -7,9 +7,11 @@ import type { Camera } from './camera';
 import { Effects } from './effects';
 import { barVisible, buildUp, damageState, damageTint, edgeShade, groundTint, idleGlow, revealLine } from './gfx';
 import { OWNER_COLORS } from './colors';
+import { crystalLevel, crystalModel, crystalTipPx, propAt, propModel, rockModel, rockVariant } from './voxel/props';
+import { sprites } from './voxel/spriteCache';
 import { FogView } from './fogView';
 import type { RenderUnit } from './interp';
-import { HEIGHT_PX, TILE_H, TILE_W, tileToScreen } from './iso';
+import { TILE_H, TILE_W, tileToScreen } from './iso';
 import type { RallyLine } from '../ui/rally';
 import { animateUnit, drawUnit, setFacing, type UnitArt } from './unitArt';
 import { facingOf } from './voxel/bake';
@@ -87,6 +89,9 @@ export class GameView {
   private seeded = false;
   private knownBuildings = new Set<number>();
   private decorLayer = new Graphics();
+  private crystals = new Map<number, { sprite: Sprite; level: number }>();
+  private propSprites: Sprite[] = [];
+  private propsVisible = true;
   private fog: FogView | null = null;
   private lastFogTick = -1;
   private lastShardTick = -1;
@@ -101,6 +106,7 @@ export class GameView {
     this.unitLayer.sortableChildren = true;
     this.world.addChild(this.drawTerrain(snap), this.decorLayer, this.shardGfx, this.overlay, this.unitLayer);
     this.drawTerrainDecor(snap);
+    this.buildProps(snap);
     if (snap.fog) {
       this.fog = new FogView(snap.mapWidth, snap.mapHeight);
       this.world.addChild(this.fog.sprite);
@@ -119,6 +125,10 @@ export class GameView {
       this.effects.layer.filters = fx.bloom ? [this.bloom] : [];
     }
     this.decorLayer.visible = fx.decor;
+    if (fx.decor !== this.propsVisible) {
+      this.propsVisible = fx.decor;
+      for (const p of this.propSprites) p.visible = fx.decor;
+    }
     this.effects.decor = fx.decor;
     this.dust.clear();
     if (!fx.particles) return;
@@ -150,7 +160,7 @@ export class GameView {
     for (let y = 0; y < snap.mapHeight; y++) {
       for (let x = 0; x < snap.mapWidth; x++) {
         const lvl = snap.heights[y * snap.mapWidth + x] ?? 0;
-        const p = tileToScreen(x, y, lvl);
+        const p = tileToScreen(x, y);
         const n = hash(x, y);
         const f = (0.9 + n * 0.2 + ((x + y) & 1 ? 0 : -0.04)) * (lvl === 0 ? groundTint(x, y) : 1);
         const top = mix(lvl === 0 ? 0x2f4f3c : lvl === 1 ? 0x5a6b73 : 0x77899a, f);
@@ -170,13 +180,6 @@ export class GameView {
           // Ground detail: pebbles and moss patches.
           if (n > 0.82) g.ellipse(p.x + (n - 0.5) * 30, p.y + 16 + (hash(y, x) - 0.5) * 8, 3.5, 1.8).fill({ color: 0x1f3a2c, alpha: 0.7 });
           if (n < 0.1) g.circle(p.x + (hash(x + 9, y) - 0.5) * 24, p.y + 16, 1.4).fill({ color: 0x8fb39b, alpha: 0.6 });
-        } else {
-          // Faceted rock: shaded walls, a lit edge and crystal spires on the tall cores.
-          const side = lvl * HEIGHT_PX;
-          g.poly([p.x - TILE_W / 2, p.y + TILE_H / 2, p.x, p.y + TILE_H, p.x, p.y + TILE_H + side, p.x - TILE_W / 2, p.y + TILE_H / 2 + side]).fill(mix(0x3a4650, f));
-          g.poly([p.x + TILE_W / 2, p.y + TILE_H / 2, p.x, p.y + TILE_H, p.x, p.y + TILE_H + side, p.x + TILE_W / 2, p.y + TILE_H / 2 + side]).fill(mix(0x27313a, f));
-          g.moveTo(p.x - TILE_W / 2, p.y + TILE_H / 2).lineTo(p.x, p.y).lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2).stroke({ color: 0xb9c8d4, width: 1.2, alpha: 0.5 });
-          if (lvl >= 2 && n > 0.55) g.poly([p.x - 5, p.y + 20, p.x, p.y - 12 - n * 18, p.x + 5, p.y + 20]).fill({ color: 0x7fd8ff, alpha: 0.55 });
         }
       }
     }
@@ -200,32 +203,79 @@ export class GameView {
     }
   }
 
-  private drawShards(snap: Snapshot, time: number, twinkle = false): void {
+  /** Rocks and ground props as voxel sprites, placed once from the terrain (props only on free ground away from the bases). */
+  private buildProps(snap: Snapshot): void {
+    const W = snap.mapWidth;
+    const near = (x: number, y: number): boolean => snap.buildings.some((b) => Math.abs(b.tx - x) < 10 && Math.abs(b.ty - y) < 10);
+    for (let y = 0; y < snap.mapHeight; y++) {
+      for (let x = 0; x < W; x++) {
+        const lvl = snap.heights[y * W + x] ?? 0;
+        const c = tileToScreen(x + 0.5, y + 0.5);
+        if (lvl > 0) {
+          const v = rockVariant(x, y);
+          const b = sprites.prop(`rock${v}_${lvl}`, () => rockModel(v, lvl));
+          const s = new Sprite(b.texture);
+          s.anchor.set(b.anchorX / b.texture.width, b.anchorY / b.texture.height);
+          s.position.set(c.x, c.y);
+          s.zIndex = tileToScreen(x + 1, y + 1).y - 4;
+          this.unitLayer.addChild(s);
+          continue;
+        }
+        const kind = propAt(x, y, !snap.shards[y * W + x] && !near(x, y));
+        if (!kind) continue;
+        const v = rockVariant(x, y) % 3;
+        const b = sprites.prop(`prop_${kind}${v}`, () => propModel(kind, v));
+        const s = new Sprite(b.texture);
+        s.anchor.set(b.anchorX / b.texture.width, b.anchorY / b.texture.height);
+        s.position.set(c.x, c.y);
+        s.zIndex = c.y;
+        this.unitLayer.addChild(s);
+        this.propSprites.push(s);
+      }
+    }
+  }
+
+  /** Crystal sprites follow each tile's amount level and change only when it does; the glow underneath is a cheap bloomed Graphics. */
+  private syncShards(snap: Snapshot, time: number, twinkle: boolean): void {
+    const W = snap.mapWidth;
     const g = this.shardGfx;
     g.clear();
-    const W = snap.mapWidth;
+    const live = new Set<number>();
     for (let i = 0; i < snap.shards.length; i++) {
-      const amt = snap.shards[i] as number;
-      if (amt === 0) continue;
+      const level = crystalLevel(snap.shards[i] as number);
+      if (level === 0) continue;
+      live.add(i);
       const x = i % W;
       const y = (i - x) / W;
       const p = tileToScreen(x + 0.5, y + 0.5);
-      const size = amt > 2000 ? 3 : amt > 800 ? 2 : amt > 200 ? 1.4 : 0.9;
+      let c = this.crystals.get(i);
+      if (!c) {
+        c = { sprite: new Sprite(), level: 0 };
+        c.sprite.position.set(p.x, p.y);
+        c.sprite.zIndex = p.y + 8;
+        this.unitLayer.addChild(c.sprite);
+        this.crystals.set(i, c);
+      }
+      if (c.level !== level) {
+        const b = sprites.prop(`crystal${level}`, () => crystalModel(level));
+        c.sprite.texture = b.texture;
+        c.sprite.anchor.set(b.anchorX / b.texture.width, b.anchorY / b.texture.height);
+        c.level = level;
+      }
       const pulse = 0.55 + 0.25 * Math.sin(time / 500 + x * 1.7 + y * 0.9);
-      g.ellipse(p.x, p.y + 4, 22 * Math.min(size, 2), 10 * Math.min(size, 2)).fill({ color: 0x35e0a1, alpha: 0.12 * pulse });
-      const n = size >= 3 ? 3 : size >= 1.4 ? 2 : 1;
-      for (let k = 0; k < n; k++) {
-        const jx = ((x * 7 + y * 13 + k * 5) % 11) - 5;
-        const jy = ((x * 3 + y * 17 + k * 7) % 7) - 3;
-        const h = 8 + size * 5 + k * 2;
-        const cx = p.x + jx;
-        const cy = p.y + jy;
-        g.poly([cx, cy - h, cx + 6, cy - h * 0.45, cx + 4, cy, cx - 4, cy, cx - 6, cy - h * 0.45]).fill({ color: 0x35e0a1, alpha: 0.92 });
-        g.poly([cx, cy - h, cx + 6, cy - h * 0.45, cx + 1, cy - h * 0.4]).fill({ color: 0xbffbe6, alpha: 0.85 });
-        if (twinkle) {
-          const tw = Math.max(0, Math.sin(time / 380 + x * 2.3 + y * 1.1 + k * 1.7));
-          if (tw > 0.95) g.moveTo(cx - 4, cy - h).lineTo(cx + 4, cy - h).moveTo(cx, cy - h - 4).lineTo(cx, cy - h + 4).stroke({ color: 0xffffff, width: 1.2, alpha: (tw - 0.95) * 18 });
+      g.ellipse(p.x, p.y + 4, (14 + level * 5) * 1.3, (14 + level * 5) * 0.6).fill({ color: 0x35e0a1, alpha: 0.12 * pulse });
+      if (twinkle) {
+        const tw = Math.max(0, Math.sin(time / 380 + x * 2.3 + y * 1.1));
+        if (tw > 0.95) {
+          const ty = p.y - crystalTipPx(level) - 2;
+          g.moveTo(p.x - 4, ty).lineTo(p.x + 4, ty).moveTo(p.x, ty - 4).lineTo(p.x, ty + 4).stroke({ color: 0xffffff, width: 1.2, alpha: (tw - 0.95) * 18 });
         }
+      }
+    }
+    for (const [i, c] of this.crystals) {
+      if (!live.has(i)) {
+        c.sprite.destroy();
+        this.crystals.delete(i);
       }
     }
   }
@@ -440,7 +490,7 @@ export class GameView {
         this.lastFogTick = snap.tick;
       }
       if (snap.tick !== this.lastShardTick && snap.tick % 4 === 0) {
-        this.drawShards(snap, vs.time, vs.fx.decor);
+        this.syncShards(snap, vs.time, vs.fx.decor);
         this.lastShardTick = snap.tick;
       }
       this.syncBuildings(snap, vs);
