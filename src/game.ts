@@ -11,7 +11,10 @@ import { screenToTile, tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
 import { createHud } from './ui/hud';
+import { combatUnitIds, DoubleTap } from './ui/controls';
+import { cursorCss, cursorFor, type CursorState } from './ui/cursor';
 import { Minimap, miniToTile } from './ui/minimap';
+import { rallyLine } from './ui/rally';
 import { effectsEnabled, loadSettings, saveSettings } from './ui/settings';
 import { Sidebar } from './ui/sidebar';
 import { boxSelect, pickEnemy, pickUnit, Selection, selectSameKind, toScreenUnits } from './ui/selection';
@@ -52,7 +55,7 @@ function safeStorage(): Storage | null {
 }
 
 function topbar(): void {
-  hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q quality: ${settings.quality}`);
+  hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · F2 quality: ${settings.quality}`);
 }
 topbar();
 
@@ -70,6 +73,8 @@ let placing: { source: number; kind: string } | null = null;
 let minimap: Minimap | null = null;
 let amoveMode = false;
 let targeting: { building: number } | null = null;
+let ctrlHeld = false;
+const qTap = new DoubleTap(350);
 let resultShown = false;
 let lastAlertTick = -1;
 
@@ -139,6 +144,31 @@ const sidebar = new Sidebar({
   },
 });
 
+/** What the pointer is over and the current input mode, for choosing the cursor. */
+function cursorState(): CursorState {
+  const snap = sim.curr;
+  const anySelected = selection.selected.length > 0;
+  const combatSelected = !!snap && combatUnitIds(snap.units.filter((u) => selection.has(u.id)), PLAYER).length > 0;
+  const mode: CursorState['mode'] = targeting ? 'targeting' : placing ? 'placing' : amoveMode ? 'amove' : 'normal';
+  let hover: CursorState['hover'] = 'ground';
+  if (snap && mouse.x >= 0) {
+    const su = toScreenUnits(interpolate(snap.units, snap.units, 1), cam, view.viewport);
+    if (pickUnit(su, mouse.x, mouse.y, PLAYER) !== null) hover = 'ownUnit';
+    else if (pickEnemy(su, mouse.x, mouse.y, PLAYER) !== null) hover = 'enemy';
+    else {
+      const bid = buildingAt(snap, mouse.x, mouse.y);
+      const b = bid !== null ? snap.buildings.find((x) => x.id === bid) : undefined;
+      if (b) hover = b.owner === PLAYER ? 'ownBuilding' : 'enemy';
+      else {
+        const t = tileFromScreen(mouse.x, mouse.y);
+        if (map.blocked?.[Math.floor(t.y) * map.width + Math.floor(t.x)]) hover = 'blocked';
+      }
+    }
+  }
+  const p = snap && mode === 'placing' ? placementPreview(snap) : null;
+  return { mode, ctrl: ctrlHeld, combatSelected, anySelected, hover, placementOk: p?.ok };
+}
+
 function frame(prevTime: number): (t: number) => void {
   return (t) => {
     const dt = Math.min(0.05, (t - prevTime) / 1000);
@@ -157,7 +187,7 @@ function frame(prevTime: number): (t: number) => void {
       const s = soundFor(ev, PLAYER);
       audio.play(s.name, s.gain);
     }
-    view.app.canvas.style.cursor = amoveMode || targeting ? 'crosshair' : 'default';
+    view.app.canvas.style.cursor = cursorCss(cursorFor(cursorState()));
     const curr = sim.curr;
     if (curr && curr.over && !resultShown) {
       resultShown = true;
@@ -169,7 +199,7 @@ function frame(prevTime: number): (t: number) => void {
       if (selectedBuilding !== null && !curr.buildings.some((b) => b.id === selectedBuilding)) selectedBuilding = null;
       const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
       const ru = interpolate(sim.prev.units, curr.units, alpha);
-      view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), time: t, fx: effectsEnabled(settings) }, curr);
+      view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings) }, curr);
       if (curr.tick !== lastAlertTick) {
         lastAlertTick = curr.tick;
         for (const a of alerts.update(curr)) {
@@ -261,6 +291,7 @@ async function boot(): Promise<void> {
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     keys.add(k);
+    ctrlHeld = e.ctrlKey;
     audio.unlock();
     if (k === 'escape') {
       if (placing || amoveMode || targeting) {
@@ -276,7 +307,18 @@ async function boot(): Promise<void> {
       saveSettings(safeStorage(), settings);
       topbar();
     }
-    if (k === 'q') {
+    if (k === 'q' && !e.ctrlKey && sim.curr) {
+      const ids = combatUnitIds(sim.curr.units, PLAYER);
+      const twice = qTap.press(performance.now());
+      if (ids.length > 0) {
+        selectedBuilding = null;
+        selection.set(ids);
+        const f = sim.curr.units.find((u) => u.id === ids[0]);
+        if (twice && f) centerOn(f.x / FP, f.y / FP);
+      }
+    }
+    if (k === 'f2') {
+      e.preventDefault();
       settings.quality = settings.quality === 'high' ? 'low' : 'high';
       saveSettings(safeStorage(), settings);
       topbar();
@@ -309,7 +351,10 @@ async function boot(): Promise<void> {
       if (home) centerOn(home.tx + 1.5, home.ty + 1.5);
     }
   });
-  window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+  window.addEventListener('keyup', (e) => {
+    keys.delete(e.key.toLowerCase());
+    ctrlHeld = e.ctrlKey;
+  });
   canvas.addEventListener('pointermove', (e) => (mouse = { x: e.offsetX, y: e.offsetY }));
   canvas.addEventListener('pointerleave', () => (mouse = { x: -1, y: -1 }));
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -336,6 +381,11 @@ async function boot(): Promise<void> {
         return;
       }
       const snap = sim.curr;
+      if (snap && e.ctrlKey && selection.selected.length > 0) {
+        const t = tileFromScreen(e.offsetX, e.offsetY);
+        sim.send({ type: 'attackmove', player: PLAYER, units: selection.selected, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
+        return;
+      }
       if (snap && selection.selected.length > 0) {
         const su = toScreenUnits(interpolate(sim.prev?.units ?? snap.units, snap.units, (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND)), cam, view.viewport);
         const enemyUnit = pickEnemy(su, e.offsetX, e.offsetY, PLAYER);

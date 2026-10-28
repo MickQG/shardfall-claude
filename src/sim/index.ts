@@ -53,6 +53,7 @@ function buildingSnap(b: Building, detail: boolean): BuildingSnap {
     hp: b.hp,
     queue: detail ? b.queue.map((q) => ({ kind: q.kind, pct: Math.min(100, Math.floor((q.progress * 100) / Math.max(1, q.total))), ready: q.ready })) : [],
     repairing: b.repairing,
+    rally: detail ? b.rally : null,
     charge: detail && d.superweapon ? Math.min(100, Math.floor((b.charge * 100) / d.superweapon.charge)) : 0,
   };
 }

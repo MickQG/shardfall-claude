@@ -1,0 +1,72 @@
+import { describe, expect, it } from 'vitest';
+import { combatUnitIds, DoubleTap } from '../../src/ui/controls';
+import { rallyLine } from '../../src/ui/rally';
+import { cursorCss, cursorFor, type CursorState } from '../../src/ui/cursor';
+
+const units = [
+  { id: 1, owner: 0, kind: 'hum_rifleman' },
+  { id: 2, owner: 0, kind: 'hum_hauler' },
+  { id: 3, owner: 1, kind: 'ali_skitter' },
+  { id: 4, owner: 0, kind: 'hum_tank' },
+  { id: 5, owner: 0, kind: 'hum_gunship' },
+];
+
+describe('select-all-combat', () => {
+  it('CTL-1: selects own armed units only, leaving out harvesters and enemies', () => {
+    expect(combatUnitIds(units, 0)).toEqual([1, 4, 5]);
+  });
+  it('CTL-1: yields nothing when the player has no combat units', () => {
+    expect(combatUnitIds([{ id: 2, owner: 0, kind: 'hum_hauler' }], 0)).toEqual([]);
+  });
+  it('CTL-1: a second press inside the window is a double tap, a slow one is not', () => {
+    const t = new DoubleTap(350);
+    expect(t.press(1000)).toBe(false);
+    expect(t.press(1200)).toBe(true);
+    expect(t.press(1300)).toBe(false);
+    expect(t.press(2000)).toBe(false);
+  });
+});
+
+describe('rally line', () => {
+  const b = { id: 7, owner: 0, kind: 'hum_barracks', tx: 10, ty: 10, rally: [20 * 256, 30 * 256] as [number, number] };
+  it('CTL-4: a selected production building with a rally point draws a line from its centre to the rally tile', () => {
+    expect(rallyLine(b, 7)).toEqual({ from: { tx: 11, ty: 11 }, to: { tx: 20, ty: 30 } });
+  });
+  it('CTL-4: no line when the building is not selected or has no explicit rally point', () => {
+    expect(rallyLine(b, 8)).toBeNull();
+    expect(rallyLine(b, null)).toBeNull();
+    expect(rallyLine({ ...b, rally: null }, 7)).toBeNull();
+  });
+});
+
+const base: CursorState = { mode: 'normal', ctrl: false, combatSelected: false, anySelected: false, hover: 'ground' };
+
+describe('cursor', () => {
+  it('CUR-1: default, select, move, attack, attack-move, invalid and superweapon are all distinct states', () => {
+    const ids = new Set([
+      cursorFor(base),
+      cursorFor({ ...base, hover: 'ownUnit' }),
+      cursorFor({ ...base, anySelected: true }),
+      cursorFor({ ...base, anySelected: true, combatSelected: true, hover: 'enemy' }),
+      cursorFor({ ...base, mode: 'amove' }),
+      cursorFor({ ...base, anySelected: true, hover: 'blocked' }),
+      cursorFor({ ...base, mode: 'targeting' }),
+    ]);
+    expect(ids.size).toBe(7);
+  });
+  it('CUR-1: attack-move cursor shows in A mode and while Ctrl is held with combat units selected, not otherwise', () => {
+    expect(cursorFor({ ...base, mode: 'amove' })).toBe('attackmove');
+    expect(cursorFor({ ...base, ctrl: true, combatSelected: true, anySelected: true })).toBe('attackmove');
+    expect(cursorFor({ ...base, ctrl: true })).not.toBe('attackmove');
+  });
+  it('CUR-2: placement shows valid versus blocked', () => {
+    expect(cursorFor({ ...base, mode: 'placing', placementOk: true })).toBe('place-ok');
+    expect(cursorFor({ ...base, mode: 'placing', placementOk: false })).toBe('place-bad');
+  });
+  it('CUR-3: every cursor is an inline SVG data URI with a CSS fallback and needs no image file', () => {
+    for (const id of ['default', 'select', 'move', 'attack', 'attackmove', 'invalid', 'place-ok', 'place-bad', 'superweapon'] as const) {
+      const css = cursorCss(id);
+      expect(css).toMatch(/^url\("data:image\/svg\+xml;utf8,.+"\) \d+ \d+, (default|pointer|crosshair|not-allowed|move)$/);
+    }
+  });
+});
