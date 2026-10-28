@@ -114,16 +114,19 @@ export function bakeModel(m: VoxelModel, o: BakeOptions): Sprite {
   const cx = m.sx / 2;
   const cy = m.sy / 2;
 
+  const pxX = PX_X * m.scale;
+  const pxY = PX_Y * m.scale;
+  const pxZ = PX_Z * m.scale;
   const rad = Math.hypot(m.sx, m.sy) / 2;
-  const halfW = Math.ceil(rad * PX_X * Math.SQRT2) + 4 + Math.ceil(m.sz * 2);
+  const halfW = Math.ceil(rad * pxX * Math.SQRT2) + 4 + Math.ceil(m.sz * SHADOW * pxX);
   const width = halfW * 2;
   const anchorX = halfW;
-  const anchorY = Math.ceil(m.sz * PX_Z + rad * PX_Y * Math.SQRT2) + 4;
-  const height = anchorY + Math.ceil(rad * PX_Y * Math.SQRT2 + m.sz) + 6;
+  const anchorY = Math.ceil(m.sz * pxZ + rad * pxY * Math.SQRT2) + 4;
+  const height = anchorY + Math.ceil(rad * pxY * Math.SQRT2 + m.sz * SHADOW * pxY) + 6;
   const buf = new Buffer2D(width * SS, height * SS);
 
   /** World (turned) ground coordinates and height to supersampled screen pixels. */
-  const screen = (rx: number, ry: number, z: number): [number, number] => [(anchorX + (rx - ry) * PX_X) * SS, (anchorY + (rx + ry) * PX_Y - z * PX_Z) * SS];
+  const screen = (rx: number, ry: number, z: number): [number, number] => [(anchorX + (rx - ry) * pxX) * SS, (anchorY + (rx + ry) * pxY - z * pxZ) * SS];
   const world = (x: number, y: number): [number, number] => {
     const dx = x - cx;
     const dy = y - cy;
@@ -135,16 +138,18 @@ export function bakeModel(m: VoxelModel, o: BakeOptions): Sprite {
   for (let y = 0; y < m.sy; y++) {
     for (let x = 0; x < m.sx; x++) {
       let h = 0;
+      let low = -1;
       for (let z = clip - 1; z >= 0; z--) {
         if (solid(x, y, z) !== 0) {
-          h = z + 1;
-          break;
+          if (h === 0) h = z + 1;
+          low = z;
         }
       }
       if (h === 0) continue;
-      const steps = Math.ceil(h * SHADOW * 2) + 1;
+      // The shadow spans from the column's lowest to its highest voxel, so a hovering model casts a detached one.
+      const steps = Math.ceil((h - low) * SHADOW * 2) + 1;
       for (let s = 0; s <= steps; s++) {
-        const off = (s / steps) * h * SHADOW;
+        const off = low * SHADOW + (s / steps) * (h - low) * SHADOW;
         const quad: number[] = [];
         for (const [qx, qy] of [[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1]] as const) {
           const [rx, ry] = world(qx, qy);

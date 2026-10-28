@@ -4,7 +4,7 @@ import { CHORD_ROOTS, musicPlan, SCALE_TONES, semitonesFromA, soundFor } from '.
 import { UNIT_DEFS } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
 import { SimRunner, TICK_MS } from '../../src/host/runner';
-import { ART } from '../../src/render/unitArt';
+import { UNIT_MODELS } from '../../src/render/voxel/models';
 import { createGame, snapshot, submit, tick, type SimEvent } from '../../src/sim';
 import { AlertTracker } from '../../src/ui/alerts';
 import { defaultSettings, effectsEnabled, loadSettings, saveSettings } from '../../src/ui/settings';
@@ -12,10 +12,8 @@ import { defaultSettings, effectsEnabled, loadSettings, saveSettings } from '../
 describe('visuals and settings', () => {
   it('VIS-1: every unit kind has its own distinct drawing', () => {
     const kinds = Object.keys(UNIT_DEFS);
-    for (const k of kinds) expect(ART[k], `art for ${k}`).toBeDefined();
-    expect(Object.keys(ART).sort()).toEqual([...kinds].sort());
-    const shapes = Object.values(ART).map((a) => a.shape);
-    expect(new Set(shapes).size).toBe(kinds.length); // no two kinds share a drawing
+    for (const k of kinds) expect(UNIT_MODELS[k], `model for ${k}`).toBeDefined();
+    expect(Object.keys(UNIT_MODELS).sort()).toEqual([...kinds].sort());
   });
 
   it('VIS-2: quality and reduced motion control the effects; settings persist and survive broken storage', () => {

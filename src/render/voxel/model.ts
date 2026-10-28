@@ -16,10 +16,12 @@ export interface VoxelModel {
   sz: number;
   materials: readonly Material[];
   cells: Uint8Array;
+  /** Pixels per voxel relative to the default (4 px): 0.5 gives half-size voxels for finer detail. */
+  scale: number;
 }
 
-export function createModel(sx: number, sy: number, sz: number, materials: readonly Material[]): VoxelModel {
-  return { sx, sy, sz, materials, cells: new Uint8Array(sx * sy * sz) };
+export function createModel(sx: number, sy: number, sz: number, materials: readonly Material[], scale = 1): VoxelModel {
+  return { sx, sy, sz, materials, cells: new Uint8Array(sx * sy * sz), scale };
 }
 
 const inside = (m: VoxelModel, x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < m.sx && y < m.sy && z < m.sz;
