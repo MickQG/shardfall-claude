@@ -15,9 +15,11 @@ export class SimRunner {
   constructor(
     cfg: GameConfig,
     private onSnapshot: (s: Snapshot) => void,
+    /** Player whose fog-limited view is emitted. */
+    private viewer = 0,
   ) {
     this.game = createGame(cfg);
-    this.onSnapshot(snapshot(this.game));
+    this.onSnapshot(snapshot(this.game, this.viewer));
   }
 
   send(cmd: Command): void {
@@ -33,7 +35,7 @@ export class SimRunner {
       tick(this.game);
       this.acc -= TICK_MS;
       n++;
-      this.onSnapshot(snapshot(this.game));
+      this.onSnapshot(snapshot(this.game, this.viewer));
     }
     if (this.acc > TICK_MS * 10) this.acc = 0;
     return n;
