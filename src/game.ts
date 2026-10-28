@@ -74,7 +74,6 @@ let minimap: Minimap | null = null;
 let amoveMode = false;
 let targeting: { building: number } | null = null;
 let ctrlHeld = false;
-let appliedCursor = '';
 const qTap = new DoubleTap(350);
 let resultShown = false;
 let lastAlertTick = -1;
@@ -188,8 +187,7 @@ function frame(prevTime: number): (t: number) => void {
       const s = soundFor(ev, PLAYER);
       audio.play(s.name, s.gain);
     }
-    const cur = cursorCss(cursorFor(cursorState()));
-    if (cur !== appliedCursor) view.app.canvas.style.cursor = appliedCursor = cur;
+    view.app.canvas.style.cursor = cursorCss(cursorFor(cursorState()));
     const curr = sim.curr;
     if (curr && curr.over && !resultShown) {
       resultShown = true;
