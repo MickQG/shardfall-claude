@@ -1,4 +1,5 @@
 import { buildingDef, structuresOf, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
+import { cancelPlan } from './cancelPlan';
 import { QUEUE_MAX, type BuildingSnap, type Snapshot } from '../sim';
 
 const CSS = `
@@ -75,6 +76,7 @@ export class Sidebar {
   private buildEl: HTMLElement;
   private trainEl: HTMLElement;
   private selEl: HTMLElement;
+  private queues = new Map<number, { kind: string }[]>();
   private lastKey = '';
   private selKey = 'init';
   private lastAt = 0;
@@ -104,15 +106,20 @@ export class Sidebar {
 
   private onClick(e: MouseEvent, right: boolean): void {
     const el = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
-    if (!el || el.classList.contains('off')) return;
+    if (!el) return;
     const a = el.dataset.act;
     const kind = el.dataset.kind ?? '';
     const src = Number(el.dataset.src ?? -1);
     const idx = Number(el.dataset.idx ?? -1);
     if (right) {
-      if (idx >= 0 && (a === 'build' || a === 'train')) this.actions.cancel(src, idx);
+      // Cancelling is always allowed, even when the item is disabled (full queue, unaffordable, locked).
+      if (idx >= 0 && (a === 'build' || a === 'train')) {
+        const plan = e.ctrlKey ? cancelPlan(this.queues.get(src) ?? [], kind, BULK_QUEUE) : [idx];
+        for (const i of plan.length > 0 ? plan : [idx]) this.actions.cancel(src, i);
+      }
       return;
     }
+    if (el.classList.contains('off')) return;
     if (a === 'build') {
       if (el.classList.contains('ready')) this.actions.startPlacement(src, kind);
       else this.queue(src, kind, e.ctrlKey);
@@ -128,6 +135,7 @@ export class Sidebar {
     const player = snap.players[me];
     if (!player) return;
     const mine = own(snap);
+    this.queues = new Map(mine.map((b) => [b.id, b.queue.map((q) => ({ kind: q.kind }))]));
     const key = JSON.stringify([player.credits, player.powerOut, player.powerIn, mine.map((b) => [b.id, b.kind, b.hp, b.repairing, b.queue.map((q) => [q.kind, q.pct, q.ready])]), selectedBuilding]);
     if (key === this.lastKey || now - this.lastAt < 120) return;
     this.lastKey = key;

@@ -72,7 +72,6 @@ let mouse = { x: -1, y: -1 };
 let selectedBuilding: number | null = null;
 let placing: { source: number; kind: string } | null = null;
 let minimap: Minimap | null = null;
-let amoveMode = false;
 let targeting: { building: number } | null = null;
 let ctrlHeld = false;
 const qTap = new DoubleTap(350);
@@ -148,7 +147,7 @@ function cursorState(): CursorState {
   const snap = sim.curr;
   const anySelected = selection.selected.length > 0;
   const combatSelected = !!snap && combatUnitIds(snap.units.filter((u) => selection.has(u.id)), PLAYER).length > 0;
-  const mode: CursorState['mode'] = targeting ? 'targeting' : placing ? 'placing' : amoveMode ? 'amove' : 'normal';
+  const mode: CursorState['mode'] = targeting ? 'targeting' : placing ? 'placing' : 'normal';
   const hover: CursorState['hover'] = snap && mouse.x >= 0 ? hoverKind(hitTest(hitContext(snap), mouse.x, mouse.y), anySelected) : 'ground';
   const p = snap && mode === 'placing' ? placementPreview(snap) : null;
   return { mode, ctrl: ctrlHeld, combatSelected, anySelected, hover, placementOk: p?.ok };
@@ -280,9 +279,8 @@ async function boot(): Promise<void> {
     ctrlHeld = e.ctrlKey;
     audio.unlock();
     if (k === 'escape') {
-      if (placing || amoveMode || targeting) {
+      if (placing || targeting) {
         placing = null;
-        amoveMode = false;
         targeting = null;
       } else setPaused(!paused);
     }
@@ -312,7 +310,6 @@ async function boot(): Promise<void> {
       sim.setSpeed(SPEEDS[speedIdx] as number);
       topbar();
     }
-    if (k === 'a' && !e.ctrlKey && selection.selected.length > 0) amoveMode = true;
     if (/^[1-9]$/.test(k) && sim.curr) {
       const n = Number(k);
       if (e.ctrlKey) {
@@ -362,9 +359,8 @@ async function boot(): Promise<void> {
     audio.unlock();
     audio.startMusic(seed);
     if (e.button === 2) {
-      if (placing || amoveMode || targeting) {
+      if (placing || targeting) {
         placing = null;
-        amoveMode = false;
         targeting = null;
         return;
       }
@@ -388,12 +384,6 @@ async function boot(): Promise<void> {
         const t = tileFromScreen(e.offsetX, e.offsetY);
         sim.send({ type: 'superweapon', player: PLAYER, building: targeting.building, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
         targeting = null;
-        return;
-      }
-      if (amoveMode) {
-        const t = tileFromScreen(e.offsetX, e.offsetY);
-        sim.send({ type: 'attackmove', player: PLAYER, units: selection.selected, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
-        amoveMode = false;
         return;
       }
       if (placing && sim.curr) {
@@ -453,7 +443,7 @@ async function boot(): Promise<void> {
     camera: () => cam,
     selected: () => selection.selected,
     selectedBuilding: () => selectedBuilding,
-    modes: () => ({ amoveMode, targeting }),
+    modes: () => ({ placing: placing !== null, targeting: targeting !== null }),
     placing: () => placing,
     send: (c: Parameters<SimClient['send']>[0]) => sim.send(c),
     setSpeed: (v: number) => sim.setSpeed(v),

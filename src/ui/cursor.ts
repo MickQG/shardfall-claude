@@ -1,7 +1,7 @@
 export type CursorId = 'default' | 'select' | 'move' | 'attack' | 'attackmove' | 'invalid' | 'place-ok' | 'place-bad' | 'superweapon';
 
 export interface CursorState {
-  mode: 'normal' | 'placing' | 'targeting' | 'amove';
+  mode: 'normal' | 'placing' | 'targeting';
   ctrl: boolean;
   combatSelected: boolean;
   anySelected: boolean;
@@ -14,7 +14,7 @@ export interface CursorState {
 export function cursorFor(s: CursorState): CursorId {
   if (s.mode === 'targeting') return 'superweapon';
   if (s.mode === 'placing') return s.placementOk ? 'place-ok' : 'place-bad';
-  if (s.mode === 'amove' || (s.ctrl && s.combatSelected)) return 'attackmove';
+  if (s.ctrl && s.combatSelected) return 'attackmove';
   if (s.anySelected && s.combatSelected && s.hover === 'enemy') return 'attack';
   if (s.anySelected && s.hover === 'blocked') return 'invalid';
   if (s.hover === 'ownUnit' || s.hover === 'ownBuilding') return 'select';
