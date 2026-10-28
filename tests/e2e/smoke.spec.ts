@@ -21,7 +21,7 @@ declare global {
 }
 
 async function ready(page: Page): Promise<void> {
-  await page.goto('/');
+  await page.goto('/?faction=human&difficulty=easy&scenario=calm');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
 }
 
@@ -127,7 +127,7 @@ test('DET-1 ECO-5: the sidebar shows credits and power and updates as the econom
 test('CMB-3 CMB-4 CMB-8: in the browser, opposing squads fight, take damage and die without errors', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/?scenario=duel');
+  await page.goto('/?faction=human&scenario=duel');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
   await page.evaluate(() => window.__shardfall.setSpeed(4));
   const count = (): Promise<number> => page.evaluate(() => window.__shardfall.snapshot()!.units.filter((u) => u.kind !== 'hum_hauler').length);
@@ -139,5 +139,22 @@ test('CMB-3 CMB-4 CMB-8: in the browser, opposing squads fight, take damage and 
   );
   await page.waitForTimeout(6000);
   expect(await count()).toBeLessThan(start); // someone died
+  expect(errors).toEqual([]);
+});
+
+test('AI-10 UI: the start screen picks faction and difficulty, and starts a game against the AI', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/');
+  await expect(page.locator('#menu h1')).toHaveText('SHARDFALL');
+  await page.locator('#menu [data-faction="alien"]').click();
+  await page.locator('#menu [data-diff="hard"]').click();
+  await page.locator('#menu #go').click();
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
+  expect(page.url()).toContain('faction=alien');
+  expect(page.url()).toContain('difficulty=hard');
+  await expect(page.locator('#sb-build')).toContainText('Bio-Generator'); // the alien build menu
+  await page.evaluate(() => window.__shardfall.setSpeed(8));
+  await page.waitForTimeout(4000);
   expect(errors).toEqual([]);
 });

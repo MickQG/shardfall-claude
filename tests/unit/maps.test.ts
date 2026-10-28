@@ -14,7 +14,8 @@ describe('skirmish map', () => {
         const i = y * W + x;
         const j = (W - 1 - y) * W + (W - 1 - x);
         expect(m.blocked![i]).toBe(m.blocked![j]);
-        if (!(x >= 40 && x <= 55 && y >= 40 && y <= 55)) expect(m.shards![i]).toBe(m.shards![j]); // the centre field is its own mirror
+        expect(m.shards![i]).toBe(m.shards![j]);
+        expect(m.heights[i]).toBe(m.heights[j]);
       }
     }
     const reach = (from: [number, number], to: [number, number]): boolean => {

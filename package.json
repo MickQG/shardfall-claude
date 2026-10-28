@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "trace": "tsx scripts/trace.ts",
     "bench": "tsx scripts/bench.ts",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "harness": "tsx scripts/harness.ts"
   },
   "repository": {
     "type": "git",

@@ -105,7 +105,7 @@ export const BUILDING_DEFS: Readonly<Record<string, BuildingDef>> = {
   ali_pit: { faction: 'alien', name: 'Brood Pit', w: 3, h: 3, hp: 1000, cost: 850, buildTime: 650, requires: ['ali_extractor', 'ali_nest'], power: -22, vision: 6, tier: 2 },
   ali_spire: {
     faction: 'alien', name: 'Spine Spire', w: 1, h: 1, hp: 450, cost: 400, buildTime: 320, requires: ['ali_nest'], power: -12, vision: 8, needsPower: true, tier: 1,
-    weapon: { damage: 30, range: 6.5, cooldown: 18, type: 'claw', antiAir: false, antiGround: true },
+    weapon: { damage: 32, range: 6.8, cooldown: 18, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_evolver: { faction: 'alien', name: 'Evolution Chamber', w: 2, h: 2, hp: 650, cost: 1000, buildTime: 750, requires: ['ali_pit'], power: -35, vision: 6, tier: 3 },
   ali_rift: {
@@ -145,20 +145,20 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // ---- Aliens ----
   ali_gorger: { faction: 'alien', name: 'Gorger', speed: 34, hp: 350, radius: 96, vision: 6, cost: 600, buildTime: 420, builtAt: 'ali_pit', requires: ['ali_extractor'], armor: 'heavy', capacity: 200, regen: 2, role: 'harvester' },
   ali_skitter: {
-    faction: 'alien', name: 'Skitterer', speed: 58, hp: 70, radius: 70, vision: 7, cost: 80, buildTime: 100, builtAt: 'ali_nest', requires: [], armor: 'light', regen: 1, role: 'raider',
-    weapon: { damage: 7, range: 1.4, cooldown: 8, type: 'claw', antiAir: false, antiGround: true },
+    faction: 'alien', name: 'Skitterer', speed: 60, hp: 74, radius: 70, vision: 7, cost: 80, buildTime: 100, builtAt: 'ali_nest', requires: [], armor: 'light', regen: 1, role: 'raider',
+    weapon: { damage: 8, range: 1.5, cooldown: 8, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_spitter: {
-    faction: 'alien', name: 'Spitter', speed: 40, hp: 80, radius: 76, vision: 7, cost: 220, buildTime: 180, builtAt: 'ali_nest', requires: ['ali_pit'], armor: 'light', regen: 1, role: 'antiarmor',
-    weapon: { damage: 30, range: 6, cooldown: 26, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
+    faction: 'alien', name: 'Spitter', speed: 40, hp: 82, radius: 76, vision: 7, cost: 220, buildTime: 180, builtAt: 'ali_nest', requires: ['ali_pit'], armor: 'light', regen: 1, role: 'antiarmor',
+    weapon: { damage: 31, range: 6.3, cooldown: 26, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
   },
   ali_stalker: {
     faction: 'alien', name: 'Stalker', speed: 92, hp: 120, radius: 76, vision: 11, cost: 220, buildTime: 200, builtAt: 'ali_pit', requires: [], armor: 'light', regen: 2, role: 'scout',
-    weapon: { damage: 9, range: 1.6, cooldown: 7, type: 'claw', antiAir: false, antiGround: true },
+    weapon: { damage: 10, range: 1.6, cooldown: 7, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_brute: {
-    faction: 'alien', name: 'Brute', speed: 30, hp: 720, radius: 112, vision: 6, cost: 850, buildTime: 480, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 3, role: 'tank',
-    weapon: { damage: 55, range: 1.8, cooldown: 20, type: 'claw', antiAir: false, antiGround: true },
+    faction: 'alien', name: 'Brute', speed: 33, hp: 760, radius: 112, vision: 6, cost: 830, buildTime: 480, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 3, role: 'tank',
+    weapon: { damage: 58, range: 1.9, cooldown: 20, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_lobber: {
     faction: 'alien', name: 'Lobber', speed: 26, hp: 240, radius: 100, vision: 8, cost: 800, buildTime: 500, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 2, role: 'artillery',

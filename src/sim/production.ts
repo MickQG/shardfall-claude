@@ -77,12 +77,20 @@ export function place(s: State, owner: number, sourceId: number, tx: number, ty:
 export function spawnTile(s: State, b: Building): number | undefined {
   const d = buildingDef(b.kind);
   const g = s.grid;
-  const wantX = b.rally ? tileOf(b.rally[0]) : b.tx + (d.w >> 1);
-  const wantY = b.rally ? tileOf(b.rally[1]) : b.ty + d.h + 1;
+  // Default exit faces the map centre, so mirrored bases behave identically.
+  const cx = b.tx + d.w / 2;
+  const cy = b.ty + d.h / 2;
+  const wantX = b.rally ? tileOf(b.rally[0]) : Math.round(cx + Math.sign(g.width / 2 - cx) * (d.w / 2 + 1));
+  const wantY = b.rally ? tileOf(b.rally[1]) : Math.round(cy + Math.sign(g.height / 2 - cy) * (d.h / 2 + 1));
+  const flip = cx > g.width / 2;
   let best: number | undefined;
   let bd = Infinity;
-  for (let y = b.ty - 1; y <= b.ty + d.h; y++) {
-    for (let x = b.tx - 1; x <= b.tx + d.w; x++) {
+  const w = d.w + 2;
+  const h = d.h + 2;
+  for (let iy = 0; iy < h; iy++) {
+    for (let ix = 0; ix < w; ix++) {
+      const x = b.tx - 1 + (flip ? w - 1 - ix : ix);
+      const y = b.ty - 1 + (flip ? h - 1 - iy : iy);
       const onRing = x === b.tx - 1 || x === b.tx + d.w || y === b.ty - 1 || y === b.ty + d.h;
       if (!onRing || isBlocked(g, x, y)) continue;
       const dist = (x - wantX) ** 2 + (y - wantY) ** 2;

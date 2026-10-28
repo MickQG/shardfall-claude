@@ -141,7 +141,8 @@ function stepHauler(s: State, u: Unit): void {
       }
       const amt = Math.min(UNLOAD_PER_TICK, u.load);
       u.load -= amt;
-      (s.players[u.owner] as { credits: number }).credits += amt;
+      const pl = s.players[u.owner] as { credits: number; bonus: number };
+      pl.credits += Math.floor((amt * (100 + pl.bonus)) / 100);
       if (u.load === 0) u.hv = Hv.Idle;
       break;
     }

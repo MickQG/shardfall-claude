@@ -92,6 +92,8 @@ export interface Building {
 export interface Player {
   faction: Faction;
   credits: number;
+  /** Percent bonus on delivered shards. */
+  bonus: number;
   powerOut: number;
   powerIn: number;
   /** Last-seen enemy buildings that are no longer visible, keyed by building id. */
@@ -145,7 +147,7 @@ export function createState(cfg: GameConfig): State {
     grid: { width, height, blocked },
     units: [],
     buildings: [],
-    players: setups.map((p) => ({ faction: p.faction, credits: p.credits, powerOut: 0, powerIn: 0, ghosts: new Map() })),
+    players: setups.map((p) => ({ faction: p.faction, credits: p.credits, bonus: p.bonus ?? 0, powerOut: 0, powerIn: 0, ghosts: new Map() })),
     fog: setups.map(() => createFog(width, height)),
     shards,
     shardSeed: shards.slice(),
