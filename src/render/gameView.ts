@@ -149,13 +149,17 @@ export class GameView {
         const top = mix(lvl === 0 ? 0x2f4f3c : lvl === 1 ? 0x5a6b73 : 0x77899a, f);
         g.poly([p.x, p.y, p.x + TILE_W / 2, p.y + TILE_H / 2, p.x, p.y + TILE_H, p.x - TILE_W / 2, p.y + TILE_H / 2]).fill(top);
         if (lvl === 0) {
-          // Shade the ground tile on the sides where rock rises beside it.
+          // Shade the tile edges beside rising rock: y-1 is the upper-right edge, x+1 lower-right, y+1 lower-left, x-1 upper-left.
           const e = edgeShade(snap.heights, snap.mapWidth, x, y);
-          const cx = p.x;
-          const cy = p.y + TILE_H / 2;
-          if (e.n) g.poly([p.x, p.y, cx + TILE_W / 4, cy - TILE_H / 4, cx, cy, cx - TILE_W / 4, cy - TILE_H / 4]).fill({ color: 0x000000, alpha: 0.28 });
-          if (e.e) g.poly([cx + TILE_W / 4, cy - TILE_H / 4, p.x + TILE_W / 2, cy, cx + TILE_W / 4, cy + TILE_H / 4, cx, cy]).fill({ color: 0x000000, alpha: 0.2 });
-          if (e.w) g.poly([cx - TILE_W / 4, cy - TILE_H / 4, p.x - TILE_W / 2, cy, cx - TILE_W / 4, cy + TILE_H / 4, cx, cy]).fill({ color: 0x000000, alpha: 0.2 });
+          const top = [p.x, p.y] as const;
+          const right = [p.x + TILE_W / 2, p.y + TILE_H / 2] as const;
+          const bottom = [p.x, p.y + TILE_H] as const;
+          const left = [p.x - TILE_W / 2, p.y + TILE_H / 2] as const;
+          const mid = [p.x, p.y + TILE_H / 2] as const;
+          if (e.n) g.poly([...top, ...right, ...mid]).fill({ color: 0x000000, alpha: 0.3 });
+          if (e.e) g.poly([...right, ...bottom, ...mid]).fill({ color: 0x000000, alpha: 0.2 });
+          if (e.s) g.poly([...bottom, ...left, ...mid]).fill({ color: 0x000000, alpha: 0.14 });
+          if (e.w) g.poly([...left, ...top, ...mid]).fill({ color: 0x000000, alpha: 0.24 });
           // Ground detail: pebbles and moss patches.
           if (n > 0.82) g.ellipse(p.x + (n - 0.5) * 30, p.y + 16 + (hash(y, x) - 0.5) * 8, 3.5, 1.8).fill({ color: 0x1f3a2c, alpha: 0.7 });
           if (n < 0.1) g.circle(p.x + (hash(x + 9, y) - 0.5) * 24, p.y + 16, 1.4).fill({ color: 0x8fb39b, alpha: 0.6 });

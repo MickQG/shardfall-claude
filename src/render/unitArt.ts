@@ -70,6 +70,8 @@ const HIGHLIGHT: Partial<Record<Shape, [number, number, number, number]>> = {
   brute: [-4, -13, 6, 3],
   lobber: [-4, -9, 6, 2],
   gorger: [-5, -11, 8, 2.4],
+  gunship: [-3, -24, 8, 1.8],
+  wasp: [-2, -24, 5, 1.5],
 };
 
 const METAL = 0x93a6bb;
@@ -190,7 +192,6 @@ export function drawUnit(kind: string, owner: number): UnitArt {
   return { root, body, rotor, load, barrel, barrelSpec, aim: -1, air, size: art.size, owner };
 }
 
-/** Per-frame animation: bobbing while moving, spinning rotors, crystal load on haulers. `facing` is +1 or -1. */
 /** Points the unit's weapon barrel along octant `o` (0 = right, clockwise). Redraws only when the heading changes. */
 export function aimUnit(a: UnitArt, o: number): void {
   if (!a.barrel || !a.barrelSpec || a.aim === o) return;
@@ -202,6 +203,7 @@ export function aimUnit(a: UnitArt, o: number): void {
   a.barrel.circle(0, s.y, s.w * 0.9).fill(s.color);
 }
 
+/** Per-frame animation: bobbing while moving, spinning rotors, crystal load on haulers. `facing` is +1 or -1. */
 export function animateUnit(a: UnitArt, t: number, moving: boolean, facing: number, loadFrac: number, motion: boolean): void {
   a.body.scale.x = a.size * facing;
   if (a.barrel) a.barrel.scale.x = facing;
