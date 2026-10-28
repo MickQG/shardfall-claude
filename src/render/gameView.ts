@@ -5,7 +5,7 @@ import type { BuildingSnap, SimEvent, Snapshot } from '../sim';
 import { buildingHeight, buildingOrigin, drawBuilding } from './buildingArt';
 import type { Camera } from './camera';
 import { Effects } from './effects';
-import { barVisible, buildUp, damageState, edgeShade, groundTint, idleGlow } from './gfx';
+import { barVisible, buildUp, damageState, damageTint, edgeShade, groundTint, idleGlow, revealLine } from './gfx';
 import { OWNER_COLORS } from './colors';
 import { FogView } from './fogView';
 import type { RenderUnit } from './interp';
@@ -38,6 +38,8 @@ interface BuildingSprite {
   sel: Graphics;
   /** Scaffold, damage smoke and fire, idle lights (redrawn each frame). */
   fx: Graphics;
+  /** Mask that reveals the sprite bottom-up while it is being built. */
+  reveal: Graphics;
   ghost: boolean;
   /** When the building first appeared, in view time; -Infinity if it was already there. */
   born: number;
@@ -70,6 +72,8 @@ const tilePoly = (tx: number, ty: number, w: number, h: number): number[] => {
   const l = tileToScreen(tx, ty + h);
   return [t.x, t.y, r.x, r.y, b.x, b.y, l.x, l.y];
 };
+
+const easeOut = (t: number): number => 1 - (1 - t) * (1 - t);
 
 export class GameView {
   readonly app = new Application();
@@ -261,14 +265,15 @@ export class GameView {
     const bar = new Graphics();
     bar.visible = false;
     const fx = new Graphics();
-    root.addChild(art, fx, sel, bar);
+    const reveal = new Graphics();
+    root.addChild(art, reveal, fx, sel, bar);
     const o = buildingOrigin(b.tx, b.ty);
     root.position.set(o.x, o.y);
     const d = buildingDef(b.kind);
     root.zIndex = tileToScreen(b.tx + d.w, b.ty + d.h).y - 1;
     sel.poly(tilePoly(0, 0, d.w, d.h).map((v, i) => (i % 2 === 0 ? v : v + 0))).stroke({ color: 0xffffff, width: 2 });
     this.unitLayer.addChild(root);
-    return { root, art, bar, sel, fx, ghost, born: -Infinity };
+    return { root, art, bar, sel, fx, reveal, ghost, born: -Infinity };
   }
 
   private syncBuildings(snap: Snapshot, vs: ViewState): void {
@@ -319,16 +324,17 @@ export class GameView {
   private drawBuildingFx(s: BuildingSprite, b: BuildingSnap, vs: ViewState, top: { x: number; y: number }, h: number): void {
     const g = s.fx;
     g.clear();
-    s.art.y = 0;
-    if (s.ghost || !vs.fx.decor) {
-      if (!s.ghost) s.art.alpha = 1;
-      return;
-    }
     const d = buildingDef(b.kind);
+    s.art.mask = null;
+    if (s.ghost) return;
+    s.art.tint = damageTint(damageState(b.hp, d.hp));
+    if (!vs.fx.decor) return;
     const p = buildUp(vs.time, s.born);
-    s.art.alpha = 0.3 + 0.7 * p;
-    s.art.y = (1 - p) * 14;
     if (p < 1) {
+      // Reveal the sprite from the ground up behind the scaffold.
+      const line = revealLine(easeOut(p), tileToScreen(d.w, d.h).y + 8, top.y - h - 40);
+      s.reveal.clear().rect(-600, line, 1200, 1400).fill(0xffffff);
+      s.art.mask = s.reveal;
       const trim = OWNER_COLORS[b.owner] ?? 0xffffff;
       const t0 = tileToScreen(0, 0);
       const r0 = tileToScreen(d.w, 0);

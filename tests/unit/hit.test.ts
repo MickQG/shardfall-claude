@@ -79,3 +79,22 @@ describe('hit-test', () => {
     expect(hoverKind(hitTest(ctx({ units }), p.sx, p.sy), true)).toBe('enemy');
   });
 });
+
+describe('hit-test on tall buildings', () => {
+  it('VOX-14: the roof of a tall building selects it, even though it is above the footprint', () => {
+    const buildings = [{ id: 9, owner: 0, kind: 'hum_lance', tx: 10, ty: 10 }];
+    const roof = at(11.5, 11.5);
+    expect(hitTest(ctx({ buildings }), roof.sx, roof.sy - 120).ownBuilding).toBe(9); // above the footprint's top corner
+    expect(hitTest(ctx({ buildings }), roof.sx, roof.sy - 400).ownBuilding).toBeNull(); // well above the roof
+  });
+
+  it('VOX-14: where bodies overlap on screen the nearer building wins', () => {
+    const buildings = [
+      { id: 1, owner: 0, kind: 'hum_barracks', tx: 10, ty: 10 },
+      { id: 2, owner: 1, kind: 'hum_lance', tx: 12, ty: 12 },
+    ];
+    const p = at(11, 11); // the barracks' centre, but the lance's tall body is drawn over it
+    const h = hitTest(ctx({ buildings }), p.sx, p.sy);
+    expect([h.enemyBuilding, h.ownBuilding]).toEqual([2, null]);
+  });
+});

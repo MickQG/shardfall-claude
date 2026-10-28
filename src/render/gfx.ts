@@ -85,3 +85,9 @@ export const barVisible = (hp: number, maxHp: number, selected: boolean): boolea
 export function idleGlow(faction: Faction, t: number): number {
   return faction === 'human' ? ((t % 1200) < 150 ? 1 : 0) : 0.5 + 0.5 * Math.sin(t / 300);
 }
+
+/** The y (px) below which a rising building is shown: `bottom` at progress 0 up to `top` at progress 1. */
+export const revealLine = (progress: number, bottom: number, top: number): number => bottom - progress * (bottom - top);
+
+/** Sprite tint for a building's damage state: darker as it weakens, untinted when intact. */
+export const damageTint = (state: DamageState): number => (state === 'intact' ? 0xffffff : state === 'damaged' ? 0xe4dcd8 : 0xc9bab2);

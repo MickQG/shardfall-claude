@@ -18,3 +18,9 @@ Render layer only. Models and the baker are pure data and arithmetic: no `Math.r
 - **VOX-9**: Every unit kind has a voxel model, each kind's silhouette is distinct, and each model bakes in all 16 facings with its anchor inside the sprite.
 - **VOX-10**: A unit with a turret is drawn as a hull that faces its movement heading and a turret that faces its aim heading independently; the turret sits at the hull's pivot, turned with the hull.
 - **VOX-11**: The renderer picks the sprite for a unit from its kind, owner and facing (heading, or aim while firing) and reuses cached sprites, so a facing is baked at most once per kind and team colour.
+
+## Buildings
+
+- **VOX-12**: Every building kind has a voxel model whose footprint is exactly its tile footprint (16 voxels per tile edge), each with a distinct silhouette, and the model's own height (not a table) decides where overlays, bars and picking put the roof.
+- **VOX-13**: A building placed during play is revealed bottom-up over its build-up time, damaged buildings are tinted darker as they weaken, and finished full-health buildings are untinted.
+- **VOX-14**: Picking a building works anywhere on its drawn body, not only its footprint: the roof of a tall building selects it, and when buildings overlap on screen the nearer one wins.

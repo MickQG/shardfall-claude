@@ -1,5 +1,6 @@
 import { buildingDef } from '../data/defs';
 import { screenToTile } from '../render/iso';
+import { buildingHeightPx } from '../render/voxel/buildings';
 import type { CursorState } from './cursor';
 import { pickEnemy, pickUnit, type ScreenUnit } from './selection';
 
@@ -25,20 +26,25 @@ export interface Hit {
   blocked: boolean;
 }
 
-/** Roof heights (px) tried from the top down: a building's roof is drawn above its footprint. */
-const LIFTS = [40, 28, 14, 0];
-
 /** What is under the pointer at screen position (sx, sy). */
 export function hitTest(ctx: HitContext, sx: number, sy: number): Hit {
   const w = ctx.toWorld(sx, sy);
+  // A building's body is drawn above its footprint, so test the footprint at lifts up to the roof; the nearest building wins.
   let building: HitContext['buildings'][number] | undefined;
-  for (const lift of LIFTS) {
-    const t = screenToTile(w.x, w.y + lift);
-    building = ctx.buildings.find((b) => {
-      const d = buildingDef(b.kind);
-      return t.x >= b.tx && t.x < b.tx + d.w && t.y >= b.ty && t.y < b.ty + d.h;
-    });
-    if (building) break;
+  let nearest = -Infinity;
+  for (const b of ctx.buildings) {
+    const d = buildingDef(b.kind);
+    const h = buildingHeightPx(b.kind);
+    for (const lift of [h, h * 0.75, h * 0.5, h * 0.25, 0]) {
+      const t = screenToTile(w.x, w.y + lift);
+      if (t.x >= b.tx && t.x < b.tx + d.w && t.y >= b.ty && t.y < b.ty + d.h) {
+        if (b.tx + b.ty + d.w + d.h > nearest) {
+          building = b;
+          nearest = b.tx + b.ty + d.w + d.h;
+        }
+        break;
+      }
+    }
   }
   const g = screenToTile(w.x, w.y);
   const tx = Math.floor(g.x);
