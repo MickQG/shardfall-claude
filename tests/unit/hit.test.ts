@@ -14,6 +14,7 @@ const ctx = (over: Partial<HitContext> = {}): HitContext => ({
   buildings: [],
   toWorld: (sx, sy) => ({ x: sx, y: sy }),
   blocked: () => false,
+  shardAt: () => false,
   ...over,
 });
 
@@ -64,7 +65,7 @@ describe('hit-test', () => {
     ];
     for (const dx of [-30, -10, 0, 4, 10, 30]) {
       const h = hitTest(ctx({ units }), p.sx + dx, p.sy);
-      const cursor = cursorFor({ mode: 'normal', ctrl: false, combatSelected: true, anySelected: true, hover: hoverKind(h, true) });
+      const cursor = cursorFor({ mode: 'normal', combatSelected: true, harvesterSelected: false, anySelected: true, hover: hoverKind(h, true) });
       expect(cursor === 'attack').toBe(rightClickOrder(h).kind === 'attack');
     }
   });
@@ -77,6 +78,20 @@ describe('hit-test', () => {
     ];
     expect(hoverKind(hitTest(ctx({ units }), p.sx, p.sy), false)).toBe('ownUnit');
     expect(hoverKind(hitTest(ctx({ units }), p.sx, p.sy), true)).toBe('enemy');
+  });
+});
+
+describe('hit-test on resources', () => {
+  it('CUR-4: reports shards under the pointer, and an enemy there still wins the hover', () => {
+    const p = at(30.5, 20.5);
+    const field = ctx({ shardAt: (x, y) => x === 30 && y === 20 });
+    const h = hitTest(field, p.sx, p.sy);
+    expect(h.resource).toBe(true);
+    expect(hoverKind(h, true)).toBe('resource');
+    expect(hoverKind(h, false)).toBe('resource');
+    expect(hitTest(ctx(), p.sx, p.sy).resource).toBe(false);
+    const withEnemy = hitTest({ ...field, units: [{ id: 5, owner: 1, kind: 'ali_skitter', sx: p.sx, sy: p.sy }] }, p.sx, p.sy);
+    expect(hoverKind(withEnemy, true)).toBe('enemy');
   });
 });
 

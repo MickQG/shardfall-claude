@@ -13,6 +13,8 @@ export interface HitContext {
   /** Screen pixel to world (iso plane) pixel under the current camera. */
   toWorld(sx: number, sy: number): { x: number; y: number };
   blocked(tx: number, ty: number): boolean;
+  /** Whether the tile holds shards to harvest. */
+  shardAt(tx: number, ty: number): boolean;
 }
 
 export interface Hit {
@@ -24,6 +26,8 @@ export interface Hit {
   tx: number;
   ty: number;
   blocked: boolean;
+  /** The ground tile holds shards. */
+  resource: boolean;
 }
 
 /** What is under the pointer at screen position (sx, sy). */
@@ -57,6 +61,7 @@ export function hitTest(ctx: HitContext, sx: number, sy: number): Hit {
     tx,
     ty,
     blocked: ctx.blocked(tx, ty),
+    resource: ctx.shardAt(tx, ty),
   };
 }
 
@@ -78,5 +83,6 @@ export function hoverKind(h: Hit, anySelected: boolean): CursorState['hover'] {
   if (anySelected && enemy) return 'enemy';
   if (own) return own;
   if (enemy) return 'enemy';
+  if (h.resource) return 'resource';
   return h.blocked ? 'blocked' : 'ground';
 }
