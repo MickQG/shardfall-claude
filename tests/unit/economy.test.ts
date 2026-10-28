@@ -285,6 +285,24 @@ describe('production', () => {
   });
 });
 
+describe('queue cancel', () => {
+  it('PRD-10: a full queue can be cancelled newest-first and every cancel refunds in full', () => {
+    const cfg = base();
+    cfg.buildings!.push({ owner: 0, kind: 'hum_barracks', tx: 14, ty: 5 });
+    cfg.players![0]!.credits = 10_000;
+    const g = createGame(cfg);
+    const bid = bld(g, 'hum_barracks')[0]!.id;
+    for (let i = 0; i < QUEUE_MAX + 3; i++) submit(g, { type: 'produce', player: 0, source: bid, kind: 'hum_rifleman' });
+    tick(g);
+    expect(snapshot(g).buildings.find((b) => b.id === bid)!.queue.length).toBe(QUEUE_MAX);
+    const before = credits(g);
+    for (const index of [19, 18, 17, 16, 15]) submit(g, { type: 'cancel', player: 0, source: bid, index });
+    tick(g);
+    expect(snapshot(g).buildings.find((b) => b.id === bid)!.queue.length).toBe(QUEUE_MAX - 5);
+    expect(credits(g)).toBe(before + 5 * unitDef('hum_rifleman').cost);
+  });
+});
+
 describe('fog and buildings', () => {
   it('FOG-5: enemy buildings show only when visible and are remembered as ghosts until seen again', () => {
     const cfg = base({ units: [{ owner: 0, kind: 'hum_buggy', tx: 20, ty: 38 }] });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { combatUnitIds, DoubleTap } from '../../src/ui/controls';
 import { rallyLine } from '../../src/ui/rally';
 import { cursorCss, cursorFor, type CursorState } from '../../src/ui/cursor';
+import { cancelPlan } from '../../src/ui/cancelPlan';
 
 const units = [
   { id: 1, owner: 0, kind: 'hum_rifleman' },
@@ -48,14 +49,14 @@ describe('cursor', () => {
       cursorFor({ ...base, hover: 'ownUnit' }),
       cursorFor({ ...base, anySelected: true }),
       cursorFor({ ...base, anySelected: true, combatSelected: true, hover: 'enemy' }),
-      cursorFor({ ...base, mode: 'amove' }),
+      cursorFor({ ...base, ctrl: true, combatSelected: true, anySelected: true }),
       cursorFor({ ...base, anySelected: true, hover: 'blocked' }),
       cursorFor({ ...base, mode: 'targeting' }),
     ]);
     expect(ids.size).toBe(7);
   });
-  it('CUR-1: attack-move cursor shows in A mode and while Ctrl is held with combat units selected, not otherwise', () => {
-    expect(cursorFor({ ...base, mode: 'amove' })).toBe('attackmove');
+  it('CUR-1: attack-move cursor shows only while Ctrl is held with combat units selected, never from panning keys', () => {
+    expect(cursorFor({ ...base, anySelected: true, combatSelected: true })).not.toBe('attackmove');
     expect(cursorFor({ ...base, ctrl: true, combatSelected: true, anySelected: true })).toBe('attackmove');
     expect(cursorFor({ ...base, ctrl: true })).not.toBe('attackmove');
   });
@@ -68,5 +69,16 @@ describe('cursor', () => {
       const css = cursorCss(id);
       expect(css).toMatch(/^url\("data:image\/svg\+xml;utf8,.+"\) \d+ \d+, (default|pointer|crosshair|not-allowed|move)$/);
     }
+  });
+});
+
+describe('cancel plan', () => {
+  const q = (...k: string[]) => k.map((kind) => ({ kind }));
+  it('PRD-10: cancelPlan picks the newest matching items, highest index first, up to the count', () => {
+    expect(cancelPlan(q('a', 'b', 'a', 'a', 'b', 'a'), 'a', 2)).toEqual([5, 3]);
+    expect(cancelPlan(q('a', 'b', 'a', 'a', 'b', 'a'), 'a', 5)).toEqual([5, 3, 2, 0]);
+    expect(cancelPlan(q('a', 'b'), 'c', 5)).toEqual([]);
+    expect(cancelPlan(q('a', 'a'), 'a', 1)).toEqual([1]);
+    expect(cancelPlan(Array.from({ length: 20 }, () => ({ kind: 'a' })), 'a', 5)).toEqual([19, 18, 17, 16, 15]);
   });
 });

@@ -5,6 +5,7 @@ interface Hook {
   selected: () => number[];
   tileScreen: (tx: number, ty: number) => { x: number; y: number };
   send: (c: unknown) => void;
+  modes: () => { placing: boolean; targeting: boolean };
 }
 
 test('CTL-1 CTL-2 CTL-3 CTL-4 CUR-1 CUR-3: Q selects combat units, F2 toggles quality, Ctrl+right-click attack-moves, cursors change', async ({ page }) => {
@@ -31,11 +32,21 @@ test('CTL-1 CTL-2 CTL-3 CTL-4 CUR-1 CUR-3: Q selects combat units, F2 toggles qu
   await page.mouse.move(p.x, p.y);
   await expect.poll(() => page.locator('canvas').first().evaluate((c) => (c as HTMLCanvasElement).style.cursor)).toContain('data:image/svg+xml');
   const moveCursor = await page.locator('canvas').first().evaluate((c) => (c as HTMLCanvasElement).style.cursor);
-  await page.keyboard.press('a');
-  await expect.poll(() => page.locator('canvas').first().evaluate((c) => (c as HTMLCanvasElement).style.cursor)).not.toBe(moveCursor);
+  const cursor = (): Promise<string> => page.locator('canvas').first().evaluate((c) => (c as HTMLCanvasElement).style.cursor);
+  // Holding Ctrl with combat units selected shows the attack-move cursor.
+  await page.keyboard.down('Control');
+  await expect.poll(cursor).not.toBe(moveCursor);
+  const amoveCursor = await cursor();
+  await page.keyboard.up('Control');
+  await expect.poll(cursor).toBe(moveCursor);
+  // Panning keys never arm an order or show the attack-move cursor (the map moves under the pointer, so only compare against it).
+  await page.keyboard.down('a');
+  await page.waitForTimeout(300);
+  expect(await cursor()).not.toBe(amoveCursor);
+  expect(await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.modes())).toEqual({ placing: false, targeting: false });
+  await page.keyboard.up('a');
 
   // CTL-3: Ctrl+right-click sends the selected units walking to the target.
-  await page.keyboard.press('Escape');
   const before = snap!.units.find((u) => u.id === riflemen[0])!;
   await page.keyboard.down('Control');
   await page.mouse.click(p.x, p.y, { button: 'right' });
@@ -67,5 +78,25 @@ test('PRD-9: Ctrl-clicking a build item queues five of it', async ({ page }) => 
   const reactor = page.locator('[data-act="build"][data-kind="hum_reactor"]');
   await reactor.click({ modifiers: ['Control'] });
   await expect.poll(queued).toBe(5);
+  expect(errors).toEqual([]);
+});
+
+test('PRD-10: right-click cancels one queued item, Ctrl + right-click cancels up to five', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/?faction=human&scenario=calm&seed=3');
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
+  const queued = (): Promise<number> =>
+    page.evaluate(() => {
+      const s = (window as unknown as { __shardfall: Hook }).__shardfall.snapshot() as unknown as { buildings: { kind: string; owner: number; queue: unknown[] }[] };
+      return s.buildings.find((b) => b.owner === 0 && b.kind === 'hum_hq')!.queue.length;
+    });
+  const reactor = page.locator('[data-act="build"][data-kind="hum_reactor"]');
+  await reactor.click({ modifiers: ['Control'] });
+  await expect.poll(queued).toBe(5);
+  await reactor.click({ button: 'right' });
+  await expect.poll(queued).toBe(4);
+  await reactor.click({ button: 'right', modifiers: ['Control'] });
+  await expect.poll(queued).toBe(0);
   expect(errors).toEqual([]);
 });
