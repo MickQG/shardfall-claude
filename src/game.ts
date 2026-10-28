@@ -74,6 +74,7 @@ let minimap: Minimap | null = null;
 let amoveMode = false;
 let targeting: { building: number } | null = null;
 let ctrlHeld = false;
+let appliedCursor = '';
 const qTap = new DoubleTap(350);
 let resultShown = false;
 let lastAlertTick = -1;
@@ -187,7 +188,8 @@ function frame(prevTime: number): (t: number) => void {
       const s = soundFor(ev, PLAYER);
       audio.play(s.name, s.gain);
     }
-    view.app.canvas.style.cursor = cursorCss(cursorFor(cursorState()));
+    const cur = cursorCss(cursorFor(cursorState()));
+    if (cur !== appliedCursor) view.app.canvas.style.cursor = appliedCursor = cur;
     const curr = sim.curr;
     if (curr && curr.over && !resultShown) {
       resultShown = true;
@@ -307,14 +309,12 @@ async function boot(): Promise<void> {
       saveSettings(safeStorage(), settings);
       topbar();
     }
-    if (k === 'q' && !e.ctrlKey && sim.curr) {
-      const ids = combatUnitIds(sim.curr.units, PLAYER);
-      const twice = qTap.press(performance.now());
-      if (ids.length > 0) {
+    if (k === 'q' && !e.ctrlKey && !e.repeat && sim.curr) {
+      const army = sim.curr.units.filter((u) => u.owner === PLAYER && combatUnitIds([u], PLAYER).length > 0);
+      if (army.length > 0) {
         selectedBuilding = null;
-        selection.set(ids);
-        const f = sim.curr.units.find((u) => u.id === ids[0]);
-        if (twice && f) centerOn(f.x / FP, f.y / FP);
+        selection.set(army.map((u) => u.id));
+        if (qTap.press(performance.now())) centerOn(army.reduce((a, u) => a + u.x, 0) / army.length / FP, army.reduce((a, u) => a + u.y, 0) / army.length / FP);
       }
     }
     if (k === 'f2') {
@@ -351,6 +351,10 @@ async function boot(): Promise<void> {
       if (home) centerOn(home.tx + 1.5, home.ty + 1.5);
     }
   });
+  window.addEventListener('blur', () => {
+    ctrlHeld = false;
+    keys.clear();
+  });
   window.addEventListener('keyup', (e) => {
     keys.delete(e.key.toLowerCase());
     ctrlHeld = e.ctrlKey;
@@ -381,7 +385,7 @@ async function boot(): Promise<void> {
         return;
       }
       const snap = sim.curr;
-      if (snap && e.ctrlKey && selection.selected.length > 0) {
+      if (snap && e.ctrlKey && combatUnitIds(snap.units.filter((u) => selection.has(u.id)), PLAYER).length > 0) {
         const t = tileFromScreen(e.offsetX, e.offsetY);
         sim.send({ type: 'attackmove', player: PLAYER, units: selection.selected, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
         return;

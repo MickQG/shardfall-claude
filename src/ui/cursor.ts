@@ -40,7 +40,12 @@ const ART: Record<CursorId, { body: string; hot: [number, number]; fallback: str
 };
 
 /** CSS `cursor` value for a cursor id: an inline SVG with a built-in fallback. */
+const cache = new Map<CursorId, string>();
 export function cursorCss(id: CursorId): string {
+  const hit = cache.get(id);
+  if (hit) return hit;
   const a = ART[id];
-  return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg(a.body))}") ${a.hot[0]} ${a.hot[1]}, ${a.fallback}`;
+  const css = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg(a.body))}") ${a.hot[0]} ${a.hot[1]}, ${a.fallback}`;
+  cache.set(id, css);
+  return css;
 }
