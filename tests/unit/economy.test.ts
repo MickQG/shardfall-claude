@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildingDef, unitDef } from '../../src/data/defs';
-import { canPlace, createGame, FP, hash, snapshot, submit, tick, type Game, type GameConfig, type MapDef } from '../../src/sim';
+import { canPlace, createGame, FP, QUEUE_MAX, hash, snapshot, submit, tick, type Game, type GameConfig, type MapDef } from '../../src/sim';
 
 const W = 48;
 const open = (shards: Record<string, number> = {}, blocked: number[] = []): MapDef => {
@@ -270,12 +270,14 @@ describe('production', () => {
   it('PRD-8: queues are first-in-first-out with a maximum length', () => {
     const cfg = base();
     cfg.buildings!.push({ owner: 0, kind: 'hum_barracks', tx: 14, ty: 5 });
+    cfg.players![0]!.credits = 10_000;
     const g = createGame(cfg);
     const bid = bld(g, 'hum_barracks')[0]!.id;
-    for (let i = 0; i < 7; i++) submit(g, { type: 'produce', player: 0, source: bid, kind: i % 2 === 0 ? 'hum_rifleman' : 'hum_rocketeer' });
+    for (let i = 0; i < 2 * (QUEUE_MAX + 7); i++) submit(g, { type: 'produce', player: 0, source: bid, kind: i % 2 === 0 ? 'hum_rifleman' : 'hum_rocketeer' });
     tick(g);
-    // rocketeers need a factory: only the 4 riflemen are accepted... then the queue maxes out at 5
-    expect(snapshot(g).buildings.find((b) => b.id === bid)!.queue.length).toBeLessThanOrEqual(5);
+    // rocketeers need a factory, so only riflemen are accepted, and the queue stops at the maximum
+    expect(QUEUE_MAX).toBe(20);
+    expect(snapshot(g).buildings.find((b) => b.id === bid)!.queue.length).toBe(QUEUE_MAX);
     const accepted = snapshot(g).buildings.find((b) => b.id === bid)!.queue.map((q) => q.kind);
     expect(accepted.every((k) => k === 'hum_rifleman')).toBe(true);
     run(g, 120 * accepted.length + 5);

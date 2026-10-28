@@ -53,3 +53,19 @@ test('CTL-1 CTL-2 CTL-3 CTL-4 CUR-1 CUR-3: Q selects combat units, F2 toggles qu
     .toEqual([20 * 256, 20 * 256]);
   expect(errors).toEqual([]);
 });
+
+test('PRD-9: Ctrl-clicking a build item queues five of it', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/?faction=human&scenario=calm&seed=3');
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
+  const queued = (): Promise<number> =>
+    page.evaluate(() => {
+      const s = (window as unknown as { __shardfall: Hook }).__shardfall.snapshot() as unknown as { buildings: { kind: string; owner: number; queue: unknown[] }[] };
+      return s.buildings.find((b) => b.owner === 0 && b.kind === 'hum_hq')!.queue.length;
+    });
+  const reactor = page.locator('[data-act="build"][data-kind="hum_reactor"]');
+  await reactor.click({ modifiers: ['Control'] });
+  await expect.poll(queued).toBe(5);
+  expect(errors).toEqual([]);
+});
