@@ -17,6 +17,7 @@ export interface UnitSpawn {
 
 export type Command =
   | { type: 'noop'; player: number }
+  | { type: 'stop'; player: number; units: number[] }
   /** x, y in fixed-point world units. */
   | { type: 'move'; player: number; units: number[]; x: number; y: number };
 
@@ -38,10 +39,16 @@ export interface Snapshot {
   mapHeight: number;
   heights: readonly number[];
   units: UnitSnap[];
+  /** Viewer this snapshot is limited to; null for the god view. */
+  viewer: number | null;
+  /** Viewer fog grid (bit 1 explored, bit 2 visible); null for the god view. */
+  fog: Uint8Array | null;
 }
 
 export interface GameConfig {
   seed: number;
   map: MapDef;
   units?: UnitSpawn[];
+  /** Number of players; defaults to 2. */
+  players?: number;
 }

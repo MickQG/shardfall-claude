@@ -1,0 +1,13 @@
+# 003 Control and fog of war (milestone 3)
+
+- **FOG-1**: At game start each player's map is hidden except the tiles within vision of their own units.
+- **FOG-2**: Vision is a circle of per-kind radius; moving reveals new tiles, and tiles that leave vision stay explored but are no longer visible.
+- **FOG-3**: A player's snapshot always lists their own units and lists enemy units only on currently visible tiles; the god-view snapshot lists all.
+- **FOG-4**: Fog state is part of the state hash.
+- **CMD-1**: A `stop` command clears the path and destination of owned units and ignores units the player does not own.
+- **CTL-1**: Clicking selects the nearest own unit within a pick radius; clicking empty ground clears the selection; enemy units are never selected.
+- **CTL-2**: Box-select selects own units inside the rectangle; with shift it toggles them in the existing selection.
+- **CTL-3**: Double-click selects all own units of the same kind on screen.
+- **CTL-4**: Control groups: assign with a key, recall with the same key; recalling drops units that no longer exist.
+- **MAP-1**: Minimap projection maps tiles to minimap pixels and back without loss, and a minimap click resolves to the right tile.
+- **CTL-5**: In the browser, a click selects a unit, and a right-click sends a move order for the selection only.

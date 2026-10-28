@@ -1,5 +1,6 @@
 import { unitDef } from '../data/defs';
 import { centerOf, FP, isqrt, tileOf } from './fixed';
+import { createFog, recomputeVisible, VISIBLE } from './fog';
 import { Hasher } from './hash';
 import { findPath, isBlocked, type Grid } from './path';
 import { Rng } from './rng';
@@ -8,6 +9,7 @@ import type { Command, GameConfig, Snapshot } from './types';
 export type { Command, GameConfig, MapDef, Snapshot, UnitSnap, UnitSpawn } from './types';
 export { Rng } from './rng';
 export { FP } from './fixed';
+export { EXPLORED, VISIBLE } from './fog';
 
 export const TICKS_PER_SECOND = 20;
 
@@ -35,6 +37,8 @@ interface State {
   nextId: number;
   pending: Command[];
   pathQueue: number[];
+  /** Per-player fog grids. */
+  fog: Uint8Array[];
 }
 
 export interface Game {
@@ -56,12 +60,24 @@ export function createGame(cfg: GameConfig): Game {
     nextId: 1,
     pending: [],
     pathQueue: [],
+    fog: Array.from({ length: cfg.players ?? 2 }, () => createFog(width, height)),
   };
   for (const s of cfg.units ?? []) {
     unitDef(s.kind);
     state.units.push({ id: state.nextId++, owner: s.owner, kind: s.kind, x: centerOf(s.tx), y: centerOf(s.ty), hp: unitDef(s.kind).hp, path: [], goal: -1, waiting: false });
   }
+  updateFog(state);
   return { state };
+}
+
+function updateFog(s: State): void {
+  const { width, height } = s.grid;
+  s.fog.forEach((fog, player) => {
+    const sources = s.units
+      .filter((u) => u.owner === player)
+      .map((u) => ({ tx: tileOf(u.x), ty: tileOf(u.y), r: unitDef(u.kind).vision }));
+    recomputeVisible(fog, width, height, sources);
+  });
 }
 
 export function submit(game: Game, cmd: Command): void {
@@ -85,6 +101,15 @@ function ringTiles(g: Grid, tx: number, ty: number, count: number): number[] {
 }
 
 function applyCommand(s: State, cmd: Command): void {
+  if (cmd.type === 'stop') {
+    for (const u of s.units) {
+      if (u.owner !== cmd.player || !cmd.units.includes(u.id)) continue;
+      u.path = [];
+      u.goal = -1;
+      u.waiting = false;
+    }
+    return;
+  }
   if (cmd.type !== 'move') return;
   const mine = s.units.filter((u) => u.owner === cmd.player && cmd.units.includes(u.id));
   if (mine.length === 0) return;
@@ -220,18 +245,29 @@ export function tick(game: Game): void {
   servePathQueue(s);
   for (const u of s.units) stepUnit(s, u);
   separate(s);
+  updateFog(s);
   s.rng.nextU32();
   s.tick += 1;
 }
 
-export function snapshot(game: Game): Snapshot {
-  const { cfg, tick: t, units } = game.state;
+/**
+ * Snapshot of the game. With a `viewer`, it is limited to what that player may see
+ * (own units always, enemies only on visible tiles) and carries their fog grid.
+ * Without one it is the god view (tests, replays).
+ */
+export function snapshot(game: Game, viewer?: number): Snapshot {
+  const { cfg, tick: t, units, fog } = game.state;
+  const w = cfg.map.width;
+  const vf = viewer === undefined ? null : (fog[viewer] as Uint8Array);
+  const seen = units.filter((u) => vf === null || u.owner === viewer || ((vf[tileOf(u.y) * w + tileOf(u.x)] as number) & VISIBLE) !== 0);
   return {
     tick: t,
-    mapWidth: cfg.map.width,
+    mapWidth: w,
     mapHeight: cfg.map.height,
     heights: cfg.map.heights,
-    units: units.map((u) => ({ id: u.id, owner: u.owner, kind: u.kind, x: u.x, y: u.y, hp: u.hp, dest: u.goal >= 0 ? [u.goal % cfg.map.width, Math.floor(u.goal / cfg.map.width)] : null })),
+    units: seen.map((u) => ({ id: u.id, owner: u.owner, kind: u.kind, x: u.x, y: u.y, hp: u.hp, dest: u.goal >= 0 ? [u.goal % w, Math.floor(u.goal / w)] : null })),
+    viewer: viewer ?? null,
+    fog: vf ? vf.slice() : null,
   };
 }
 
@@ -241,5 +277,6 @@ export function hash(game: Game): number {
   for (const v of s.cfg.map.heights) h.int(v);
   for (const v of s.grid.blocked) h.int(v);
   for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0);
+  for (const f of s.fog) for (const v of f) h.int(v);
   return h.value;
 }
