@@ -8,6 +8,7 @@ import { Effects } from './effects';
 import { FogView } from './fogView';
 import type { RenderUnit } from './interp';
 import { HEIGHT_PX, TILE_H, TILE_W, tileToScreen } from './iso';
+import type { RallyLine } from '../ui/rally';
 import { animateUnit, drawUnit, type UnitArt } from './unitArt';
 
 interface UnitSprite {
@@ -40,6 +41,7 @@ export interface ViewState {
   selectedUnits: ReadonlySet<number>;
   selectedBuilding: number | null;
   placement: PlacementPreview | null;
+  rally: RallyLine | null;
   /** Clock in ms (for animation). */
   time: number;
   /** Decorative effects allowed by the quality / reduced-motion settings. */
@@ -240,6 +242,19 @@ export class GameView {
   private drawOverlay(vs: ViewState): void {
     const g = this.overlay;
     g.clear();
+    const r = vs.rally;
+    if (r) {
+      const a = tileToScreen(r.from.tx, r.from.ty);
+      const b = tileToScreen(r.to.tx + 0.5, r.to.ty + 0.5);
+      const n = Math.max(1, Math.floor(Math.hypot(b.x - a.x, b.y - a.y) / 14));
+      for (let i = 0; i < n; i++) {
+        const t0 = i / n;
+        const t1 = (i + 0.55) / n;
+        g.moveTo(a.x + (b.x - a.x) * t0, a.y + (b.y - a.y) * t0).lineTo(a.x + (b.x - a.x) * t1, a.y + (b.y - a.y) * t1).stroke({ color: 0x7ff5cd, width: 2, alpha: 0.85 });
+      }
+      g.circle(b.x, b.y, 6).stroke({ color: 0x7ff5cd, width: 2 }).circle(b.x, b.y, 2).fill(0x7ff5cd);
+      g.poly(tilePoly(r.to.tx, r.to.ty, 1, 1)).fill({ color: 0x7ff5cd, alpha: 0.18 });
+    }
     const p = vs.placement;
     if (!p) return;
     const d = buildingDef(p.kind);

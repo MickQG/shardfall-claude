@@ -96,6 +96,8 @@ export interface BuildingSnap {
   /** Production queue (own buildings and the god view only). */
   queue: QueueSnap[];
   repairing: boolean;
+  /** Explicit rally point, fixed-point (own buildings and the god view only). */
+  rally: [number, number] | null;
   /** Superweapon charge 0..100 (own buildings and the god view only). */
   charge: number;
 }
