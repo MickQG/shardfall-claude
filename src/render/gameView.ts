@@ -1,15 +1,17 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
 import { buildingDef } from '../data/defs';
-import type { BuildingSnap, Snapshot } from '../sim';
+import type { BuildingSnap, SimEvent, Snapshot } from '../sim';
 import { buildingHeight, buildingOrigin, drawBuilding } from './buildingArt';
 import type { Camera } from './camera';
 import { Effects } from './effects';
+import { barVisible, buildUp, damageState, edgeShade, groundTint, idleGlow, octant } from './gfx';
+import { OWNER_COLORS } from './colors';
 import { FogView } from './fogView';
 import type { RenderUnit } from './interp';
 import { HEIGHT_PX, TILE_H, TILE_W, tileToScreen } from './iso';
 import type { RallyLine } from '../ui/rally';
-import { animateUnit, drawUnit, type UnitArt } from './unitArt';
+import { aimUnit, animateUnit, drawUnit, type UnitArt } from './unitArt';
 
 interface UnitSprite {
   root: Container;
@@ -21,13 +23,21 @@ interface UnitSprite {
   lastTy: number;
   facing: number;
   moving: number;
+  /** Octant the weapon points at, and until when a recent shot holds it there (ms). */
+  aim: number;
+  aimHold: number;
 }
 
 interface BuildingSprite {
   root: Container;
+  art: Container;
   bar: Graphics;
   sel: Graphics;
+  /** Scaffold, damage smoke and fire, idle lights (redrawn each frame). */
+  fx: Graphics;
   ghost: boolean;
+  /** When the building first appeared, in view time; -Infinity if it was already there. */
+  born: number;
 }
 
 export interface PlacementPreview {
@@ -42,10 +52,12 @@ export interface ViewState {
   selectedBuilding: number | null;
   placement: PlacementPreview | null;
   rally: RallyLine | null;
+  /** The player whose view this is: only their new buildings play the build-up animation. */
+  viewer: number;
   /** Clock in ms (for animation). */
   time: number;
   /** Decorative effects allowed by the quality / reduced-motion settings. */
-  fx: { bloom: boolean; particles: boolean; shake: boolean };
+  fx: { bloom: boolean; particles: boolean; shake: boolean; decor: boolean };
 }
 
 const tilePoly = (tx: number, ty: number, w: number, h: number): number[] => {
@@ -65,6 +77,9 @@ export class GameView {
   private overlay = new Graphics();
   private sprites = new Map<number, UnitSprite>();
   private bsprites = new Map<number, BuildingSprite>();
+  private seeded = false;
+  private knownBuildings = new Set<number>();
+  private decorLayer = new Graphics();
   private fog: FogView | null = null;
   private lastFogTick = -1;
   private lastShardTick = -1;
@@ -77,7 +92,8 @@ export class GameView {
     await this.app.init({ resizeTo: host, background: 0x0b1015, antialias: true });
     host.appendChild(this.app.canvas);
     this.unitLayer.sortableChildren = true;
-    this.world.addChild(this.drawTerrain(snap), this.shardGfx, this.overlay, this.unitLayer);
+    this.world.addChild(this.drawTerrain(snap), this.decorLayer, this.shardGfx, this.overlay, this.unitLayer);
+    this.drawTerrainDecor(snap);
     if (snap.fog) {
       this.fog = new FogView(snap.mapWidth, snap.mapHeight);
       this.world.addChild(this.fog.sprite);
@@ -95,6 +111,8 @@ export class GameView {
       this.shardGfx.filters = fx.bloom ? [this.bloom] : [];
       this.effects.layer.filters = fx.bloom ? [this.bloom] : [];
     }
+    this.decorLayer.visible = fx.decor;
+    this.effects.decor = fx.decor;
     this.dust.clear();
     if (!fx.particles) return;
     const v = this.viewport;
@@ -127,10 +145,17 @@ export class GameView {
         const lvl = snap.heights[y * snap.mapWidth + x] ?? 0;
         const p = tileToScreen(x, y, lvl);
         const n = hash(x, y);
-        const f = 0.9 + n * 0.2 + ((x + y) & 1 ? 0 : -0.04);
+        const f = (0.9 + n * 0.2 + ((x + y) & 1 ? 0 : -0.04)) * (lvl === 0 ? groundTint(x, y) : 1);
         const top = mix(lvl === 0 ? 0x2f4f3c : lvl === 1 ? 0x5a6b73 : 0x77899a, f);
         g.poly([p.x, p.y, p.x + TILE_W / 2, p.y + TILE_H / 2, p.x, p.y + TILE_H, p.x - TILE_W / 2, p.y + TILE_H / 2]).fill(top);
         if (lvl === 0) {
+          // Shade the ground tile on the sides where rock rises beside it.
+          const e = edgeShade(snap.heights, snap.mapWidth, x, y);
+          const cx = p.x;
+          const cy = p.y + TILE_H / 2;
+          if (e.n) g.poly([p.x, p.y, cx + TILE_W / 4, cy - TILE_H / 4, cx, cy, cx - TILE_W / 4, cy - TILE_H / 4]).fill({ color: 0x000000, alpha: 0.28 });
+          if (e.e) g.poly([cx + TILE_W / 4, cy - TILE_H / 4, p.x + TILE_W / 2, cy, cx + TILE_W / 4, cy + TILE_H / 4, cx, cy]).fill({ color: 0x000000, alpha: 0.2 });
+          if (e.w) g.poly([cx - TILE_W / 4, cy - TILE_H / 4, p.x - TILE_W / 2, cy, cx - TILE_W / 4, cy + TILE_H / 4, cx, cy]).fill({ color: 0x000000, alpha: 0.2 });
           // Ground detail: pebbles and moss patches.
           if (n > 0.82) g.ellipse(p.x + (n - 0.5) * 30, p.y + 16 + (hash(y, x) - 0.5) * 8, 3.5, 1.8).fill({ color: 0x1f3a2c, alpha: 0.7 });
           if (n < 0.1) g.circle(p.x + (hash(x + 9, y) - 0.5) * 24, p.y + 16, 1.4).fill({ color: 0x8fb39b, alpha: 0.6 });
@@ -147,7 +172,24 @@ export class GameView {
     return g;
   }
 
-  private drawShards(snap: Snapshot, time: number): void {
+  /** Extra ground decals (cracks, pebble clusters) on open ground; toggled as a whole by the quality setting. */
+  private drawTerrainDecor(snap: Snapshot): void {
+    const g = this.decorLayer;
+    for (let y = 0; y < snap.mapHeight; y++) {
+      for (let x = 0; x < snap.mapWidth; x++) {
+        if ((snap.heights[y * snap.mapWidth + x] ?? 0) !== 0 || snap.shards[y * snap.mapWidth + x]) continue;
+        const n = (((x * 73856093) ^ (y * 19349663)) >>> 0) % 1000;
+        const p = tileToScreen(x + 0.5, y + 0.5);
+        if (n < 22) {
+          g.moveTo(p.x - 9, p.y - 1).lineTo(p.x - 2, p.y + 3).lineTo(p.x + 3, p.y).lineTo(p.x + 10, p.y + 4).stroke({ color: 0x14261d, width: 1.2, alpha: 0.55 });
+        } else if (n < 40) {
+          for (let k = 0; k < 3; k++) g.ellipse(p.x + ((n * (k + 3)) % 14) - 7, p.y + ((n * (k + 5)) % 8) - 4, 2.4, 1.3).fill({ color: 0x7e8f86, alpha: 0.55 });
+        }
+      }
+    }
+  }
+
+  private drawShards(snap: Snapshot, time: number, twinkle = false): void {
     const g = this.shardGfx;
     g.clear();
     const W = snap.mapWidth;
@@ -169,6 +211,10 @@ export class GameView {
         const cy = p.y + jy;
         g.poly([cx, cy - h, cx + 6, cy - h * 0.45, cx + 4, cy, cx - 4, cy, cx - 6, cy - h * 0.45]).fill({ color: 0x35e0a1, alpha: 0.92 });
         g.poly([cx, cy - h, cx + 6, cy - h * 0.45, cx + 1, cy - h * 0.4]).fill({ color: 0xbffbe6, alpha: 0.85 });
+        if (twinkle) {
+          const tw = Math.max(0, Math.sin(time / 380 + x * 2.3 + y * 1.1 + k * 1.7));
+          if (tw > 0.95) g.moveTo(cx - 4, cy - h).lineTo(cx + 4, cy - h).moveTo(cx, cy - h - 4).lineTo(cx, cy - h + 4).stroke({ color: 0xffffff, width: 1.2, alpha: (tw - 0.95) * 18 });
+        }
       }
     }
   }
@@ -177,14 +223,23 @@ export class GameView {
     const art = drawUnit(u.kind, u.owner);
     const root = art.root;
     const r = 11 * art.size;
+    // Team-coloured corner brackets around the unit's footprint.
     const ring = new Graphics();
-    ring.ellipse(0, 3, r + 6, (r + 6) / 2).stroke({ color: 0xffffff, width: 2 });
+    const bw = r + 7;
+    const bh = (r + 7) * 0.62;
+    const bc = OWNER_COLORS[u.owner] ?? 0xffffff;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+      const cx = sx * bw;
+      const cy = 3 + sy * bh;
+      ring.moveTo(cx - sx * 7, cy).lineTo(cx, cy).lineTo(cx, cy - sy * 5).stroke({ color: 0x04130d, width: 4 });
+      ring.moveTo(cx - sx * 7, cy).lineTo(cx, cy).lineTo(cx, cy - sy * 5).stroke({ color: bc, width: 2 });
+    }
     ring.visible = false;
     const bar = new Graphics();
     bar.visible = false;
     root.addChild(ring, bar);
     this.unitLayer.addChild(root);
-    return { root, art, ring, bar, maxHp: Math.max(u.hp, 1), lastTx: u.tx, lastTy: u.ty, facing: 1, moving: 0 };
+    return { root, art, ring, bar, maxHp: Math.max(u.hp, 1), lastTx: u.tx, lastTy: u.ty, facing: 1, moving: 0, aim: 0, aimHold: 0 };
   }
 
   private makeBuilding(b: BuildingSnap, ghost: boolean): BuildingSprite {
@@ -198,14 +253,15 @@ export class GameView {
     sel.visible = false;
     const bar = new Graphics();
     bar.visible = false;
-    root.addChild(art, sel, bar);
+    const fx = new Graphics();
+    root.addChild(art, fx, sel, bar);
     const o = buildingOrigin(b.tx, b.ty);
     root.position.set(o.x, o.y);
     const d = buildingDef(b.kind);
     root.zIndex = tileToScreen(b.tx + d.w, b.ty + d.h).y - 1;
     sel.poly(tilePoly(0, 0, d.w, d.h).map((v, i) => (i % 2 === 0 ? v : v + 0))).stroke({ color: 0xffffff, width: 2 });
     this.unitLayer.addChild(root);
-    return { root, bar, sel, ghost };
+    return { root, art, bar, sel, fx, ghost, born: -Infinity };
   }
 
   private syncBuildings(snap: Snapshot, vs: ViewState): void {
@@ -223,20 +279,113 @@ export class GameView {
       let s = this.bsprites.get(id);
       if (!s) {
         s = this.makeBuilding(b, ghost);
+        // Only the viewer's own new buildings rise; ones present at the start or first seen through the fog do not.
+        if (!ghost && this.seeded && b.owner === vs.viewer && !this.knownBuildings.has(id)) s.born = vs.time;
         this.bsprites.set(id, s);
       }
+      this.knownBuildings.add(id);
       s.sel.visible = vs.selectedBuilding === id;
       const d = buildingDef(b.kind);
-      const hurt = b.hp < d.hp;
-      s.bar.visible = !ghost && (vs.selectedBuilding === id || hurt);
+      const selected = vs.selectedBuilding === id;
+      const top = tileToScreen(d.w / 2, d.h / 2);
+      const h = buildingHeight(b.kind);
+      const showHp = !ghost && barVisible(b.hp, d.hp, selected);
+      const head = ghost ? undefined : b.queue[0];
+      const producing = !!head && !head.ready;
+      s.bar.visible = showHp || producing;
+      s.bar.clear();
       if (s.bar.visible) {
-        const frac = Math.max(0, Math.min(1, b.hp / d.hp));
-        const top = tileToScreen(d.w / 2, d.h / 2);
         const bx = top.x - 24;
-        const by = top.y - buildingHeight(b.kind) - 6;
-        s.bar.clear().rect(bx, by, 48, 5).fill(0x000000).rect(bx, by, 48 * frac, 5).fill(frac > 0.5 ? 0x4cd964 : frac > 0.25 ? 0xffcc00 : 0xff3b30);
+        const by = top.y - h - 6;
+        if (showHp) {
+          const frac = Math.max(0, Math.min(1, b.hp / d.hp));
+          s.bar.rect(bx - 1, by - 1, 50, 7).fill(0x04130d).rect(bx, by, 48 * frac, 5).fill(frac > 0.5 ? 0x4cd964 : frac > 0.25 ? 0xffcc00 : 0xff3b30);
+        }
+        if (head && producing) s.bar.rect(bx - 1, by + 7, 50, 5).fill(0x04130d).rect(bx, by + 8, 48 * (head.pct / 100), 3).fill(0x6fd3ff);
+      }
+      this.drawBuildingFx(s, b, vs, top, h);
+    }
+    this.seeded = true;
+  }
+
+  /** Build-up scaffold, damage smoke and fire, and idle lights for one building. All skipped when decor is off. */
+  private drawBuildingFx(s: BuildingSprite, b: BuildingSnap, vs: ViewState, top: { x: number; y: number }, h: number): void {
+    const g = s.fx;
+    g.clear();
+    s.art.y = 0;
+    if (s.ghost || !vs.fx.decor) {
+      if (!s.ghost) s.art.alpha = 1;
+      return;
+    }
+    const d = buildingDef(b.kind);
+    const p = buildUp(vs.time, s.born);
+    s.art.alpha = 0.3 + 0.7 * p;
+    s.art.y = (1 - p) * 14;
+    if (p < 1) {
+      const trim = OWNER_COLORS[b.owner] ?? 0xffffff;
+      const t0 = tileToScreen(0, 0);
+      const r0 = tileToScreen(d.w, 0);
+      const b0 = tileToScreen(d.w, d.h);
+      const l0 = tileToScreen(0, d.h);
+      const al = 1 - p * 0.85;
+      for (const c of [t0, r0, b0, l0]) g.moveTo(c.x, c.y).lineTo(c.x, c.y - h).stroke({ color: trim, width: 2, alpha: al });
+      for (const [a, c] of [[l0, b0], [b0, r0]] as const) {
+        const n = 4;
+        for (let i = 0; i < n; i++) {
+          const y0 = (i / n) * h;
+          const y1 = ((i + 1) / n) * h;
+          g.moveTo(a.x, a.y - (i % 2 ? y1 : y0)).lineTo(c.x, c.y - (i % 2 ? y0 : y1)).stroke({ color: trim, width: 1.2, alpha: al * 0.8 });
+        }
+      }
+      g.moveTo(l0.x, l0.y - h * p).lineTo(b0.x, b0.y - h * p).lineTo(r0.x, r0.y - h * p).stroke({ color: 0xffffff, width: 2, alpha: al });
+      return;
+    }
+    const state = damageState(b.hp, d.hp);
+    if (state !== 'intact') {
+      const puffs = state === 'critical' ? 5 : 3;
+      for (let i = 0; i < puffs; i++) {
+        const ph = (((vs.time / (state === 'critical' ? 900 : 1500) + i / puffs) % 1) + 1) % 1;
+        g.circle(top.x + (i - (puffs - 1) / 2) * 8 + Math.sin(vs.time / 400 + i) * 3, top.y - h - ph * 38, 4 + ph * 8).fill({ color: state === 'critical' ? 0x2b2b2b : 0x555555, alpha: (1 - ph) * 0.5 });
+      }
+      if (state === 'critical') {
+        for (let i = 0; i < 3; i++) {
+          const fl = 0.6 + 0.4 * Math.sin(vs.time / 70 + i * 2.1);
+          const fx = top.x + (i - 1) * 10;
+          g.poly([fx - 4, top.y - h + 2, fx, top.y - h - 12 * fl, fx + 4, top.y - h + 2]).fill({ color: 0xff6a1f, alpha: 0.9 });
+          g.poly([fx - 2, top.y - h + 2, fx, top.y - h - 6 * fl, fx + 2, top.y - h + 2]).fill({ color: 0xffe08a, alpha: 0.95 });
+        }
       }
     }
+    const glow = idleGlow(d.faction, vs.time + b.id * 211);
+    if (d.faction === 'human') {
+      g.moveTo(top.x, top.y - h).lineTo(top.x, top.y - h - 9).stroke({ color: 0x1a232d, width: 1.5 });
+      g.circle(top.x, top.y - h - 10, 2.2).fill({ color: 0xff5a4a, alpha: 0.25 + 0.75 * glow });
+      if (glow > 0) g.circle(top.x, top.y - h - 10, 6).fill({ color: 0xff5a4a, alpha: 0.25 });
+    } else {
+      g.ellipse(top.x, top.y - h, 9 + glow * 4, 4.5 + glow * 2).fill({ color: 0xb6ff5c, alpha: 0.08 + 0.22 * glow });
+    }
+  }
+
+  /** Points the weapon of the nearest unit of the shooter's side at the shot's target for a moment. */
+  aim(e: SimEvent, now: number): void {
+    if (e.t !== 'shot') return;
+    const sx = e.x / 256;
+    const sy = e.y / 256;
+    let best: UnitSprite | null = null;
+    let bd = 1.2 * 1.2;
+    for (const s of this.sprites.values()) {
+      if (s.art.owner !== e.owner) continue;
+      const d = (s.lastTx - sx) ** 2 + (s.lastTy - sy) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = s;
+      }
+    }
+    if (!best) return;
+    const dx = e.tx / 256 - sx;
+    const dy = e.ty / 256 - sy;
+    best.aim = octant((dx - dy) * 32, (dx + dy) * 16);
+    best.aimHold = now + 700;
   }
 
   private drawOverlay(vs: ViewState): void {
@@ -278,7 +427,7 @@ export class GameView {
         this.lastFogTick = snap.tick;
       }
       if (snap.tick !== this.lastShardTick && snap.tick % 4 === 0) {
-        this.drawShards(snap, vs.time);
+        this.drawShards(snap, vs.time, vs.fx.decor);
         this.lastShardTick = snap.tick;
       }
       this.syncBuildings(snap, vs);
@@ -298,18 +447,22 @@ export class GameView {
       s.root.zIndex = p.y;
       const dxs = (u.tx - s.lastTx - (u.ty - s.lastTy)) * 32;
       if (Math.abs(dxs) > 0.05) s.facing = dxs > 0 ? 1 : -1;
-      s.moving = Math.abs(u.tx - s.lastTx) + Math.abs(u.ty - s.lastTy) > 0.002 ? 6 : Math.max(0, s.moving - 1);
+      const mdx = u.tx - s.lastTx;
+      const mdy = u.ty - s.lastTy;
+      s.moving = Math.abs(mdx) + Math.abs(mdy) > 0.002 ? 6 : Math.max(0, s.moving - 1);
+      if (Math.abs(mdx) + Math.abs(mdy) > 0.002 && vs.time > s.aimHold) s.aim = octant((mdx - mdy) * 32, (mdx + mdy) * 16);
+      aimUnit(s.art, s.aim);
       s.lastTx = u.tx;
       s.lastTy = u.ty;
       animateUnit(s.art, vs.time + u.id * 37, s.moving > 0, s.facing, u.load / 200, vs.fx.particles || vs.fx.shake);
       const sel = vs.selectedUnits.has(u.id);
       s.ring.visible = sel;
-      const hurt = u.hp < s.maxHp;
-      s.bar.visible = sel || hurt;
+      s.bar.visible = barVisible(u.hp, s.maxHp, sel);
       if (s.bar.visible) {
         const frac = Math.max(0, Math.min(1, u.hp / s.maxHp));
         const top = s.art.air ? -44 : -30;
-        s.bar.clear().rect(-12, top, 24, 4).fill(0x000000).rect(-12, top, 24 * frac, 4).fill(frac > 0.5 ? 0x4cd964 : frac > 0.25 ? 0xffcc00 : 0xff3b30);
+        s.bar.clear().rect(-13, top - 1, 26, 6).fill(0x04130d).rect(-12, top, 24 * frac, 4).fill(frac > 0.5 ? 0x4cd964 : frac > 0.25 ? 0xffcc00 : 0xff3b30);
+        s.bar.rect(-12, top, 24 * frac, 1).fill({ color: 0xffffff, alpha: 0.35 });
       }
     }
     for (const [id, s] of this.sprites) {

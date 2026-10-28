@@ -59,6 +59,9 @@ export function drawBuilding(kind: string, owner: number): Container {
   const roofIn = inset(up(top, st.h), up(right, st.h), up(bottom, st.h), up(left, st.h), 0.28);
   poly(g, roofIn, alien ? 0x4a3a5f : 0x5a6b80);
 
+  // Rim light along the roof's lit (upper-left) edges.
+  g.moveTo(up(left, st.h).x, up(left, st.h).y).lineTo(up(top, st.h).x, up(top, st.h).y).lineTo(up(right, st.h).x, up(right, st.h).y).stroke({ color: 0xffffff, width: 1.4, alpha: 0.4 });
+
   // Team trim strip along the base of the front walls.
   g.poly([left.x, left.y - 3, bottom.x, bottom.y - 3, bottom.x, bottom.y - 7, left.x, left.y - 7]).fill(trim);
   g.poly([bottom.x, bottom.y - 3, right.x, right.y - 3, right.x, right.y - 7, bottom.x, bottom.y - 7]).fill({ color: trim, alpha: 0.8 });

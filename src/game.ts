@@ -184,6 +184,7 @@ function frame(prevTime: number): (t: number) => void {
 
     for (const ev of sim.events.splice(0)) {
       view.effects.spawn(ev, t);
+      view.aim(ev, t);
       const s = soundFor(ev, PLAYER);
       audio.play(s.name, s.gain);
     }
@@ -199,7 +200,7 @@ function frame(prevTime: number): (t: number) => void {
       if (selectedBuilding !== null && !curr.buildings.some((b) => b.id === selectedBuilding)) selectedBuilding = null;
       const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
       const ru = interpolate(sim.prev.units, curr.units, alpha);
-      view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings) }, curr);
+      view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings) }, curr);
       if (curr.tick !== lastAlertTick) {
         lastAlertTick = curr.tick;
         for (const a of alerts.update(curr)) {

@@ -1,6 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { UNIT_DEFS } from '../data/defs';
 import { OWNER_COLORS } from './colors';
+import { octantVector } from './gfx';
 
 export type Shape = 'soldier' | 'rocketeer' | 'buggy' | 'tank' | 'artillery' | 'hauler' | 'gunship' | 'skitter' | 'spitter' | 'stalker' | 'brute' | 'lobber' | 'wasp' | 'gorger';
 
@@ -28,9 +29,48 @@ export interface UnitArt {
   body: Container;
   rotor: Graphics | null;
   load: Graphics | null;
+  /** Aimable weapon barrel (lives in the flipped body, so it is counter-flipped when drawn). */
+  barrel: Graphics | null;
+  barrelSpec: BarrelSpec | null;
+  /** Octant the barrel is currently drawn at, or -1. */
+  aim: number;
   air: boolean;
   size: number;
+  owner: number;
 }
+
+interface BarrelSpec {
+  y: number;
+  len: number;
+  w: number;
+  color: number;
+}
+
+/** Weapon barrels that track a heading; the shapes not listed here have no aimable weapon. */
+const BARRELS: Partial<Record<Shape, BarrelSpec>> = {
+  soldier: { y: -9, len: 9, w: 2.5, color: 0x222c36 },
+  rocketeer: { y: -14, len: 10, w: 4, color: 0x4a5866 },
+  buggy: { y: -11, len: 9, w: 2.5, color: 0x2c3742 },
+  tank: { y: -15, len: 17, w: 3.5, color: 0x4a5866 },
+  artillery: { y: -15, len: 21, w: 4.5, color: 0x4a5866 },
+  spitter: { y: -11, len: 8, w: 3.5, color: 0xb6ff5c },
+};
+
+/** Soft top-light highlight per shape: [x, y, rx, ry] in body space. */
+const HIGHLIGHT: Partial<Record<Shape, [number, number, number, number]>> = {
+  soldier: [-1.5, -10, 2, 3.5],
+  rocketeer: [-1.5, -10, 2, 3.5],
+  buggy: [-2, -10, 7, 2],
+  tank: [-2, -11, 10, 2],
+  artillery: [-2, -9, 9, 1.6],
+  hauler: [4, -14, 9, 1.8],
+  skitter: [-1, -8, 2.5, 3],
+  spitter: [-3, -9, 3, 3],
+  stalker: [-2, -6, 8, 1.5],
+  brute: [-4, -13, 6, 3],
+  lobber: [-4, -9, 6, 2],
+  gorger: [-5, -11, 8, 2.4],
+};
 
 const METAL = 0x93a6bb;
 const DARK = 0x35424f;
@@ -59,12 +99,11 @@ export function drawUnit(kind: string, owner: number): UnitArt {
     case 'soldier':
       g.ellipse(0, -7, 5, 7).fill(METAL).stroke({ color: DARK, width: 1.5 });
       g.circle(0, -16, 4).fill(0xcdd8e4).rect(-3, -18, 6, 2).fill(team);
-      g.moveTo(3, -9).lineTo(11, -12).stroke({ color: 0x222c36, width: 2.5 });
       break;
     case 'rocketeer':
       g.ellipse(0, -7, 5.5, 7.5).fill(METAL).stroke({ color: DARK, width: 1.5 });
       g.circle(0, -16, 4).fill(0xcdd8e4).rect(-3, -18, 6, 2).fill(team);
-      g.rect(-7, -16, 14, 4).fill(0x4a5866).rect(6, -16, 3, 4).fill(0xff9a3c);
+      g.rect(-7, -16, 14, 4).fill(0x4a5866);
       break;
     case 'buggy':
       g.poly([-13, -4, -8, -11, 9, -11, 14, -4]).fill(METAL).stroke({ color: DARK, width: 1.5 });
@@ -75,14 +114,12 @@ export function drawUnit(kind: string, owner: number): UnitArt {
       g.rect(-15, -9, 30, 11).fill(DARK).stroke({ color: 0x1a232d, width: 1.5 });
       g.rect(-13, -12, 26, 5).fill(METAL);
       g.ellipse(0, -15, 9, 6).fill(METAL).stroke({ color: DARK, width: 1.5 });
-      g.rect(2, -17, 17, 3.5).fill(0x4a5866);
       g.rect(-15, -2, 30, 3).fill(0x1a1f26);
       g.rect(-4, -11, 8, 2).fill(team);
       break;
     case 'artillery':
       g.rect(-14, -7, 28, 9).fill(DARK).stroke({ color: 0x1a232d, width: 1.5 });
       g.rect(-10, -10, 20, 4).fill(METAL);
-      g.poly([-2, -12, 3, -16, 22, -26, 24, -22, 6, -10]).fill(0x4a5866).stroke({ color: 0x1a232d, width: 1 });
       g.rect(-4, -9, 6, 2).fill(team);
       break;
     case 'hauler':
@@ -140,14 +177,34 @@ export function drawUnit(kind: string, owner: number): UnitArt {
       body.addChild(load);
       break;
   }
+  const hl = HIGHLIGHT[art.shape];
+  if (hl) body.addChild(new Graphics().ellipse(hl[0], hl[1], hl[2], hl[3]).fill({ color: 0xffffff, alpha: 0.2 }));
+  const barrelSpec = BARRELS[art.shape] ?? null;
+  let barrel: Graphics | null = null;
+  if (barrelSpec) {
+    barrel = new Graphics();
+    body.addChild(barrel);
+  }
   body.scale.set(art.size);
   root.addChild(body);
-  return { root, body, rotor, load, air, size: art.size };
+  return { root, body, rotor, load, barrel, barrelSpec, aim: -1, air, size: art.size, owner };
 }
 
 /** Per-frame animation: bobbing while moving, spinning rotors, crystal load on haulers. `facing` is +1 or -1. */
+/** Points the unit's weapon barrel along octant `o` (0 = right, clockwise). Redraws only when the heading changes. */
+export function aimUnit(a: UnitArt, o: number): void {
+  if (!a.barrel || !a.barrelSpec || a.aim === o) return;
+  a.aim = o;
+  const v = octantVector(o);
+  const s = a.barrelSpec;
+  a.barrel.clear();
+  a.barrel.moveTo(0, s.y).lineTo(v.x * s.len, s.y + v.y * s.len).stroke({ color: s.color, width: s.w, cap: 'round' });
+  a.barrel.circle(0, s.y, s.w * 0.9).fill(s.color);
+}
+
 export function animateUnit(a: UnitArt, t: number, moving: boolean, facing: number, loadFrac: number, motion: boolean): void {
   a.body.scale.x = a.size * facing;
+  if (a.barrel) a.barrel.scale.x = facing;
   a.body.y = motion ? (moving ? Math.sin(t / 70) * 1.2 : 0) + (a.air ? Math.sin(t / 400) * 2 : 0) : 0;
   if (a.rotor) {
     a.rotor.clear();

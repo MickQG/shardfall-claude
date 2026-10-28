@@ -39,8 +39,9 @@ export function saveSettings(store: Store | null | undefined, s: Settings): void
 }
 
 /** Whether decorative effects (bloom, particles, screen shake) should run. */
-export const effectsEnabled = (s: Settings): { bloom: boolean; particles: boolean; shake: boolean } => ({
+export const effectsEnabled = (s: Settings): { bloom: boolean; particles: boolean; shake: boolean; decor: boolean } => ({
   bloom: s.quality === 'high' && !s.reducedMotion,
   particles: s.quality === 'high' && !s.reducedMotion,
   shake: !s.reducedMotion,
+  decor: s.quality === 'high' && !s.reducedMotion,
 });
