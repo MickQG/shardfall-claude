@@ -66,6 +66,9 @@ function missing(snap: Snapshot, requires: readonly string[]): string[] {
   return requires.filter((r) => !have.has(r));
 }
 
+/** How many items a Ctrl-click queues. */
+export const BULK_QUEUE = 5;
+
 export class Sidebar {
   private root = document.createElement('div');
   private resEl: HTMLElement;
@@ -94,6 +97,11 @@ export class Sidebar {
     });
   }
 
+  /** Queues one item, or five with Ctrl held; the sim ignores any that do not fit or cannot be afforded. */
+  private queue(src: number, kind: string, bulk: boolean): void {
+    for (let i = 0; i < (bulk ? BULK_QUEUE : 1); i++) this.actions.produce(src, kind);
+  }
+
   private onClick(e: MouseEvent, right: boolean): void {
     const el = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
     if (!el || el.classList.contains('off')) return;
@@ -107,8 +115,8 @@ export class Sidebar {
     }
     if (a === 'build') {
       if (el.classList.contains('ready')) this.actions.startPlacement(src, kind);
-      else this.actions.produce(src, kind);
-    } else if (a === 'train') this.actions.produce(src, kind);
+      else this.queue(src, kind, e.ctrlKey);
+    } else if (a === 'train') this.queue(src, kind, e.ctrlKey);
     else if (a === 'sell') this.actions.sell(src);
     else if (a === 'repair') this.actions.repair(src, el.dataset.on === '1');
     else if (a === 'fire') this.actions.fire(src);

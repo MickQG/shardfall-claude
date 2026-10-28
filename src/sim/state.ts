@@ -123,7 +123,7 @@ export interface State {
   winner: number | null;
 }
 
-export const QUEUE_MAX = 5;
+export const QUEUE_MAX = 20;
 
 export function createState(cfg: GameConfig): State {
   const { width, height } = cfg.map;
