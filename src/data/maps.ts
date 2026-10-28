@@ -131,3 +131,14 @@ export function demoMap(width = 96, height = 96): MapDef {
   }
   return { width, height, heights, blocked };
 }
+
+/** Dev/test scenario: an enemy squad starts next to the player's base so a fight begins immediately. */
+export function duelConfig(seed = 1): GameConfig {
+  const c = skirmishConfig(seed);
+  const raiders: UnitSpawn[] = [
+    { owner: 1, kind: 'ali_skitter', tx: 19, ty: 17 },
+    { owner: 1, kind: 'ali_skitter', tx: 20, ty: 17 },
+    { owner: 1, kind: 'ali_spitter', tx: 21, ty: 18 },
+  ];
+  return { ...c, units: [...(c.units ?? []), ...raiders] };
+}

@@ -42,8 +42,13 @@ describe('fog of war', () => {
     expect(snapshot(g).units.map((u) => u.id)).toEqual([1, 2]);
     // Move player 0 next to the enemy; now they see the enemy.
     submit(g, { type: 'move', player: 0, units: [1], x: 36 * FP, y: 40 * FP });
-    for (let i = 0; i < 1500; i++) tick(g);
-    expect(snapshot(g, 0).units.map((u) => u.id).sort()).toEqual([1, 2]);
+    let seen = false;
+    for (let i = 0; i < 2500 && !seen; i++) {
+      tick(g);
+      seen = snapshot(g, 0).units.some((u) => u.id === 2);
+    }
+    expect(seen).toBe(true); // the enemy appears as soon as it enters vision
+    expect(snapshot(g, 1).units.some((u) => u.id === 1) || g.state.units.every((u) => u.id !== 1)).toBe(true);
   });
 
   it('FOG-4: fog state is part of the state hash', () => {

@@ -3,7 +3,7 @@ import { centerOf } from './fixed';
 import { createFog } from './fog';
 import type { Grid } from './path';
 import { Rng } from './rng';
-import type { BuildingSnap, Command, GameConfig } from './types';
+import type { BuildingSnap, Command, GameConfig, SimEvent } from './types';
 
 export enum Hv {
   Idle = 0,
@@ -35,6 +35,33 @@ export interface Unit {
   /** Combat target id (unit or building), or -1. */
   target: number;
   cooldown: number;
+  /** How the unit is currently acting: idle (auto-engage), a plain move, attack-move or a focused attack. */
+  mode: Mode;
+  /** Attack-move destination tile index, or -1. */
+  amove: number;
+}
+
+export type Mode = 'idle' | 'move' | 'amove' | 'attack';
+
+export interface Projectile {
+  hit: number;
+  x: number;
+  y: number;
+  targetId: number;
+  owner: number;
+  damage: number;
+  type: string;
+  splash: number;
+  air: boolean;
+}
+
+export interface Strike {
+  hit: number;
+  x: number;
+  y: number;
+  owner: number;
+  damage: number;
+  radius: number;
 }
 
 export interface QueueItem {
@@ -87,6 +114,11 @@ export interface State {
   nextId: number;
   pending: Command[];
   pathQueue: number[];
+  projectiles: Projectile[];
+  strikes: Strike[];
+  events: SimEvent[];
+  over: boolean;
+  winner: number | null;
 }
 
 export const QUEUE_MAX = 5;
@@ -120,6 +152,11 @@ export function createState(cfg: GameConfig): State {
     nextId: 1,
     pending: [],
     pathQueue: [],
+    projectiles: [],
+    strikes: [],
+    events: [],
+    over: false,
+    winner: null,
   };
   for (const b of cfg.buildings ?? []) addBuilding(s, b.owner, b.kind, b.tx, b.ty);
   for (const u of cfg.units ?? []) addUnit(s, u.owner, u.kind, centerOf(u.tx), centerOf(u.ty));
@@ -130,7 +167,7 @@ export function addUnit(s: State, owner: number, kind: string, x: number, y: num
   const d = unitDef(kind);
   const u: Unit = {
     id: s.nextId++, owner, kind, x, y, hp: d.hp, path: [], goal: -1, waiting: false,
-    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, sinceHurt: 1000, target: -1, cooldown: 0,
+    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, sinceHurt: 1000, target: -1, cooldown: 0, mode: 'idle', amove: -1,
   };
   s.units.push(u);
   return u;

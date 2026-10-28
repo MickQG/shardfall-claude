@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 interface Snap {
   tick: number;
   fog: number[] | null;
-  units: { id: number; owner: number; kind: string; x: number; y: number }[];
+  units: { id: number; owner: number; kind: string; x: number; y: number; hp: number }[];
   buildings: { id: number; owner: number; kind: string; tx: number; ty: number; queue: { kind: string; pct: number; ready: boolean }[] }[];
   players: { credits: number }[];
 }
@@ -122,4 +122,22 @@ test('DET-1 ECO-5: the sidebar shows credits and power and updates as the econom
   await page.evaluate(() => window.__shardfall.setSpeed(10));
   await page.waitForTimeout(4000);
   expect(await read()).not.toBe(a);
+});
+
+test('CMB-3 CMB-4 CMB-8: in the browser, opposing squads fight, take damage and die without errors', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/?scenario=duel');
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
+  await page.evaluate(() => window.__shardfall.setSpeed(4));
+  const count = (): Promise<number> => page.evaluate(() => window.__shardfall.snapshot()!.units.filter((u) => u.kind !== 'hum_hauler').length);
+  const start = await count();
+  await page.waitForFunction(
+    () => window.__shardfall.snapshot()!.units.some((u) => u.hp < (({ ali_skitter: 70, ali_spitter: 80, hum_rifleman: 100 }) as Record<string, number>)[u.kind]!),
+    null,
+    { timeout: 20_000 },
+  );
+  await page.waitForTimeout(6000);
+  expect(await count()).toBeLessThan(start); // someone died
+  expect(errors).toEqual([]);
 });

@@ -1,4 +1,5 @@
 import { buildingDef, unitDef } from '../data/defs';
+import { fireSuperweapon, tickCombat } from './combat';
 import { regrow, tickHaulers, updatePower } from './economy';
 import { centerOf, tileOf } from './fixed';
 import { recomputeVisible, VISIBLE, type VisionSource } from './fog';
@@ -8,7 +9,8 @@ import { cancel, enqueue, place, sell, setRally, setRepair, tickProduction } fro
 import { createState, Hv, type Building, type State } from './state';
 import type { BuildingSnap, Command, GameConfig, Snapshot } from './types';
 
-export type { BuildingSnap, BuildingSpawn, Command, GameConfig, MapDef, PlayerSetup, PlayerSnap, QueueSnap, Snapshot, UnitSnap, UnitSpawn } from './types';
+export type { BuildingSnap, BuildingSpawn, Command, GameConfig, MapDef, PlayerSetup, PlayerSnap, QueueSnap, SimEvent, Snapshot, UnitSnap, UnitSpawn } from './types';
+export { damageAgainst } from './combat';
 export { Rng } from './rng';
 export { FP } from './fixed';
 export { EXPLORED, VISIBLE } from './fog';
@@ -92,11 +94,30 @@ function applyCommand(s: State, cmd: Command): void {
         if (u.owner !== cmd.player || !cmd.units.includes(u.id)) continue;
         clearOrder(u);
         u.target = -1;
+        u.mode = 'idle';
+        u.amove = -1;
         if (unitDef(u.kind).capacity !== undefined) u.auto = false;
       }
       return;
     case 'move':
-      return moveUnits(s, cmd.player, cmd.units, cmd.x, cmd.y);
+      return moveUnits(s, cmd.player, cmd.units, cmd.x, cmd.y, 'move');
+    case 'attackmove':
+      return moveUnits(s, cmd.player, cmd.units, cmd.x, cmd.y, 'amove');
+    case 'attack': {
+      const target = s.units.some((q) => q.id === cmd.target && q.owner !== cmd.player) || s.buildings.some((q) => q.id === cmd.target && q.owner !== cmd.player);
+      if (!target) return;
+      for (const u of s.units) {
+        if (u.owner !== cmd.player || !cmd.units.includes(u.id) || !unitDef(u.kind).weapon) continue;
+        clearOrder(u);
+        u.auto = false;
+        u.mode = 'attack';
+        u.target = cmd.target;
+        u.amove = -1;
+      }
+      return;
+    }
+    case 'superweapon':
+      return fireSuperweapon(s, cmd.player, cmd.building, cmd.x, cmd.y);
     case 'harvest': {
       for (const u of s.units) {
         if (u.owner !== cmd.player || !cmd.units.includes(u.id) || unitDef(u.kind).capacity === undefined) continue;
@@ -128,7 +149,7 @@ function applyCommand(s: State, cmd: Command): void {
   }
 }
 
-function moveUnits(s: State, player: number, ids: number[], x: number, y: number): void {
+function moveUnits(s: State, player: number, ids: number[], x: number, y: number, mode: 'move' | 'amove'): void {
   const mine = s.units.filter((u) => u.owner === player && ids.includes(u.id));
   if (mine.length === 0) return;
   const g = s.grid;
@@ -137,12 +158,17 @@ function moveUnits(s: State, player: number, ids: number[], x: number, y: number
   for (const u of air) {
     const i = Math.max(0, Math.min(g.height - 1, tileOf(y))) * g.width + Math.max(0, Math.min(g.width - 1, tileOf(x)));
     u.auto = false;
+    u.mode = mode;
+    u.target = -1;
+    u.amove = mode === 'amove' ? i : -1;
     orderMove(s, u, i);
   }
   const free = ringTiles(g, tileOf(x), tileOf(y), ground.length);
   for (const u of ground) {
     u.auto = false;
     u.hv = Hv.Idle;
+    u.mode = mode;
+    u.target = -1;
     let bi = 0;
     let bd = Infinity;
     for (let i = 0; i < free.length; i++) {
@@ -158,16 +184,19 @@ function moveUnits(s: State, player: number, ids: number[], x: number, y: number
       clearOrder(u);
       continue;
     }
+    u.amove = mode === 'amove' ? goal : -1;
     orderMove(s, u, goal);
   }
 }
 
 export function tick(game: Game): void {
   const s = game.state;
+  s.events.length = 0;
   for (const cmd of s.pending) applyCommand(s, cmd);
   s.pending.length = 0;
   updatePower(s);
   tickProduction(s);
+  tickCombat(s);
   servePathQueue(s);
   tickHaulers(s);
   for (const u of s.units) stepUnit(s, u);
@@ -206,6 +235,9 @@ export function snapshot(game: Game, viewer?: number): Snapshot {
     buildings: visibleBuildings.map((b) => buildingSnap(b, god || b.owner === viewer)),
     ghosts: god ? [] : [...(s.players[viewer]?.ghosts.values() ?? [])].filter((g) => !shown.has(g.id)),
     shards,
+    events: s.events.filter((e) => vf === null || ((vf[Math.max(0, Math.min(cfg.map.height - 1, tileOf(e.y))) * w + Math.max(0, Math.min(w - 1, tileOf(e.x)))] as number) & VISIBLE) !== 0),
+    over: s.over,
+    winner: s.winner,
     players: s.players.map((p, i) => (god || i === viewer ? { faction: p.faction, credits: p.credits, powerOut: p.powerOut, powerIn: p.powerIn } : { faction: p.faction, credits: 0, powerOut: 0, powerIn: 0 })),
     viewer: viewer ?? null,
     fog: vf ? vf.slice() : null,
@@ -217,13 +249,16 @@ export function hash(game: Game): number {
   const h = new Hasher().int(s.tick).int(s.rng.state).int(s.cfg.map.width).int(s.cfg.map.height);
   for (const v of s.cfg.map.heights) h.int(v);
   for (const v of s.grid.blocked) h.int(v);
-  for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0).int(u.load).int(u.hv).int(u.auto ? 1 : 0);
+  for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0).int(u.load).int(u.hv).int(u.auto ? 1 : 0).int(u.target).int(u.cooldown).int(u.amove).int(u.sinceHurt > 100 ? 100 : u.sinceHurt).int(u.mode.length);
   for (const b of s.buildings) {
-    h.int(b.id).int(b.owner).int(b.tx).int(b.ty).int(b.hp).int(b.queue.length).int(b.charge);
+    h.int(b.id).int(b.owner).int(b.tx).int(b.ty).int(b.hp).int(b.queue.length).int(b.charge).int(b.cooldown).int(b.target);
     for (const q of b.queue) h.int(q.progress).int(q.ready ? 1 : 0);
   }
   for (const p of s.players) h.int(p.credits).int(p.powerOut).int(p.powerIn);
   for (const f of s.fog) for (const v of f) h.int(v);
   for (const v of s.shards) h.int(v);
+  for (const p of s.projectiles) h.int(p.hit).int(p.targetId).int(p.damage);
+  for (const k of s.strikes) h.int(k.hit).int(k.x).int(k.y);
+  h.int(s.over ? 1 : 0).int(s.winner ?? -1);
   return h.value;
 }

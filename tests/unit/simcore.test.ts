@@ -35,16 +35,16 @@ describe('sim core', () => {
   });
 
   it('SIM-2: a move command travels at unit speed and stops; foreign units ignore it', () => {
-    const g = game(open(20, 5), [
+    const g = game(open(40, 5), [
       { owner: 0, kind: 'hum_rifleman', tx: 1, ty: 2 },
-      { owner: 1, kind: 'hum_rifleman', tx: 1, ty: 4 },
+      { owner: 1, kind: 'hum_rifleman', tx: 38, ty: 4 }, // far away: no combat interferes
     ]);
     submit(g, { type: 'move', player: 0, units: [1, 2], x: 15 * FP + FP / 2, y: 2 * FP + FP / 2 });
     tick(g);
     const moved = unit(g, 1).x - (1 * FP + FP / 2);
     expect(moved).toBeGreaterThan(0);
     expect(moved).toBeLessThanOrEqual(38);
-    expect(unit(g, 2).x).toBe(1 * FP + FP / 2);
+    expect(unit(g, 2).x).toBe(38 * FP + FP / 2);
     run(g, 400);
     expect(tileOfUnit(g, 1)).toEqual([15, 2]);
     const x = unit(g, 1).x;

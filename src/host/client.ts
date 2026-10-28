@@ -1,4 +1,4 @@
-import type { Command, GameConfig, Snapshot } from '../sim';
+import type { Command, GameConfig, SimEvent, Snapshot } from '../sim';
 import type { ToWorker } from './worker';
 
 /** Main-thread handle to the simulation running in a Web Worker. */
@@ -8,6 +8,8 @@ export class SimClient {
   curr: Snapshot | null = null;
   /** performance.now() timestamp when `curr` arrived. */
   currAt = 0;
+  /** Effects from every received tick, drained by the renderer. */
+  events: SimEvent[] = [];
 
   constructor(cfg: GameConfig) {
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
@@ -15,6 +17,7 @@ export class SimClient {
       this.prev = this.curr ?? e.data;
       this.curr = e.data;
       this.currAt = performance.now();
+      if (e.data.events.length > 0) this.events.push(...e.data.events);
     };
     this.post({ type: 'init', cfg });
   }

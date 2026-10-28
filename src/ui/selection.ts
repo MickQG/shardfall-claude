@@ -99,3 +99,18 @@ export class Selection {
     for (const id of this.ids) if (!alive.has(id)) this.ids.delete(id);
   }
 }
+
+/** Nearest enemy unit (any owner but `player`) within the pick radius, or null. */
+export function pickEnemy(units: readonly ScreenUnit[], sx: number, sy: number, player: number, radius = 20): number | null {
+  let best: number | null = null;
+  let bd = radius * radius;
+  for (const u of units) {
+    if (u.owner === player) continue;
+    const d = (u.sx - sx) ** 2 + (u.sy - sy) ** 2;
+    if (d <= bd) {
+      bd = d;
+      best = u.id;
+    }
+  }
+  return best;
+}

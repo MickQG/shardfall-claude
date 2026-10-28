@@ -6,6 +6,9 @@ const CSS = `
 #hud #info { left: 50%; bottom: 12px; transform: translateX(-50%); min-width: 240px; text-align: center; }
 #hud #info.empty { display: none; }
 #hud #topbar { left: 12px; top: 12px; }
+#hud #result { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; background: rgba(4,8,12,.72); pointer-events: auto; text-align: center; }
+#hud #result h1 { margin: 0; font-size: 64px; letter-spacing: .2em; text-shadow: 0 0 24px currentColor; }
+#hud #result button { font: inherit; font-size: 16px; padding: 10px 22px; border-radius: 6px; border: 1px solid #7ff5cd; background: #11202c; color: #dfe8e2; cursor: pointer; }
 #hud #selbox { position: fixed; border: 1px solid #7ff5cd; background: rgba(127,245,205,.12); display: none; pointer-events: none; }
 `;
 
@@ -14,6 +17,7 @@ export interface Hud {
   setInfo(lines: string[]): void;
   setTop(text: string): void;
   selbox(rect: { x0: number; y0: number; x1: number; y1: number } | null): void;
+  showResult(title: string, sub: string, color: string): void;
 }
 
 export function createHud(): Hud {
@@ -22,7 +26,7 @@ export function createHud(): Hud {
   document.head.appendChild(style);
   const root = document.createElement('div');
   root.id = 'hud';
-  root.innerHTML = '<div id="topbar" class="panel">Shardfall</div><div id="minimap-box" class="panel"></div><div id="info" class="panel empty"></div><div id="selbox"></div>';
+  root.innerHTML = '<div id="topbar" class="panel">Shardfall</div><div id="minimap-box" class="panel"></div><div id="info" class="panel empty"></div><div id="selbox"></div><div id="result"><h1></h1><div class="sub"></div><button id="again">Play again</button></div>';
   document.body.appendChild(root);
   const q = (sel: string): HTMLElement => root.querySelector(sel) as HTMLElement;
   const info = q('#info');
@@ -36,6 +40,14 @@ export function createHud(): Hud {
     },
     setTop(text) {
       q('#topbar').textContent = text;
+    },
+    showResult(title, sub, color) {
+      const el = q('#result');
+      el.style.display = 'flex';
+      (el.querySelector('h1') as HTMLElement).textContent = title;
+      (el.querySelector('h1') as HTMLElement).style.color = color;
+      (el.querySelector('.sub') as HTMLElement).textContent = sub;
+      (el.querySelector('#again') as HTMLElement).onclick = () => location.reload();
     },
     selbox(r) {
       if (!r) {
