@@ -17,7 +17,8 @@ import { Minimap, miniToTile } from './ui/minimap';
 import { rallyLine } from './ui/rally';
 import { effectsEnabled, loadSettings, saveSettings } from './ui/settings';
 import { Sidebar } from './ui/sidebar';
-import { boxSelect, pickEnemy, pickUnit, Selection, selectSameKind, toScreenUnits } from './ui/selection';
+import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
+import { boxSelect, Selection, selectSameKind, toScreenUnits } from './ui/selection';
 
 const PLAYER = 0;
 const host = document.getElementById('app');
@@ -93,18 +94,16 @@ function centerOn(tx: number, ty: number): void {
   cam = { ...cam, x: p.x, y: p.y };
 }
 
-/** The visible or remembered building whose footprint is under the cursor (roofs are drawn above the ground). */
-function buildingAt(snap: Snapshot, sx: number, sy: number): number | null {
-  const w = screenToWorld(cam, view.viewport, sx, sy);
-  for (const lift of [40, 28, 14, 0]) {
-    const t = screenToTile(w.x, w.y + lift);
-    const hit = snap.buildings.find((b) => {
-      const d = buildingDef(b.kind);
-      return t.x >= b.tx && t.x < b.tx + d.w && t.y >= b.ty && t.y < b.ty + d.h;
-    });
-    if (hit) return hit.id;
-  }
-  return null;
+/** One picking context per query: units are interpolated to the same instant for hover, right-click and left-click. */
+function hitContext(snap: Snapshot): HitContext {
+  const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
+  return {
+    player: PLAYER,
+    units: toScreenUnits(interpolate(sim.prev?.units ?? snap.units, snap.units, alpha), cam, view.viewport),
+    buildings: snap.buildings,
+    toWorld: (sx, sy) => screenToWorld(cam, view.viewport, sx, sy),
+    blocked: (tx, ty) => !!map.blocked?.[ty * map.width + tx],
+  };
 }
 
 function placementPreview(snap: Snapshot): PlacementPreview | null {
@@ -150,21 +149,7 @@ function cursorState(): CursorState {
   const anySelected = selection.selected.length > 0;
   const combatSelected = !!snap && combatUnitIds(snap.units.filter((u) => selection.has(u.id)), PLAYER).length > 0;
   const mode: CursorState['mode'] = targeting ? 'targeting' : placing ? 'placing' : amoveMode ? 'amove' : 'normal';
-  let hover: CursorState['hover'] = 'ground';
-  if (snap && mouse.x >= 0) {
-    const su = toScreenUnits(interpolate(snap.units, snap.units, 1), cam, view.viewport);
-    if (pickUnit(su, mouse.x, mouse.y, PLAYER) !== null) hover = 'ownUnit';
-    else if (pickEnemy(su, mouse.x, mouse.y, PLAYER) !== null) hover = 'enemy';
-    else {
-      const bid = buildingAt(snap, mouse.x, mouse.y);
-      const b = bid !== null ? snap.buildings.find((x) => x.id === bid) : undefined;
-      if (b) hover = b.owner === PLAYER ? 'ownBuilding' : 'enemy';
-      else {
-        const t = tileFromScreen(mouse.x, mouse.y);
-        if (map.blocked?.[Math.floor(t.y) * map.width + Math.floor(t.x)]) hover = 'blocked';
-      }
-    }
-  }
+  const hover: CursorState['hover'] = snap && mouse.x >= 0 ? hoverKind(hitTest(hitContext(snap), mouse.x, mouse.y), anySelected) : 'ground';
   const p = snap && mode === 'placing' ? placementPreview(snap) : null;
   return { mode, ctrl: ctrlHeld, combatSelected, anySelected, hover, placementOk: p?.ok };
 }
@@ -390,13 +375,9 @@ async function boot(): Promise<void> {
         return;
       }
       if (snap && selection.selected.length > 0) {
-        const su = toScreenUnits(interpolate(sim.prev?.units ?? snap.units, snap.units, (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND)), cam, view.viewport);
-        const enemyUnit = pickEnemy(su, e.offsetX, e.offsetY, PLAYER);
-        const bid = enemyUnit === null ? buildingAt(snap, e.offsetX, e.offsetY) : null;
-        const enemyBuilding = bid !== null && snap.buildings.find((b) => b.id === bid)?.owner !== PLAYER ? bid : null;
-        const target = enemyUnit ?? enemyBuilding;
-        if (target !== null) {
-          sim.send({ type: 'attack', player: PLAYER, units: selection.selected, target });
+        const o = rightClickOrder(hitTest(hitContext(snap), e.offsetX, e.offsetY));
+        if (o.kind === 'attack') {
+          sim.send({ type: 'attack', player: PLAYER, units: selection.selected, target: o.target });
           return;
         }
       }
@@ -436,15 +417,16 @@ async function boot(): Promise<void> {
     const r = canvas.getBoundingClientRect();
     const x1 = e.clientX - r.left;
     const y1 = e.clientY - r.top;
-    const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
-    const su = toScreenUnits(interpolate(sim.prev.units, sim.curr.units, alpha), cam, view.viewport);
+    const hc = hitContext(sim.curr);
+    const su = hc.units;
     if (Math.hypot(x1 - drag.x0, y1 - drag.y0) > 5) {
       const ids = boxSelect(su, drag.x0, drag.y0, x1, y1, PLAYER);
       selectedBuilding = null;
       if (e.shiftKey) selection.toggle(ids);
       else selection.set(ids);
     } else {
-      const id = pickUnit(su, x1, y1, PLAYER);
+      const hit = hitTest(hc, x1, y1);
+      const id = hit.ownUnit;
       const now = performance.now();
       if (id !== null) {
         selectedBuilding = null;
@@ -452,11 +434,9 @@ async function boot(): Promise<void> {
         else if (e.shiftKey) selection.toggle([id]);
         else selection.set([id]);
       } else {
-        const bid = buildingAt(sim.curr, x1, y1);
-        const mineB = bid !== null && sim.curr.buildings.find((b) => b.id === bid)?.owner === PLAYER;
-        if (mineB) {
+        if (hit.ownBuilding !== null) {
           selection.clear();
-          selectedBuilding = bid;
+          selectedBuilding = hit.ownBuilding;
         } else if (!e.shiftKey) {
           selection.clear();
           selectedBuilding = null;
