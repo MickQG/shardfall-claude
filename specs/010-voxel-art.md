@@ -10,3 +10,11 @@ Render layer only. Models and the baker are pure data and arithmetic: no `Math.r
 - **VOX-4**: Lighting comes from a fixed light: top faces are brighter than left faces, which are brighter than right faces; glow materials are unshaded; the team material takes the team colour; metal materials add a highlight on top faces.
 - **VOX-5**: A baked sprite has a transparent background, anchors the model's ground centre at the same pixel for every facing, and carries a soft ground shadow that never covers the model itself.
 - **VOX-6**: Faces hidden by neighbouring voxels, and faces turned away from the camera, are not drawn; a solid block draws only its visible outer faces.
+
+## Units
+
+- **VOX-7**: A model's scale sets the pixels per voxel: the same shape built from twice as many half-size voxels bakes to the same on-screen size.
+- **VOX-8**: A model that hovers above the ground casts a detached shadow on the ground, below the model, not a shadow joined to it.
+- **VOX-9**: Every unit kind has a voxel model, each kind's silhouette is distinct, and each model bakes in all 16 facings with its anchor inside the sprite.
+- **VOX-10**: A unit with a turret is drawn as a hull that faces its movement heading and a turret that faces its aim heading independently; the turret sits at the hull's pivot, turned with the hull.
+- **VOX-11**: The renderer picks the sprite for a unit from its kind, owner and facing (heading, or aim while firing) and reuses cached sprites, so a facing is baked at most once per kind and team colour.

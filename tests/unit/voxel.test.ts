@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { UNIT_DEFS } from '../../src/data/defs';
 import { bakeModel, faceIntensity, facingOf } from '../../src/render/voxel/bake';
+import { composeUnit } from '../../src/render/voxel/compose';
+import { UNIT_MODELS } from '../../src/render/voxel/models';
+import { SpriteCache } from '../../src/render/voxel/spriteCache';
 import { box, createModel, cylinder, sphere, topLayer, voxelCount, type Material } from '../../src/render/voxel/model';
 
 const GRAY: Material = { color: 0x8a96a3 };
@@ -156,5 +160,105 @@ describe('voxel baker', () => {
     const half = bakeModel(m, { team: 0, facing: 0, facings: 16, clipZ: 3 });
     expect(half.faces).toBeLessThan(full.faces);
     expect(half.faces).toBe(16 + 3 * 4 + 3 * 4); // top at layer 3 plus three layers of two side faces
+  });
+});
+
+/** Bounding box of pixels at least half opaque. */
+function bbox(s: { pixels: Uint8ClampedArray; width: number; height: number }): { w: number; h: number; maxY: number } {
+  let x0 = Infinity, x1 = -1, y0 = Infinity, y1 = -1;
+  for (let y = 0; y < s.height; y++) for (let x = 0; x < s.width; x++) if (px(s, x, y)[3] > 200) {
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  return { w: x1 - x0 + 1, h: y1 - y0 + 1, maxY: y1 };
+}
+
+describe('voxel scale and hovering', () => {
+  it('VOX-7: half-size voxels in twice the count bake to the same on-screen size', () => {
+    const a = createModel(8, 8, 8, [GRAY]);
+    box(a, 0, 0, 0, 8, 8, 8, 1);
+    const b = createModel(16, 16, 16, [GRAY], 0.5);
+    box(b, 0, 0, 0, 16, 16, 16, 1);
+    const ba = bbox(bakeModel(a, { team: 0, facing: 0, facings: 16 }));
+    const bb = bbox(bakeModel(b, { team: 0, facing: 0, facings: 16 }));
+    expect(Math.abs(ba.w - bb.w)).toBeLessThanOrEqual(2);
+    expect(Math.abs(ba.h - bb.h)).toBeLessThanOrEqual(2);
+  });
+
+  it('VOX-8: a hovering model casts a shadow that sits below it, detached', () => {
+    const m = createModel(6, 6, 12, [GRAY]);
+    box(m, 1, 1, 8, 4, 4, 2, 1);
+    const s = bakeModel(m, { team: 0, facing: 0, facings: 16 });
+    let minShadowY = Infinity;
+    for (let y = 0; y < s.height; y++) for (let x = 0; x < s.width; x++) {
+      const [r, g, b, a] = px(s, x, y);
+      if (a > 20 && a < 160 && r === 0 && g === 0 && b === 0) minShadowY = Math.min(minShadowY, y);
+    }
+    expect(minShadowY).toBeLessThan(Infinity);
+    expect(minShadowY).toBeGreaterThan(bbox(s).maxY);
+  });
+});
+
+describe('unit roster', () => {
+  const facings = 16;
+  const silhouette = (kind: string): string => {
+    const layers = composeUnit(UNIT_MODELS[kind]!(), 0x3fa0ff, 2, 2, facings);
+    // Position-independent mask hash: bake size plus coverage count per row of the hull.
+    const s = layers[0]!.sprite;
+    const rows: number[] = [];
+    for (let y = 0; y < s.height; y++) {
+      let n = 0;
+      for (let x = 0; x < s.width; x++) if (px(s, x, y)[3] > 128) n++;
+      rows.push(n);
+    }
+    return `${s.width}x${s.height}:${rows.join(',')}`;
+  };
+
+  it('VOX-9: every unit kind has a model, each with a distinct silhouette that bakes in all facings with its anchor inside', () => {
+    const kinds = Object.keys(UNIT_DEFS);
+    expect(Object.keys(UNIT_MODELS).sort()).toEqual([...kinds].sort());
+    expect(new Set(kinds.map(silhouette)).size).toBe(kinds.length);
+    for (const k of kinds) {
+      const u = UNIT_MODELS[k]!();
+      expect(voxelCount(u.hull)).toBeGreaterThan(60);
+      for (let f = 0; f < facings; f += 5) {
+        const s = bakeModel(u.hull, { team: 0x3fa0ff, facing: f, facings });
+        expect(s.anchorX).toBeGreaterThan(0);
+        expect(s.anchorX).toBeLessThan(s.width);
+        expect(s.anchorY).toBeGreaterThan(0);
+        expect(s.anchorY).toBeLessThan(s.height);
+      }
+    }
+  });
+
+  it('VOX-10: the turret turns independently of the hull and its pivot turns with the hull', () => {
+    const tank = UNIT_MODELS['hum_tank']!();
+    const a = composeUnit(tank, 0x3fa0ff, 0, 0, facings);
+    const b = composeUnit(tank, 0x3fa0ff, 0, 6, facings);
+    const c = composeUnit(tank, 0x3fa0ff, 4, 0, facings);
+    expect(a).toHaveLength(2);
+    expect(Buffer.from(a[0]!.sprite.pixels).equals(Buffer.from(b[0]!.sprite.pixels))).toBe(true); // same hull
+    expect(Buffer.from(a[1]!.sprite.pixels).equals(Buffer.from(b[1]!.sprite.pixels))).toBe(false); // different aim
+    expect([a[1]!.dx, a[1]!.dy]).not.toEqual([c[1]!.dx, c[1]!.dy]); // the pivot moved with the hull
+    expect(composeUnit(UNIT_MODELS['hum_rifleman']!(), 0x3fa0ff, 0, 0, facings)).toHaveLength(1);
+  });
+});
+
+describe('sprite cache', () => {
+  it('VOX-11: a facing is baked once per kind, team colour and part, then reused', () => {
+    let made = 0;
+    const cache = new SpriteCache(() => {
+      made++;
+      return {} as never;
+    });
+    const a = cache.hull('hum_tank', 0x3fa0ff, 3);
+    expect(cache.hull('hum_tank', 0x3fa0ff, 3)).toBe(a);
+    expect(made).toBe(1);
+    cache.hull('hum_tank', 0x3fa0ff, 4);
+    cache.hull('hum_tank', 0xff8a2a, 3); // another team colour is another sprite
+    expect(made).toBe(3);
+    expect(cache.turret('hum_tank', 0x3fa0ff, 3)).not.toBeNull();
+    expect(cache.turret('hum_rifleman', 0x3fa0ff, 3)).toBeNull(); // no turret, nothing baked
+    expect(made).toBe(4);
+    expect(cache.size).toBe(4);
   });
 });

@@ -4,8 +4,42 @@
  */
 import { writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
-import { bakeModel } from '../src/render/voxel/bake';
-import { SPRITE_MODELS } from '../src/render/voxel/models';
+import { composeUnit, type Layer } from '../src/render/voxel/compose';
+import { UNIT_MODELS } from '../src/render/voxel/models';
+
+interface Flat {
+  width: number;
+  height: number;
+  pixels: Uint8ClampedArray;
+}
+
+/** Flattens a unit's layers (hull, then turret) into one image, anchored layers laid over each other. */
+function flatten(layers: Layer[]): Flat {
+  const x0 = Math.floor(Math.min(...layers.map((l) => l.dx - l.sprite.anchorX)));
+  const y0 = Math.floor(Math.min(...layers.map((l) => l.dy - l.sprite.anchorY)));
+  const x1 = Math.ceil(Math.max(...layers.map((l) => l.dx - l.sprite.anchorX + l.sprite.width)));
+  const y1 = Math.ceil(Math.max(...layers.map((l) => l.dy - l.sprite.anchorY + l.sprite.height)));
+  const width = x1 - x0;
+  const height = y1 - y0;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (const l of layers) {
+    const ox = Math.round(l.dx - l.sprite.anchorX - x0);
+    const oy = Math.round(l.dy - l.sprite.anchorY - y0);
+    for (let y = 0; y < l.sprite.height; y++) {
+      for (let x = 0; x < l.sprite.width; x++) {
+        const i = (y * l.sprite.width + x) * 4;
+        const a = (l.sprite.pixels[i + 3] as number) / 255;
+        if (a === 0) continue;
+        const p = ((oy + y) * width + ox + x) * 4;
+        const da = (pixels[p + 3] as number) / 255;
+        const oa = a + da * (1 - a);
+        for (let c = 0; c < 3; c++) pixels[p + c] = ((l.sprite.pixels[i + c] as number) * a + (pixels[p + c] as number) * da * (1 - a)) / oa;
+        pixels[p + 3] = oa * 255;
+      }
+    }
+  }
+  return { width, height, pixels };
+}
 
 const crcTable = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -41,14 +75,14 @@ function png(w: number, h: number, rgba: Uint8ClampedArray): Buffer {
 }
 
 const out = process.argv[2] ?? 'sprites.png';
-const kinds = process.argv.slice(3).length ? process.argv.slice(3) : Object.keys(SPRITE_MODELS);
+const kinds = process.argv.slice(3).length ? process.argv.slice(3) : Object.keys(UNIT_MODELS);
 const FACINGS = 16;
 const COLS = 8;
 const GROUND = [0x2f, 0x4f, 0x3c];
 
 const sheets = kinds.map((k) => {
-  const model = (SPRITE_MODELS[k] as () => ReturnType<(typeof SPRITE_MODELS)[string]>)();
-  return Array.from({ length: FACINGS }, (_, f) => bakeModel(model, { team: 0x3fa0ff, facing: f, facings: FACINGS }));
+  const model = (UNIT_MODELS[k] as NonNullable<(typeof UNIT_MODELS)[string]>)();
+  return Array.from({ length: FACINGS }, (_, f) => flatten(composeUnit(model, 0x3fa0ff, f, f, FACINGS)));
 });
 const cw = Math.max(...sheets.flat().map((s) => s.width));
 const ch = Math.max(...sheets.flat().map((s) => s.height));

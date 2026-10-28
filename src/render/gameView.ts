@@ -5,13 +5,15 @@ import type { BuildingSnap, SimEvent, Snapshot } from '../sim';
 import { buildingHeight, buildingOrigin, drawBuilding } from './buildingArt';
 import type { Camera } from './camera';
 import { Effects } from './effects';
-import { barVisible, buildUp, damageState, edgeShade, groundTint, idleGlow, octant } from './gfx';
+import { barVisible, buildUp, damageState, edgeShade, groundTint, idleGlow } from './gfx';
 import { OWNER_COLORS } from './colors';
 import { FogView } from './fogView';
 import type { RenderUnit } from './interp';
 import { HEIGHT_PX, TILE_H, TILE_W, tileToScreen } from './iso';
 import type { RallyLine } from '../ui/rally';
-import { aimUnit, animateUnit, drawUnit, type UnitArt } from './unitArt';
+import { animateUnit, drawUnit, setFacing, type UnitArt } from './unitArt';
+import { facingOf } from './voxel/bake';
+import { FACINGS } from './voxel/spriteCache';
 
 interface UnitSprite {
   root: Container;
@@ -21,9 +23,10 @@ interface UnitSprite {
   maxHp: number;
   lastTx: number;
   lastTy: number;
-  facing: number;
   moving: number;
-  /** Octant the weapon points at, and until when a recent shot holds it there (ms). */
+  /** Facing of the last movement (hull heading). */
+  heading: number;
+  /** Facing the weapon points at, and until when a recent shot holds it there (ms). */
   aim: number;
   aimHold: number;
 }
@@ -226,7 +229,7 @@ export class GameView {
   private makeUnit(u: RenderUnit): UnitSprite {
     const art = drawUnit(u.kind, u.owner);
     const root = art.root;
-    const r = 11 * art.size;
+    const r = art.ringR;
     // Team-coloured corner brackets around the unit's footprint.
     const ring = new Graphics();
     const bw = r + 7;
@@ -243,7 +246,7 @@ export class GameView {
     bar.visible = false;
     root.addChild(ring, bar);
     this.unitLayer.addChild(root);
-    return { root, art, ring, bar, maxHp: Math.max(u.hp, 1), lastTx: u.tx, lastTy: u.ty, facing: 1, moving: 0, aim: 0, aimHold: 0 };
+    return { root, art, ring, bar, maxHp: Math.max(u.hp, 1), lastTx: u.tx, lastTy: u.ty, moving: 0, heading: 0, aim: 0, aimHold: 0 };
   }
 
   private makeBuilding(b: BuildingSnap, ghost: boolean): BuildingSprite {
@@ -388,7 +391,7 @@ export class GameView {
     if (!best) return;
     const dx = e.tx / 256 - sx;
     const dy = e.ty / 256 - sy;
-    best.aim = octant((dx - dy) * 32, (dx + dy) * 16);
+    best.aim = facingOf(dx, dy, FACINGS);
     best.aimHold = now + 700;
   }
 
@@ -449,22 +452,23 @@ export class GameView {
       const p = tileToScreen(u.tx, u.ty);
       s.root.position.set(p.x, p.y);
       s.root.zIndex = p.y;
-      const dxs = (u.tx - s.lastTx - (u.ty - s.lastTy)) * 32;
-      if (Math.abs(dxs) > 0.05) s.facing = dxs > 0 ? 1 : -1;
       const mdx = u.tx - s.lastTx;
       const mdy = u.ty - s.lastTy;
-      s.moving = Math.abs(mdx) + Math.abs(mdy) > 0.002 ? 6 : Math.max(0, s.moving - 1);
-      if (Math.abs(mdx) + Math.abs(mdy) > 0.002 && vs.time > s.aimHold) s.aim = octant((mdx - mdy) * 32, (mdx + mdy) * 16);
-      aimUnit(s.art, s.aim);
+      const moved = Math.abs(mdx) + Math.abs(mdy) > 0.002;
+      s.moving = moved ? 6 : Math.max(0, s.moving - 1);
+      if (moved) s.heading = facingOf(mdx, mdy, FACINGS);
+      // The weapon points at its target while a shot holds it, else along the heading. Hulls without a turret turn with it.
+      const aimF = vs.time <= s.aimHold ? s.aim : s.heading;
+      setFacing(s.art, s.art.turret ? s.heading : aimF, aimF);
       s.lastTx = u.tx;
       s.lastTy = u.ty;
-      animateUnit(s.art, vs.time + u.id * 37, s.moving > 0, s.facing, u.load / 200, vs.fx.particles || vs.fx.shake);
+      animateUnit(s.art, vs.time + u.id * 37, s.moving > 0, u.load / 200, vs.fx.particles || vs.fx.shake);
       const sel = vs.selectedUnits.has(u.id);
       s.ring.visible = sel;
       s.bar.visible = barVisible(u.hp, s.maxHp, sel);
       if (s.bar.visible) {
         const frac = Math.max(0, Math.min(1, u.hp / s.maxHp));
-        const top = s.art.air ? -44 : -30;
+        const top = -s.art.topY;
         s.bar.clear().rect(-13, top - 1, 26, 6).fill(0x04130d).rect(-12, top, 24 * frac, 4).fill(frac > 0.5 ? 0x4cd964 : frac > 0.25 ? 0xffcc00 : 0xff3b30);
         s.bar.rect(-12, top, 24 * frac, 1).fill({ color: 0xffffff, alpha: 0.35 });
       }
