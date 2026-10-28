@@ -35,6 +35,17 @@ npm run harness    # AI-vs-AI matches
 npm run e2e        # Playwright against a fresh build
 ```
 
+## Desktop app
+
+The same build runs in a desktop window (Electron, see `docs/adr/0004-electron-desktop-shell.md`):
+
+```
+npm run desktop        # build, then open the game in a desktop window
+npm run desktop:dist   # Windows portable .exe and installer in release/
+```
+
+CI builds and smoke-tests both on a Windows runner (`.github/workflows/desktop.yml`); pushing a `v*` tag publishes them as a GitHub release.
+
 Dev scenarios: `?faction=human&scenario=duel` (a fight starts at once) and `?scenario=rush` (a quick win).
 
 Original names, art and audio only. MIT licensed.

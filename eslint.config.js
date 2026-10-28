@@ -11,9 +11,14 @@ const nonDeterministic = [
 ];
 
 export default tseslint.config(
-  { ignores: ['public', 'dist', 'node_modules', 'coverage', 'playwright-report', 'test-results'] },
+  { ignores: ['public', 'dist', 'node_modules', 'coverage', 'playwright-report', 'test-results', 'release', 'tmp'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    files: ['desktop/**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs', globals: { require: 'readonly', module: 'writable', __dirname: 'readonly', process: 'readonly', Response: 'readonly', URL: 'readonly' } },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
   {
     files: ['src/sim/**/*.ts', 'src/ai/**/*.ts', 'src/data/**/*.ts'],
     rules: { 'no-restricted-syntax': ['error', ...nonDeterministic] },

@@ -10,7 +10,7 @@ Shardfall: an original isometric 2D RTS (Humans vs Aliens) for the browser. Star
 - Original IP only; no secrets in the repo.
 
 ## Commands
-`npm run dev` · `npm run build` · `npm test` · `npm run lint` · `npm run typecheck` · `npm run trace` · `npm run bench` · `npm run e2e`
+`npm run dev` · `npm run build` · `npm test` · `npm run lint` · `npm run typecheck` · `npm run trace` · `npm run bench` · `npm run e2e` · `npm run desktop` · `npm run desktop:dist`
 
 ## Layout
 `src/sim` deterministic core · `src/ai` AI client · `src/render` PixiJS renderer · `src/ui` HUD and input · `src/data` factions, units, maps · `scripts` tooling · `specs` requirements · `docs/adr` decisions

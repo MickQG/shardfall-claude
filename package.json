@@ -2,6 +2,8 @@
   "name": "shardfall",
   "version": "0.1.0",
   "description": "Shardfall: an original isometric RTS for the web",
+  "private": true,
+  "main": "desktop/main.cjs",
   "directories": {
     "doc": "docs"
   },
@@ -16,7 +18,10 @@
     "bench": "tsx scripts/bench.ts",
     "e2e": "playwright test",
     "harness": "tsx scripts/harness.ts",
-    "sprites": "tsx scripts/sprites.ts"
+    "sprites": "tsx scripts/sprites.ts",
+    "icon": "tsx scripts/icon.ts",
+    "desktop": "npm run build && electron .",
+    "desktop:dist": "npm run build && electron-builder --win --publish never"
   },
   "repository": {
     "type": "git",
@@ -35,6 +40,8 @@
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.1",
     "@types/node": "^26.6.5",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
     "eslint": "^10.13.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
@@ -42,6 +49,31 @@
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
   },
-  "private": true,
-  "type": "module"
+  "type": "module",
+  "build": {
+    "appId": "com.shardfall.game",
+    "productName": "Shardfall",
+    "directories": {
+      "buildResources": "desktop",
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "desktop/**",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "artifactName": "Shardfall-${version}-${os}-${arch}.${ext}"
+  }
 }
