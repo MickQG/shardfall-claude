@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BUILDING_DEFS, UNIT_DEFS } from '../../src/data/defs';
-import { damageTint, revealLine } from '../../src/render/gfx';
+import { damageTint, revealLine, shadeCube } from '../../src/render/gfx';
+import { crystalLevel, crystalModel, propAt, propModel, rockModel, rockVariant } from '../../src/render/voxel/props';
 import { BUILDING_MODELS, buildingHeightPx } from '../../src/render/voxel/buildings';
 import { bakeModel, faceIntensity, facingOf } from '../../src/render/voxel/bake';
 import { composeUnit } from '../../src/render/voxel/compose';
@@ -305,5 +306,55 @@ describe('building models', () => {
     expect(damageTint('intact')).toBe(0xffffff);
     expect(lum(damageTint('damaged'))).toBeLessThan(lum(damageTint('intact')));
     expect(lum(damageTint('critical'))).toBeLessThan(lum(damageTint('damaged')));
+  });
+});
+
+describe('terrain props', () => {
+  it('VOX-15: crystal level follows the amount left, in four steps, and each level is a bigger cluster', () => {
+    expect([0, 1, 200, 201, 800, 801, 2000, 2001, 5000].map(crystalLevel)).toEqual([0, 1, 1, 2, 2, 3, 3, 4, 4]);
+    const counts = [1, 2, 3, 4].map((l) => voxelCount(crystalModel(l)));
+    expect(counts[0]).toBeGreaterThan(30);
+    for (let i = 1; i < 4; i++) expect(counts[i]!).toBeGreaterThan(counts[i - 1]!);
+    expect(crystalModel(4).materials.some((m) => m.glow)).toBe(true);
+  });
+
+  it('VOX-16: a rock chunk is chosen from coordinates only, is taller on higher ground, and variants differ', () => {
+    expect(rockVariant(12, 30)).toBe(rockVariant(12, 30));
+    const variants = new Set<number>();
+    for (let i = 0; i < 60; i++) variants.add(rockVariant(i * 3, i * 7));
+    expect(variants.size).toBeGreaterThanOrEqual(3);
+    expect(topLayer(rockModel(0, 2))).toBeGreaterThan(topLayer(rockModel(0, 1)));
+    expect(Buffer.from(rockModel(0, 1).cells).equals(Buffer.from(rockModel(1, 1).cells))).toBe(false);
+    expect(Buffer.from(rockModel(2, 1).cells).equals(Buffer.from(rockModel(2, 1).cells))).toBe(true);
+    const m = rockModel(1, 1);
+    expect([m.sx, m.sy]).toEqual([16, 16]); // exactly one tile
+  });
+
+  it('VOX-17: props appear on a few percent of free ground, from coordinates alone, and never on occupied tiles', () => {
+    let n = 0;
+    const kinds = new Set<string>();
+    for (let y = 0; y < 96; y++) {
+      for (let x = 0; x < 96; x++) {
+        expect(propAt(x, y, false)).toBeNull();
+        const p = propAt(x, y, true);
+        expect(propAt(x, y, true)).toBe(p);
+        if (p) {
+          n++;
+          kinds.add(p);
+        }
+      }
+    }
+    expect(n / (96 * 96)).toBeGreaterThan(0.015);
+    expect(n / (96 * 96)).toBeLessThan(0.07);
+    expect(kinds.size).toBe(3);
+    for (const k of kinds) expect(voxelCount(propModel(k as never, 1))).toBeGreaterThan(8);
+  });
+
+  it('VOX-18: a debris cube has a lit top, a darker left and a darkest right face', () => {
+    const lum = (c: number): number => (c >> 16) + ((c >> 8) & 255) + (c & 255);
+    const c = shadeCube(0xcc8844);
+    expect(lum(c.top)).toBeGreaterThan(lum(c.left));
+    expect(lum(c.left)).toBeGreaterThan(lum(c.right));
+    expect(shadeCube(0xcc8844)).toEqual(c);
   });
 });

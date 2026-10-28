@@ -1,7 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import type { SimEvent } from '../sim';
 import { OWNER_COLORS } from './colors';
-import { muzzleFor } from './gfx';
+import { muzzleFor, shadeCube } from './gfx';
 import { tileToScreen } from './iso';
 
 interface Fx {
@@ -128,7 +128,15 @@ export class Effects {
       const sp = (20 + ((i * 37 + e.x) % 30)) * sc;
       const col = i % 3 === 0 ? 0x5a5a5a : i % 3 === 1 ? (OWNER_COLORS[e.owner] ?? 0xffffff) : 0xffb347;
       this.add(600 + (i % 4) * 90, now, (k, g) => {
-        g.clear().circle(p.x + Math.cos(ang) * sp * k, p.y - 10 + Math.sin(ang) * sp * 0.5 * k - 30 * k * (1 - k), 3 * (1 - k) + 1).fill({ color: col, alpha: 1 - k });
+        // A small lit cube: bright top, mid left face, dark right face.
+        const cx = p.x + Math.cos(ang) * sp * k;
+        const cy = p.y - 10 + Math.sin(ang) * sp * 0.5 * k - 30 * k * (1 - k);
+        const s = 3 * (1 - k) + 1.5;
+        const c = shadeCube(col);
+        g.clear();
+        g.poly([cx, cy - s, cx + s, cy - s / 2, cx, cy, cx - s, cy - s / 2]).fill({ color: c.top, alpha: 1 - k });
+        g.poly([cx - s, cy - s / 2, cx, cy, cx, cy + s, cx - s, cy + s / 2]).fill({ color: c.left, alpha: 1 - k });
+        g.poly([cx + s, cy - s / 2, cx, cy, cx, cy + s, cx + s, cy + s / 2]).fill({ color: c.right, alpha: 1 - k });
       }, p.y);
     }
     // Scorch mark.

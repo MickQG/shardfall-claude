@@ -8,3 +8,6 @@ test-results/
 .env.*
 .vite/
 .DS_Store
+
+# local scratch (patch scripts, screenshots)
+tmp/

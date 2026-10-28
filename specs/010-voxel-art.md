@@ -24,3 +24,10 @@ Render layer only. Models and the baker are pure data and arithmetic: no `Math.r
 - **VOX-12**: Every building kind has a voxel model whose footprint is exactly its tile footprint (16 voxels per tile edge), each with a distinct silhouette, and the model's own height (not a table) decides where overlays, bars and picking put the roof.
 - **VOX-13**: A building placed during play is revealed bottom-up over its build-up time, damaged buildings are tinted darker as they weaken, and finished full-health buildings are untinted.
 - **VOX-14**: Picking a building works anywhere on its drawn body, not only its footprint: the roof of a tall building selects it, and when buildings overlap on screen the nearer one wins.
+
+## Terrain and effects
+
+- **VOX-15**: Shard fields are drawn as voxel crystal clusters whose size follows the amount left (four levels, none when empty); a depleted tile loses its crystals, and the crystal sprites change only when a tile's level changes, not every few ticks.
+- **VOX-16**: Rock tiles are drawn as voxel rock chunks, taller on higher ground, with a variant chosen only from the tile's coordinates, so the same map always looks the same and neighbouring rocks differ.
+- **VOX-17**: Ground props (pebbles, alien sprouts, bone spires) are placed from tile coordinates alone, at a few percent of free open ground, never on occupied tiles, and not at all on the low-quality preset.
+- **VOX-18**: Debris from destroyed units and buildings is drawn as small shaded cubes (a lit top, a lighter left face and a darker right face), not flat dots.
