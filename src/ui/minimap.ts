@@ -30,6 +30,12 @@ export class Minimap {
   private ctx: CanvasRenderingContext2D;
   private terrain: HTMLCanvasElement;
   readonly layout: MiniLayout;
+  private pings: { tx: number; ty: number; born: number; color: string }[] = [];
+
+  /** Flash a ring on the minimap (alerts). `now` is the caller's clock in ms. */
+  ping(tx: number, ty: number, now: number, color = '#ff5a4a'): void {
+    this.pings.push({ tx, ty, born: now, color });
+  }
 
   constructor(snap: Snapshot, width = 220, height = 110) {
     this.canvas.width = width;
@@ -56,7 +62,7 @@ export class Minimap {
     return c;
   }
 
-  draw(snap: Snapshot, camTiles: { x: number; y: number }[]): void {
+  draw(snap: Snapshot, camTiles: { x: number; y: number }[], now = 0): void {
     const { ctx, layout: l } = this;
     ctx.clearRect(0, 0, l.width, l.height);
     ctx.drawImage(this.terrain, 0, 0);
@@ -87,6 +93,18 @@ export class Minimap {
       const p = tileToMini(l, u.x / 256, u.y / 256);
       ctx.fillStyle = `#${(OWNER_COLORS[u.owner] ?? 0xffffff).toString(16).padStart(6, '0')}`;
       ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    }
+    this.pings = this.pings.filter((p) => now - p.born < 2200);
+    for (const p of this.pings) {
+      const k = (now - p.born) / 2200;
+      const c = tileToMini(l, p.tx + 0.5, p.ty + 0.5);
+      ctx.strokeStyle = p.color;
+      ctx.globalAlpha = 1 - k;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 4 + k * 16, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
     if (camTiles.length === 4) {
       ctx.strokeStyle = '#ffffff';

@@ -140,6 +140,14 @@ export function demoMap(width = 96, height = 96): MapDef {
   return { width, height, heights, blocked };
 }
 
+/** Dev/test scenario: the enemy has a single weak building next to the player's squad, so the game ends within seconds. */
+export function rushConfig(seed = 1, o: SkirmishOptions = {}): GameConfig {
+  const c = skirmishConfig(seed, o);
+  const enemyBuilding = (o.factions?.[1] ?? 'alien') === 'human' ? 'hum_barracks' : 'ali_nest';
+  const mine = (c.buildings ?? []).filter((b) => b.owner === 0);
+  return { ...c, buildings: [...mine, { owner: 1, kind: enemyBuilding, tx: 20, ty: 16 }], units: (c.units ?? []).filter((u) => u.owner === 0) };
+}
+
 /** Dev/test scenario: an enemy squad starts next to the player's base so a fight begins immediately. */
 export function duelConfig(seed = 1, o: SkirmishOptions = {}): GameConfig {
   const c = skirmishConfig(seed, o);
