@@ -1,8 +1,8 @@
 /// <reference lib="webworker" />
 import type { Command, GameConfig } from '../sim';
-import { SimRunner, TICK_MS } from './runner';
+import { SimRunner, TICK_MS, type AiSetup } from './runner';
 
-export type ToWorker = { type: 'init'; cfg: GameConfig } | { type: 'cmd'; cmd: Command } | { type: 'speed'; value: number } | { type: 'pause'; value: boolean };
+export type ToWorker = { type: 'init'; cfg: GameConfig; ai: AiSetup[] } | { type: 'cmd'; cmd: Command } | { type: 'speed'; value: number } | { type: 'pause'; value: boolean };
 
 let runner: SimRunner | null = null;
 let last = 0;
@@ -10,7 +10,7 @@ let last = 0;
 self.onmessage = (e: MessageEvent<ToWorker>) => {
   const m = e.data;
   if (m.type === 'init') {
-    runner = new SimRunner(m.cfg, (s) => self.postMessage(s));
+    runner = new SimRunner(m.cfg, (s) => self.postMessage(s), 0, m.ai);
     last = Date.now();
     setInterval(() => {
       const now = Date.now();

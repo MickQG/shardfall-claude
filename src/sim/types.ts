@@ -30,6 +30,8 @@ export interface BuildingSpawn {
 export interface PlayerSetup {
   faction: Faction;
   credits: number;
+  /** Percent added to delivered shards (a difficulty handicap); default 0. */
+  bonus?: number;
 }
 
 export type Command =

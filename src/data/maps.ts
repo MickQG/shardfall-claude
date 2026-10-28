@@ -1,3 +1,4 @@
+import type { Faction } from './defs';
 import type { BuildingSpawn, GameConfig, MapDef, PlayerSetup, UnitSpawn } from '../sim';
 
 export const MAP_SIZE = 96;
@@ -37,7 +38,7 @@ const FIELDS: Field[] = [
   { cx: 12, cy: 24, r: 2, amount: 2500 },
   { cx: 34, cy: 64, r: 2, amount: 3500 },
 ];
-const CENTRE_FIELD: Field = { cx: 48, cy: 47, r: 3, amount: 5000 };
+const CENTRE_AMOUNT = 5000;
 
 /** A symmetric 96x96 two-player map with chokepoints, rock outcrops and contested shard fields. */
 export function skirmishMap(): MapDef {
@@ -72,30 +73,25 @@ export function skirmishMap(): MapDef {
     }
   };
   for (const f of FIELDS) field(f, true);
-  field(CENTRE_FIELD, false);
+  // The centre field is a disc around the map's exact centre (47.5, 47.5), so it is point-symmetric.
+  for (let y = 43; y <= 52; y++) for (let x = 43; x <= 52; x++) if ((x - 47.5) ** 2 + (y - 47.5) ** 2 <= 3.6 ** 2) shards[y * W + x] = CENTRE_AMOUNT;
   return { width: W, height: W, heights, blocked, shards };
 }
 
-export const PLAYERS: PlayerSetup[] = [
-  { faction: 'human', credits: 1800 },
-  { faction: 'alien', credits: 1800 },
-];
-
-function startingForce(owner: number): { buildings: BuildingSpawn[]; units: UnitSpawn[] } {
-  const s = STARTS[owner] as { tx: number; ty: number };
-  const human = owner === 0;
+function startingForce(owner: number, faction: Faction): { buildings: BuildingSpawn[]; units: UnitSpawn[] } {
+  const human = faction === 'human';
   // Player 1 mirrors player 0 through the map centre, so footprints are reflected too.
   const b = (kind: string, dx: number, dy: number, w: number, h: number): BuildingSpawn => ({
     owner,
     kind,
-    tx: human ? s.tx + dx : MAP_SIZE - 1 - (STARTS[0].tx + dx + w - 1),
-    ty: human ? s.ty + dy : MAP_SIZE - 1 - (STARTS[0].ty + dy + h - 1),
+    tx: owner === 0 ? STARTS[0].tx + dx : MAP_SIZE - 1 - (STARTS[0].tx + dx + w - 1),
+    ty: owner === 0 ? STARTS[0].ty + dy : MAP_SIZE - 1 - (STARTS[0].ty + dy + h - 1),
   });
   const u = (kind: string, dx: number, dy: number): UnitSpawn => ({
     owner,
     kind,
-    tx: human ? STARTS[0].tx + dx : MAP_SIZE - 1 - (STARTS[0].tx + dx),
-    ty: human ? STARTS[0].ty + dy : MAP_SIZE - 1 - (STARTS[0].ty + dy),
+    tx: owner === 0 ? STARTS[0].tx + dx : MAP_SIZE - 1 - (STARTS[0].tx + dx),
+    ty: owner === 0 ? STARTS[0].ty + dy : MAP_SIZE - 1 - (STARTS[0].ty + dy),
   });
   const hq = human ? 'hum_hq' : 'ali_hq';
   const power = human ? 'hum_reactor' : 'ali_generator';
@@ -108,10 +104,22 @@ function startingForce(owner: number): { buildings: BuildingSpawn[]; units: Unit
   };
 }
 
-export function skirmishConfig(seed = 1): GameConfig {
-  const a = startingForce(0);
-  const b = startingForce(1);
-  return { seed, map: skirmishMap(), players: PLAYERS, buildings: [...a.buildings, ...b.buildings], units: [...a.units, ...b.units] };
+export interface SkirmishOptions {
+  factions?: [Faction, Faction];
+  /** Percent shard-income bonus per player. */
+  bonuses?: [number, number];
+  credits?: number;
+}
+
+export function skirmishConfig(seed = 1, o: SkirmishOptions = {}): GameConfig {
+  const f = o.factions ?? ['human', 'alien'];
+  const a = startingForce(0, f[0]);
+  const b = startingForce(1, f[1]);
+  const players: PlayerSetup[] = [
+    { faction: f[0], credits: o.credits ?? 1800, bonus: o.bonuses?.[0] ?? 0 },
+    { faction: f[1], credits: o.credits ?? 1800, bonus: o.bonuses?.[1] ?? 0 },
+  ];
+  return { seed, map: skirmishMap(), players, buildings: [...a.buildings, ...b.buildings], units: [...a.units, ...b.units] };
 }
 
 /** Small deterministic test terrain: a ridge ring with gaps around the centre. */
@@ -133,12 +141,19 @@ export function demoMap(width = 96, height = 96): MapDef {
 }
 
 /** Dev/test scenario: an enemy squad starts next to the player's base so a fight begins immediately. */
-export function duelConfig(seed = 1): GameConfig {
-  const c = skirmishConfig(seed);
-  const raiders: UnitSpawn[] = [
-    { owner: 1, kind: 'ali_skitter', tx: 19, ty: 17 },
-    { owner: 1, kind: 'ali_skitter', tx: 20, ty: 17 },
-    { owner: 1, kind: 'ali_spitter', tx: 21, ty: 18 },
-  ];
+export function duelConfig(seed = 1, o: SkirmishOptions = {}): GameConfig {
+  const c = skirmishConfig(seed, o);
+  const enemyHuman = (o.factions?.[1] ?? 'alien') === 'human';
+  const raiders: UnitSpawn[] = enemyHuman
+    ? [
+        { owner: 1, kind: 'hum_rifleman', tx: 19, ty: 17 },
+        { owner: 1, kind: 'hum_rifleman', tx: 20, ty: 17 },
+        { owner: 1, kind: 'hum_rocketeer', tx: 21, ty: 18 },
+      ]
+    : [
+        { owner: 1, kind: 'ali_skitter', tx: 19, ty: 17 },
+        { owner: 1, kind: 'ali_skitter', tx: 20, ty: 17 },
+        { owner: 1, kind: 'ali_spitter', tx: 21, ty: 18 },
+      ];
   return { ...c, units: [...(c.units ?? []), ...raiders] };
 }
