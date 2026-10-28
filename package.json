@@ -15,7 +15,8 @@
     "trace": "tsx scripts/trace.ts",
     "bench": "tsx scripts/bench.ts",
     "e2e": "playwright test",
-    "harness": "tsx scripts/harness.ts"
+    "harness": "tsx scripts/harness.ts",
+    "sprites": "tsx scripts/sprites.ts"
   },
   "repository": {
     "type": "git",

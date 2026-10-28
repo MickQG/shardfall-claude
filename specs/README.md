@@ -13,5 +13,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `007-polish.md` | Visuals, audio, superweapons | 7 |
 | `008-controls-and-cursors.md` | Select-all-combat key, rally line, cursors, Ctrl-attack-move | 8 |
 | `009-visual-upgrade.md` | Construction, damage, facing, terrain, effects, polish | 9 |
+| `010-voxel-art.md` | Procedural voxel sprite engine; unit and building models | 10 |
 
 Umbrella spec: GitHub issue #1.
