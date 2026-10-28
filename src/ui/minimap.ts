@@ -1,3 +1,4 @@
+import { buildingDef } from '../data/defs';
 import { EXPLORED, VISIBLE, type Snapshot } from '../sim';
 import { OWNER_COLORS } from '../render/colors';
 
@@ -69,6 +70,18 @@ export class Minimap {
           ctx.fillRect(p.x - 1, p.y, 2.4, 1.4);
         }
       }
+    }
+    for (const b of [...snap.ghosts, ...snap.buildings]) {
+      const d = buildingDef(b.kind);
+      const p = tileToMini(l, b.tx + d.w / 2, b.ty + d.h / 2);
+      ctx.fillStyle = `#${(OWNER_COLORS[b.owner] ?? 0xffffff).toString(16).padStart(6, '0')}`;
+      ctx.fillRect(p.x - 2.5, p.y - 2, 5, 4);
+    }
+    for (let i = 0; i < snap.shards.length; i++) {
+      if ((snap.shards[i] as number) === 0) continue;
+      const p = tileToMini(l, (i % l.mapW) + 0.5, Math.floor(i / l.mapW) + 0.5);
+      ctx.fillStyle = '#35e0a1';
+      ctx.fillRect(p.x - 1, p.y - 0.5, 2, 1.4);
     }
     for (const u of snap.units) {
       const p = tileToMini(l, u.x / 256, u.y / 256);

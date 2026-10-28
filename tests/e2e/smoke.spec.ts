@@ -1,9 +1,18 @@
 import { expect, test, type Page } from '@playwright/test';
 
+interface Snap {
+  tick: number;
+  fog: number[] | null;
+  units: { id: number; owner: number; kind: string; x: number; y: number }[];
+  buildings: { id: number; owner: number; kind: string; tx: number; ty: number; queue: { kind: string; pct: number; ready: boolean }[] }[];
+  players: { credits: number }[];
+}
 interface Hook {
-  snapshot: () => { tick: number; fog: number[] | null; units: { id: number; owner: number; x: number; y: number }[] } | null;
+  snapshot: () => Snap | null;
   selected: () => number[];
   screenPos: (id: number) => { x: number; y: number } | null;
+  tileScreen: (tx: number, ty: number) => { x: number; y: number };
+  setSpeed: (v: number) => void;
 }
 declare global {
   interface Window {
@@ -40,8 +49,8 @@ test('HST-1: the simulation runs in a worker and keeps ticking', async ({ page }
 test('CTL-5 SIM-2: click selects a unit and a right-click moves only the selection', async ({ page }) => {
   await ready(page);
   const box = (await page.locator('canvas').first().boundingBox())!;
-  const own = await page.evaluate(() => window.__shardfall.snapshot()!.units.filter((u) => u.owner === 0).map((u) => u.id));
-  const [a, b] = [own[0]!, own[1]!];
+  const riflemen = await page.evaluate(() => window.__shardfall.snapshot()!.units.filter((u) => u.owner === 0 && u.kind === 'hum_rifleman').map((u) => u.id));
+  const [a, b] = [riflemen[0]!, riflemen[1]!];
   const p = await page.evaluate((id) => window.__shardfall.screenPos(id), a);
   expect(p).not.toBeNull();
 
@@ -50,7 +59,8 @@ test('CTL-5 SIM-2: click selects a unit and a right-click moves only the selecti
 
   const read = (): Promise<{ id: number; x: number; y: number }[]> => page.evaluate(() => window.__shardfall.snapshot()!.units.map((u) => ({ id: u.id, x: u.x, y: u.y })));
   const before = await read();
-  await page.mouse.click(box.x + box.width / 2 + 160, box.y + box.height / 2 + 60, { button: 'right' });
+  const dest = await page.evaluate(() => window.__shardfall.tileScreen(20, 17)); // on screen, several tiles from the selected unit
+  await page.mouse.click(box.x + dest.x, box.y + dest.y, { button: 'right' });
   await page.waitForTimeout(1500);
   const after = await read();
   const moved = (id: number): number => {
@@ -82,4 +92,34 @@ test('MAP-1: exactly one minimap is drawn and clicking it recentres the camera',
   await page.mouse.click(box.x + box.width * 0.75, box.y + box.height * 0.5);
   const after = await page.evaluate(() => (window.__shardfall as unknown as { camera: () => { x: number; y: number } }).camera());
   expect(Math.abs(after.x - before.x) + Math.abs(after.y - before.y)).toBeGreaterThan(100);
+});
+
+test('ECO-2 PRD-1 PRD-2 PRD-3 UI-1: build a structure from the sidebar, then place it with the ghost', async ({ page }) => {
+  await ready(page);
+  await page.evaluate(() => window.__shardfall.setSpeed(10));
+
+  const item = page.locator('#sb-build button[data-kind="hum_barracks"]');
+  await expect(item).toBeVisible();
+  await item.click();
+  await expect(page.locator('#sb-build button[data-kind="hum_barracks"].ready')).toBeVisible({ timeout: 20_000 });
+
+  await page.locator('#sb-build button[data-kind="hum_barracks"].ready').click();
+  const box = (await page.locator('canvas').first().boundingBox())!;
+  const at = await page.evaluate(() => window.__shardfall.tileScreen(15, 14)); // centre of a 2x2 footprint at (14,13)
+  await page.mouse.move(box.x + at.x, box.y + at.y);
+  await page.mouse.click(box.x + at.x, box.y + at.y);
+  await page.waitForFunction(() => window.__shardfall.snapshot()!.buildings.some((b) => b.owner === 0 && b.kind === 'hum_barracks'), null, { timeout: 10_000 });
+  const barracks = await page.evaluate(() => window.__shardfall.snapshot()!.buildings.find((b) => b.kind === 'hum_barracks')!);
+  expect([barracks.tx, barracks.ty]).toEqual([14, 13]);
+});
+
+test('DET-1 ECO-5: the sidebar shows credits and power and updates as the economy runs', async ({ page }) => {
+  await ready(page);
+  await expect(page.locator('#sb-res')).toContainText('Shards');
+  await expect(page.locator('#sb-res')).toContainText('Power');
+  const read = (): Promise<string> => page.locator('#sb-res .cr').innerText();
+  const a = await read();
+  await page.evaluate(() => window.__shardfall.setSpeed(10));
+  await page.waitForTimeout(4000);
+  expect(await read()).not.toBe(a);
 });

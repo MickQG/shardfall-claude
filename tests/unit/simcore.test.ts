@@ -25,19 +25,19 @@ const tileOfUnit = (g: Game, id: number): [number, number] => {
 describe('sim core', () => {
   it('SIM-1: a game lists its initial units in id order with owner, kind and position', () => {
     const g = game(open(8, 8), [
-      { owner: 0, kind: 'trooper', tx: 1, ty: 2 },
-      { owner: 1, kind: 'scout', tx: 5, ty: 6 },
+      { owner: 0, kind: 'hum_rifleman', tx: 1, ty: 2 },
+      { owner: 1, kind: 'hum_buggy', tx: 5, ty: 6 },
     ]);
     const s = snapshot(g);
     expect(s.units.map((u) => u.id)).toEqual([1, 2]);
-    expect(s.units[0]).toMatchObject({ owner: 0, kind: 'trooper', x: 1 * FP + FP / 2, y: 2 * FP + FP / 2 });
-    expect(s.units[1]).toMatchObject({ owner: 1, kind: 'scout' });
+    expect(s.units[0]).toMatchObject({ owner: 0, kind: 'hum_rifleman', x: 1 * FP + FP / 2, y: 2 * FP + FP / 2 });
+    expect(s.units[1]).toMatchObject({ owner: 1, kind: 'hum_buggy' });
   });
 
   it('SIM-2: a move command travels at unit speed and stops; foreign units ignore it', () => {
     const g = game(open(20, 5), [
-      { owner: 0, kind: 'trooper', tx: 1, ty: 2 },
-      { owner: 1, kind: 'trooper', tx: 1, ty: 4 },
+      { owner: 0, kind: 'hum_rifleman', tx: 1, ty: 2 },
+      { owner: 1, kind: 'hum_rifleman', tx: 1, ty: 4 },
     ]);
     submit(g, { type: 'move', player: 0, units: [1, 2], x: 15 * FP + FP / 2, y: 2 * FP + FP / 2 });
     tick(g);
@@ -100,7 +100,7 @@ describe('sim core', () => {
     const wall: [number, number][] = [];
     for (let y = 0; y < 12; y++) if (y !== 6) wall.push([6, y]);
     const m = open(12, 12, wall);
-    const spawns: UnitSpawn[] = Array.from({ length: 12 }, (_, i) => ({ owner: 0, kind: 'trooper', tx: 2 + (i % 3), ty: 4 + Math.floor(i / 3) }));
+    const spawns: UnitSpawn[] = Array.from({ length: 12 }, (_, i) => ({ owner: 0, kind: 'hum_rifleman', tx: 2 + (i % 3), ty: 4 + Math.floor(i / 3) }));
     const g = game(m, spawns);
     submit(g, { type: 'move', player: 0, units: spawns.map((_, i) => i + 1), x: 10 * FP, y: 6 * FP });
     for (let t = 0; t < 400; t++) {
@@ -112,7 +112,7 @@ describe('sim core', () => {
   });
 
   it('SIM-6: same seed and commands hash identically; different commands differ', () => {
-    const spawns: UnitSpawn[] = [{ owner: 0, kind: 'scout', tx: 2, ty: 2 }];
+    const spawns: UnitSpawn[] = [{ owner: 0, kind: 'hum_buggy', tx: 2, ty: 2 }];
     const play = (tx: number): number => {
       const g = game(demoMap(24, 24), spawns, 9);
       submit(g, { type: 'move', player: 0, units: [1], x: tx * FP, y: 20 * FP });
@@ -125,9 +125,9 @@ describe('sim core', () => {
 
   it('SIM-7: overlapping units are pushed apart and settle without stacking', () => {
     const g = game(open(10, 10), [
-      { owner: 0, kind: 'trooper', tx: 5, ty: 5 },
-      { owner: 0, kind: 'trooper', tx: 5, ty: 5 },
-      { owner: 0, kind: 'trooper', tx: 5, ty: 5 },
+      { owner: 0, kind: 'hum_rifleman', tx: 5, ty: 5 },
+      { owner: 0, kind: 'hum_rifleman', tx: 5, ty: 5 },
+      { owner: 0, kind: 'hum_rifleman', tx: 5, ty: 5 },
     ]);
     run(g, 80);
     const us = snapshot(g).units;
@@ -140,7 +140,7 @@ describe('sim core', () => {
   });
 
   it('SIM-8: a group move gives each unit a distinct destination tile', () => {
-    const spawns: UnitSpawn[] = Array.from({ length: 9 }, (_, i) => ({ owner: 0, kind: 'trooper', tx: 1 + (i % 3), ty: 1 + Math.floor(i / 3) }));
+    const spawns: UnitSpawn[] = Array.from({ length: 9 }, (_, i) => ({ owner: 0, kind: 'hum_rifleman', tx: 1 + (i % 3), ty: 1 + Math.floor(i / 3) }));
     const g = game(open(20, 20), spawns);
     submit(g, { type: 'move', player: 0, units: spawns.map((_, i) => i + 1), x: 14 * FP + 10, y: 14 * FP + 10 });
     tick(g);
@@ -182,14 +182,14 @@ describe('camera, interpolation and host', () => {
   });
 
   it('CAM-2: interpolation blends positions by alpha and clamps it to [0, 1]', () => {
-    const mk = (x: number) => [{ id: 1, owner: 0, kind: 'trooper', x, y: 0, hp: 1, dest: null }];
+    const mk = (x: number) => [{ id: 1, owner: 0, kind: 'hum_rifleman', x, y: 0, hp: 1, dest: null, load: 0 }];
     expect(interpolate(mk(0), mk(256), 0.5)[0]!.tx).toBeCloseTo(0.5);
     expect(interpolate(mk(0), mk(256), 2)[0]!.tx).toBeCloseTo(1);
     expect(interpolate(mk(0), mk(256), -1)[0]!.tx).toBeCloseTo(0);
   });
 
   it('HST-1: the runner ticks at a fixed rate regardless of frame size and forwards commands', () => {
-    const cfg = { seed: 1, map: open(30, 5), units: [{ owner: 0, kind: 'trooper', tx: 1, ty: 2 }] };
+    const cfg = { seed: 1, map: open(30, 5), units: [{ owner: 0, kind: 'hum_rifleman', tx: 1, ty: 2 }] };
     const ticksFor = (frame: number): number => {
       const r = new SimRunner(cfg, () => undefined);
       let n = 0;

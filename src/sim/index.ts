@@ -1,130 +1,153 @@
-import { unitDef } from '../data/defs';
-import { centerOf, FP, isqrt, tileOf } from './fixed';
-import { createFog, recomputeVisible, VISIBLE } from './fog';
+import { buildingDef, unitDef } from '../data/defs';
+import { regrow, tickHaulers, updatePower } from './economy';
+import { centerOf, tileOf } from './fixed';
+import { recomputeVisible, VISIBLE, type VisionSource } from './fog';
 import { Hasher } from './hash';
-import { findPath, isBlocked, type Grid } from './path';
-import { Rng } from './rng';
-import type { Command, GameConfig, Snapshot } from './types';
+import { clearOrder, orderMove, ringTiles, separate, servePathQueue, stepUnit } from './movement';
+import { cancel, enqueue, place, sell, setRally, setRepair, tickProduction } from './production';
+import { createState, Hv, type Building, type State } from './state';
+import type { BuildingSnap, Command, GameConfig, Snapshot } from './types';
 
-export type { Command, GameConfig, MapDef, Snapshot, UnitSnap, UnitSpawn } from './types';
+export type { BuildingSnap, BuildingSpawn, Command, GameConfig, MapDef, PlayerSetup, PlayerSnap, QueueSnap, Snapshot, UnitSnap, UnitSpawn } from './types';
 export { Rng } from './rng';
 export { FP } from './fixed';
 export { EXPLORED, VISIBLE } from './fog';
+export { BUILD_RANGE, canPlace, type Footprint, type PlacementContext } from './placement';
+export { canQueue } from './production';
+export { QUEUE_MAX } from './state';
+export { PATHS_PER_TICK } from './movement';
 
 export const TICKS_PER_SECOND = 20;
-
-interface Unit {
-  id: number;
-  owner: number;
-  kind: string;
-  x: number;
-  y: number;
-  hp: number;
-  /** Remaining tile indices to walk through. */
-  path: number[];
-  /** Assigned destination tile index, or -1. */
-  goal: number;
-  /** True while a path request for `goal` is queued. */
-  waiting: boolean;
-}
-
-interface State {
-  tick: number;
-  rng: Rng;
-  cfg: GameConfig;
-  grid: Grid;
-  units: Unit[];
-  nextId: number;
-  pending: Command[];
-  pathQueue: number[];
-  /** Per-player fog grids. */
-  fog: Uint8Array[];
-}
 
 export interface Game {
   readonly state: State;
 }
 
 export function createGame(cfg: GameConfig): Game {
-  const { width, height } = cfg.map;
-  const blocked = new Uint8Array(width * height);
-  cfg.map.blocked?.forEach((v, i) => {
-    blocked[i] = v ? 1 : 0;
-  });
-  const state: State = {
-    tick: 0,
-    rng: new Rng(cfg.seed),
-    cfg,
-    grid: { width, height, blocked },
-    units: [],
-    nextId: 1,
-    pending: [],
-    pathQueue: [],
-    fog: Array.from({ length: cfg.players ?? 2 }, () => createFog(width, height)),
-  };
-  for (const s of cfg.units ?? []) {
-    unitDef(s.kind);
-    state.units.push({ id: state.nextId++, owner: s.owner, kind: s.kind, x: centerOf(s.tx), y: centerOf(s.ty), hp: unitDef(s.kind).hp, path: [], goal: -1, waiting: false });
-  }
+  const state = createState(cfg);
+  updatePower(state);
   updateFog(state);
   return { state };
-}
-
-function updateFog(s: State): void {
-  const { width, height } = s.grid;
-  s.fog.forEach((fog, player) => {
-    const sources = s.units
-      .filter((u) => u.owner === player)
-      .map((u) => ({ tx: tileOf(u.x), ty: tileOf(u.y), r: unitDef(u.kind).vision }));
-    recomputeVisible(fog, width, height, sources);
-  });
 }
 
 export function submit(game: Game, cmd: Command): void {
   game.state.pending.push(cmd);
 }
 
-/** Free tiles around (tx,ty) in deterministic ring order, nearest first. */
-function ringTiles(g: Grid, tx: number, ty: number, count: number): number[] {
-  const out: number[] = [];
-  for (let r = 0; out.length < count && r < Math.max(g.width, g.height); r++) {
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-        if (isBlocked(g, tx + dx, ty + dy)) continue;
-        out.push((ty + dy) * g.width + (tx + dx));
-        if (out.length >= count) return out;
-      }
+const isBuildingVisible = (s: State, fog: Uint8Array, b: Building): boolean => {
+  const d = buildingDef(b.kind);
+  for (let y = b.ty; y < b.ty + d.h; y++) for (let x = b.tx; x < b.tx + d.w; x++) if ((fog[y * s.grid.width + x] as number) & VISIBLE) return true;
+  return false;
+};
+
+function buildingSnap(b: Building, detail: boolean): BuildingSnap {
+  const d = buildingDef(b.kind);
+  return {
+    id: b.id,
+    owner: b.owner,
+    kind: b.kind,
+    tx: b.tx,
+    ty: b.ty,
+    hp: b.hp,
+    queue: detail ? b.queue.map((q) => ({ kind: q.kind, pct: Math.min(100, Math.floor((q.progress * 100) / Math.max(1, q.total))), ready: q.ready })) : [],
+    repairing: b.repairing,
+    charge: detail && d.superweapon ? Math.min(100, Math.floor((b.charge * 100) / d.superweapon.charge)) : 0,
+  };
+}
+
+function updateFog(s: State): void {
+  const { width, height } = s.grid;
+  s.fog.forEach((fog, player) => {
+    const sources: VisionSource[] = [];
+    for (const u of s.units) if (u.owner === player) sources.push({ tx: tileOf(u.x), ty: tileOf(u.y), r: unitDef(u.kind).vision });
+    for (const b of s.buildings) {
+      if (b.owner !== player) continue;
+      const d = buildingDef(b.kind);
+      sources.push({ tx: b.tx + (d.w >> 1), ty: b.ty + (d.h >> 1), r: d.vision });
     }
-  }
-  return out;
+    recomputeVisible(fog, width, height, sources);
+
+    // Remember enemy buildings that have been seen; forget ghosts whose tiles are in view and empty.
+    const ghosts = s.players[player]?.ghosts;
+    if (!ghosts) return;
+    const live = new Set<number>();
+    for (const b of s.buildings) {
+      live.add(b.id);
+      if (b.owner !== player && isBuildingVisible(s, fog, b)) ghosts.set(b.id, buildingSnap(b, false));
+    }
+    for (const [id, g] of ghosts) {
+      if (live.has(id)) continue;
+      const d = buildingDef(g.kind);
+      let seen = false;
+      for (let y = g.ty; y < g.ty + d.h && !seen; y++) for (let x = g.tx; x < g.tx + d.w; x++) if ((fog[y * width + x] as number) & VISIBLE) seen = true;
+      if (seen) ghosts.delete(id);
+    }
+  });
 }
 
 function applyCommand(s: State, cmd: Command): void {
-  if (cmd.type === 'stop') {
-    for (const u of s.units) {
-      if (u.owner !== cmd.player || !cmd.units.includes(u.id)) continue;
-      u.path = [];
-      u.goal = -1;
-      u.waiting = false;
+  switch (cmd.type) {
+    case 'stop':
+      for (const u of s.units) {
+        if (u.owner !== cmd.player || !cmd.units.includes(u.id)) continue;
+        clearOrder(u);
+        u.target = -1;
+        if (unitDef(u.kind).capacity !== undefined) u.auto = false;
+      }
+      return;
+    case 'move':
+      return moveUnits(s, cmd.player, cmd.units, cmd.x, cmd.y);
+    case 'harvest': {
+      for (const u of s.units) {
+        if (u.owner !== cmd.player || !cmd.units.includes(u.id) || unitDef(u.kind).capacity === undefined) continue;
+        u.auto = true;
+        clearOrder(u);
+        u.hv = Hv.Idle;
+        const i = tileOf(cmd.y) * s.grid.width + tileOf(cmd.x);
+        if ((s.shards[i] as number) > 0) {
+          orderMove(s, u, i);
+          u.hv = Hv.ToField;
+        }
+      }
+      return;
     }
-    return;
+    case 'produce':
+      return enqueue(s, cmd.player, cmd.source, cmd.kind);
+    case 'cancel':
+      return cancel(s, cmd.player, cmd.source, cmd.index);
+    case 'place':
+      return place(s, cmd.player, cmd.source, cmd.tx, cmd.ty);
+    case 'sell':
+      return sell(s, cmd.player, cmd.building);
+    case 'repair':
+      return setRepair(s, cmd.player, cmd.building, cmd.on);
+    case 'rally':
+      return setRally(s, cmd.player, cmd.building, cmd.x, cmd.y);
+    default:
+      return;
   }
-  if (cmd.type !== 'move') return;
-  const mine = s.units.filter((u) => u.owner === cmd.player && cmd.units.includes(u.id));
+}
+
+function moveUnits(s: State, player: number, ids: number[], x: number, y: number): void {
+  const mine = s.units.filter((u) => u.owner === player && ids.includes(u.id));
   if (mine.length === 0) return;
   const g = s.grid;
-  const goals = ringTiles(g, tileOf(cmd.x), tileOf(cmd.y), mine.length);
-  // Assign nearest-first goals to units in id order, greedily, for a stable distinct assignment.
-  const free = goals.slice();
-  for (const u of mine) {
+  const air = mine.filter((u) => unitDef(u.kind).air);
+  const ground = mine.filter((u) => !unitDef(u.kind).air);
+  for (const u of air) {
+    const i = Math.max(0, Math.min(g.height - 1, tileOf(y))) * g.width + Math.max(0, Math.min(g.width - 1, tileOf(x)));
+    u.auto = false;
+    orderMove(s, u, i);
+  }
+  const free = ringTiles(g, tileOf(x), tileOf(y), ground.length);
+  for (const u of ground) {
+    u.auto = false;
+    u.hv = Hv.Idle;
     let bi = 0;
     let bd = Infinity;
     for (let i = 0; i < free.length; i++) {
       const gi = free[i] as number;
-      const gx = centerOf(gi % g.width);
-      const gy = centerOf(Math.floor(gi / g.width));
-      const d = Math.abs(gx - u.x) + Math.abs(gy - u.y);
+      const d = Math.abs(centerOf(gi % g.width) - u.x) + Math.abs(centerOf(Math.floor(gi / g.width)) - u.y);
       if (d < bd) {
         bd = d;
         bi = i;
@@ -132,109 +155,10 @@ function applyCommand(s: State, cmd: Command): void {
     }
     const goal = free.splice(bi, 1)[0];
     if (goal === undefined) {
-      u.path = [];
-      u.goal = -1;
+      clearOrder(u);
       continue;
     }
-    u.goal = goal;
-    u.path = [];
-    u.waiting = true;
-    s.pathQueue.push(u.id);
-  }
-}
-
-/** Path searches allowed per tick; the rest wait their turn in FIFO order (keeps tick time flat). */
-export const PATHS_PER_TICK = 6;
-
-function servePathQueue(s: State): void {
-  let served = 0;
-  while (served < PATHS_PER_TICK && s.pathQueue.length > 0) {
-    const id = s.pathQueue.shift() as number;
-    const u = s.units.find((x) => x.id === id);
-    if (!u || !u.waiting) continue;
-    u.waiting = false;
-    u.path = findPath(s.grid, tileOf(u.x), tileOf(u.y), u.goal % s.grid.width, Math.floor(u.goal / s.grid.width));
-    served++;
-  }
-}
-
-function stepUnit(s: State, u: Unit): void {
-  const speed = unitDef(u.kind).speed;
-  let budget = speed;
-  while (budget > 0 && u.path.length > 0) {
-    const next = u.path[0] as number;
-    const wx = centerOf(next % s.grid.width);
-    const wy = centerOf(Math.floor(next / s.grid.width));
-    const dx = wx - u.x;
-    const dy = wy - u.y;
-    const dist = isqrt(dx * dx + dy * dy);
-    if (dist <= budget) {
-      u.x = wx;
-      u.y = wy;
-      budget -= dist;
-      u.path.shift();
-    } else {
-      u.x += Math.trunc((dx * budget) / dist);
-      u.y += Math.trunc((dy * budget) / dist);
-      budget = 0;
-    }
-  }
-}
-
-function separate(s: State): void {
-  const g = s.grid;
-  const buckets = new Map<number, Unit[]>();
-  for (const u of s.units) {
-    const key = tileOf(u.y) * g.width + tileOf(u.x);
-    const b = buckets.get(key);
-    if (b) b.push(u);
-    else buckets.set(key, [u]);
-  }
-  const push = new Map<number, [number, number]>();
-  for (const u of s.units) {
-    const ux = tileOf(u.x);
-    const uy = tileOf(u.y);
-    const ru = unitDef(u.kind).radius;
-    for (let ny = uy - 1; ny <= uy + 1; ny++) {
-      for (let nx = ux - 1; nx <= ux + 1; nx++) {
-        const b = buckets.get(ny * g.width + nx);
-        if (!b) continue;
-        for (const o of b) {
-          if (o.id <= u.id) continue;
-          const dx = o.x - u.x;
-          const dy = o.y - u.y;
-          const min = ru + unitDef(o.kind).radius;
-          const d2 = dx * dx + dy * dy;
-          if (d2 >= min * min) continue;
-          const d = isqrt(d2);
-          // Coincident units are split along a deterministic axis based on id.
-          const nxv = d === 0 ? (u.id & 1 ? 1 : -1) : dx;
-          const nyv = d === 0 ? ((u.id >> 1) & 1 ? 1 : -1) : dy;
-          const len = d === 0 ? 1 : d;
-          const overlap = min - d;
-          const px = Math.trunc((nxv * overlap) / (2 * len)) || (nxv > 0 ? 1 : nxv < 0 ? -1 : 0);
-          const py = Math.trunc((nyv * overlap) / (2 * len)) || (nyv > 0 ? 1 : nyv < 0 ? -1 : 0);
-          const pu = push.get(u.id) ?? [0, 0];
-          pu[0] -= px;
-          pu[1] -= py;
-          push.set(u.id, pu);
-          const po = push.get(o.id) ?? [0, 0];
-          po[0] += px;
-          po[1] += py;
-          push.set(o.id, po);
-        }
-      }
-    }
-  }
-  for (const u of s.units) {
-    const p = push.get(u.id);
-    if (!p) continue;
-    const nx = u.x + Math.max(-FP / 8, Math.min(FP / 8, p[0]));
-    const ny = u.y + Math.max(-FP / 8, Math.min(FP / 8, p[1]));
-    if (!isBlocked(g, tileOf(nx), tileOf(ny))) {
-      u.x = nx;
-      u.y = ny;
-    }
+    orderMove(s, u, goal);
   }
 }
 
@@ -242,9 +166,13 @@ export function tick(game: Game): void {
   const s = game.state;
   for (const cmd of s.pending) applyCommand(s, cmd);
   s.pending.length = 0;
+  updatePower(s);
+  tickProduction(s);
   servePathQueue(s);
+  tickHaulers(s);
   for (const u of s.units) stepUnit(s, u);
   separate(s);
+  regrow(s);
   updateFog(s);
   s.rng.nextU32();
   s.tick += 1;
@@ -252,20 +180,33 @@ export function tick(game: Game): void {
 
 /**
  * Snapshot of the game. With a `viewer`, it is limited to what that player may see
- * (own units always, enemies only on visible tiles) and carries their fog grid.
+ * (own entities always, enemies only on visible tiles) and carries their fog grid.
  * Without one it is the god view (tests, replays).
  */
 export function snapshot(game: Game, viewer?: number): Snapshot {
-  const { cfg, tick: t, units, fog } = game.state;
+  const s = game.state;
+  const { cfg, units, buildings, fog } = s;
   const w = cfg.map.width;
-  const vf = viewer === undefined ? null : (fog[viewer] as Uint8Array);
-  const seen = units.filter((u) => vf === null || u.owner === viewer || ((vf[tileOf(u.y) * w + tileOf(u.x)] as number) & VISIBLE) !== 0);
+  const god = viewer === undefined;
+  const vf = god ? null : (fog[viewer] as Uint8Array);
+  const visibleUnits = units.filter((u) => vf === null || u.owner === viewer || ((vf[tileOf(u.y) * w + tileOf(u.x)] as number) & VISIBLE) !== 0);
+  const visibleBuildings = buildings.filter((b) => vf === null || b.owner === viewer || isBuildingVisible(s, vf, b));
+  const shown = new Set(visibleBuildings.map((b) => b.id));
+  const shards = new Uint16Array(s.shards.length);
+  for (let i = 0; i < shards.length; i++) if (vf === null || (vf[i] as number) !== 0) shards[i] = s.shards[i] as number;
   return {
-    tick: t,
+    tick: s.tick,
     mapWidth: w,
     mapHeight: cfg.map.height,
     heights: cfg.map.heights,
-    units: seen.map((u) => ({ id: u.id, owner: u.owner, kind: u.kind, x: u.x, y: u.y, hp: u.hp, dest: u.goal >= 0 ? [u.goal % w, Math.floor(u.goal / w)] : null })),
+    units: visibleUnits.map((u) => ({
+      id: u.id, owner: u.owner, kind: u.kind, x: u.x, y: u.y, hp: u.hp, load: u.load,
+      dest: u.goal >= 0 ? [u.goal % w, Math.floor(u.goal / w)] : null,
+    })),
+    buildings: visibleBuildings.map((b) => buildingSnap(b, god || b.owner === viewer)),
+    ghosts: god ? [] : [...(s.players[viewer]?.ghosts.values() ?? [])].filter((g) => !shown.has(g.id)),
+    shards,
+    players: s.players.map((p, i) => (god || i === viewer ? { faction: p.faction, credits: p.credits, powerOut: p.powerOut, powerIn: p.powerIn } : { faction: p.faction, credits: 0, powerOut: 0, powerIn: 0 })),
     viewer: viewer ?? null,
     fog: vf ? vf.slice() : null,
   };
@@ -276,7 +217,13 @@ export function hash(game: Game): number {
   const h = new Hasher().int(s.tick).int(s.rng.state).int(s.cfg.map.width).int(s.cfg.map.height);
   for (const v of s.cfg.map.heights) h.int(v);
   for (const v of s.grid.blocked) h.int(v);
-  for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0);
+  for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0).int(u.load).int(u.hv).int(u.auto ? 1 : 0);
+  for (const b of s.buildings) {
+    h.int(b.id).int(b.owner).int(b.tx).int(b.ty).int(b.hp).int(b.queue.length).int(b.charge);
+    for (const q of b.queue) h.int(q.progress).int(q.ready ? 1 : 0);
+  }
+  for (const p of s.players) h.int(p.credits).int(p.powerOut).int(p.powerIn);
   for (const f of s.fog) for (const v of f) h.int(v);
+  for (const v of s.shards) h.int(v);
   return h.value;
 }
