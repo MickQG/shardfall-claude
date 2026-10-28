@@ -1,6 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import type { SimEvent } from '../sim';
 import { OWNER_COLORS } from './colors';
+import { muzzleFor } from './gfx';
 import { tileToScreen } from './iso';
 
 interface Fx {
@@ -20,6 +21,8 @@ export class Effects {
   private list: Fx[] = [];
   /** Screen shake amplitude in pixels, decays each frame. */
   shake = 0;
+  /** Decorative extras (scorch decals, lingering smoke) allowed by the quality settings. */
+  decor = true;
 
   private add(life: number, now: number, step: Fx['step'], z = 0): Graphics {
     const g = new Graphics();
@@ -49,8 +52,18 @@ export class Effects {
     const b = toScreen(e.tx, e.ty);
     const color = WEAPON_COLOR[e.weapon] ?? 0xffffff;
     const aY = a.y - (e.air ? 0 : 10);
-    // Muzzle flash.
-    this.add(90, now, (k, g) => g.clear().circle(a.x, aY, 5 * (1 - k) + 1).fill({ color, alpha: 1 - k }), a.y);
+    // Muzzle flash: a directional burst whose length, width and colour depend on the weapon.
+    const mz = muzzleFor(e.weapon);
+    const ang = Math.atan2(b.y - aY, b.x - a.x);
+    this.add(110, now, (k, g) => {
+      const len = mz.len * (1 - k * 0.5);
+      const w = mz.width * (1 - k);
+      g.clear();
+      const px = -Math.sin(ang) * w;
+      const py = Math.cos(ang) * w;
+      g.poly([a.x + px, aY + py, a.x + Math.cos(ang) * len, aY + Math.sin(ang) * len, a.x - px, aY - py]).fill({ color: mz.color, alpha: 1 - k });
+      g.circle(a.x, aY, mz.width * 0.9 * (1 - k) + 1).fill({ color: 0xffffff, alpha: (1 - k) * 0.8 });
+    }, a.y);
     if (e.flight > 0) {
       const life = e.flight * TICK_MS;
       const arc = e.weapon === 'blast';
@@ -94,6 +107,7 @@ export class Effects {
       g.circle(p.x, p.y - 6, size * (0.2 + k * 0.5)).fill({ color: 0xff8c2a, alpha: (1 - k) * 0.7 });
       g.circle(p.x, p.y - 8, size * 0.28 * (1 - k)).fill({ color: 0xfff3c4, alpha: 1 - k });
     }, p.y);
+    if (this.decor) this.add(9000, now, (k, g) => g.clear().ellipse(p.x, p.y + 2, size * 0.55, size * 0.27).fill({ color: 0x000000, alpha: 0.36 * (1 - k) }), -1e6);
     this.shake = Math.max(this.shake, 2 + r * 2);
   }
 
@@ -118,7 +132,13 @@ export class Effects {
       }, p.y);
     }
     // Scorch mark.
-    this.add(3500, now, (k, g) => g.clear().ellipse(p.x, p.y + 2, 16 * sc, 7 * sc).fill({ color: 0x000000, alpha: 0.4 * (1 - k) }), -1e6);
+    this.add(this.decor ? 9000 : 3500, now, (k, g) => g.clear().ellipse(p.x, p.y + 2, 16 * sc, 7 * sc).fill({ color: 0x000000, alpha: 0.4 * (1 - k) }), -1e6);
+    if (e.big && this.decor) {
+      for (let i = 0; i < 5; i++) {
+        const ox = (i - 2) * 9;
+        this.add(2600 + i * 250, now, (k, g) => g.clear().circle(p.x + ox + Math.sin(k * 5 + i) * 4, p.y - 14 - k * 60, 7 + k * 12).fill({ color: 0x3a3a3a, alpha: (1 - k) * 0.5 }), p.y + 1);
+      }
+    }
     this.shake = Math.max(this.shake, e.big ? 6 : 1.5);
   }
 

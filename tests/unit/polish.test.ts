@@ -20,9 +20,9 @@ describe('visuals and settings', () => {
 
   it('VIS-2: quality and reduced motion control the effects; settings persist and survive broken storage', () => {
     const hi = defaultSettings(false);
-    expect(effectsEnabled(hi)).toEqual({ bloom: true, particles: true, shake: true });
-    expect(effectsEnabled({ ...hi, quality: 'low' })).toEqual({ bloom: false, particles: false, shake: true });
-    expect(effectsEnabled(defaultSettings(true))).toEqual({ bloom: false, particles: false, shake: false });
+    expect(effectsEnabled(hi)).toEqual({ bloom: true, particles: true, shake: true, decor: true });
+    expect(effectsEnabled({ ...hi, quality: 'low' })).toEqual({ bloom: false, particles: false, shake: true, decor: false });
+    expect(effectsEnabled(defaultSettings(true))).toEqual({ bloom: false, particles: false, shake: false, decor: false });
 
     const mem = new Map<string, string>();
     const store = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
