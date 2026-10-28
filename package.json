@@ -2,11 +2,9 @@
   "name": "shardfall",
   "version": "0.1.0",
   "description": "Shardfall: an original isometric RTS for the web",
+  "author": "MickQG",
   "private": true,
   "main": "desktop/main.cjs",
-  "directories": {
-    "doc": "docs"
-  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
