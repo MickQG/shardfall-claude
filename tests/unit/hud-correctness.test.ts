@@ -23,8 +23,8 @@ describe('HUD correctness', () => {
   });
 
   it('UI-7: health bars measure hit points against the unit kind maximum, however damaged the unit was when first seen', () => {
-    expect(hpFraction(260, 'hum_tank')).toBe(0.5);
-    expect(hpFraction(520, 'hum_tank')).toBe(1);
+    expect(hpFraction(275, 'hum_tank')).toBe(0.5);
+    expect(hpFraction(550, 'hum_tank')).toBe(1);
     expect(hpFraction(-5, 'hum_tank')).toBe(0);
   });
 
