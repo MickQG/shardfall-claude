@@ -11,7 +11,7 @@ import { screenToTile, tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
 import { createHud } from './ui/hud';
-import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, KeyTap, minimapClick } from './ui/controls';
+import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, inputAllowed, KeyTap, minimapClick } from './ui/controls';
 import { cursorCss, cursorFor, type CursorState } from './ui/cursor';
 import { clampTile, Minimap, miniToTile } from './ui/minimap';
 import { rallyLine } from './ui/rally';
@@ -59,6 +59,9 @@ function topbar(): void {
   hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · E select same kind · F attack-move · F2 quality: ${settings.quality}`);
 }
 topbar();
+
+/** Whether an input reaches the game right now (CTL-16). */
+const allowed = (input: string): boolean => inputAllowed(input, { paused, over: !!sim.curr?.over });
 
 function setPaused(p: boolean): void {
   paused = p;
@@ -137,15 +140,15 @@ function placementPreview(snap: Snapshot): PlacementPreview | null {
 }
 
 const sidebar = new Sidebar({
-  produce: (source, kind) => sim.send({ type: 'produce', player: PLAYER, source, kind }),
-  cancel: (source, index) => sim.send({ type: 'cancel', player: PLAYER, source, index }),
+  produce: (source, kind) => allowed('sidebar') && sim.send({ type: 'produce', player: PLAYER, source, kind }),
+  cancel: (source, index) => allowed('sidebar') && sim.send({ type: 'cancel', player: PLAYER, source, index }),
   startPlacement: (source, kind) => {
-    placing = { source, kind };
+    if (allowed('sidebar')) placing = { source, kind };
   },
-  sell: (id) => sim.send({ type: 'sell', player: PLAYER, building: id }),
-  repair: (id, on) => sim.send({ type: 'repair', player: PLAYER, building: id, on }),
+  sell: (id) => allowed('sidebar') && sim.send({ type: 'sell', player: PLAYER, building: id }),
+  repair: (id, on) => allowed('sidebar') && sim.send({ type: 'repair', player: PLAYER, building: id, on }),
   fire: (id) => {
-    targeting = { building: id };
+    if (allowed('sidebar')) targeting = { building: id };
   },
 });
 
@@ -172,7 +175,7 @@ function frame(prevTime: number): (t: number) => void {
     if (keys.has('d') || keys.has('arrowright') || (mouse.x > v.width - EDGE && mouse.x <= v.width)) dx += 1;
     if (keys.has('w') || keys.has('arrowup') || (mouse.y >= 0 && mouse.y < EDGE)) dy -= 1;
     if (keys.has('s') || keys.has('arrowdown') || (mouse.y > v.height - EDGE && mouse.y <= v.height)) dy += 1;
-    if (dx || dy) cam = pan(cam, dx * PAN_SPEED * dt, dy * PAN_SPEED * dt, bounds);
+    if ((dx || dy) && allowed('w')) cam = pan(cam, dx * PAN_SPEED * dt, dy * PAN_SPEED * dt, bounds);
 
     for (const ev of sim.events.splice(0)) {
       view.effects.spawn(ev, t);
@@ -238,7 +241,9 @@ function wireMinimap(mm: Minimap): void {
     const t = toTile(e);
     const x = Math.round(t.x * FP);
     const y = Math.round(t.y * FP);
-    switch (minimapClick(e.button, { amove: amoveMode, targeting: targeting !== null })) {
+    const action = minimapClick(e.button, { amove: amoveMode, targeting: targeting !== null });
+    if (!allowed(action === 'camera' ? 'minimap-camera' : 'minimap-order')) return;
+    switch (action) {
       case 'attackmove':
         if (sim.curr) sim.send({ type: 'attackmove', player: PLAYER, units: attackMoveIds(sim.curr.units, selection.selected, PLAYER), x, y });
         amoveMode = false;
@@ -297,10 +302,11 @@ async function boot(): Promise<void> {
 
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
-    keys.add(k);
     audio.unlock();
     // S pans the map, so Ctrl + S must not reach the browser's save dialog.
     if (e.ctrlKey && k === 's') e.preventDefault();
+    if (!allowed(k)) return;
+    keys.add(k);
     if (k === 'escape') {
       if (placing || targeting || amoveMode) {
         placing = null;
@@ -372,6 +378,7 @@ async function boot(): Promise<void> {
     'wheel',
     (e) => {
       e.preventDefault();
+      if (!allowed('wheel')) return;
       cam = zoomAt(cam, view.viewport, e.offsetX, e.offsetY, e.deltaY < 0 ? 1.1 : 1 / 1.1, bounds);
     },
     { passive: false },
@@ -383,6 +390,7 @@ async function boot(): Promise<void> {
   canvas.addEventListener('pointerdown', (e) => {
     audio.unlock();
     audio.startMusic(seed);
+    if (!allowed('click')) return;
     if (amoveMode) {
       amoveMode = false;
       if (amoveClick(e.button) === 'order' && sim.curr) {

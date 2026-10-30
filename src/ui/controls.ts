@@ -23,6 +23,17 @@ export function minimapClick(button: number, modes: { amove: boolean; targeting:
   return button === 2 ? 'order' : 'camera';
 }
 
+const PAUSED_INPUT = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'wheel', 'minimap-camera', 'escape', 'p']);
+
+/**
+ * Whether an input reaches the game: a lower-case key name, or 'click', 'wheel', 'sidebar', 'minimap-camera', 'minimap-order'.
+ * Paused, only camera input, Escape and P work; once the game is over, nothing does (the result screen has its own buttons).
+ */
+export function inputAllowed(input: string, s: { paused: boolean; over: boolean }): boolean {
+  if (s.over) return false;
+  return !s.paused || PAUSED_INPUT.has(input);
+}
+
 /** Tile at the middle of some units (fixed-point positions), or null for none. */
 export function centroid(units: readonly { x: number; y: number }[]): { x: number; y: number } | null {
   if (units.length === 0) return null;

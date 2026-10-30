@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { centerOnTile, mapBounds } from '../../src/render/camera';
 import { tileToScreen } from '../../src/render/iso';
-import { centroid, KeyTap, minimapClick } from '../../src/ui/controls';
+import { centroid, inputAllowed, KeyTap, minimapClick } from '../../src/ui/controls';
 import { clampTile } from '../../src/ui/minimap';
 import { Selection } from '../../src/ui/selection';
 
@@ -57,5 +57,23 @@ describe('camera and minimap', () => {
     s.clear();
     s.assignGroup(4);
     expect(s.recallGroup(4, new Set([1, 2])).sort()).toEqual([1, 2]);
+  });
+});
+
+describe('input while paused or over', () => {
+  const run = { paused: false, over: false };
+  const paused = { paused: true, over: false };
+  const over = { paused: false, over: true };
+
+  it('CTL-16: paused accepts only camera input, Escape and P', () => {
+    for (const k of ['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'wheel', 'minimap-camera', 'escape', 'p']) expect(inputAllowed(k, paused)).toBe(true);
+    for (const k of ['q', 'e', 'f', 'x', '1', ' ', 'h', 'm', '+', 'click', 'sidebar', 'minimap-order']) expect(inputAllowed(k, paused)).toBe(false);
+  });
+
+  it('CTL-16: after the game is over nothing reaches the game; while running everything does', () => {
+    for (const k of ['w', 'escape', 'p', 'q', 'click', 'sidebar', 'wheel']) {
+      expect(inputAllowed(k, over)).toBe(false);
+      expect(inputAllowed(k, run)).toBe(true);
+    }
   });
 });
