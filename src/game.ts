@@ -4,16 +4,16 @@ import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
 import { soundFor } from './audio/plan';
 import { SimClient } from './host/client';
-import { mapBounds, pan, screenToWorld, zoomAt, type Camera } from './render/camera';
+import { centerOnTile, mapBounds, pan, screenToWorld, zoomAt, type Camera } from './render/camera';
 import { GameView, type PlacementPreview } from './render/gameView';
 import { interpolate } from './render/interp';
 import { screenToTile, tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
 import { createHud } from './ui/hud';
-import { amoveClick, attackMoveIds, combatUnitIds, DoubleTap } from './ui/controls';
+import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, KeyTap, minimapClick } from './ui/controls';
 import { cursorCss, cursorFor, type CursorState } from './ui/cursor';
-import { Minimap, miniToTile } from './ui/minimap';
+import { clampTile, Minimap, miniToTile } from './ui/minimap';
 import { rallyLine } from './ui/rally';
 import { effectsEnabled, loadSettings, saveSettings } from './ui/settings';
 import { Sidebar } from './ui/sidebar';
@@ -76,6 +76,7 @@ let targeting: { building: number } | null = null;
 let amoveMode = false;
 const qTap = new DoubleTap(350);
 const eTap = new DoubleTap(350);
+const groupTap = new KeyTap(350);
 let resultShown = false;
 let lastAlertTick = -1;
 
@@ -90,8 +91,12 @@ const tileFromScreen = (sx: number, sy: number): { x: number; y: number } => {
 const aliveOwn = (snap: Snapshot): Set<number> => new Set(snap.units.filter((u) => u.owner === PLAYER).map((u) => u.id));
 
 function centerOn(tx: number, ty: number): void {
-  const p = tileToScreen(tx, ty);
-  cam = { ...cam, x: p.x, y: p.y };
+  cam = centerOnTile(cam, tx, ty, bounds);
+}
+
+function centerOnUnits(units: readonly { x: number; y: number }[]): void {
+  const c = centroid(units);
+  if (c) centerOn(c.x, c.y);
 }
 
 /** One picking context per query: units are interpolated to the same instant for hover, right-click and left-click. */
@@ -185,6 +190,7 @@ function frame(prevTime: number): (t: number) => void {
     if (curr && sim.prev) {
       selection.prune(aliveOwn(curr));
       if (selectedBuilding !== null && !curr.buildings.some((b) => b.id === selectedBuilding)) selectedBuilding = null;
+      if (targeting && !curr.buildings.some((b) => b.id === targeting?.building && b.owner === PLAYER)) targeting = null;
       const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
       const ru = interpolate(sim.prev.units, curr.units, alpha);
       view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings) }, curr);
@@ -223,18 +229,31 @@ function frame(prevTime: number): (t: number) => void {
 function wireMinimap(mm: Minimap): void {
   const toTile = (e: MouseEvent): { x: number; y: number } => {
     const r = mm.canvas.getBoundingClientRect();
-    return miniToTile(mm.layout, e.clientX - r.left, e.clientY - r.top);
+    const t = miniToTile(mm.layout, e.clientX - r.left, e.clientY - r.top);
+    return clampTile(t.x, t.y, map.width, map.height);
   };
   let dragging = false;
   mm.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   mm.canvas.addEventListener('pointerdown', (e) => {
     const t = toTile(e);
-    if (e.button === 2) {
-      order(t.x, t.y);
-      return;
+    const x = Math.round(t.x * FP);
+    const y = Math.round(t.y * FP);
+    switch (minimapClick(e.button, { amove: amoveMode, targeting: targeting !== null })) {
+      case 'attackmove':
+        if (sim.curr) sim.send({ type: 'attackmove', player: PLAYER, units: attackMoveIds(sim.curr.units, selection.selected, PLAYER), x, y });
+        amoveMode = false;
+        return;
+      case 'superweapon':
+        if (targeting) sim.send({ type: 'superweapon', player: PLAYER, building: targeting.building, x, y });
+        targeting = null;
+        return;
+      case 'order':
+        order(t.x, t.y);
+        return;
+      case 'camera':
+        dragging = true;
+        centerOn(t.x, t.y);
     }
-    dragging = true;
-    centerOn(t.x, t.y);
   });
   window.addEventListener('pointermove', (e) => {
     if (dragging) {
@@ -302,7 +321,7 @@ async function boot(): Promise<void> {
       if (army.length > 0) {
         selectedBuilding = null;
         selection.set(army.map((u) => u.id));
-        if (qTap.press(performance.now())) centerOn(army.reduce((a, u) => a + u.x, 0) / army.length / FP, army.reduce((a, u) => a + u.y, 0) / army.length / FP);
+        if (qTap.press(performance.now())) centerOnUnits(army);
       }
     }
     if (k === 'e' && !e.ctrlKey && !e.repeat && sim.curr) {
@@ -310,8 +329,7 @@ async function boot(): Promise<void> {
       if (ids.length > 0) {
         selectedBuilding = null;
         selection.set(ids);
-        const group = sim.curr.units.filter((u) => selection.has(u.id));
-        if (eTap.press(performance.now())) centerOn(group.reduce((a, u) => a + u.x, 0) / group.length / FP, group.reduce((a, u) => a + u.y, 0) / group.length / FP);
+        if (eTap.press(performance.now())) centerOnUnits(sim.curr.units.filter((u) => selection.has(u.id)));
       }
     }
     if (k === 'f2') {
@@ -333,14 +351,12 @@ async function boot(): Promise<void> {
       } else {
         const ids = selection.recallGroup(n, aliveOwn(sim.curr));
         selectedBuilding = null;
-        const f = sim.curr.units.find((u) => u.id === ids[0]);
-        if (f && e.repeat) centerOn(f.x / FP, f.y / FP);
+        if (!e.repeat && groupTap.press(k, performance.now())) centerOnUnits(sim.curr.units.filter((u) => ids.includes(u.id)));
       }
     } else if (k === 'x') {
       sim.send({ type: 'stop', player: PLAYER, units: selection.selected });
     } else if (k === ' ' && sim.curr) {
-      const own = sim.curr.units.find((u) => selection.has(u.id));
-      if (own) centerOn(own.x / FP, own.y / FP);
+      centerOnUnits(sim.curr.units.filter((u) => selection.has(u.id)));
       e.preventDefault();
     } else if (k === 'h' && sim.curr) {
       const home = sim.curr.buildings.find((b) => b.owner === PLAYER && buildingDef(b.kind).hq);

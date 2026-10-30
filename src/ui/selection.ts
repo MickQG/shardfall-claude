@@ -97,7 +97,9 @@ export class Selection {
     }
   }
 
+  /** Store the selection as group `n`; with nothing selected the group is left as it was. */
   assignGroup(n: number): void {
+    if (this.ids.size === 0) return;
     this.groups.set(n, this.selected);
   }
 
