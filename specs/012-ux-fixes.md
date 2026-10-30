@@ -7,3 +7,8 @@ Bug and usability fixes found in a review of the player-facing controls and HUD.
 - **PRD-11**: Every unit ordered from the sidebar, including each of the five from a Ctrl-click, goes to the producer of that kind with the shortest queue, ties going to the one with the least build time left; while a producer of that kind is selected, orders go to that building instead.
 - **PRD-12**: A single right-click on a unit or structure in the sidebar cancels the newest queued copy of that kind across all of the player's buildings (furthest back in its queue, then least progressed), so the item in progress keeps its progress until it is the last one.
 - **PRD-13**: An item is shown as unavailable whenever it cannot be queued right now (not enough credits, full queue, missing prerequisite), including while other copies of it are already queued; a structure ready to place stays clickable.
+
+## Orders
+
+- **CTL-13**: An attack-move order is given only to the combat units in the selection; non-combat units in it keep what they were doing.
+- **CUR-5**: Right-clicking an enemy with only non-combat units selected shows the move cursor and orders a move to that point.

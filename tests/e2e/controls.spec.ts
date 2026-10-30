@@ -6,9 +6,10 @@ interface Hook {
   tileScreen: (tx: number, ty: number) => { x: number; y: number };
   send: (c: unknown) => void;
   modes: () => { placing: boolean; targeting: boolean; amove: boolean };
+  select: (ids: number[]) => void;
 }
 
-test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CUR-1 CUR-3: Q selects combat units, F2 toggles quality, F then click attack-moves, Ctrl+S is blocked, cursors change', async ({ page }) => {
+test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CUR-1 CUR-3: Q selects combat units, F2 toggles quality, F then right-click attack-moves, Ctrl+S is blocked, cursors change', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/?faction=human&scenario=calm&seed=3');
@@ -68,10 +69,17 @@ test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CUR-1 CUR-3: Q selects combat units, F2 tog
   await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: false });
   await expect.poll(cursor).toBe(moveCursor);
 
-  // CTL-8: F then a left click sends the selected units attack-moving to the target and disarms the mode.
+  // CTL-8: F then a left click disarms without an order.
+  await page.keyboard.press('f');
+  await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: true });
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: false });
+  await page.evaluate((ids) => (window as unknown as { __shardfall: Hook }).__shardfall.select(ids), riflemen);
+
+  // CTL-8: F then a right click sends the selected units attack-moving to the target and disarms the mode.
   const before = snap!.units.find((u) => u.id === riflemen[0])!;
   await page.keyboard.press('f');
-  await page.mouse.click(p.x, p.y);
+  await page.mouse.click(p.x, p.y, { button: 'right' });
   await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: false });
   await page.waitForTimeout(2500);
   const after = (await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.snapshot()))!.units.find((u) => u.id === riflemen[0])!;

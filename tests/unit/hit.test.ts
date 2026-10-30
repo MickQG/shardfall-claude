@@ -51,10 +51,10 @@ describe('hit-test', () => {
 
   it('CUR-4: right-click attacks an enemy unit, else an enemy building, else moves to the tile', () => {
     const base = hitTest(ctx(), ...(Object.values(at(5.5, 5.5)) as [number, number]));
-    expect(rightClickOrder(base)).toEqual({ kind: 'move', tx: 5, ty: 5 });
-    expect(rightClickOrder({ ...base, enemyBuilding: 8 })).toEqual({ kind: 'attack', target: 8 });
-    expect(rightClickOrder({ ...base, enemyBuilding: 8, enemyUnit: 2 })).toEqual({ kind: 'attack', target: 2 });
-    expect(rightClickOrder({ ...base, ownUnit: 1 })).toEqual({ kind: 'move', tx: 5, ty: 5 });
+    expect(rightClickOrder(base, true)).toEqual({ kind: 'move', tx: 5, ty: 5 });
+    expect(rightClickOrder({ ...base, enemyBuilding: 8 }, true)).toEqual({ kind: 'attack', target: 8 });
+    expect(rightClickOrder({ ...base, enemyBuilding: 8, enemyUnit: 2 }, true)).toEqual({ kind: 'attack', target: 2 });
+    expect(rightClickOrder({ ...base, ownUnit: 1 }, true)).toEqual({ kind: 'move', tx: 5, ty: 5 });
   });
 
   it('CUR-4: the cursor and the right-click order always agree, even with an own unit overlapping an enemy', () => {
@@ -66,8 +66,18 @@ describe('hit-test', () => {
     for (const dx of [-30, -10, 0, 4, 10, 30]) {
       const h = hitTest(ctx({ units }), p.sx + dx, p.sy);
       const cursor = cursorFor({ mode: 'normal', combatSelected: true, harvesterSelected: false, anySelected: true, hover: hoverKind(h, true) });
-      expect(cursor === 'attack').toBe(rightClickOrder(h).kind === 'attack');
+      expect(cursor === 'attack').toBe(rightClickOrder(h, true).kind === 'attack');
     }
+  });
+
+  it('CUR-5: with only non-combat units selected, a right-click on an enemy moves there and the cursor says move', () => {
+    const p = at(10, 10);
+    const units = [{ id: 2, owner: 1, kind: 'ali_skitter', sx: p.sx, sy: p.sy }];
+    const h = hitTest(ctx({ units }), p.sx, p.sy);
+    expect(rightClickOrder(h, false)).toEqual({ kind: 'move', tx: h.tx, ty: h.ty });
+    expect(rightClickOrder(h, true)).toEqual({ kind: 'attack', target: 2 });
+    const cursor = cursorFor({ mode: 'normal', combatSelected: false, harvesterSelected: true, anySelected: true, hover: hoverKind(h, true) });
+    expect(cursor).toBe('move');
   });
 
   it('CUR-4: with nothing selected, an own unit under the pointer is what a click would select', () => {

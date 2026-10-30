@@ -11,7 +11,7 @@ import { screenToTile, tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
 import { createHud } from './ui/hud';
-import { combatUnitIds, DoubleTap } from './ui/controls';
+import { amoveClick, attackMoveIds, combatUnitIds, DoubleTap } from './ui/controls';
 import { cursorCss, cursorFor, type CursorState } from './ui/cursor';
 import { Minimap, miniToTile } from './ui/minimap';
 import { rallyLine } from './ui/rally';
@@ -357,8 +357,17 @@ async function boot(): Promise<void> {
   canvas.addEventListener('pointerdown', (e) => {
     audio.unlock();
     audio.startMusic(seed);
+    if (amoveMode) {
+      amoveMode = false;
+      if (amoveClick(e.button) === 'order' && sim.curr) {
+        const t = tileFromScreen(e.offsetX, e.offsetY);
+        sim.send({ type: 'attackmove', player: PLAYER, units: attackMoveIds(sim.curr.units, selection.selected, PLAYER), x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
+        return;
+      }
+      if (e.button !== 0) return;
+    }
     if (e.button === 2) {
-      if (placing || targeting || amoveMode) {
+      if (placing || targeting) {
         placing = null;
         targeting = null;
         amoveMode = false;
@@ -366,7 +375,8 @@ async function boot(): Promise<void> {
       }
       const snap = sim.curr;
       if (snap && selection.selected.length > 0) {
-        const o = rightClickOrder(hitTest(hitContext(snap), e.offsetX, e.offsetY));
+        const combat = combatUnitIds(snap.units.filter((u) => selection.has(u.id)), PLAYER).length > 0;
+        const o = rightClickOrder(hitTest(hitContext(snap), e.offsetX, e.offsetY), combat);
         if (o.kind === 'attack') {
           sim.send({ type: 'attack', player: PLAYER, units: selection.selected, target: o.target });
           return;
@@ -379,12 +389,6 @@ async function boot(): Promise<void> {
         const t = tileFromScreen(e.offsetX, e.offsetY);
         sim.send({ type: 'superweapon', player: PLAYER, building: targeting.building, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
         targeting = null;
-        return;
-      }
-      if (amoveMode) {
-        const t = tileFromScreen(e.offsetX, e.offsetY);
-        sim.send({ type: 'attackmove', player: PLAYER, units: selection.selected, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
-        amoveMode = false;
         return;
       }
       if (placing && sim.curr) {

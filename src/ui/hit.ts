@@ -67,9 +67,12 @@ export function hitTest(ctx: HitContext, sx: number, sy: number): Hit {
 
 export type RightClickOrder = { kind: 'attack'; target: number } | { kind: 'move'; tx: number; ty: number };
 
-/** What a right-click does with a selection: attack an enemy unit, else an enemy building, else move to the tile. */
-export function rightClickOrder(h: Hit): RightClickOrder {
-  const target = h.enemyUnit ?? h.enemyBuilding;
+/**
+ * What a right-click does with a selection: attack an enemy unit, else an enemy building, else move to the tile.
+ * A selection with no combat unit cannot attack, so it moves.
+ */
+export function rightClickOrder(h: Hit, combatSelected: boolean): RightClickOrder {
+  const target = combatSelected ? (h.enemyUnit ?? h.enemyBuilding) : null;
   return target !== null ? { kind: 'attack', target } : { kind: 'move', tx: h.tx, ty: h.ty };
 }
 

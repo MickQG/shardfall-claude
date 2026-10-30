@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { combatUnitIds, DoubleTap } from '../../src/ui/controls';
+import { amoveClick, attackMoveIds, combatUnitIds, DoubleTap } from '../../src/ui/controls';
 import { rallyLine } from '../../src/ui/rally';
 import { cursorCss, cursorFor, type CursorState } from '../../src/ui/cursor';
 import { cancelPlan } from '../../src/ui/cancelPlan';
@@ -89,5 +89,16 @@ describe('cancel plan', () => {
     expect(cancelPlan(q('a', 'b'), 'c', 5)).toEqual([]);
     expect(cancelPlan(q('a', 'a'), 'a', 1)).toEqual([1]);
     expect(cancelPlan(Array.from({ length: 20 }, () => ({ kind: 'a' })), 'a', 5)).toEqual([19, 18, 17, 16, 15]);
+  });
+});
+
+describe('attack-move', () => {
+  it('CTL-8: once armed, a right-click orders the attack-move and a left-click disarms and carries on as a normal click', () => {
+    expect(amoveClick(2)).toBe('order');
+    expect(amoveClick(0)).toBe('disarm');
+  });
+  it('CTL-13: only the combat units in the selection receive the attack-move', () => {
+    expect(attackMoveIds(units, [1, 2, 4, 3], 0)).toEqual([1, 4]);
+    expect(attackMoveIds(units, [2], 0)).toEqual([]);
   });
 });
