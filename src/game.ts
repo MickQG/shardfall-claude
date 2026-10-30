@@ -18,7 +18,7 @@ import { rallyLine } from './ui/rally';
 import { effectsEnabled, loadSettings, saveSettings } from './ui/settings';
 import { Sidebar } from './ui/sidebar';
 import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
-import { boxSelect, Selection, selectSameKind, toScreenUnits } from './ui/selection';
+import { boxSelect, Selection, selectKinds, selectSameKind, toScreenUnits } from './ui/selection';
 
 const PLAYER = 0;
 const host = document.getElementById('app');
@@ -56,7 +56,7 @@ function safeStorage(): Storage | null {
 }
 
 function topbar(): void {
-  hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · F attack-move · F2 quality: ${settings.quality}`);
+  hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · E select same kind · F attack-move · F2 quality: ${settings.quality}`);
 }
 topbar();
 
@@ -75,6 +75,7 @@ let minimap: Minimap | null = null;
 let targeting: { building: number } | null = null;
 let amoveMode = false;
 const qTap = new DoubleTap(350);
+const eTap = new DoubleTap(350);
 let resultShown = false;
 let lastAlertTick = -1;
 
@@ -304,6 +305,15 @@ async function boot(): Promise<void> {
         if (qTap.press(performance.now())) centerOn(army.reduce((a, u) => a + u.x, 0) / army.length / FP, army.reduce((a, u) => a + u.y, 0) / army.length / FP);
       }
     }
+    if (k === 'e' && !e.ctrlKey && !e.repeat && sim.curr) {
+      const ids = selectKinds(sim.curr.units, selection.selected, PLAYER);
+      if (ids.length > 0) {
+        selectedBuilding = null;
+        selection.set(ids);
+        const group = sim.curr.units.filter((u) => selection.has(u.id));
+        if (eTap.press(performance.now())) centerOn(group.reduce((a, u) => a + u.x, 0) / group.length / FP, group.reduce((a, u) => a + u.y, 0) / group.length / FP);
+      }
+    }
     if (k === 'f2') {
       e.preventDefault();
       settings.quality = settings.quality === 'high' ? 'low' : 'high';
@@ -417,7 +427,7 @@ async function boot(): Promise<void> {
     if (Math.hypot(x1 - drag.x0, y1 - drag.y0) > 5) {
       const ids = boxSelect(su, drag.x0, drag.y0, x1, y1, PLAYER);
       selectedBuilding = null;
-      if (e.shiftKey) selection.toggle(ids);
+      if (e.shiftKey) selection.add(ids);
       else selection.set(ids);
     } else {
       const hit = hitTest(hc, x1, y1);
@@ -425,7 +435,11 @@ async function boot(): Promise<void> {
       const now = performance.now();
       if (id !== null) {
         selectedBuilding = null;
-        if (now - lastClick.t < 350 && lastClick.id === id) selection.set(selectSameKind(su, id, PLAYER, view.viewport));
+        if (now - lastClick.t < 350 && lastClick.id === id) {
+          const same = selectSameKind(su, id, PLAYER, view.viewport);
+          if (e.shiftKey) selection.add(same);
+          else selection.set(same);
+        }
         else if (e.shiftKey) selection.toggle([id]);
         else selection.set([id]);
       } else {

@@ -8,6 +8,11 @@ Bug and usability fixes found in a review of the player-facing controls and HUD.
 - **PRD-12**: A single right-click on a unit or structure in the sidebar cancels the newest queued copy of that kind across all of the player's buildings (furthest back in its queue, then least progressed), so the item in progress keeps its progress until it is the last one.
 - **PRD-13**: An item is shown as unavailable whenever it cannot be queued right now (not enough credits, full queue, missing prerequisite), including while other copies of it are already queued; a structure ready to place stays clickable.
 
+## Selection
+
+- **CTL-11**: Pressing `E` with at least one unit selected selects every living own unit, on or off screen, whose unit kind is among the kinds in the selection; pressing it twice quickly also centres the camera on the group. With no unit selected (nothing, or only a building) `E` does nothing.
+- **CTL-12**: Shift + double-click adds every own on-screen unit of that kind to the existing selection.
+
 ## Orders
 
 - **CTL-13**: An attack-move order is given only to the combat units in the selection; non-combat units in it keep what they were doing.

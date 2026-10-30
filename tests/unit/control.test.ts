@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createGame, EXPLORED, FP, hash, snapshot, submit, tick, VISIBLE, type MapDef, type UnitSpawn } from '../../src/sim';
 import { miniToTile, tileToMini, type MiniLayout } from '../../src/ui/minimap';
-import { boxSelect, pickUnit, Selection, selectSameKind, type ScreenUnit } from '../../src/ui/selection';
+import { boxSelect, pickUnit, Selection, selectKinds, selectSameKind, type ScreenUnit } from '../../src/ui/selection';
 
 const open = (w: number, h: number): MapDef => ({ width: w, height: h, heights: new Array<number>(w * h).fill(0) });
 const idx = (w: number, x: number, y: number): number => y * w + x;
@@ -96,13 +96,36 @@ describe('selection', () => {
     expect(pickUnit(units, 600, 600, 0)).toBeNull();
   });
 
-  it('CTL-2: box select picks own units inside the rectangle; shift toggles', () => {
+  it('CTL-2: box select picks own units inside the rectangle; shift-box adds, shift-click toggles', () => {
     expect(boxSelect(units, 90, 90, 120, 110, 0)).toEqual([1, 2]);
     expect(boxSelect(units, 120, 110, 90, 90, 0)).toEqual([1, 2]); // any drag direction
     const s = new Selection();
     s.set([1, 2]);
-    s.toggle([2, 4]);
+    s.add([2, 4]);
+    expect(s.selected.sort()).toEqual([1, 2, 4]);
+    s.toggle([2]);
     expect(s.selected.sort()).toEqual([1, 4]);
+  });
+
+  it('CTL-2: a box holding any combat unit leaves out the non-combat units in it; a box of only haulers keeps them', () => {
+    const mixed = [su(1, 0, 'hum_rifleman', 100, 100), su(6, 0, 'hum_hauler', 105, 105), su(7, 0, 'hum_hauler', 300, 300)];
+    expect(boxSelect(mixed, 90, 90, 120, 120, 0)).toEqual([1]);
+    expect(boxSelect(mixed, 290, 290, 310, 310, 0)).toEqual([7]);
+    expect(boxSelect(mixed, 90, 90, 310, 310, 0)).toEqual([1]);
+  });
+
+  it('CTL-11: E selects every own unit of the selected kinds across the whole map', () => {
+    expect(selectKinds(units, [1], 0).sort()).toEqual([1, 2, 5]); // 5 is off-screen but included; 3 is an enemy
+    expect(selectKinds(units, [1, 4], 0).sort()).toEqual([1, 2, 4, 5]);
+    expect(selectKinds(units, [], 0)).toEqual([]);
+    expect(selectKinds(units, [3], 0)).toEqual([]); // enemy ids never seed a selection
+  });
+
+  it('CTL-12: shift + double-click adds the on-screen units of that kind to the selection', () => {
+    const s = new Selection();
+    s.set([4]);
+    s.add(selectSameKind(units, 1, 0, vp));
+    expect(s.selected.sort()).toEqual([1, 2, 4]);
   });
 
   it('CTL-3: double-click selects all own units of that kind that are on screen', () => {

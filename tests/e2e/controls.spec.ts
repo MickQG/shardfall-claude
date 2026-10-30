@@ -9,7 +9,7 @@ interface Hook {
   select: (ids: number[]) => void;
 }
 
-test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CUR-1 CUR-3: Q selects combat units, F2 toggles quality, F then right-click attack-moves, Ctrl+S is blocked, cursors change', async ({ page }) => {
+test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CTL-11 CUR-1 CUR-3: Q selects combat units, F2 toggles quality, F then right-click attack-moves, Ctrl+S is blocked, cursors change', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/?faction=human&scenario=calm&seed=3');
@@ -22,6 +22,11 @@ test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CUR-1 CUR-3: Q selects combat units, F2 tog
   const riflemen = snap!.units.filter((u) => u.owner === 0 && u.kind === 'hum_rifleman').map((u) => u.id);
   expect(riflemen.length).toBe(3);
   expect([...sel].sort()).toEqual([...riflemen].sort());
+
+  // CTL-11: with one rifleman selected, E selects every rifleman.
+  await page.evaluate((id) => (window as unknown as { __shardfall: Hook }).__shardfall.select([id]), riflemen[0]!);
+  await page.keyboard.press('e');
+  expect([...(await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.selected()))].sort()).toEqual([...riflemen].sort());
 
   // CTL-7: F2 toggles quality; Q does not.
   await expect(page.getByText(/F2 quality: high/)).toBeVisible();
