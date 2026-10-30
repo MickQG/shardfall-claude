@@ -42,6 +42,7 @@ export class AlertTracker {
       this.hp.set(b.id, b.hp);
       const head = b.queue[0];
       const key = `${b.id}:${head?.kind}`;
+      if (!head?.ready) for (const k of [...this.ready]) if (k.startsWith(`${b.id}:`)) this.ready.delete(k);
       if (head?.ready && BUILDING_DEFS[head.kind] && !this.ready.has(key)) {
         this.ready.add(key);
         this.fire(out, t, { id: 'structure', text: `${buildingDef(head.kind).name} ready: place it`, level: 'info', at: { tx: b.tx, ty: b.ty } });

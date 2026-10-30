@@ -21,6 +21,12 @@ const CSS = `
 #hud #selbox { position: fixed; border: 1px solid #7ff5cd; background: rgba(127,245,205,.12); display: none; pointer-events: none; }
 `;
 
+/** Title, line and colour of the end-of-game screen for `player`; `winner` null is a draw. */
+export function resultText(winner: number | null, player: number): { title: string; sub: string; color: string } {
+  if (winner === null) return { title: 'DRAW', sub: 'No side is left standing.', color: '#ffd34a' };
+  return winner === player ? { title: 'VICTORY', sub: 'The enemy base has fallen.', color: '#7ff5cd' } : { title: 'DEFEAT', sub: 'Your base has fallen.', color: '#ff5a4a' };
+}
+
 export interface Hud {
   minimapHost: HTMLElement;
   setInfo(lines: string[]): void;

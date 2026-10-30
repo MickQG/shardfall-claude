@@ -10,12 +10,13 @@ import { interpolate } from './render/interp';
 import { screenToTile, tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
-import { createHud } from './ui/hud';
+import { createHud, resultText } from './ui/hud';
 import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, inputAllowed, KeyTap, minimapClick } from './ui/controls';
 import { cursorCss, cursorFor, type CursorState } from './ui/cursor';
 import { clampTile, Minimap, miniToTile } from './ui/minimap';
 import { rallyLine } from './ui/rally';
 import { effectsEnabled, loadSettings, saveSettings } from './ui/settings';
+import { placementLive } from './ui/production';
 import { Sidebar } from './ui/sidebar';
 import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
 import { boxSelect, Selection, selectKinds, selectSameKind, toScreenUnits } from './ui/selection';
@@ -116,7 +117,7 @@ function hitContext(snap: Snapshot): HitContext {
 }
 
 function placementPreview(snap: Snapshot): PlacementPreview | null {
-  if (!placing || mouse.x < 0) return null;
+  if (!placing || mouse.x < 0 || !placementLive(placing, snap.buildings, PLAYER)) return null;
   const d = buildingDef(placing.kind);
   const t = tileFromScreen(mouse.x, mouse.y);
   const tx = Math.floor(t.x - d.w / 2 + 0.5);
@@ -194,12 +195,13 @@ function frame(prevTime: number): (t: number) => void {
     const curr = sim.curr;
     if (curr && curr.over && !resultShown) {
       resultShown = true;
-      const won = curr.winner === PLAYER;
-      hud.showResult(won ? 'VICTORY' : curr.winner === null ? 'DRAW' : 'DEFEAT', won ? 'The enemy base has fallen.' : 'Your base has fallen.', won ? '#7ff5cd' : '#ff5a4a');
+      const r = resultText(curr.winner, PLAYER);
+      hud.showResult(r.title, r.sub, r.color);
     }
     if (curr && sim.prev) {
       selection.prune(aliveOwn(curr));
       if (selectedBuilding !== null && !curr.buildings.some((b) => b.id === selectedBuilding)) selectedBuilding = null;
+      if (placing && !placementLive(placing, curr.buildings, PLAYER)) placing = null;
       if (targeting && !curr.buildings.some((b) => b.id === targeting?.building && b.owner === PLAYER)) targeting = null;
       const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
       const ru = interpolate(sim.prev.units, curr.units, alpha);

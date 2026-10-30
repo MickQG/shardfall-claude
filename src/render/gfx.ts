@@ -1,4 +1,4 @@
-import type { Faction } from '../data/defs';
+import { unitDef, type Faction } from '../data/defs';
 
 /** How long a newly placed building takes to rise, in ms. */
 export const BUILD_MS = 1500;
@@ -79,6 +79,9 @@ const MUZZLES: Record<string, Muzzle> = {
 export const muzzleFor = (weapon: string): Muzzle => MUZZLES[weapon] ?? { len: 8, width: 3, color: 0xffffff };
 
 /** Health bars appear only on damaged or selected things. */
+/** Health 0..1 against the unit kind's full hit points. */
+export const hpFraction = (hp: number, kind: string): number => Math.max(0, Math.min(1, hp / unitDef(kind).hp));
+
 export const barVisible = (hp: number, maxHp: number, selected: boolean): boolean => selected || hp < maxHp;
 
 /** Idle animation brightness 0..1: humans blink a beacon, aliens pulse. */

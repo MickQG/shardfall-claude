@@ -40,6 +40,12 @@ export function newestQueued(buildings: readonly Producer[], kind: string): { so
   return best ? { source: best.source, index: best.index } : null;
 }
 
+/** Whether placement mode for `placing` is still meaningful: its source is owned and holds that structure ready at the head. */
+export function placementLive(placing: { source: number; kind: string }, buildings: readonly { id: number; owner: number; queue: readonly { kind: string; ready: boolean }[] }[], player: number): boolean {
+  const head = buildings.find((b) => b.id === placing.source && b.owner === player)?.queue[0];
+  return !!head && head.kind === placing.kind && head.ready;
+}
+
 /** Whether one more `kind` can be queued right now: prerequisites owned, affordable, and a producer with room. */
 export function queueable(kind: string, buildings: readonly Producer[], ownedKinds: readonly string[], credits: number, selected: number | null): boolean {
   const d = unitDef(kind);

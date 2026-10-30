@@ -18,6 +18,10 @@ const CSS = `
 #menu .help { max-width: 640px; text-align: center; color: #7f93a6; font-size: 12.5px; }
 `;
 
+/** Controls summary on the main menu; names the current bindings. */
+export const HELP_TEXT =
+  'Left-click select · drag to box-select · right-click move/attack · F then right-click attack-move · E select same kind · Q select army · X stop · Ctrl+1-9 groups · WASD/edges scroll · wheel zoom. Harvest shards, build up the tech tree, destroy the enemy base.';
+
 type Pick = { faction: 'human' | 'alien'; difficulty: 'easy' | 'medium' | 'hard' };
 
 export function showMenu(): void {
@@ -36,7 +40,7 @@ export function showMenu(): void {
     <div class="row"><label>Opponent</label>
       <button class="pill" data-diff="easy">Easy</button><button class="pill" data-diff="medium">Medium</button><button class="pill" data-diff="hard">Hard</button></div>
     <button id="go">START</button>
-    <div class="help">Left-click select · drag to box-select · right-click move/attack · A attack-move · X stop · Ctrl+1-9 groups · WASD/edges scroll · wheel zoom. Harvest shards, build up the tech tree, destroy the enemy base.</div>`;
+    <div class="help">${HELP_TEXT}</div>`;
   document.body.appendChild(root);
   const pick: Pick = { faction: 'human', difficulty: 'medium' };
   const sync = (): void => {
