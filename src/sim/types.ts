@@ -64,6 +64,8 @@ export type SimEvent =
   | { t: 'strike'; x: number; y: number; owner: number; kind: string; r: number };
 
 export interface UnitSnap {
+  /** Veterancy rank 0..3 (VET-3). */
+  rank: number;
   id: number;
   owner: number;
   kind: string;

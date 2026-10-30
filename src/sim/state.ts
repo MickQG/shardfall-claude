@@ -39,6 +39,9 @@ export interface Unit {
   mode: Mode;
   /** Attack-move destination tile index, or -1. */
   amove: number;
+  /** Veterancy: damage dealt to enemies so far, and the rank it has earned (VET-1). */
+  xp: number;
+  rank: number;
 }
 
 export type Mode = 'idle' | 'move' | 'amove' | 'attack';
@@ -53,6 +56,8 @@ export interface Projectile {
   type: string;
   splash: number;
   air: boolean;
+  /** Unit that fired it, credited with the damage (VET-1); -1 for buildings. */
+  shooter: number;
 }
 
 export interface Strike {
@@ -173,7 +178,7 @@ export function addUnit(s: State, owner: number, kind: string, x: number, y: num
   const d = unitDef(kind);
   const u: Unit = {
     id: s.nextId++, owner, kind, x, y, hp: d.hp, path: [], goal: -1, waiting: false,
-    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, sinceHurt: 1000, target: -1, cooldown: 0, mode: 'idle', amove: -1,
+    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, sinceHurt: 1000, target: -1, cooldown: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
   };
   s.units.push(u);
   return u;

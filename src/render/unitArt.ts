@@ -1,6 +1,7 @@
 import { Container, Graphics, Sprite } from 'pixi.js';
 import { UNIT_DEFS } from '../data/defs';
 import { OWNER_COLORS } from './colors';
+import { squadOffsets } from './gfx';
 import { localOffset } from './voxel/compose';
 import { sprites } from './voxel/spriteCache';
 
@@ -9,6 +10,8 @@ export interface UnitArt {
   /** Everything that bobs: the hull and turret sprites and the overlays. */
   body: Container;
   hull: Sprite;
+  /** Extra squad figures beside the lead (`hull`), sharing its texture (SQD-2). */
+  mates: Sprite[];
   turret: Sprite | null;
   rotor: Graphics | null;
   load: Graphics | null;
@@ -32,7 +35,18 @@ export function drawUnit(kind: string, owner: number): UnitArt {
   const root = new Container();
   const body = new Container();
   const hull = new Sprite();
+  // Squads: the lead figure is `hull`; the others stand around it and drop out as the squad loses figures.
+  const offsets = squadOffsets(UNIT_DEFS[kind]?.squad ?? 1);
+  const mates = offsets.slice(1).map((o) => {
+    const m = new Sprite();
+    m.position.set(o.x, o.y);
+    return m;
+  });
+  for (const m of mates.filter((m) => m.y < 0)) body.addChild(m);
+  hull.position.set(offsets[0]?.x ?? 0, offsets[0]?.y ?? 0);
   body.addChild(hull);
+  for (const m of mates.filter((m) => m.y >= 0)) body.addChild(m);
+  if (mates.length > 0) body.scale.set(0.8);
   let turret: Sprite | null = null;
   if (model.turret) {
     turret = new Sprite();
@@ -57,6 +71,7 @@ export function drawUnit(kind: string, owner: number): UnitArt {
     root,
     body,
     hull,
+    mates,
     turret,
     rotor,
     load,
@@ -77,6 +92,10 @@ export function setFacing(a: UnitArt, hullFacing: number, aimFacing: number): vo
     const h = sprites.hull(a.kind, team, hullFacing);
     a.hull.texture = h.texture;
     a.hull.anchor.set(h.anchorX / h.texture.width, h.anchorY / h.texture.height);
+    for (const m of a.mates) {
+      m.texture = h.texture;
+      m.anchor.set(h.anchorX / h.texture.width, h.anchorY / h.texture.height);
+    }
   }
   const model = sprites.model(a.kind);
   if (a.turret && model.turret && (aimFacing !== a.aimFacing || hullFacing !== a.hullFacing)) {
@@ -96,6 +115,11 @@ export function setFacing(a: UnitArt, hullFacing: number, aimFacing: number): vo
   a.aimFacing = aimFacing;
 }
 
+/** Shows `alive` squad figures: the lead always, then mates in order. */
+export function setSquad(a: UnitArt, alive: number): void {
+  a.mates.forEach((m, i) => (m.visible = i < alive - 1));
+}
+
 /** Per-frame animation: bobbing while moving, a spinning rotor, crystal load on haulers. */
 export function animateUnit(a: UnitArt, t: number, moving: boolean, loadFrac: number, motion: boolean): void {
   a.body.y = motion && moving && !a.air ? Math.sin(t / 70) * 0.8 : 0;
@@ -108,5 +132,14 @@ export function animateUnit(a: UnitArt, t: number, moving: boolean, loadFrac: nu
   if (a.load) {
     a.load.clear();
     if (loadFrac > 0 && a.kind === 'hum_hauler') for (let i = 0; i < Math.ceil(loadFrac * 3); i++) a.load.poly([-7 + i * 5, 0, -4 + i * 5, -7, -1 + i * 5, 0]).fill(0x35e0a1);
+  }
+}
+
+/** Veterancy chevrons (one per rank) centred above a unit at height `y`; cleared at rank 0 (VET-3). */
+export function drawRankPips(g: Graphics, rank: number, y: number): void {
+  g.clear();
+  for (let i = 0; i < rank; i++) {
+    const cy = y - i * 4;
+    g.poly([-5, cy, 0, cy - 3, 5, cy, 5, cy + 1.6, 0, cy - 1.4, -5, cy + 1.6]).fill(0xffd34a).stroke({ color: 0x04130d, width: 0.8 });
   }
 }

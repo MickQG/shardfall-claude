@@ -10,6 +10,8 @@ export interface RenderUnit {
   hp: number;
   /** Shards carried (haulers). */
   load: number;
+  /** Veterancy rank 0..3. */
+  rank: number;
 }
 
 const SCALE = 256;
@@ -29,6 +31,7 @@ export function interpolate(prev: readonly UnitSnap[], curr: readonly UnitSnap[]
       ty: (p.y + (u.y - p.y) * a) / SCALE,
       hp: u.hp,
       load: u.load,
+      rank: u.rank,
     };
   });
 }

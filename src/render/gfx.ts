@@ -1,4 +1,5 @@
-import { unitDef, type Faction } from '../data/defs';
+import type { Faction } from '../data/defs';
+import { maxHpOf } from '../sim';
 
 /** How long a newly placed building takes to rise, in ms. */
 export const BUILD_MS = 1500;
@@ -84,8 +85,15 @@ const AIR_DEPTH = 1_000_000;
 /** Draw-order key of a unit at screen-y `y`: ground units sort with terrain and buildings, air units always above them. */
 export const unitDepth = (y: number, air: boolean): number => (air ? y + AIR_DEPTH : y);
 
-/** Health 0..1 against the unit kind's full hit points. */
-export const hpFraction = (hp: number, kind: string): number => Math.max(0, Math.min(1, hp / unitDef(kind).hp));
+/** Health 0..1 against the unit's full hit points at its veterancy rank. */
+export const hpFraction = (hp: number, kind: string, rank = 0): number => Math.max(0, Math.min(1, hp / maxHpOf(kind, rank)));
+
+/** Screen offsets of a squad's figures (lead first), in px around the unit's ground point. */
+export function squadOffsets(size: number): { x: number; y: number }[] {
+  if (size <= 1) return [{ x: 0, y: 0 }];
+  const ring = [{ x: 0, y: -3 }, { x: -7, y: 3 }, { x: 7, y: 3 }, { x: 0, y: 7 }, { x: -9, y: -2 }];
+  return ring.slice(0, size);
+}
 
 /** Health bars appear only on damaged or selected things. */
 export const barVisible = (hp: number, maxHp: number, selected: boolean): boolean => selected || hp < maxHp;

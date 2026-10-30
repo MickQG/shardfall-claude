@@ -44,6 +44,8 @@ export interface UnitDef {
   capacity?: number;
   /** HP regained per second-tick interval of 20 ticks when out of combat (aliens). */
   regen?: number;
+  /** Infantry squads: figures in the squad; damage scales with figures still standing (SQD-1). */
+  squad?: number;
   /** Role hint used by the AI for composition. */
   role: 'harvester' | 'infantry' | 'antiarmor' | 'scout' | 'tank' | 'artillery' | 'air' | 'raider';
 }
@@ -118,11 +120,11 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // ---- Humans ----
   hum_hauler: { faction: 'human', name: 'Shard Hauler', speed: 30, hp: 400, radius: 96, vision: 6, cost: 400, buildTime: 450, builtAt: 'hum_factory', requires: ['hum_refinery'], armor: 'heavy', capacity: 200, role: 'harvester' },
   hum_rifleman: {
-    faction: 'human', name: 'Rifleman', speed: 38, hp: 100, radius: 80, vision: 7, cost: 100, buildTime: 120, builtAt: 'hum_barracks', requires: [], armor: 'light', role: 'infantry',
+    faction: 'human', name: 'Rifleman', speed: 38, hp: 100, radius: 80, vision: 7, cost: 100, buildTime: 120, builtAt: 'hum_barracks', requires: [], armor: 'light', squad: 3, role: 'infantry',
     weapon: { damage: 8, range: 5, cooldown: 10, type: 'pierce', antiAir: true, antiGround: true },
   },
   hum_rocketeer: {
-    faction: 'human', name: 'Rocketeer', speed: 34, hp: 100, radius: 80, vision: 7, cost: 250, buildTime: 200, builtAt: 'hum_barracks', requires: ['hum_factory'], armor: 'light', role: 'antiarmor',
+    faction: 'human', name: 'Rocketeer', speed: 34, hp: 100, radius: 80, vision: 7, cost: 250, buildTime: 200, builtAt: 'hum_barracks', requires: ['hum_factory'], armor: 'light', squad: 3, role: 'antiarmor',
     weapon: { damage: 40, range: 6, cooldown: 30, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
   },
   hum_buggy: {
@@ -145,11 +147,11 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // ---- Aliens ----
   ali_gorger: { faction: 'alien', name: 'Gorger', speed: 34, hp: 350, radius: 96, vision: 6, cost: 350, buildTime: 420, builtAt: 'ali_pit', requires: ['ali_extractor'], armor: 'heavy', capacity: 200, regen: 2, role: 'harvester' },
   ali_skitter: {
-    faction: 'alien', name: 'Skitterer', speed: 60, hp: 74, radius: 70, vision: 7, cost: 80, buildTime: 100, builtAt: 'ali_nest', requires: [], armor: 'light', regen: 1, role: 'raider',
+    faction: 'alien', name: 'Skitterer', speed: 60, hp: 74, radius: 70, vision: 7, cost: 80, buildTime: 100, builtAt: 'ali_nest', requires: [], armor: 'light', regen: 1, squad: 3, role: 'raider',
     weapon: { damage: 8, range: 1.5, cooldown: 8, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_spitter: {
-    faction: 'alien', name: 'Spitter', speed: 40, hp: 82, radius: 76, vision: 7, cost: 220, buildTime: 180, builtAt: 'ali_nest', requires: ['ali_pit'], armor: 'light', regen: 1, role: 'antiarmor',
+    faction: 'alien', name: 'Spitter', speed: 40, hp: 82, radius: 76, vision: 7, cost: 220, buildTime: 180, builtAt: 'ali_nest', requires: ['ali_pit'], armor: 'light', regen: 1, squad: 3, role: 'antiarmor',
     weapon: { damage: 31, range: 6.3, cooldown: 26, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
   },
   ali_stalker: {
