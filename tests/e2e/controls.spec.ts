@@ -41,6 +41,10 @@ test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CUR-1 CUR-3: Q selects combat units, F2 tog
     expect(await modes()).toEqual({ placing: false, targeting: false, amove: false });
     await page.keyboard.up(key);
   }
+  // Panning moved the view by a frame-rate-dependent amount, so put the pointer back over the same open-ground tile.
+  const back = await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.tileScreen(30, 14));
+  await page.mouse.move(back.x, back.y);
+  await expect.poll(cursor).toBe(moveCursor);
   await page.keyboard.down('Control');
   await page.waitForTimeout(150);
   expect(await cursor()).toBe(moveCursor);
