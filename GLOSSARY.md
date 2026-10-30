@@ -16,3 +16,4 @@
 - **Attack-move** – an order to travel to a point and engage any enemy met on the way.
 - **Rally point** – where a production building sends newly built units.
 - **Combat unit** – any unit that can attack; haulers are not combat units.
+- **Unit kind** – what a unit is (Rifleman, Bulwark Tank, Brute…). "Type" is reserved for damage types and armour types.

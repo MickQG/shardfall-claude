@@ -1,4 +1,11 @@
-import { definedIds, untested } from './traceLib';
+import { definedIds, duplicateIds, untested } from './traceLib';
+
+const dups = duplicateIds('specs');
+if (dups.length > 0) {
+  console.error(`Requirement IDs defined more than once (${dups.length}):`);
+  for (const id of dups) console.error(`  - ${id}`);
+  process.exit(1);
+}
 
 const missing = untested('specs', 'tests');
 const total = definedIds('specs').length;

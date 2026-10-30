@@ -22,6 +22,20 @@ export function definedIds(specsDir: string): string[] {
   return [...ids].sort();
 }
 
+/** Requirement IDs defined more than once across `specsDir` markdown files. */
+export function duplicateIds(specsDir: string): string[] {
+  const seen = new Set<string>();
+  const dup = new Set<string>();
+  for (const f of walk(specsDir, /\.md$/)) {
+    for (const m of readFileSync(f, 'utf8').matchAll(REQ_DEF)) {
+      const id = m[1] as string;
+      if (seen.has(id)) dup.add(id);
+      seen.add(id);
+    }
+  }
+  return [...dup].sort();
+}
+
 /** Requirement IDs cited anywhere in test files under `testsDir`. */
 export function citedIds(testsDir: string): Set<string> {
   const ids = new Set<string>();
