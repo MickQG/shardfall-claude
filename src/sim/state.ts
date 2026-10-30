@@ -3,7 +3,7 @@ import { centerOf } from './fixed';
 import { createFog } from './fog';
 import type { Grid } from './path';
 import { Rng } from './rng';
-import type { BuildingSnap, Command, GameConfig, SimEvent } from './types';
+import type { BuildingSnap, Command, GameConfig, PlayerStats, SimEvent } from './types';
 
 export enum Hv {
   Idle = 0,
@@ -98,7 +98,11 @@ export interface Player {
   powerIn: number;
   /** Last-seen enemy buildings that are no longer visible, keyed by building id. */
   ghosts: Map<number, BuildingSnap>;
+  stats: PlayerStats;
 }
+
+/** Ticks between army-value samples (ten seconds). */
+export const STATS_EVERY = 200;
 
 export interface State {
   tick: number;
@@ -147,7 +151,7 @@ export function createState(cfg: GameConfig): State {
     grid: { width, height, blocked },
     units: [],
     buildings: [],
-    players: setups.map((p) => ({ faction: p.faction, credits: p.credits, bonus: p.bonus ?? 0, powerOut: 0, powerIn: 0, ghosts: new Map() })),
+    players: setups.map((p) => ({ faction: p.faction, credits: p.credits, bonus: p.bonus ?? 0, powerOut: 0, powerIn: 0, ghosts: new Map(), stats: { unitsBuilt: 0, unitsLost: 0, buildingsBuilt: 0, buildingsLost: 0, shardsGathered: 0, army: [] } })),
     fog: setups.map(() => createFog(width, height)),
     shards,
     shardSeed: shards.slice(),

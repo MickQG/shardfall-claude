@@ -2,7 +2,7 @@ import { buildingDef, unitDef } from '../data/defs';
 import { tileOf } from './fixed';
 import { isBlocked } from './path';
 import { clearOrder, orderMove } from './movement';
-import { gapToBuilding, Hv, type Building, type State, type Unit } from './state';
+import { gapToBuilding, Hv, type Building, type Player, type State, type Unit } from './state';
 
 /** Shards a hauler takes per tick while on a field, and delivers per tick while unloading. */
 export const GATHER_PER_TICK = 4;
@@ -141,8 +141,10 @@ function stepHauler(s: State, u: Unit): void {
       }
       const amt = Math.min(UNLOAD_PER_TICK, u.load);
       u.load -= amt;
-      const pl = s.players[u.owner] as { credits: number; bonus: number };
-      pl.credits += Math.floor((amt * (100 + pl.bonus)) / 100);
+      const pl = s.players[u.owner] as Player;
+      const earned = Math.floor((amt * (100 + pl.bonus)) / 100);
+      pl.credits += earned;
+      pl.stats.shardsGathered += earned;
       if (u.load === 0) u.hv = Hv.Idle;
       break;
     }

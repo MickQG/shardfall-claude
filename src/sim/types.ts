@@ -102,6 +102,18 @@ export interface BuildingSnap {
   charge: number;
 }
 
+/** End-of-game statistics for one player (SCR-1). */
+export interface PlayerStats {
+  unitsBuilt: number;
+  unitsLost: number;
+  buildingsBuilt: number;
+  buildingsLost: number;
+  /** Credits earned from delivered shards. */
+  shardsGathered: number;
+  /** Army value (credits, scaled by health) sampled every STATS_EVERY ticks from tick 0. */
+  army: number[];
+}
+
 export interface PlayerSnap {
   faction: Faction;
   credits: number;
@@ -128,6 +140,8 @@ export interface Snapshot {
   over: boolean;
   /** Winning player, or null (game running, or a draw). */
   winner: number | null;
+  /** Every player's statistics, once the game is over (always in the god view); null while a viewer's game runs. */
+  stats: PlayerStats[] | null;
   /** Viewer this snapshot is limited to; null for the god view. */
   viewer: number | null;
   /** Viewer fog grid (bit 1 explored, bit 2 visible); null for the god view. */

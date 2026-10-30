@@ -252,12 +252,18 @@ export function tickCombat(s: State): void {
   // Deaths.
   const deadUnits = s.units.filter((u) => u.hp <= 0);
   if (deadUnits.length > 0) {
-    for (const u of deadUnits) s.events.push({ t: 'die', x: u.x, y: u.y, big: unitDef(u.kind).armor === 'heavy', owner: u.owner });
+    for (const u of deadUnits) {
+      s.events.push({ t: 'die', x: u.x, y: u.y, big: unitDef(u.kind).armor === 'heavy', owner: u.owner });
+      const p = s.players[u.owner];
+      if (p) p.stats.unitsLost++;
+    }
     s.units = s.units.filter((u) => u.hp > 0);
   }
   for (const b of s.buildings.filter((q) => q.hp <= 0)) {
     const c = pos(b);
     s.events.push({ t: 'die', x: c.x, y: c.y, big: true, owner: b.owner });
+    const p = s.players[b.owner];
+    if (p) p.stats.buildingsLost++;
     removeBuilding(s, b);
   }
 

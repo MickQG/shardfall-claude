@@ -17,5 +17,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `011-desktop.md` | Desktop app (Electron shell around the same build) | 11 |
 | `012-ux-fixes.md` | Bug and UX fixes: production routing, selection, orders, camera, feedback | 12 |
 | `013-unit-info.md` | Main-menu unit info panel | 13 |
+| `014-score.md` | Post-game score screen | 14 |
 
 Umbrella spec: GitHub issue #1.
