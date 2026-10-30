@@ -5,7 +5,7 @@ import type { BuildingSnap, SimEvent, Snapshot } from '../sim';
 import { buildingHeight, buildingOrigin, drawBuilding } from './buildingArt';
 import type { Camera } from './camera';
 import { Effects } from './effects';
-import { barVisible, buildUp, damageState, damageTint, edgeShade, groundTint, hpFraction, idleGlow, revealLine } from './gfx';
+import { barVisible, buildUp, damageState, damageTint, edgeShade, groundTint, hpFraction, idleGlow, revealLine, unitDepth } from './gfx';
 import { OWNER_COLORS } from './colors';
 import { crystalLevel, crystalModel, crystalTipPx, propAt, propModel, rockModel, rockVariant } from './voxel/props';
 import { sprites } from './voxel/spriteCache';
@@ -507,7 +507,7 @@ export class GameView {
       }
       const p = tileToScreen(u.tx, u.ty);
       s.root.position.set(p.x, p.y);
-      s.root.zIndex = p.y;
+      s.root.zIndex = unitDepth(p.y, !!unitDef(u.kind).air);
       const mdx = u.tx - s.lastTx;
       const mdy = u.ty - s.lastTy;
       const moved = Math.abs(mdx) + Math.abs(mdy) > 0.002;

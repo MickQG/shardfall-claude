@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barVisible, buildUp, damageState, edgeShade, groundTint, idleGlow, muzzleFor, octant, BUILD_MS } from '../../src/render/gfx';
+import { barVisible, buildUp, damageState, edgeShade, groundTint, idleGlow, muzzleFor, octant, unitDepth, BUILD_MS } from '../../src/render/gfx';
 import { defaultSettings, effectsEnabled } from '../../src/ui/settings';
 
 describe('building visuals', () => {
@@ -83,5 +83,14 @@ describe('effects and bars', () => {
     expect(effectsEnabled(defaultSettings(false)).decor).toBe(true);
     expect(effectsEnabled({ ...defaultSettings(false), quality: 'low' }).decor).toBe(false);
     expect(effectsEnabled(defaultSettings(true)).decor).toBe(false);
+  });
+});
+
+describe('air draw order', () => {
+  it('GFX-9: air units draw above every ground object, including hill rocks in front of them, and in depth order among themselves', () => {
+    const rockInFront = 5000; // screen-y depth of a tall hill tile nearer the camera
+    expect(unitDepth(4000, true)).toBeGreaterThan(rockInFront);
+    expect(unitDepth(4000, false)).toBe(4000);
+    expect(unitDepth(4100, true)).toBeGreaterThan(unitDepth(4000, true));
   });
 });
