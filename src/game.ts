@@ -150,7 +150,14 @@ const sidebar = new Sidebar({
   fire: (id) => {
     if (allowed('sidebar')) targeting = { building: id };
   },
+  refused: (reason) => refuse(reason),
 });
+
+/** Tell the player an action was refused (UI-3). */
+function refuse(reason: string): void {
+  hud.toast(reason, 'bad');
+  audio.play('deny');
+}
 
 /** What the pointer is over and the current input mode, for choosing the cursor. */
 function cursorState(): CursorState {
@@ -430,7 +437,7 @@ async function boot(): Promise<void> {
         if (p?.ok) {
           sim.send({ type: 'place', player: PLAYER, source: placing.source, tx: p.tx, ty: p.ty });
           if (!e.shiftKey) placing = null;
-        }
+        } else refuse('Cannot build there');
         return;
       }
       drag = { x0: e.offsetX, y0: e.offsetY };

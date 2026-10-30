@@ -24,3 +24,9 @@ Bug and usability fixes found in a review of the player-facing controls and HUD.
 ## Camera
 
 - **CAM-3**: Centring the camera on any point (minimap, `H`, `Space`, `Q`, `E`, control groups) keeps the view within the map bounds, and orders given through the minimap target only tiles on the map.
+
+## HUD and feedback
+
+- **UI-3**: A refused action (blocked placement, unaffordable or unavailable item, superweapon fire before charge or on low power) shows a short toast naming the reason and plays a refusal sound.
+- **UI-4**: The first click on Sell turns the button into a confirmation for three seconds and a second click sells; the rally-point hint is shown only on buildings that train units.
+- **UI-5**: Superweapon charge and the Fire button refresh as the charge changes; Fire is unavailable and labelled "Low power" while its owner is on low power.
