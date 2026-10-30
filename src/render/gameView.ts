@@ -22,7 +22,6 @@ interface UnitSprite {
   art: UnitArt;
   ring: Graphics;
   bar: Graphics;
-  maxHp: number;
   lastTx: number;
   lastTy: number;
   moving: number;
@@ -300,7 +299,7 @@ export class GameView {
     bar.visible = false;
     root.addChild(ring, bar);
     this.unitLayer.addChild(root);
-    return { root, art, ring, bar, maxHp: unitDef(u.kind).hp, lastTx: u.tx, lastTy: u.ty, moving: 0, heading: 0, aim: 0, aimHold: 0 };
+    return { root, art, ring, bar, lastTx: u.tx, lastTy: u.ty, moving: 0, heading: 0, aim: 0, aimHold: 0 };
   }
 
   private makeBuilding(b: BuildingSnap, ghost: boolean): BuildingSprite {
@@ -521,7 +520,7 @@ export class GameView {
       animateUnit(s.art, vs.time + u.id * 37, s.moving > 0, u.load / 200, vs.fx.particles || vs.fx.shake);
       const sel = vs.selectedUnits.has(u.id);
       s.ring.visible = sel;
-      s.bar.visible = barVisible(u.hp, s.maxHp, sel);
+      s.bar.visible = barVisible(u.hp, unitDef(u.kind).hp, sel);
       if (s.bar.visible) {
         const frac = hpFraction(u.hp, u.kind);
         const top = -s.art.topY;

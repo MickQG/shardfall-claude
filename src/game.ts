@@ -141,15 +141,16 @@ function placementPreview(snap: Snapshot): PlacementPreview | null {
 }
 
 const sidebar = new Sidebar({
-  produce: (source, kind) => allowed('sidebar') && sim.send({ type: 'produce', player: PLAYER, source, kind }),
-  cancel: (source, index) => allowed('sidebar') && sim.send({ type: 'cancel', player: PLAYER, source, index }),
+  enabled: () => allowed('sidebar'),
+  produce: (source, kind) => sim.send({ type: 'produce', player: PLAYER, source, kind }),
+  cancel: (source, index) => sim.send({ type: 'cancel', player: PLAYER, source, index }),
   startPlacement: (source, kind) => {
-    if (allowed('sidebar')) placing = { source, kind };
+    placing = { source, kind };
   },
-  sell: (id) => allowed('sidebar') && sim.send({ type: 'sell', player: PLAYER, building: id }),
-  repair: (id, on) => allowed('sidebar') && sim.send({ type: 'repair', player: PLAYER, building: id, on }),
+  sell: (id) => sim.send({ type: 'sell', player: PLAYER, building: id }),
+  repair: (id, on) => sim.send({ type: 'repair', player: PLAYER, building: id, on }),
   fire: (id) => {
-    if (allowed('sidebar')) targeting = { building: id };
+    targeting = { building: id };
   },
   refused: (reason) => refuse(reason),
 });
@@ -251,10 +252,18 @@ function wireMinimap(mm: Minimap): void {
     const x = Math.round(t.x * FP);
     const y = Math.round(t.y * FP);
     const action = minimapClick(e.button, { amove: amoveMode, targeting: targeting !== null });
-    if (!allowed(action === 'camera' ? 'minimap-camera' : 'minimap-order')) return;
+    if (!allowed(action === 'camera' || action === 'disarm' ? 'minimap-camera' : 'minimap-order')) return;
     switch (action) {
+      case 'cancel':
+        targeting = null;
+        return;
+      case 'disarm':
+        amoveMode = false;
+        dragging = true;
+        centerOn(t.x, t.y);
+        return;
       case 'attackmove':
-        if (sim.curr) sim.send({ type: 'attackmove', player: PLAYER, units: attackMoveIds(sim.curr.units, selection.selected, PLAYER), x, y });
+        if (sim.curr) sendAttackMove(sim.curr, x, y);
         amoveMode = false;
         return;
       case 'superweapon':
@@ -276,6 +285,12 @@ function wireMinimap(mm: Minimap): void {
     }
   });
   window.addEventListener('pointerup', () => (dragging = false));
+}
+
+/** Attack-move the combat units in the selection to a fixed-point position (CTL-13); nothing is sent without any. */
+function sendAttackMove(snap: Snapshot, x: number, y: number): void {
+  const units = attackMoveIds(snap.units, selection.selected, PLAYER);
+  if (units.length > 0) sim.send({ type: 'attackmove', player: PLAYER, units, x, y });
 }
 
 /** Context order for the selection at tile (tx, ty): rally for a building, harvest/move for units. */
@@ -323,7 +338,7 @@ async function boot(): Promise<void> {
         amoveMode = false;
       } else setPaused(!paused);
     }
-    if (k === 'f' && !e.ctrlKey && !e.repeat && sim.curr && combatUnitIds(sim.curr.units.filter((u) => selection.has(u.id)), PLAYER).length > 0) amoveMode = true;
+    if (k === 'f' && !e.ctrlKey && !e.repeat && !placing && !targeting && sim.curr && combatUnitIds(sim.curr.units.filter((u) => selection.has(u.id)), PLAYER).length > 0) amoveMode = true;
     if (k === 'p') setPaused(!paused);
     if (k === 'm') {
       settings.muted = !settings.muted;
@@ -404,7 +419,7 @@ async function boot(): Promise<void> {
       amoveMode = false;
       if (amoveClick(e.button) === 'order' && sim.curr) {
         const t = tileFromScreen(e.offsetX, e.offsetY);
-        sim.send({ type: 'attackmove', player: PLAYER, units: attackMoveIds(sim.curr.units, selection.selected, PLAYER), x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
+        sendAttackMove(sim.curr, Math.round(t.x * FP), Math.round(t.y * FP));
         return;
       }
       if (e.button !== 0) return;
@@ -452,6 +467,11 @@ async function boot(): Promise<void> {
   });
   window.addEventListener('pointerup', (e) => {
     if (!drag || e.button !== 0 || !sim.curr || !sim.prev) return;
+    if (!allowed('click')) {
+      drag = null;
+      hud.selbox(null);
+      return;
+    }
     const r = canvas.getBoundingClientRect();
     const x1 = e.clientX - r.left;
     const y1 = e.clientY - r.top;

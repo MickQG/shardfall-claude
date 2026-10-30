@@ -16,14 +16,18 @@ export function amoveClick(button: number): 'order' | 'disarm' {
   return button === 2 ? 'order' : 'disarm';
 }
 
-/** What a minimap click does: an armed mode fires there; otherwise left moves the camera and right gives an order. */
-export function minimapClick(button: number, modes: { amove: boolean; targeting: boolean }): 'attackmove' | 'superweapon' | 'camera' | 'order' {
-  if (modes.targeting) return 'superweapon';
-  if (modes.amove) return 'attackmove';
+/**
+ * What a minimap click does, with the same buttons as the main view: superweapon targeting fires on left and cancels on
+ * right; attack-move fires on right and disarms on left (which then moves the camera); otherwise left moves the camera and
+ * right gives an order.
+ */
+export function minimapClick(button: number, modes: { amove: boolean; targeting: boolean }): 'attackmove' | 'superweapon' | 'cancel' | 'disarm' | 'camera' | 'order' {
+  if (modes.targeting) return button === 2 ? 'cancel' : 'superweapon';
+  if (modes.amove) return button === 2 ? 'attackmove' : 'disarm';
   return button === 2 ? 'order' : 'camera';
 }
 
-const PAUSED_INPUT = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'wheel', 'minimap-camera', 'escape', 'p']);
+const PAUSED_INPUT = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'h', 'wheel', 'minimap-camera', 'escape', 'p']);
 
 /**
  * Whether an input reaches the game: a lower-case key name, or 'click', 'wheel', 'sidebar', 'minimap-camera', 'minimap-order'.

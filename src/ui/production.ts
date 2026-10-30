@@ -1,5 +1,6 @@
 import { unitDef } from '../data/defs';
 import { QUEUE_MAX } from '../sim';
+import { queueRefusal } from './feedback';
 
 interface Producer {
   id: number;
@@ -48,6 +49,5 @@ export function placementLive(placing: { source: number; kind: string }, buildin
 
 /** Whether one more `kind` can be queued right now: prerequisites owned, affordable, and a producer with room. */
 export function queueable(kind: string, buildings: readonly Producer[], ownedKinds: readonly string[], credits: number, selected: number | null): boolean {
-  const d = unitDef(kind);
-  return [d.builtAt, ...d.requires].every((k) => ownedKinds.includes(k)) && credits >= d.cost && trainSource(buildings, kind, selected) !== null;
+  return queueRefusal(kind, ownedKinds, credits, trainSource(buildings, kind, selected) !== null) === null;
 }

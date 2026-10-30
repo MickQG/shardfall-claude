@@ -24,12 +24,12 @@ export function miniToTile(l: MiniLayout, x: number, y: number): { x: number; y:
   return { x: (a + b) / 2, y: (b - a) / 2 };
 }
 
-/** Draws the minimap: terrain, fog, units and the camera view marker. */
 /** A tile position clamped onto a map of the given size (at most the centre of the last tile). */
 export function clampTile(tx: number, ty: number, width: number, height: number): { x: number; y: number } {
   return { x: Math.min(width - 0.5, Math.max(0, tx)), y: Math.min(height - 0.5, Math.max(0, ty)) };
 }
 
+/** Draws the minimap: terrain, fog, units and the camera view marker. */
 export class Minimap {
   readonly canvas = document.createElement('canvas');
   private ctx: CanvasRenderingContext2D;

@@ -16,7 +16,8 @@ const COOLDOWN: Record<Alert['id'], number> = { attack: 200, units: 300, structu
 export class AlertTracker {
   private hp = new Map<number, number>();
   private unitHp = new Map<number, number>();
-  private ready = new Set<string>();
+  /** Building id to the kind of ready structure already announced for it. */
+  private ready = new Map<number, string>();
   private charged = new Set<number>();
   private unitCount = -1;
   private wasLow = false;
@@ -41,10 +42,9 @@ export class AlertTracker {
       if (prev !== undefined && b.hp < prev) this.fire(out, t, { id: 'attack', text: 'Base under attack!', level: 'bad', at: { tx: b.tx, ty: b.ty } });
       this.hp.set(b.id, b.hp);
       const head = b.queue[0];
-      const key = `${b.id}:${head?.kind}`;
-      if (!head?.ready) for (const k of [...this.ready]) if (k.startsWith(`${b.id}:`)) this.ready.delete(k);
-      if (head?.ready && BUILDING_DEFS[head.kind] && !this.ready.has(key)) {
-        this.ready.add(key);
+      if (!head?.ready) this.ready.delete(b.id);
+      if (head?.ready && BUILDING_DEFS[head.kind] && this.ready.get(b.id) !== head.kind) {
+        this.ready.set(b.id, head.kind);
         this.fire(out, t, { id: 'structure', text: `${buildingDef(head.kind).name} ready: place it`, level: 'info', at: { tx: b.tx, ty: b.ty } });
       }
       const sw = buildingDef(b.kind).superweapon;

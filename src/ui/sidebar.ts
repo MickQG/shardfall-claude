@@ -1,7 +1,7 @@
-import { buildingDef, structuresOf, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
+import { buildingDef, hqOf, structuresOf, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
 import { cancelPlan } from './cancelPlan';
 import { fireState, queueRefusal, rallyHint, SellConfirm } from './feedback';
-import { newestQueued, queueable, trainSource } from './production';
+import { newestQueued, trainSource } from './production';
 import { QUEUE_MAX, type BuildingSnap, type Snapshot } from '../sim';
 
 const CSS = `
@@ -56,6 +56,8 @@ interface ItemRef {
 }
 
 export interface SidebarActions {
+  /** Whether the sidebar accepts clicks right now (not while paused or after the game ends). */
+  enabled(): boolean;
   produce(source: number, kind: string): void;
   cancel(source: number, index: number): void;
   startPlacement(source: number, kind: string): void;
@@ -137,7 +139,7 @@ export class Sidebar {
 
   private onClick(e: MouseEvent, right: boolean): void {
     const el = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
-    if (!el) return;
+    if (!el || !this.actions.enabled()) return;
     const a = el.dataset.act;
     const kind = el.dataset.kind ?? '';
     const src = Number(el.dataset.src ?? -1);
@@ -228,7 +230,7 @@ export class Sidebar {
         const full = !!hq && hq.queue.length >= QUEUE_MAX;
         const placeable = !!q && q.ready && idx === 0;
         const off = !placeable && (!hq || miss.length > 0 || credits < d.cost || full);
-        const why = off ? (queueRefusal(kind, mine.map((b) => b.kind), credits, !!hq && !full) ?? 'Unavailable') : '';
+        const why = off ? (!hq ? `Requires ${buildingDef(hqOf(faction)).name}` : (queueRefusal(kind, mine.map((b) => b.kind), credits, !full) ?? 'Unavailable')) : '';
         const title = miss.length ? `Requires ${miss.map((m) => buildingDef(m).name).join(', ')}` : `${d.name}: power ${d.power > 0 ? '+' : ''}${d.power}`;
         this.item(this.buildEl, { act: 'build', kind, src: hq?.id ?? -1, idx, name: d.name, cost: d.cost, off, ready: placeable, pct: q ? q.pct : 0, count: hq ? hq.queue.filter((x) => x.kind === kind).length : 0, title, why });
     }
@@ -242,9 +244,8 @@ export class Sidebar {
         const miss = missing(snap, [d.builtAt, ...d.requires]);
         const queued = producers.flatMap((b) => b.queue.map((q, i) => ({ b, q, i }))).filter((x) => x.q.kind === kind);
         const lead = queued.reduce<(typeof queued)[number] | undefined>((best, x) => (!best || x.q.pct > best.q.pct ? x : best), undefined);
-        const owned = mine.map((b) => b.kind);
-        const off = !queueable(kind, mine, owned, credits, this.selected);
-        const why = off ? (queueRefusal(kind, owned, credits, trainSource(mine, kind, this.selected) !== null) ?? 'Unavailable') : '';
+        const why = queueRefusal(kind, mine.map((b) => b.kind), credits, trainSource(mine, kind, this.selected) !== null) ?? '';
+        const off = why !== '';
         const title = miss.length ? `Requires ${miss.map((m) => buildingDef(m).name).join(', ')}` : `${d.name}: ${d.hp} HP`;
         this.item(this.trainEl, { act: 'train', kind, src: -1, idx: -1, name: d.name, cost: d.cost, off, ready: false, pct: lead ? lead.q.pct : 0, count: queued.length, title, why });
       }

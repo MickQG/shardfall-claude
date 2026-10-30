@@ -28,10 +28,11 @@ describe('camera and minimap', () => {
     expect(clampTile(10, 10, 96, 96)).toEqual({ x: 10, y: 10 });
   });
 
-  it('CTL-14: an armed attack-move or superweapon fires at a minimap click; otherwise left moves the camera and right orders', () => {
-    expect(minimapClick(0, { amove: true, targeting: false })).toBe('attackmove');
+  it('CTL-14: an armed attack-move or superweapon fires at a minimap click with the same buttons as the main view; otherwise left moves the camera and right orders', () => {
     expect(minimapClick(2, { amove: true, targeting: false })).toBe('attackmove');
+    expect(minimapClick(0, { amove: true, targeting: false })).toBe('disarm'); // left disarms, as on the main view
     expect(minimapClick(0, { amove: false, targeting: true })).toBe('superweapon');
+    expect(minimapClick(2, { amove: false, targeting: true })).toBe('cancel'); // right cancels, as on the main view
     expect(minimapClick(0, { amove: false, targeting: false })).toBe('camera');
     expect(minimapClick(2, { amove: false, targeting: false })).toBe('order');
   });
@@ -65,9 +66,9 @@ describe('input while paused or over', () => {
   const paused = { paused: true, over: false };
   const over = { paused: false, over: true };
 
-  it('CTL-16: paused accepts only camera input, Escape and P', () => {
-    for (const k of ['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'wheel', 'minimap-camera', 'escape', 'p']) expect(inputAllowed(k, paused)).toBe(true);
-    for (const k of ['q', 'e', 'f', 'x', '1', ' ', 'h', 'm', '+', 'click', 'sidebar', 'minimap-order']) expect(inputAllowed(k, paused)).toBe(false);
+  it('CTL-16: paused accepts only camera input (including Space and H), Escape and P', () => {
+    for (const k of ['w', 'a', 's', 'd', 'arrowup', 'arrowleft', ' ', 'h', 'wheel', 'minimap-camera', 'escape', 'p']) expect(inputAllowed(k, paused)).toBe(true);
+    for (const k of ['q', 'e', 'f', 'x', '1', 'm', '+', 'click', 'sidebar', 'minimap-order']) expect(inputAllowed(k, paused)).toBe(false);
   });
 
   it('CTL-16: after the game is over nothing reaches the game; while running everything does', () => {

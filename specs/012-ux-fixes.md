@@ -17,9 +17,9 @@ Bug and usability fixes found in a review of the player-facing controls and HUD.
 
 - **CTL-13**: An attack-move order is given only to the combat units in the selection; non-combat units in it keep what they were doing.
 - **CUR-5**: Right-clicking an enemy with only non-combat units selected shows the move cursor and orders a move to that point.
-- **CTL-14**: While attack-move or superweapon targeting is armed, a minimap click issues that order at the clicked tile; superweapon targeting disarms when its building is destroyed or sold.
+- **CTL-14**: While attack-move or superweapon targeting is armed, a minimap click issues or cancels it at the clicked tile with the same buttons as the main view (superweapon: left fires, right cancels; attack-move: right orders, left disarms and moves the camera); superweapon targeting disarms when its building is destroyed or sold.
 - **CTL-15**: `Space` centres the camera on the middle of the selection; pressing a control-group key twice quickly centres on that group; assigning a group with nothing selected leaves the group unchanged.
-- **CTL-16**: While the game is paused, only camera controls, `Escape`, `P` and the pause menu respond; once the game is over, only the result screen responds.
+- **CTL-16**: While the game is paused, only camera controls (panning, zoom, the minimap camera, `Space` and `H`), `Escape`, `P` and the pause menu respond; a drag or click finished while paused changes nothing; once the game is over, only the result screen responds.
 
 ## Camera
 
