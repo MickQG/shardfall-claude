@@ -1,5 +1,7 @@
-import { buildingDef, structuresOf, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
+import { buildingDef, hqOf, structuresOf, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
 import { cancelPlan } from './cancelPlan';
+import { fireState, queueRefusal, rallyHint, SellConfirm } from './feedback';
+import { newestQueued, trainSource } from './production';
 import { QUEUE_MAX, type BuildingSnap, type Snapshot } from '../sim';
 
 const CSS = `
@@ -41,6 +43,8 @@ interface ItemData {
   pct: number;
   count: number;
   title: string;
+  /** Why the item is unavailable, shown when it is clicked anyway. */
+  why: string;
 }
 
 interface ItemRef {
@@ -52,12 +56,16 @@ interface ItemRef {
 }
 
 export interface SidebarActions {
+  /** Whether the sidebar accepts clicks right now (not while paused or after the game ends). */
+  enabled(): boolean;
   produce(source: number, kind: string): void;
   cancel(source: number, index: number): void;
   startPlacement(source: number, kind: string): void;
   sell(id: number): void;
   repair(id: number, on: boolean): void;
   fire(id: number): void;
+  /** An action was refused; tell the player why. */
+  refused(reason: string): void;
 }
 
 const own = (snap: Snapshot): BuildingSnap[] => snap.buildings.filter((b) => b.owner === snap.viewer);
@@ -77,9 +85,12 @@ export class Sidebar {
   private trainEl: HTMLElement;
   private selEl: HTMLElement;
   private queues = new Map<number, { kind: string }[]>();
+  private mine: BuildingSnap[] = [];
+  private selected: number | null = null;
   private lastKey = '';
   private selKey = 'init';
   private lastAt = 0;
+  private sellConfirm = new SellConfirm(3000);
 
   constructor(private actions: SidebarActions) {
     const style = document.createElement('style');
@@ -104,27 +115,54 @@ export class Sidebar {
     for (let i = 0; i < (bulk ? BULK_QUEUE : 1); i++) this.actions.produce(src, kind);
   }
 
+  /** Queues one unit, or five with Ctrl held, each to the producer that would finish it soonest (PRD-11). */
+  private train(kind: string, bulk: boolean): void {
+    const plan = this.mine.map((b) => ({ ...b, queue: [...b.queue] }));
+    for (let i = 0; i < (bulk ? BULK_QUEUE : 1); i++) {
+      const src = trainSource(plan, kind, this.selected);
+      if (src === null) return;
+      this.actions.produce(src, kind);
+      plan.find((b) => b.id === src)?.queue.push({ kind, pct: 0, ready: false });
+    }
+  }
+
+  /** Cancels the newest queued unit of a kind across all buildings, or five with Ctrl held (PRD-12). */
+  private untrain(kind: string, bulk: boolean): void {
+    const plan = this.mine.map((b) => ({ ...b, queue: [...b.queue] }));
+    for (let i = 0; i < (bulk ? BULK_QUEUE : 1); i++) {
+      const q = newestQueued(plan, kind);
+      if (!q) return;
+      this.actions.cancel(q.source, q.index);
+      plan.find((b) => b.id === q.source)?.queue.splice(q.index, 1);
+    }
+  }
+
   private onClick(e: MouseEvent, right: boolean): void {
     const el = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
-    if (!el) return;
+    if (!el || !this.actions.enabled()) return;
     const a = el.dataset.act;
     const kind = el.dataset.kind ?? '';
     const src = Number(el.dataset.src ?? -1);
     const idx = Number(el.dataset.idx ?? -1);
     if (right) {
       // Cancelling is always allowed, even when the item is disabled (full queue, unaffordable, locked).
-      if (idx >= 0 && (a === 'build' || a === 'train')) {
-        const plan = e.ctrlKey ? cancelPlan(this.queues.get(src) ?? [], kind, BULK_QUEUE) : [idx];
-        for (const i of plan.length > 0 ? plan : [idx]) this.actions.cancel(src, i);
-      }
+      if (a === 'train') this.untrain(kind, e.ctrlKey);
+      else if (idx >= 0 && a === 'build') for (const i of cancelPlan(this.queues.get(src) ?? [], kind, e.ctrlKey ? BULK_QUEUE : 1)) this.actions.cancel(src, i);
       return;
     }
-    if (el.classList.contains('off')) return;
+    if (el.classList.contains('off')) {
+      if (el.dataset.why) this.actions.refused(el.dataset.why);
+      return;
+    }
     if (a === 'build') {
       if (el.classList.contains('ready')) this.actions.startPlacement(src, kind);
       else this.queue(src, kind, e.ctrlKey);
-    } else if (a === 'train') this.queue(src, kind, e.ctrlKey);
-    else if (a === 'sell') this.actions.sell(src);
+    } else if (a === 'train') this.train(kind, e.ctrlKey);
+    else if (a === 'sell') {
+      if (this.sellConfirm.click(src, performance.now()) === 'sell') this.actions.sell(src);
+      this.selKey = 'stale';
+      this.lastKey = '';
+    }
     else if (a === 'repair') this.actions.repair(src, el.dataset.on === '1');
     else if (a === 'fire') this.actions.fire(src);
   }
@@ -135,8 +173,11 @@ export class Sidebar {
     const player = snap.players[me];
     if (!player) return;
     const mine = own(snap);
+    this.mine = mine;
+    this.selected = selectedBuilding;
     this.queues = new Map(mine.map((b) => [b.id, b.queue.map((q) => ({ kind: q.kind }))]));
-    const key = JSON.stringify([player.credits, player.powerOut, player.powerIn, mine.map((b) => [b.id, b.kind, b.hp, b.repairing, b.queue.map((q) => [q.kind, q.pct, q.ready])]), selectedBuilding]);
+    const armed = selectedBuilding !== null && this.sellConfirm.armed(selectedBuilding, now);
+    const key = JSON.stringify([player.credits, player.powerOut, player.powerIn, mine.map((b) => [b.id, b.kind, b.hp, b.repairing, b.charge, b.queue.map((q) => [q.kind, q.pct, q.ready])]), selectedBuilding, armed]);
     if (key === this.lastKey || now - this.lastAt < 120) return;
     this.lastKey = key;
     this.lastAt = now;
@@ -147,7 +188,7 @@ export class Sidebar {
 
     this.renderBuild(snap, player.faction, player.credits, mine);
     this.renderTrain(snap, player.faction, player.credits, mine);
-    this.renderSelection(mine, selectedBuilding);
+    this.renderSelection(mine, selectedBuilding, low, armed);
   }
 
   private refs = new Map<string, ItemRef>();
@@ -171,6 +212,7 @@ export class Sidebar {
     r.el.dataset.src = String(a.src);
     r.el.dataset.idx = String(a.idx);
     r.el.title = a.title;
+    r.el.dataset.why = a.why;
     r.el.classList.toggle('off', a.off);
     r.el.classList.toggle('ready', a.ready);
     const q = a.ready ? 'PLACE' : a.count > 0 ? `×${a.count}` : '';
@@ -186,9 +228,11 @@ export class Sidebar {
         const idx = hq ? hq.queue.findIndex((q) => q.kind === kind) : -1;
         const q = idx >= 0 && hq ? hq.queue[idx] : undefined;
         const full = !!hq && hq.queue.length >= QUEUE_MAX;
-        const off = !hq || (miss.length > 0 && !q) || (credits < d.cost && !q) || (full && !q);
+        const placeable = !!q && q.ready && idx === 0;
+        const off = !placeable && (!hq || miss.length > 0 || credits < d.cost || full);
+        const why = off ? (!hq ? `Requires ${buildingDef(hqOf(faction)).name}` : (queueRefusal(kind, mine.map((b) => b.kind), credits, !full) ?? 'Unavailable')) : '';
         const title = miss.length ? `Requires ${miss.map((m) => buildingDef(m).name).join(', ')}` : `${d.name}: power ${d.power > 0 ? '+' : ''}${d.power}`;
-        this.item(this.buildEl, { act: 'build', kind, src: hq?.id ?? -1, idx, name: d.name, cost: d.cost, off, ready: !!q && q.ready && idx === 0, pct: q ? q.pct : 0, count: hq ? hq.queue.filter((x) => x.kind === kind).length : 0, title });
+        this.item(this.buildEl, { act: 'build', kind, src: hq?.id ?? -1, idx, name: d.name, cost: d.cost, off, ready: placeable, pct: q ? q.pct : 0, count: hq ? hq.queue.filter((x) => x.kind === kind).length : 0, title, why });
     }
   }
 
@@ -197,20 +241,20 @@ export class Sidebar {
       {
         const d = unitDef(kind);
         const producers = mine.filter((b) => b.kind === d.builtAt);
-        const src = producers.reduce<BuildingSnap | undefined>((best, b) => (!best || b.queue.length < best.queue.length ? b : best), undefined);
         const miss = missing(snap, [d.builtAt, ...d.requires]);
         const queued = producers.flatMap((b) => b.queue.map((q, i) => ({ b, q, i }))).filter((x) => x.q.kind === kind);
-        const first = queued[0];
-        const off = !src || miss.length > 0 || credits < d.cost || src.queue.length >= QUEUE_MAX;
+        const lead = queued.reduce<(typeof queued)[number] | undefined>((best, x) => (!best || x.q.pct > best.q.pct ? x : best), undefined);
+        const why = queueRefusal(kind, mine.map((b) => b.kind), credits, trainSource(mine, kind, this.selected) !== null) ?? '';
+        const off = why !== '';
         const title = miss.length ? `Requires ${miss.map((m) => buildingDef(m).name).join(', ')}` : `${d.name}: ${d.hp} HP`;
-        this.item(this.trainEl, { act: 'train', kind, src: first ? first.b.id : (src?.id ?? -1), idx: first ? first.i : -1, name: d.name, cost: d.cost, off, ready: false, pct: first ? first.q.pct : 0, count: queued.length, title });
+        this.item(this.trainEl, { act: 'train', kind, src: -1, idx: -1, name: d.name, cost: d.cost, off, ready: false, pct: lead ? lead.q.pct : 0, count: queued.length, title, why });
       }
     }
   }
 
-  private renderSelection(mine: BuildingSnap[], selectedBuilding: number | null): void {
+  private renderSelection(mine: BuildingSnap[], selectedBuilding: number | null, low: boolean, sellArmed: boolean): void {
     const b = selectedBuilding === null ? undefined : mine.find((x) => x.id === selectedBuilding);
-    const selKey = b ? `${b.id}:${b.hp}:${b.repairing}:${b.charge}` : '';
+    const selKey = b ? `${b.id}:${b.hp}:${b.repairing}:${b.charge}:${low}:${sellArmed}` : '';
     if (selKey === this.selKey) return; // keep the buttons stable unless something visible changed
     this.selKey = selKey;
     if (!b) {
@@ -220,6 +264,10 @@ export class Sidebar {
     const d = buildingDef(b.kind);
     this.selEl.style.display = 'block';
     const sellable = !d.hq;
-    this.selEl.innerHTML = `<div class="sel-name">${d.name}</div><div style="color:#9fb4c6;margin-bottom:6px">HP ${b.hp}/${d.hp}${d.superweapon ? ` · charge ${b.charge}%` : ''}</div>${d.superweapon ? `<button class="act" data-act="fire" data-src="${b.id}" ${b.charge < 100 ? 'disabled style="opacity:.4"' : ''}>Fire superweapon</button>` : ''}${sellable ? `<button class="act" data-act="sell" data-src="${b.id}">Sell</button>` : ''}<button class="act" data-act="repair" data-src="${b.id}" data-on="${b.repairing ? 0 : 1}">${b.repairing ? 'Stop repair' : 'Repair'}</button><div style="margin-top:6px;color:#7f93a6">Right-click ground to set rally</div>`;
+    const fs = fireState(b.charge, low);
+    const fire = d.superweapon ? `<button class="act${fs.ready ? '' : ' off'}" data-act="fire" data-src="${b.id}" data-why="${fs.label}" ${fs.ready ? '' : 'style="opacity:.4"'}>${fs.label}</button>` : '';
+    const sell = sellable ? `<button class="act" data-act="sell" data-src="${b.id}" ${sellArmed ? 'style="border-color:#ff5a4a;color:#ff9a8a"' : ''}>${sellArmed ? 'Confirm sell?' : 'Sell'}</button>` : '';
+    const rally = rallyHint(b.kind) ? '<div style="margin-top:6px;color:#7f93a6">Right-click ground to set rally</div>' : '';
+    this.selEl.innerHTML = `<div class="sel-name">${d.name}</div><div style="color:#9fb4c6;margin-bottom:6px">HP ${b.hp}/${d.hp}${d.superweapon ? ` · charge ${b.charge}%` : ''}</div>${fire}${sell}<button class="act" data-act="repair" data-src="${b.id}" data-on="${b.repairing ? 0 : 1}">${b.repairing ? 'Stop repair' : 'Repair'}</button>${rally}`;
   }
 }

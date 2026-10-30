@@ -6,15 +6,16 @@ interface Hook {
   tileScreen: (tx: number, ty: number) => { x: number; y: number };
   send: (c: unknown) => void;
   modes: () => { placing: boolean; targeting: boolean; amove: boolean };
+  select: (ids: number[]) => void;
 }
 
-test('CTL-1 CTL-2 CTL-3 CTL-4 CTL-5 CUR-1 CUR-3: Q selects combat units, F2 toggles quality, F then click attack-moves, Ctrl+S is blocked, cursors change', async ({ page }) => {
+test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CTL-11 CUR-1 CUR-3: Q selects combat units, F2 toggles quality, F then right-click attack-moves, Ctrl+S is blocked, cursors change', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/?faction=human&scenario=calm&seed=3');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
 
-  // CTL-1: Q selects the three riflemen and not the hauler.
+  // CTL-6: Q selects the three riflemen and not the hauler.
   await page.keyboard.press('q');
   const sel = await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.selected());
   const snap = await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.snapshot());
@@ -22,7 +23,12 @@ test('CTL-1 CTL-2 CTL-3 CTL-4 CTL-5 CUR-1 CUR-3: Q selects combat units, F2 togg
   expect(riflemen.length).toBe(3);
   expect([...sel].sort()).toEqual([...riflemen].sort());
 
-  // CTL-2: F2 toggles quality; Q does not.
+  // CTL-11: with one rifleman selected, E selects every rifleman.
+  await page.evaluate((id) => (window as unknown as { __shardfall: Hook }).__shardfall.select([id]), riflemen[0]!);
+  await page.keyboard.press('e');
+  expect([...(await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.selected()))].sort()).toEqual([...riflemen].sort());
+
+  // CTL-7: F2 toggles quality; Q does not.
   await expect(page.getByText(/F2 quality: high/)).toBeVisible();
   await page.keyboard.press('F2');
   await expect(page.getByText(/F2 quality: low/)).toBeVisible();
@@ -41,12 +47,16 @@ test('CTL-1 CTL-2 CTL-3 CTL-4 CTL-5 CUR-1 CUR-3: Q selects combat units, F2 togg
     expect(await modes()).toEqual({ placing: false, targeting: false, amove: false });
     await page.keyboard.up(key);
   }
+  // Panning moved the view by a frame-rate-dependent amount, so put the pointer back over the same open-ground tile.
+  const back = await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.tileScreen(30, 14));
+  await page.mouse.move(back.x, back.y);
+  await expect.poll(cursor).toBe(moveCursor);
   await page.keyboard.down('Control');
   await page.waitForTimeout(150);
   expect(await cursor()).toBe(moveCursor);
   await page.keyboard.up('Control');
 
-  // CTL-5: Ctrl+S (S pans the map) must not open the browser's save dialog, so the game cancels that key press.
+  // CTL-10: Ctrl+S (S pans the map) must not open the browser's save dialog, so the game cancels that key press.
   await page.evaluate(() => {
     const w = window as unknown as { __prevented?: boolean };
     window.addEventListener('keydown', (e) => {
@@ -56,7 +66,7 @@ test('CTL-1 CTL-2 CTL-3 CTL-4 CTL-5 CUR-1 CUR-3: Q selects combat units, F2 togg
   await page.keyboard.press('Control+s');
   expect(await page.evaluate(() => (window as unknown as { __prevented?: boolean }).__prevented)).toBe(true);
 
-  // CTL-3: F arms attack-move (crosshair cursor); Escape disarms it without an order.
+  // CTL-8: F arms attack-move (crosshair cursor); Escape disarms it without an order.
   await page.keyboard.press('f');
   await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: true });
   await expect.poll(cursor).not.toBe(moveCursor);
@@ -64,16 +74,23 @@ test('CTL-1 CTL-2 CTL-3 CTL-4 CTL-5 CUR-1 CUR-3: Q selects combat units, F2 togg
   await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: false });
   await expect.poll(cursor).toBe(moveCursor);
 
-  // CTL-3: F then a left click sends the selected units attack-moving to the target and disarms the mode.
+  // CTL-8: F then a left click disarms without an order.
+  await page.keyboard.press('f');
+  await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: true });
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: false });
+  await page.evaluate((ids) => (window as unknown as { __shardfall: Hook }).__shardfall.select(ids), riflemen);
+
+  // CTL-8: F then a right click sends the selected units attack-moving to the target and disarms the mode.
   const before = snap!.units.find((u) => u.id === riflemen[0])!;
   await page.keyboard.press('f');
-  await page.mouse.click(p.x, p.y);
+  await page.mouse.click(p.x, p.y, { button: 'right' });
   await expect.poll(modes).toEqual({ placing: false, targeting: false, amove: false });
   await page.waitForTimeout(2500);
   const after = (await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.snapshot()))!.units.find((u) => u.id === riflemen[0])!;
   expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(256);
 
-  // CTL-4: the snapshot exposes the rally point of an own building once one is set.
+  // CTL-9: the snapshot exposes the rally point of an own building once one is set.
   const hq = snap!.buildings.find((b) => b.owner === 0 && b.kind === 'hum_hq')!;
   expect(hq.rally).toBeNull();
   await page.evaluate((id) => (window as unknown as { __shardfall: Hook }).__shardfall.send({ type: 'rally', player: 0, building: id, x: 20 * 256, y: 20 * 256 }), hq.id);

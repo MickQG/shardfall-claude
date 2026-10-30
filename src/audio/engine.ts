@@ -1,6 +1,6 @@
 import { musicPlan, type Sound } from './plan';
 
-type Name = Sound['name'] | 'alert' | 'ready' | 'click';
+type Name = Sound['name'] | 'alert' | 'ready' | 'click' | 'deny';
 
 /**
  * Procedural audio: every sound is synthesised from oscillators and filtered noise, so there are no audio assets.
@@ -146,6 +146,10 @@ export class AudioEngine {
           break;
         case 'click':
           this.tone(520, t, 0.04, 'triangle', 0.08 * gain);
+          break;
+        case 'deny':
+          this.tone(220, t, 0.09, 'square', 0.08 * gain, 180);
+          this.tone(165, t + 0.1, 0.14, 'square', 0.08 * gain, 130);
           break;
       }
     } catch {

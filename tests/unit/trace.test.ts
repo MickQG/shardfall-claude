@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { untested } from '../../scripts/traceLib';
+import { duplicateIds, untested } from '../../scripts/traceLib';
 
 function fixture(spec: string, test: string): { specs: string; tests: string } {
   const root = mkdtempSync(join(tmpdir(), 'trace-'));
@@ -20,5 +20,12 @@ describe('trace', () => {
     expect(untested(bad.specs, bad.tests)).toEqual(['ABC-2']);
     const good = fixture(spec, "it('ABC-1 ABC-2: covered', () => {});");
     expect(untested(good.specs, good.tests)).toEqual([]);
+  });
+
+  it('FND-10: flags an ID defined twice, even across files', () => {
+    const f = fixture('- **ABC-1**: one\n- **ABC-2**: two\n', '');
+    expect(duplicateIds(f.specs)).toEqual([]);
+    writeFileSync(join(f.specs, 'b.md'), '- **ABC-2**: again\n');
+    expect(duplicateIds(f.specs)).toEqual(['ABC-2']);
   });
 });

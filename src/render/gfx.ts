@@ -1,4 +1,4 @@
-import type { Faction } from '../data/defs';
+import { unitDef, type Faction } from '../data/defs';
 
 /** How long a newly placed building takes to rise, in ms. */
 export const BUILD_MS = 1500;
@@ -77,6 +77,15 @@ const MUZZLES: Record<string, Muzzle> = {
 };
 
 export const muzzleFor = (weapon: string): Muzzle => MUZZLES[weapon] ?? { len: 8, width: 3, color: 0xffffff };
+
+/** Depth offset that puts air units above everything on the ground (the map is far smaller than this in screen pixels). */
+const AIR_DEPTH = 1_000_000;
+
+/** Draw-order key of a unit at screen-y `y`: ground units sort with terrain and buildings, air units always above them. */
+export const unitDepth = (y: number, air: boolean): number => (air ? y + AIR_DEPTH : y);
+
+/** Health 0..1 against the unit kind's full hit points. */
+export const hpFraction = (hp: number, kind: string): number => Math.max(0, Math.min(1, hp / unitDef(kind).hp));
 
 /** Health bars appear only on damaged or selected things. */
 export const barVisible = (hp: number, maxHp: number, selected: boolean): boolean => selected || hp < maxHp;

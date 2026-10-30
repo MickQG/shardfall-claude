@@ -1,4 +1,4 @@
-import { TILE_H, TILE_W } from './iso';
+import { TILE_H, TILE_W, tileToScreen } from './iso';
 
 export interface Camera {
   /** World-space (iso pixel) point at the screen centre. */
@@ -25,6 +25,12 @@ export function mapBounds(width: number, height: number): Bounds {
 export function clampCamera(c: Camera, b: Bounds): Camera {
   const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, c.zoom));
   return { zoom, x: Math.min(b.maxX, Math.max(b.minX, c.x)), y: Math.min(b.maxY, Math.max(b.minY, c.y)) };
+}
+
+/** Centre the camera on a tile, kept within the map bounds. */
+export function centerOnTile(c: Camera, tx: number, ty: number, b: Bounds): Camera {
+  const p = tileToScreen(tx, ty);
+  return clampCamera({ ...c, x: p.x, y: p.y }, b);
 }
 
 /** Pan by screen-space pixels. */

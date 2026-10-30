@@ -1,11 +1,11 @@
 import { Application, Container, Graphics, Sprite } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
-import { buildingDef } from '../data/defs';
+import { buildingDef, unitDef } from '../data/defs';
 import type { BuildingSnap, SimEvent, Snapshot } from '../sim';
 import { buildingHeight, buildingOrigin, drawBuilding } from './buildingArt';
 import type { Camera } from './camera';
 import { Effects } from './effects';
-import { barVisible, buildUp, damageState, damageTint, edgeShade, groundTint, idleGlow, revealLine } from './gfx';
+import { barVisible, buildUp, damageState, damageTint, edgeShade, groundTint, hpFraction, idleGlow, revealLine, unitDepth } from './gfx';
 import { OWNER_COLORS } from './colors';
 import { crystalLevel, crystalModel, crystalTipPx, propAt, propModel, rockModel, rockVariant } from './voxel/props';
 import { sprites } from './voxel/spriteCache';
@@ -22,7 +22,6 @@ interface UnitSprite {
   art: UnitArt;
   ring: Graphics;
   bar: Graphics;
-  maxHp: number;
   lastTx: number;
   lastTy: number;
   moving: number;
@@ -300,7 +299,7 @@ export class GameView {
     bar.visible = false;
     root.addChild(ring, bar);
     this.unitLayer.addChild(root);
-    return { root, art, ring, bar, maxHp: Math.max(u.hp, 1), lastTx: u.tx, lastTy: u.ty, moving: 0, heading: 0, aim: 0, aimHold: 0 };
+    return { root, art, ring, bar, lastTx: u.tx, lastTy: u.ty, moving: 0, heading: 0, aim: 0, aimHold: 0 };
   }
 
   private makeBuilding(b: BuildingSnap, ghost: boolean): BuildingSprite {
@@ -507,7 +506,7 @@ export class GameView {
       }
       const p = tileToScreen(u.tx, u.ty);
       s.root.position.set(p.x, p.y);
-      s.root.zIndex = p.y;
+      s.root.zIndex = unitDepth(p.y, !!unitDef(u.kind).air);
       const mdx = u.tx - s.lastTx;
       const mdy = u.ty - s.lastTy;
       const moved = Math.abs(mdx) + Math.abs(mdy) > 0.002;
@@ -521,9 +520,9 @@ export class GameView {
       animateUnit(s.art, vs.time + u.id * 37, s.moving > 0, u.load / 200, vs.fx.particles || vs.fx.shake);
       const sel = vs.selectedUnits.has(u.id);
       s.ring.visible = sel;
-      s.bar.visible = barVisible(u.hp, s.maxHp, sel);
+      s.bar.visible = barVisible(u.hp, unitDef(u.kind).hp, sel);
       if (s.bar.visible) {
-        const frac = Math.max(0, Math.min(1, u.hp / s.maxHp));
+        const frac = hpFraction(u.hp, u.kind);
         const top = -s.art.topY;
         s.bar.clear().rect(-13, top - 1, 26, 6).fill(0x04130d).rect(-12, top, 24 * frac, 4).fill(frac > 0.5 ? 0x4cd964 : frac > 0.25 ? 0xffcc00 : 0xff3b30);
         s.bar.rect(-12, top, 24 * frac, 1).fill({ color: 0xffffff, alpha: 0.35 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { combatUnitIds, DoubleTap } from '../../src/ui/controls';
+import { amoveClick, attackMoveIds, combatUnitIds, DoubleTap } from '../../src/ui/controls';
 import { rallyLine } from '../../src/ui/rally';
 import { cursorCss, cursorFor, type CursorState } from '../../src/ui/cursor';
 import { cancelPlan } from '../../src/ui/cancelPlan';
@@ -13,13 +13,13 @@ const units = [
 ];
 
 describe('select-all-combat', () => {
-  it('CTL-1: selects own armed units only, leaving out harvesters and enemies', () => {
+  it('CTL-6: selects own armed units only, leaving out harvesters and enemies', () => {
     expect(combatUnitIds(units, 0)).toEqual([1, 4, 5]);
   });
-  it('CTL-1: yields nothing when the player has no combat units', () => {
+  it('CTL-6: yields nothing when the player has no combat units', () => {
     expect(combatUnitIds([{ id: 2, owner: 0, kind: 'hum_hauler' }], 0)).toEqual([]);
   });
-  it('CTL-1: a second press inside the window is a double tap, a slow one is not', () => {
+  it('CTL-6: a second press inside the window is a double tap, a slow one is not', () => {
     const t = new DoubleTap(350);
     expect(t.press(1000)).toBe(false);
     expect(t.press(1200)).toBe(true);
@@ -30,10 +30,10 @@ describe('select-all-combat', () => {
 
 describe('rally line', () => {
   const b = { id: 7, owner: 0, kind: 'hum_barracks', tx: 10, ty: 10, rally: [20 * 256, 30 * 256] as [number, number] };
-  it('CTL-4: a selected production building with a rally point draws a line from its centre to the rally tile', () => {
+  it('CTL-9: a selected production building with a rally point draws a line from its centre to the rally tile', () => {
     expect(rallyLine(b, 7)).toEqual({ from: { tx: 11, ty: 11 }, to: { tx: 20, ty: 30 } });
   });
-  it('CTL-4: no line when the building is not selected or has no explicit rally point', () => {
+  it('CTL-9: no line when the building is not selected or has no explicit rally point', () => {
     expect(rallyLine(b, 8)).toBeNull();
     expect(rallyLine(b, null)).toBeNull();
     expect(rallyLine({ ...b, rally: null }, 7)).toBeNull();
@@ -89,5 +89,16 @@ describe('cancel plan', () => {
     expect(cancelPlan(q('a', 'b'), 'c', 5)).toEqual([]);
     expect(cancelPlan(q('a', 'a'), 'a', 1)).toEqual([1]);
     expect(cancelPlan(Array.from({ length: 20 }, () => ({ kind: 'a' })), 'a', 5)).toEqual([19, 18, 17, 16, 15]);
+  });
+});
+
+describe('attack-move', () => {
+  it('CTL-8: once armed, a right-click orders the attack-move and a left-click disarms and carries on as a normal click', () => {
+    expect(amoveClick(2)).toBe('order');
+    expect(amoveClick(0)).toBe('disarm');
+  });
+  it('CTL-13: only the combat units in the selection receive the attack-move', () => {
+    expect(attackMoveIds(units, [1, 2, 4, 3], 0)).toEqual([1, 4]);
+    expect(attackMoveIds(units, [2], 0)).toEqual([]);
   });
 });

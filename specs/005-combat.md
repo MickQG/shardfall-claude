@@ -15,3 +15,4 @@
 - **CMB-13**: A superweapon charges only while powered, fires at a chosen point after a delay, damages everything in its radius with falloff, and then recharges.
 - **ROS-1**: Every building and unit of both factions is reachable through the tech tree from the headquarters, and all prerequisites and producers exist.
 - **ROS-2**: Each faction can counter armour, infantry and air: it has an anti-armour weapon, an anti-air weapon, and artillery that outranges its own defences.
+- **ROS-3**: At equal cost, like-for-like fights between the factions (rifle infantry, scouts, anti-armour infantry, tanks, and a mixed early-to-mid army) end within 20% of even on open ground, averaged over two army sizes and both starting sides; no faction out-trades the other across its core roster.

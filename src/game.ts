@@ -4,21 +4,22 @@ import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
 import { soundFor } from './audio/plan';
 import { SimClient } from './host/client';
-import { mapBounds, pan, screenToWorld, zoomAt, type Camera } from './render/camera';
+import { centerOnTile, mapBounds, pan, screenToWorld, zoomAt, type Camera } from './render/camera';
 import { GameView, type PlacementPreview } from './render/gameView';
 import { interpolate } from './render/interp';
 import { screenToTile, tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
-import { createHud } from './ui/hud';
-import { combatUnitIds, DoubleTap } from './ui/controls';
+import { createHud, resultText } from './ui/hud';
+import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, inputAllowed, KeyTap, minimapClick } from './ui/controls';
 import { cursorCss, cursorFor, type CursorState } from './ui/cursor';
-import { Minimap, miniToTile } from './ui/minimap';
+import { clampTile, Minimap, miniToTile } from './ui/minimap';
 import { rallyLine } from './ui/rally';
 import { effectsEnabled, loadSettings, saveSettings } from './ui/settings';
+import { placementLive } from './ui/production';
 import { Sidebar } from './ui/sidebar';
 import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
-import { boxSelect, Selection, selectSameKind, toScreenUnits } from './ui/selection';
+import { boxSelect, Selection, selectKinds, selectSameKind, toScreenUnits } from './ui/selection';
 
 const PLAYER = 0;
 const host = document.getElementById('app');
@@ -56,9 +57,12 @@ function safeStorage(): Storage | null {
 }
 
 function topbar(): void {
-  hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · F attack-move · F2 quality: ${settings.quality}`);
+  hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · E select same kind · F attack-move · F2 quality: ${settings.quality}`);
 }
 topbar();
+
+/** Whether an input reaches the game right now (CTL-16). */
+const allowed = (input: string): boolean => inputAllowed(input, { paused, over: !!sim.curr?.over });
 
 function setPaused(p: boolean): void {
   paused = p;
@@ -75,6 +79,8 @@ let minimap: Minimap | null = null;
 let targeting: { building: number } | null = null;
 let amoveMode = false;
 const qTap = new DoubleTap(350);
+const eTap = new DoubleTap(350);
+const groupTap = new KeyTap(350);
 let resultShown = false;
 let lastAlertTick = -1;
 
@@ -89,8 +95,12 @@ const tileFromScreen = (sx: number, sy: number): { x: number; y: number } => {
 const aliveOwn = (snap: Snapshot): Set<number> => new Set(snap.units.filter((u) => u.owner === PLAYER).map((u) => u.id));
 
 function centerOn(tx: number, ty: number): void {
-  const p = tileToScreen(tx, ty);
-  cam = { ...cam, x: p.x, y: p.y };
+  cam = centerOnTile(cam, tx, ty, bounds);
+}
+
+function centerOnUnits(units: readonly { x: number; y: number }[]): void {
+  const c = centroid(units);
+  if (c) centerOn(c.x, c.y);
 }
 
 /** One picking context per query: units are interpolated to the same instant for hover, right-click and left-click. */
@@ -107,7 +117,7 @@ function hitContext(snap: Snapshot): HitContext {
 }
 
 function placementPreview(snap: Snapshot): PlacementPreview | null {
-  if (!placing || mouse.x < 0) return null;
+  if (!placing || mouse.x < 0 || !placementLive(placing, snap.buildings, PLAYER)) return null;
   const d = buildingDef(placing.kind);
   const t = tileFromScreen(mouse.x, mouse.y);
   const tx = Math.floor(t.x - d.w / 2 + 0.5);
@@ -131,6 +141,7 @@ function placementPreview(snap: Snapshot): PlacementPreview | null {
 }
 
 const sidebar = new Sidebar({
+  enabled: () => allowed('sidebar'),
   produce: (source, kind) => sim.send({ type: 'produce', player: PLAYER, source, kind }),
   cancel: (source, index) => sim.send({ type: 'cancel', player: PLAYER, source, index }),
   startPlacement: (source, kind) => {
@@ -141,7 +152,14 @@ const sidebar = new Sidebar({
   fire: (id) => {
     targeting = { building: id };
   },
+  refused: (reason) => refuse(reason),
 });
+
+/** Tell the player an action was refused (UI-3). */
+function refuse(reason: string): void {
+  hud.toast(reason, 'bad');
+  audio.play('deny');
+}
 
 /** What the pointer is over and the current input mode, for choosing the cursor. */
 function cursorState(): CursorState {
@@ -166,7 +184,7 @@ function frame(prevTime: number): (t: number) => void {
     if (keys.has('d') || keys.has('arrowright') || (mouse.x > v.width - EDGE && mouse.x <= v.width)) dx += 1;
     if (keys.has('w') || keys.has('arrowup') || (mouse.y >= 0 && mouse.y < EDGE)) dy -= 1;
     if (keys.has('s') || keys.has('arrowdown') || (mouse.y > v.height - EDGE && mouse.y <= v.height)) dy += 1;
-    if (dx || dy) cam = pan(cam, dx * PAN_SPEED * dt, dy * PAN_SPEED * dt, bounds);
+    if ((dx || dy) && allowed('w')) cam = pan(cam, dx * PAN_SPEED * dt, dy * PAN_SPEED * dt, bounds);
 
     for (const ev of sim.events.splice(0)) {
       view.effects.spawn(ev, t);
@@ -178,12 +196,14 @@ function frame(prevTime: number): (t: number) => void {
     const curr = sim.curr;
     if (curr && curr.over && !resultShown) {
       resultShown = true;
-      const won = curr.winner === PLAYER;
-      hud.showResult(won ? 'VICTORY' : curr.winner === null ? 'DRAW' : 'DEFEAT', won ? 'The enemy base has fallen.' : 'Your base has fallen.', won ? '#7ff5cd' : '#ff5a4a');
+      const r = resultText(curr.winner, PLAYER);
+      hud.showResult(r.title, r.sub, r.color);
     }
     if (curr && sim.prev) {
       selection.prune(aliveOwn(curr));
       if (selectedBuilding !== null && !curr.buildings.some((b) => b.id === selectedBuilding)) selectedBuilding = null;
+      if (placing && !placementLive(placing, curr.buildings, PLAYER)) placing = null;
+      if (targeting && !curr.buildings.some((b) => b.id === targeting?.building && b.owner === PLAYER)) targeting = null;
       const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
       const ru = interpolate(sim.prev.units, curr.units, alpha);
       view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings) }, curr);
@@ -222,18 +242,41 @@ function frame(prevTime: number): (t: number) => void {
 function wireMinimap(mm: Minimap): void {
   const toTile = (e: MouseEvent): { x: number; y: number } => {
     const r = mm.canvas.getBoundingClientRect();
-    return miniToTile(mm.layout, e.clientX - r.left, e.clientY - r.top);
+    const t = miniToTile(mm.layout, e.clientX - r.left, e.clientY - r.top);
+    return clampTile(t.x, t.y, map.width, map.height);
   };
   let dragging = false;
   mm.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   mm.canvas.addEventListener('pointerdown', (e) => {
     const t = toTile(e);
-    if (e.button === 2) {
-      order(t.x, t.y);
-      return;
+    const x = Math.round(t.x * FP);
+    const y = Math.round(t.y * FP);
+    const action = minimapClick(e.button, { amove: amoveMode, targeting: targeting !== null });
+    if (!allowed(action === 'camera' || action === 'disarm' ? 'minimap-camera' : 'minimap-order')) return;
+    switch (action) {
+      case 'cancel':
+        targeting = null;
+        return;
+      case 'disarm':
+        amoveMode = false;
+        dragging = true;
+        centerOn(t.x, t.y);
+        return;
+      case 'attackmove':
+        if (sim.curr) sendAttackMove(sim.curr, x, y);
+        amoveMode = false;
+        return;
+      case 'superweapon':
+        if (targeting) sim.send({ type: 'superweapon', player: PLAYER, building: targeting.building, x, y });
+        targeting = null;
+        return;
+      case 'order':
+        order(t.x, t.y);
+        return;
+      case 'camera':
+        dragging = true;
+        centerOn(t.x, t.y);
     }
-    dragging = true;
-    centerOn(t.x, t.y);
   });
   window.addEventListener('pointermove', (e) => {
     if (dragging) {
@@ -242,6 +285,12 @@ function wireMinimap(mm: Minimap): void {
     }
   });
   window.addEventListener('pointerup', () => (dragging = false));
+}
+
+/** Attack-move the combat units in the selection to a fixed-point position (CTL-13); nothing is sent without any. */
+function sendAttackMove(snap: Snapshot, x: number, y: number): void {
+  const units = attackMoveIds(snap.units, selection.selected, PLAYER);
+  if (units.length > 0) sim.send({ type: 'attackmove', player: PLAYER, units, x, y });
 }
 
 /** Context order for the selection at tile (tx, ty): rally for a building, harvest/move for units. */
@@ -277,10 +326,11 @@ async function boot(): Promise<void> {
 
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
-    keys.add(k);
     audio.unlock();
     // S pans the map, so Ctrl + S must not reach the browser's save dialog.
     if (e.ctrlKey && k === 's') e.preventDefault();
+    if (!allowed(k)) return;
+    keys.add(k);
     if (k === 'escape') {
       if (placing || targeting || amoveMode) {
         placing = null;
@@ -288,7 +338,7 @@ async function boot(): Promise<void> {
         amoveMode = false;
       } else setPaused(!paused);
     }
-    if (k === 'f' && !e.ctrlKey && !e.repeat && sim.curr && combatUnitIds(sim.curr.units.filter((u) => selection.has(u.id)), PLAYER).length > 0) amoveMode = true;
+    if (k === 'f' && !e.ctrlKey && !e.repeat && !placing && !targeting && sim.curr && combatUnitIds(sim.curr.units.filter((u) => selection.has(u.id)), PLAYER).length > 0) amoveMode = true;
     if (k === 'p') setPaused(!paused);
     if (k === 'm') {
       settings.muted = !settings.muted;
@@ -301,7 +351,15 @@ async function boot(): Promise<void> {
       if (army.length > 0) {
         selectedBuilding = null;
         selection.set(army.map((u) => u.id));
-        if (qTap.press(performance.now())) centerOn(army.reduce((a, u) => a + u.x, 0) / army.length / FP, army.reduce((a, u) => a + u.y, 0) / army.length / FP);
+        if (qTap.press(performance.now())) centerOnUnits(army);
+      }
+    }
+    if (k === 'e' && !e.ctrlKey && !e.repeat && sim.curr) {
+      const ids = selectKinds(sim.curr.units, selection.selected, PLAYER);
+      if (ids.length > 0) {
+        selectedBuilding = null;
+        selection.set(ids);
+        if (eTap.press(performance.now())) centerOnUnits(sim.curr.units.filter((u) => selection.has(u.id)));
       }
     }
     if (k === 'f2') {
@@ -323,14 +381,12 @@ async function boot(): Promise<void> {
       } else {
         const ids = selection.recallGroup(n, aliveOwn(sim.curr));
         selectedBuilding = null;
-        const f = sim.curr.units.find((u) => u.id === ids[0]);
-        if (f && e.repeat) centerOn(f.x / FP, f.y / FP);
+        if (!e.repeat && groupTap.press(k, performance.now())) centerOnUnits(sim.curr.units.filter((u) => ids.includes(u.id)));
       }
     } else if (k === 'x') {
       sim.send({ type: 'stop', player: PLAYER, units: selection.selected });
     } else if (k === ' ' && sim.curr) {
-      const own = sim.curr.units.find((u) => selection.has(u.id));
-      if (own) centerOn(own.x / FP, own.y / FP);
+      centerOnUnits(sim.curr.units.filter((u) => selection.has(u.id)));
       e.preventDefault();
     } else if (k === 'h' && sim.curr) {
       const home = sim.curr.buildings.find((b) => b.owner === PLAYER && buildingDef(b.kind).hq);
@@ -346,6 +402,7 @@ async function boot(): Promise<void> {
     'wheel',
     (e) => {
       e.preventDefault();
+      if (!allowed('wheel')) return;
       cam = zoomAt(cam, view.viewport, e.offsetX, e.offsetY, e.deltaY < 0 ? 1.1 : 1 / 1.1, bounds);
     },
     { passive: false },
@@ -357,8 +414,18 @@ async function boot(): Promise<void> {
   canvas.addEventListener('pointerdown', (e) => {
     audio.unlock();
     audio.startMusic(seed);
+    if (!allowed('click')) return;
+    if (amoveMode) {
+      amoveMode = false;
+      if (amoveClick(e.button) === 'order' && sim.curr) {
+        const t = tileFromScreen(e.offsetX, e.offsetY);
+        sendAttackMove(sim.curr, Math.round(t.x * FP), Math.round(t.y * FP));
+        return;
+      }
+      if (e.button !== 0) return;
+    }
     if (e.button === 2) {
-      if (placing || targeting || amoveMode) {
+      if (placing || targeting) {
         placing = null;
         targeting = null;
         amoveMode = false;
@@ -366,7 +433,8 @@ async function boot(): Promise<void> {
       }
       const snap = sim.curr;
       if (snap && selection.selected.length > 0) {
-        const o = rightClickOrder(hitTest(hitContext(snap), e.offsetX, e.offsetY));
+        const combat = combatUnitIds(snap.units.filter((u) => selection.has(u.id)), PLAYER).length > 0;
+        const o = rightClickOrder(hitTest(hitContext(snap), e.offsetX, e.offsetY), combat);
         if (o.kind === 'attack') {
           sim.send({ type: 'attack', player: PLAYER, units: selection.selected, target: o.target });
           return;
@@ -381,18 +449,12 @@ async function boot(): Promise<void> {
         targeting = null;
         return;
       }
-      if (amoveMode) {
-        const t = tileFromScreen(e.offsetX, e.offsetY);
-        sim.send({ type: 'attackmove', player: PLAYER, units: selection.selected, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
-        amoveMode = false;
-        return;
-      }
       if (placing && sim.curr) {
         const p = placementPreview(sim.curr);
         if (p?.ok) {
           sim.send({ type: 'place', player: PLAYER, source: placing.source, tx: p.tx, ty: p.ty });
           if (!e.shiftKey) placing = null;
-        }
+        } else refuse('Cannot build there');
         return;
       }
       drag = { x0: e.offsetX, y0: e.offsetY };
@@ -405,6 +467,11 @@ async function boot(): Promise<void> {
   });
   window.addEventListener('pointerup', (e) => {
     if (!drag || e.button !== 0 || !sim.curr || !sim.prev) return;
+    if (!allowed('click')) {
+      drag = null;
+      hud.selbox(null);
+      return;
+    }
     const r = canvas.getBoundingClientRect();
     const x1 = e.clientX - r.left;
     const y1 = e.clientY - r.top;
@@ -413,7 +480,7 @@ async function boot(): Promise<void> {
     if (Math.hypot(x1 - drag.x0, y1 - drag.y0) > 5) {
       const ids = boxSelect(su, drag.x0, drag.y0, x1, y1, PLAYER);
       selectedBuilding = null;
-      if (e.shiftKey) selection.toggle(ids);
+      if (e.shiftKey) selection.add(ids);
       else selection.set(ids);
     } else {
       const hit = hitTest(hc, x1, y1);
@@ -421,7 +488,11 @@ async function boot(): Promise<void> {
       const now = performance.now();
       if (id !== null) {
         selectedBuilding = null;
-        if (now - lastClick.t < 350 && lastClick.id === id) selection.set(selectSameKind(su, id, PLAYER, view.viewport));
+        if (now - lastClick.t < 350 && lastClick.id === id) {
+          const same = selectSameKind(su, id, PLAYER, view.viewport);
+          if (e.shiftKey) selection.add(same);
+          else selection.set(same);
+        }
         else if (e.shiftKey) selection.toggle([id]);
         else selection.set([id]);
       } else {

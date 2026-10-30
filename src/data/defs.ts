@@ -122,15 +122,15 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
     weapon: { damage: 8, range: 5, cooldown: 10, type: 'pierce', antiAir: true, antiGround: true },
   },
   hum_rocketeer: {
-    faction: 'human', name: 'Rocketeer', speed: 34, hp: 90, radius: 80, vision: 7, cost: 250, buildTime: 200, builtAt: 'hum_barracks', requires: ['hum_factory'], armor: 'light', role: 'antiarmor',
+    faction: 'human', name: 'Rocketeer', speed: 34, hp: 100, radius: 80, vision: 7, cost: 250, buildTime: 200, builtAt: 'hum_barracks', requires: ['hum_factory'], armor: 'light', role: 'antiarmor',
     weapon: { damage: 40, range: 6, cooldown: 30, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
   },
   hum_buggy: {
-    faction: 'human', name: 'Scout Buggy', speed: 70, hp: 140, radius: 80, vision: 11, cost: 250, buildTime: 220, builtAt: 'hum_factory', requires: [], armor: 'light', role: 'scout',
-    weapon: { damage: 6, range: 4.5, cooldown: 8, type: 'pierce', antiAir: false, antiGround: true },
+    faction: 'human', name: 'Scout Buggy', speed: 70, hp: 160, radius: 80, vision: 11, cost: 250, buildTime: 220, builtAt: 'hum_factory', requires: [], armor: 'light', role: 'scout',
+    weapon: { damage: 7, range: 4.5, cooldown: 8, type: 'pierce', antiAir: false, antiGround: true },
   },
   hum_tank: {
-    faction: 'human', name: 'Bulwark Tank', speed: 34, hp: 520, radius: 104, vision: 7, cost: 800, buildTime: 450, builtAt: 'hum_factory', requires: [], armor: 'heavy', role: 'tank',
+    faction: 'human', name: 'Bulwark Tank', speed: 34, hp: 550, radius: 104, vision: 7, cost: 800, buildTime: 450, builtAt: 'hum_factory', requires: [], armor: 'heavy', role: 'tank',
     weapon: { damage: 38, range: 6, cooldown: 25, type: 'rocket', antiAir: false, antiGround: true, flight: 4 },
   },
   hum_artillery: {
@@ -153,11 +153,11 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
     weapon: { damage: 31, range: 6.3, cooldown: 26, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
   },
   ali_stalker: {
-    faction: 'alien', name: 'Stalker', speed: 92, hp: 120, radius: 76, vision: 11, cost: 220, buildTime: 200, builtAt: 'ali_pit', requires: [], armor: 'light', regen: 2, role: 'scout',
-    weapon: { damage: 10, range: 1.6, cooldown: 7, type: 'claw', antiAir: false, antiGround: true },
+    faction: 'alien', name: 'Stalker', speed: 92, hp: 110, radius: 76, vision: 11, cost: 220, buildTime: 200, builtAt: 'ali_pit', requires: [], armor: 'light', regen: 2, role: 'scout',
+    weapon: { damage: 8, range: 1.6, cooldown: 7, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_brute: {
-    faction: 'alien', name: 'Brute', speed: 33, hp: 760, radius: 112, vision: 6, cost: 830, buildTime: 480, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 3, role: 'tank',
+    faction: 'alien', name: 'Brute', speed: 33, hp: 720, radius: 112, vision: 6, cost: 830, buildTime: 480, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 3, role: 'tank',
     weapon: { damage: 58, range: 1.9, cooldown: 20, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_lobber: {
