@@ -1,5 +1,6 @@
 import { buildingDef, structuresOf, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
 import { cancelPlan } from './cancelPlan';
+import { newestQueued, queueable, trainSource } from './production';
 import { QUEUE_MAX, type BuildingSnap, type Snapshot } from '../sim';
 
 const CSS = `
@@ -77,6 +78,8 @@ export class Sidebar {
   private trainEl: HTMLElement;
   private selEl: HTMLElement;
   private queues = new Map<number, { kind: string }[]>();
+  private mine: BuildingSnap[] = [];
+  private selected: number | null = null;
   private lastKey = '';
   private selKey = 'init';
   private lastAt = 0;
@@ -104,6 +107,28 @@ export class Sidebar {
     for (let i = 0; i < (bulk ? BULK_QUEUE : 1); i++) this.actions.produce(src, kind);
   }
 
+  /** Queues one unit, or five with Ctrl held, each to the producer that would finish it soonest (PRD-11). */
+  private train(kind: string, bulk: boolean): void {
+    const plan = this.mine.map((b) => ({ ...b, queue: [...b.queue] }));
+    for (let i = 0; i < (bulk ? BULK_QUEUE : 1); i++) {
+      const src = trainSource(plan, kind, this.selected);
+      if (src === null) return;
+      this.actions.produce(src, kind);
+      plan.find((b) => b.id === src)?.queue.push({ kind, pct: 0, ready: false });
+    }
+  }
+
+  /** Cancels the newest queued unit of a kind across all buildings, or five with Ctrl held (PRD-12). */
+  private untrain(kind: string, bulk: boolean): void {
+    const plan = this.mine.map((b) => ({ ...b, queue: [...b.queue] }));
+    for (let i = 0; i < (bulk ? BULK_QUEUE : 1); i++) {
+      const q = newestQueued(plan, kind);
+      if (!q) return;
+      this.actions.cancel(q.source, q.index);
+      plan.find((b) => b.id === q.source)?.queue.splice(q.index, 1);
+    }
+  }
+
   private onClick(e: MouseEvent, right: boolean): void {
     const el = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
     if (!el) return;
@@ -113,17 +138,15 @@ export class Sidebar {
     const idx = Number(el.dataset.idx ?? -1);
     if (right) {
       // Cancelling is always allowed, even when the item is disabled (full queue, unaffordable, locked).
-      if (idx >= 0 && (a === 'build' || a === 'train')) {
-        const plan = e.ctrlKey ? cancelPlan(this.queues.get(src) ?? [], kind, BULK_QUEUE) : [idx];
-        for (const i of plan.length > 0 ? plan : [idx]) this.actions.cancel(src, i);
-      }
+      if (a === 'train') this.untrain(kind, e.ctrlKey);
+      else if (idx >= 0 && a === 'build') for (const i of cancelPlan(this.queues.get(src) ?? [], kind, e.ctrlKey ? BULK_QUEUE : 1)) this.actions.cancel(src, i);
       return;
     }
     if (el.classList.contains('off')) return;
     if (a === 'build') {
       if (el.classList.contains('ready')) this.actions.startPlacement(src, kind);
       else this.queue(src, kind, e.ctrlKey);
-    } else if (a === 'train') this.queue(src, kind, e.ctrlKey);
+    } else if (a === 'train') this.train(kind, e.ctrlKey);
     else if (a === 'sell') this.actions.sell(src);
     else if (a === 'repair') this.actions.repair(src, el.dataset.on === '1');
     else if (a === 'fire') this.actions.fire(src);
@@ -135,6 +158,8 @@ export class Sidebar {
     const player = snap.players[me];
     if (!player) return;
     const mine = own(snap);
+    this.mine = mine;
+    this.selected = selectedBuilding;
     this.queues = new Map(mine.map((b) => [b.id, b.queue.map((q) => ({ kind: q.kind }))]));
     const key = JSON.stringify([player.credits, player.powerOut, player.powerIn, mine.map((b) => [b.id, b.kind, b.hp, b.repairing, b.queue.map((q) => [q.kind, q.pct, q.ready])]), selectedBuilding]);
     if (key === this.lastKey || now - this.lastAt < 120) return;
@@ -186,9 +211,10 @@ export class Sidebar {
         const idx = hq ? hq.queue.findIndex((q) => q.kind === kind) : -1;
         const q = idx >= 0 && hq ? hq.queue[idx] : undefined;
         const full = !!hq && hq.queue.length >= QUEUE_MAX;
-        const off = !hq || (miss.length > 0 && !q) || (credits < d.cost && !q) || (full && !q);
+        const placeable = !!q && q.ready && idx === 0;
+        const off = !placeable && (!hq || miss.length > 0 || credits < d.cost || full);
         const title = miss.length ? `Requires ${miss.map((m) => buildingDef(m).name).join(', ')}` : `${d.name}: power ${d.power > 0 ? '+' : ''}${d.power}`;
-        this.item(this.buildEl, { act: 'build', kind, src: hq?.id ?? -1, idx, name: d.name, cost: d.cost, off, ready: !!q && q.ready && idx === 0, pct: q ? q.pct : 0, count: hq ? hq.queue.filter((x) => x.kind === kind).length : 0, title });
+        this.item(this.buildEl, { act: 'build', kind, src: hq?.id ?? -1, idx, name: d.name, cost: d.cost, off, ready: placeable, pct: q ? q.pct : 0, count: hq ? hq.queue.filter((x) => x.kind === kind).length : 0, title });
     }
   }
 
@@ -197,13 +223,12 @@ export class Sidebar {
       {
         const d = unitDef(kind);
         const producers = mine.filter((b) => b.kind === d.builtAt);
-        const src = producers.reduce<BuildingSnap | undefined>((best, b) => (!best || b.queue.length < best.queue.length ? b : best), undefined);
         const miss = missing(snap, [d.builtAt, ...d.requires]);
         const queued = producers.flatMap((b) => b.queue.map((q, i) => ({ b, q, i }))).filter((x) => x.q.kind === kind);
-        const first = queued[0];
-        const off = !src || miss.length > 0 || credits < d.cost || src.queue.length >= QUEUE_MAX;
+        const lead = queued.reduce<(typeof queued)[number] | undefined>((best, x) => (!best || x.q.pct > best.q.pct ? x : best), undefined);
+        const off = !queueable(kind, mine, mine.map((b) => b.kind), credits, this.selected);
         const title = miss.length ? `Requires ${miss.map((m) => buildingDef(m).name).join(', ')}` : `${d.name}: ${d.hp} HP`;
-        this.item(this.trainEl, { act: 'train', kind, src: first ? first.b.id : (src?.id ?? -1), idx: first ? first.i : -1, name: d.name, cost: d.cost, off, ready: false, pct: first ? first.q.pct : 0, count: queued.length, title });
+        this.item(this.trainEl, { act: 'train', kind, src: -1, idx: -1, name: d.name, cost: d.cost, off, ready: false, pct: lead ? lead.q.pct : 0, count: queued.length, title });
       }
     }
   }
