@@ -137,11 +137,11 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   },
   hum_artillery: {
     faction: 'human', name: 'Hammer Artillery', speed: 24, hp: 250, radius: 100, vision: 8, cost: 900, buildTime: 520, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', role: 'artillery',
-    weapon: { damage: 70, range: 11, cooldown: 60, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14 },
+    weapon: { damage: 64, range: 11, cooldown: 60, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14 },
   },
   hum_gunship: {
     faction: 'human', name: 'Aegis Gunship', speed: 56, hp: 300, radius: 90, vision: 9, cost: 1200, buildTime: 600, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'air', air: true, role: 'air',
-    weapon: { damage: 14, range: 4, cooldown: 8, type: 'pierce', antiAir: true, antiGround: true },
+    weapon: { damage: 13, range: 4, cooldown: 8, type: 'pierce', antiAir: true, antiGround: true },
   },
 
   // ---- Aliens ----

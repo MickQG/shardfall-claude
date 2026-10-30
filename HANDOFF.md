@@ -1,6 +1,6 @@
 # Status and next steps
 
-Last updated after the UX batch (#58, specs 012-013) and the score screen (spec 014). Everything in `specs/` is built, tested and deployed; this file replaces the pre-build handoff.
+Last updated after the UX batch (#58, specs 012-013), the score screen (spec 014) and squads and veterancy (spec 015). Everything in `specs/` is built, tested and deployed; this file replaces the pre-build handoff.
 
 ## State
 - Milestones 1-11 plus the UX batch are merged to `main`. Every requirement in `specs/` is cited by a test (`npm run trace`), and `npm run trace` also fails if an ID is defined twice (FND-10): a new spec file continues an area's numbering.
@@ -21,10 +21,11 @@ Last updated after the UX batch (#58, specs 012-013) and the score screen (spec 
 ## Balance
 - Target: human vs alien about even; Hard > Medium > Easy (`npm run harness` gates the ordering).
 - ROS-3 (`tests/unit/balance.test.ts`) keeps equal-cost like-for-like duels within 20% of even. The last pass (#56) buffed Rocketeer, Scout Buggy and Bulwark Tank and trimmed Stalker and Brute.
-- Known leans: Hard vs Hard AI favoured the Aegis 6-2 over 8 matches both before and after #56 (small sample); Riflemen vs Skitterers alone still leans Vrax; large mixed armies lean Vrax at the biggest budget. Vrax regeneration was not touched.
+- Squads and veterancy (spec 015) changed the picture: AI vs AI is now 4-4 at Medium and Hard (4 seeds, both seats). Hammer Artillery (64) and Aegis Gunship (13) were trimmed after them. Known leans: Riflemen vs Skitterers alone leans Vrax, early mixed armies (rifles plus rockets) and late mixes with artillery and air lean Aegis, Brute-heavy mid armies lean Vrax. Vrax regeneration was not touched.
+- Probe used for tuning: equal-cost duels at three budgets from both seats plus AI vs AI per difficulty (see `tests/unit/balance.test.ts` for the duel harness).
 - After any data change, re-run `npm run harness` and the equal-cost duels (ROS-3), and check AI vs AI per difficulty from both seats.
 
 ## Known limits and good next steps
-- Genre ideas are filed as issues #59-#66 (score screen, hotkeys, queued orders, stances, more structure queues, veterancy, skirmish setup, more maps). Each needs a spec first.
+- Genre ideas are filed as issues #60-#66 (hotkeys, queued orders, stances, more structure queues, skirmish setup, more maps; veterancy is done). Each needs a spec first.
 - Replays (the sim is deterministic, so a command log plus seed is enough) and multiplayer are out of scope so far; the architecture allows them.
 - Touch controls are not supported.
