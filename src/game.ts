@@ -10,7 +10,8 @@ import { interpolate } from './render/interp';
 import { screenToTile, tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
-import { createHud, resultText } from './ui/hud';
+import { createHud, resultText, type ScoreView } from './ui/hud';
+import { armyPath, scoreRows } from './ui/score';
 import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, inputAllowed, KeyTap, minimapClick } from './ui/controls';
 import { cursorCss, cursorFor, type CursorState } from './ui/cursor';
 import { clampTile, Minimap, miniToTile } from './ui/minimap';
@@ -155,6 +156,17 @@ const sidebar = new Sidebar({
   refused: (reason) => refuse(reason),
 });
 
+const FACTION_NAME = { human: 'Aegis Union', alien: 'Vrax Hive' } as const;
+const FACTION_COLOR = { human: '#6fd3ff', alien: '#b6ff5c' } as const;
+
+/** Score table and army graph for the result screen (SCR-3). */
+function scoreView(snap: Snapshot): ScoreView {
+  const stats = snap.stats ?? [];
+  const names = snap.players.map((p, i) => `${FACTION_NAME[p.faction]}${i === PLAYER ? ' (you)' : ''}`);
+  const max = Math.max(0, ...stats.flatMap((s) => s.army));
+  return { ...scoreRows(stats, names, snap.tick), series: stats.map((s, i) => ({ color: FACTION_COLOR[snap.players[i]?.faction ?? 'human'], points: armyPath(s.army, max, 320, 120) })) };
+}
+
 /** Tell the player an action was refused (UI-3). */
 function refuse(reason: string): void {
   hud.toast(reason, 'bad');
@@ -197,7 +209,7 @@ function frame(prevTime: number): (t: number) => void {
     if (curr && curr.over && !resultShown) {
       resultShown = true;
       const r = resultText(curr.winner, PLAYER);
-      hud.showResult(r.title, r.sub, r.color);
+      hud.showResult(r.title, r.sub, r.color, curr.stats ? scoreView(curr) : undefined);
     }
     if (curr && sim.prev) {
       selection.prune(aliveOwn(curr));

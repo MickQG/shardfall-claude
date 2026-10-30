@@ -2,7 +2,7 @@ import { buildingDef, isBuildingKind, trainableAt, unitDef, type Faction } from 
 import { centerOf, tileOf } from './fixed';
 import { isBlocked } from './path';
 import { canPlace, type Footprint } from './placement';
-import { addBuilding, addUnit, buildingById, hasKinds, QUEUE_MAX, rebuildBlocked, type Building, type State } from './state';
+import { addBuilding, addUnit, buildingById, hasKinds, QUEUE_MAX, rebuildBlocked, type Building, type Player, type State } from './state';
 import { evictFromBlocked, orderMove } from './movement';
 
 const haulerOf = (f: Faction): string => (f === 'human' ? 'hum_hauler' : 'ali_gorger');
@@ -65,11 +65,15 @@ export function place(s: State, owner: number, sourceId: number, tx: number, ty:
   if (!placementOk(s, owner, head.kind, tx, ty)) return;
   src.queue.shift();
   const b = addBuilding(s, owner, head.kind, tx, ty);
+  (s.players[owner] as Player).stats.buildingsBuilt++;
   evictFromBlocked(s);
   const d = buildingDef(b.kind);
   if (d.refinery) {
     const spawn = spawnTile(s, b);
-    if (spawn !== undefined) addUnit(s, owner, haulerOf((s.players[owner] as { faction: Faction }).faction), centerOf(spawn % s.grid.width), centerOf(Math.floor(spawn / s.grid.width)));
+    if (spawn !== undefined) {
+      addUnit(s, owner, haulerOf((s.players[owner] as { faction: Faction }).faction), centerOf(spawn % s.grid.width), centerOf(Math.floor(spawn / s.grid.width)));
+      (s.players[owner] as Player).stats.unitsBuilt++;
+    }
   }
 }
 
@@ -148,6 +152,7 @@ export function tickProduction(s: State): void {
           if (t !== undefined) {
             b.queue.shift();
             const u = addUnit(s, b.owner, head.kind, centerOf(t % s.grid.width), centerOf(Math.floor(t / s.grid.width)));
+            player.stats.unitsBuilt++;
             if (b.rally) orderMove(s, u, tileOf(b.rally[1]) * s.grid.width + tileOf(b.rally[0]));
           } else {
             head.progress = head.total;

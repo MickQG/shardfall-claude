@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 type Hook = { snapshot: () => { tick: number } | null; setSpeed: (v: number) => void };
-test('UX-1 UX-2 VIS-3: pause stops the game, and finishing the enemy base shows the victory screen', async ({ page }) => {
+test('UX-1 UX-2 VIS-3 SCR-3: pause stops the game, and finishing the enemy base shows the victory screen', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/?faction=human&scenario=rush');
@@ -20,5 +20,17 @@ test('UX-1 UX-2 VIS-3: pause stops the game, and finishing the enemy base shows 
   await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.setSpeed(8));
   await expect(page.locator('#result h1')).toHaveText('VICTORY', { timeout: 60_000 });
   await expect(page.locator('#result #again')).toBeVisible();
+
+  // SCR-3: the result screen shows both sides' score table and the army graph.
+  const score = page.locator('#result .score');
+  await expect(score).toContainText('Aegis Union (you)');
+  await expect(score).toContainText('Vrax Hive');
+  await expect(score).toContainText('Units destroyed');
+  await expect(score.locator('polyline')).toHaveCount(2);
+  await page.screenshot({ path: 'test-results/score-screen.png' });
   expect(errors).toEqual([]);
+
+  // UX-2: the result screen also leads back to the main menu.
+  await page.locator('#result #menu-btn').click();
+  await expect(page.locator('#menu h1')).toHaveText('SHARDFALL');
 });

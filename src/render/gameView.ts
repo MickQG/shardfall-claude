@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, Sprite } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
 import { buildingDef, unitDef } from '../data/defs';
-import type { BuildingSnap, SimEvent, Snapshot } from '../sim';
+import { maxHpOf, squadAlive, type BuildingSnap, type SimEvent, type Snapshot } from '../sim';
 import { buildingHeight, buildingOrigin, drawBuilding } from './buildingArt';
 import type { Camera } from './camera';
 import { Effects } from './effects';
@@ -13,7 +13,7 @@ import { FogView } from './fogView';
 import type { RenderUnit } from './interp';
 import { TILE_H, TILE_W, tileToScreen } from './iso';
 import type { RallyLine } from '../ui/rally';
-import { animateUnit, drawUnit, setFacing, type UnitArt } from './unitArt';
+import { animateUnit, drawRankPips, drawUnit, setFacing, setSquad, type UnitArt } from './unitArt';
 import { facingOf } from './voxel/bake';
 import { FACINGS } from './voxel/spriteCache';
 
@@ -22,6 +22,9 @@ interface UnitSprite {
   art: UnitArt;
   ring: Graphics;
   bar: Graphics;
+  /** Veterancy chevrons above the health bar, redrawn when `rank` changes. */
+  pips: Graphics;
+  rank: number;
   lastTx: number;
   lastTy: number;
   moving: number;
@@ -297,9 +300,10 @@ export class GameView {
     ring.visible = false;
     const bar = new Graphics();
     bar.visible = false;
-    root.addChild(ring, bar);
+    const pips = new Graphics();
+    root.addChild(ring, bar, pips);
     this.unitLayer.addChild(root);
-    return { root, art, ring, bar, lastTx: u.tx, lastTy: u.ty, moving: 0, heading: 0, aim: 0, aimHold: 0 };
+    return { root, art, ring, bar, pips, rank: 0, lastTx: u.tx, lastTy: u.ty, moving: 0, heading: 0, aim: 0, aimHold: 0 };
   }
 
   private makeBuilding(b: BuildingSnap, ghost: boolean): BuildingSprite {
@@ -518,11 +522,17 @@ export class GameView {
       s.lastTx = u.tx;
       s.lastTy = u.ty;
       animateUnit(s.art, vs.time + u.id * 37, s.moving > 0, u.load / 200, vs.fx.particles || vs.fx.shake);
+      const max = maxHpOf(u.kind, u.rank);
+      if (s.art.mates.length > 0) setSquad(s.art, squadAlive(u.kind, u.hp, max));
+      if (s.rank !== u.rank) {
+        s.rank = u.rank;
+        drawRankPips(s.pips, u.rank, -s.art.topY - 7);
+      }
       const sel = vs.selectedUnits.has(u.id);
       s.ring.visible = sel;
-      s.bar.visible = barVisible(u.hp, unitDef(u.kind).hp, sel);
+      s.bar.visible = barVisible(u.hp, max, sel);
       if (s.bar.visible) {
-        const frac = hpFraction(u.hp, u.kind);
+        const frac = hpFraction(u.hp, u.kind, u.rank);
         const top = -s.art.topY;
         s.bar.clear().rect(-13, top - 1, 26, 6).fill(0x04130d).rect(-12, top, 24 * frac, 4).fill(frac > 0.5 ? 0x4cd964 : frac > 0.25 ? 0xffcc00 : 0xff3b30);
         s.bar.rect(-12, top, 24 * frac, 1).fill({ color: 0xffffff, alpha: 0.35 });

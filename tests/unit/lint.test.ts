@@ -11,5 +11,5 @@ describe('lint', () => {
 
     const [ok] = await eslint.lintText('export const a = 1;\n', { filePath: 'src/sim/ok.ts' });
     expect(ok?.messages ?? []).toEqual([]);
-  });
+  }, 30_000); // starting ESLint with the TypeScript parser takes ~5 s under load, past vitest's 5 s default
 });

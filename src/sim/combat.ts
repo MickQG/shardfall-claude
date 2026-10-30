@@ -5,6 +5,7 @@ import { clearOrder, orderMove } from './movement';
 import { isLowPower } from './economy';
 import { removeBuilding } from './production';
 import type { Building, State, Unit } from './state';
+import { ELITE_REPAIR, MAX_RANK, maxHpOf, rankFor, unitDamage } from './units';
 
 type Entity = Unit | Building;
 const isBuilding = (e: Entity): e is Building => 'tx' in e;
@@ -60,26 +61,42 @@ export function visibleTo(s: State, owner: number, e: Entity): boolean {
   return ((fog[tileOf(e.y) * W + tileOf(e.x)] as number) & VISIBLE) !== 0;
 }
 
-function hurt(s: State, e: Entity, amount: number, attackerId: number): void {
+/**
+ * Deal `amount` damage to `e`. `attackerId` is who an idle victim may turn on; `credit` is the unit (if any) that earns the
+ * damage as veterancy experience, ranking up with its maximum hit points scaled by the same share.
+ */
+function hurt(s: State, e: Entity, amount: number, attackerId: number, credit?: Entity): void {
   if (amount <= 0) return;
+  const dealt = Math.min(amount, Math.max(0, e.hp));
   e.hp -= amount;
+  if (credit && !isBuilding(credit) && credit.owner !== e.owner && dealt > 0) {
+    credit.xp += dealt;
+    const r = rankFor(credit.kind, credit.xp);
+    if (r > credit.rank) {
+      credit.hp = Math.floor((credit.hp * maxHpOf(credit.kind, r)) / maxHpOf(credit.kind, credit.rank));
+      credit.rank = r;
+    }
+  }
   if (isBuilding(e)) return;
   e.sinceHurt = 0;
   // Retaliate if idle.
   if (e.mode === 'idle' && e.target < 0 && attackerId >= 0 && unitDef(e.kind).weapon) e.target = attackerId;
 }
 
-function fire(s: State, shooter: { x: number; y: number; owner: number; id: number }, w: WeaponDef, t: Entity): void {
+/** Fire `w` at `t`. A unit shooter fires its squad- and rank-adjusted damage and is credited with what it deals. */
+function fire(s: State, shooter: { x: number; y: number; owner: number; id: number }, w: WeaponDef, t: Entity, unit?: Unit): void {
   const tp = pos(t);
+  const damage = unit ? unitDamage(unit.kind, unit.hp, unit.rank) : w.damage;
   s.events.push({ t: 'shot', x: shooter.x, y: shooter.y, tx: tp.x, ty: tp.y, weapon: w.type, owner: shooter.owner, air: armorOf(t) === 'air', flight: w.flight ?? 0 });
   if ((w.flight ?? 0) > 0) {
-    s.projectiles.push({ hit: s.tick + (w.flight as number), x: tp.x, y: tp.y, targetId: t.id, owner: shooter.owner, damage: w.damage, type: w.type, splash: w.splash ?? 0, air: armorOf(t) === 'air' });
+    s.projectiles.push({ hit: s.tick + (w.flight as number), x: tp.x, y: tp.y, targetId: t.id, owner: shooter.owner, damage, type: w.type, splash: w.splash ?? 0, air: armorOf(t) === 'air', shooter: unit ? unit.id : -1 });
   } else {
-    hurt(s, t, damageAgainst(w, armorOf(t)), shooter.id);
+    hurt(s, t, damageAgainst({ damage, type: w.type }, armorOf(t)), shooter.id, unit);
   }
 }
 
-function land(s: State, p: { x: number; y: number; targetId: number; owner: number; damage: number; type: string; splash: number }, byId: Map<number, Entity>): void {
+function land(s: State, p: { x: number; y: number; targetId: number; owner: number; damage: number; type: string; splash: number; shooter: number }, byId: Map<number, Entity>): void {
+  const credit = p.shooter >= 0 ? byId.get(p.shooter) : undefined;
   const w = { damage: p.damage, type: p.type as WeaponDef['type'] };
   if (p.splash > 0) {
     s.events.push({ t: 'boom', x: p.x, y: p.y, r: p.splash });
@@ -89,12 +106,12 @@ function land(s: State, p: { x: number; y: number; targetId: number; owner: numb
       const d = distTo(p.x, p.y, e);
       if (d > R) continue;
       const fall = 100 - Math.floor((50 * d) / R);
-      hurt(s, e, Math.max(1, Math.floor((damageAgainst(w, armorOf(e)) * fall) / 100)), -1);
+      hurt(s, e, Math.max(1, Math.floor((damageAgainst(w, armorOf(e)) * fall) / 100)), -1, credit);
     }
     return;
   }
   const t = byId.get(p.targetId);
-  if (t) hurt(s, t, damageAgainst(w, armorOf(t)), -1);
+  if (t) hurt(s, t, damageAgainst(w, armorOf(t)), -1, credit);
 }
 
 /** Best visible enemy this weapon can hit within `reach` (fixed-point): armed targets first, then nearest. */
@@ -173,7 +190,7 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>): void {
       u.waiting = false;
     }
     if (u.cooldown === 0) {
-      fire(s, { x: u.x, y: u.y, owner: u.owner, id: u.id }, w, t);
+      fire(s, { x: u.x, y: u.y, owner: u.owner, id: u.id }, w, t, u);
       u.cooldown = w.cooldown;
     }
   } else if (u.mode === 'idle' && d > rangeFp(w) + 6 * FP) {
@@ -252,12 +269,18 @@ export function tickCombat(s: State): void {
   // Deaths.
   const deadUnits = s.units.filter((u) => u.hp <= 0);
   if (deadUnits.length > 0) {
-    for (const u of deadUnits) s.events.push({ t: 'die', x: u.x, y: u.y, big: unitDef(u.kind).armor === 'heavy', owner: u.owner });
+    for (const u of deadUnits) {
+      s.events.push({ t: 'die', x: u.x, y: u.y, big: unitDef(u.kind).armor === 'heavy', owner: u.owner });
+      const p = s.players[u.owner];
+      if (p) p.stats.unitsLost++;
+    }
     s.units = s.units.filter((u) => u.hp > 0);
   }
   for (const b of s.buildings.filter((q) => q.hp <= 0)) {
     const c = pos(b);
     s.events.push({ t: 'die', x: c.x, y: c.y, big: true, owner: b.owner });
+    const p = s.players[b.owner];
+    if (p) p.stats.buildingsLost++;
     removeBuilding(s, b);
   }
 
@@ -265,7 +288,10 @@ export function tickCombat(s: State): void {
   if (s.tick % 20 === 0) {
     for (const u of s.units) {
       const d = unitDef(u.kind);
-      if (d.regen && u.sinceHurt >= REGEN_DELAY && u.hp < d.hp) u.hp = Math.min(d.hp, u.hp + d.regen);
+      const max = maxHpOf(u.kind, u.rank);
+      // Top-rank units repair themselves; regenerating kinds keep the faster of the two.
+      const heal = Math.max(d.regen ?? 0, u.rank >= MAX_RANK ? Math.ceil((max * ELITE_REPAIR) / 100) : 0);
+      if (heal > 0 && u.sinceHurt >= REGEN_DELAY && u.hp < max) u.hp = Math.min(max, u.hp + heal);
     }
   }
 

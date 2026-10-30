@@ -6,17 +6,18 @@ import { recomputeVisible, VISIBLE, type VisionSource } from './fog';
 import { Hasher } from './hash';
 import { clearOrder, orderMove, ringTiles, separate, servePathQueue, stepUnit } from './movement';
 import { cancel, enqueue, place, sell, setRally, setRepair, tickProduction } from './production';
-import { createState, Hv, type Building, type State } from './state';
+import { createState, Hv, STATS_EVERY, type Building, type State } from './state';
 import type { BuildingSnap, Command, GameConfig, Snapshot } from './types';
 
-export type { BuildingSnap, BuildingSpawn, Command, GameConfig, MapDef, PlayerSetup, PlayerSnap, QueueSnap, SimEvent, Snapshot, UnitSnap, UnitSpawn } from './types';
+export type { BuildingSnap, BuildingSpawn, Command, GameConfig, MapDef, PlayerSetup, PlayerSnap, PlayerStats, QueueSnap, SimEvent, Snapshot, UnitSnap, UnitSpawn } from './types';
 export { damageAgainst } from './combat';
 export { Rng } from './rng';
 export { FP } from './fixed';
 export { EXPLORED, VISIBLE } from './fog';
 export { BUILD_RANGE, canPlace, type Footprint, type PlacementContext } from './placement';
 export { canQueue } from './production';
-export { QUEUE_MAX } from './state';
+export { QUEUE_MAX, STATS_EVERY } from './state';
+export { maxHpOf, MAX_RANK, rankFor, RANK_XP, squadAlive, unitDamage } from './units';
 export { PATHS_PER_TICK } from './movement';
 
 export const TICKS_PER_SECOND = 20;
@@ -204,8 +205,18 @@ export function tick(game: Game): void {
   separate(s);
   regrow(s);
   updateFog(s);
+  if (s.tick % STATS_EVERY === 0 && !s.over) sampleArmy(s);
   s.rng.nextU32();
   s.tick += 1;
+}
+
+/** Record each player's army value (unit cost scaled by health) for the score graph. */
+function sampleArmy(s: State): void {
+  s.players.forEach((p, i) => {
+    let v = 0;
+    for (const u of s.units) if (u.owner === i) v += Math.floor((unitDef(u.kind).cost * u.hp) / unitDef(u.kind).hp);
+    p.stats.army.push(v);
+  });
 }
 
 /**
@@ -230,7 +241,7 @@ export function snapshot(game: Game, viewer?: number): Snapshot {
     mapHeight: cfg.map.height,
     heights: cfg.map.heights,
     units: visibleUnits.map((u) => ({
-      id: u.id, owner: u.owner, kind: u.kind, x: u.x, y: u.y, hp: u.hp, load: u.load,
+      id: u.id, owner: u.owner, kind: u.kind, x: u.x, y: u.y, hp: u.hp, load: u.load, rank: u.rank,
       dest: u.goal >= 0 ? [u.goal % w, Math.floor(u.goal / w)] : null,
     })),
     buildings: visibleBuildings.map((b) => buildingSnap(b, god || b.owner === viewer)),
@@ -240,6 +251,7 @@ export function snapshot(game: Game, viewer?: number): Snapshot {
     over: s.over,
     winner: s.winner,
     players: s.players.map((p, i) => (god || i === viewer ? { faction: p.faction, credits: p.credits, powerOut: p.powerOut, powerIn: p.powerIn } : { faction: p.faction, credits: 0, powerOut: 0, powerIn: 0 })),
+    stats: god || s.over ? s.players.map((p) => ({ ...p.stats, army: [...p.stats.army] })) : null,
     viewer: viewer ?? null,
     fog: vf ? vf.slice() : null,
   };
@@ -250,12 +262,16 @@ export function hash(game: Game): number {
   const h = new Hasher().int(s.tick).int(s.rng.state).int(s.cfg.map.width).int(s.cfg.map.height);
   for (const v of s.cfg.map.heights) h.int(v);
   for (const v of s.grid.blocked) h.int(v);
-  for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0).int(u.load).int(u.hv).int(u.auto ? 1 : 0).int(u.target).int(u.cooldown).int(u.amove).int(u.sinceHurt > 100 ? 100 : u.sinceHurt).int(u.mode.length);
+  for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0).int(u.load).int(u.hv).int(u.auto ? 1 : 0).int(u.target).int(u.cooldown).int(u.amove).int(u.sinceHurt > 100 ? 100 : u.sinceHurt).int(u.mode.length).int(u.xp).int(u.rank);
   for (const b of s.buildings) {
     h.int(b.id).int(b.owner).int(b.tx).int(b.ty).int(b.hp).int(b.queue.length).int(b.charge).int(b.cooldown).int(b.target);
     for (const q of b.queue) h.int(q.progress).int(q.ready ? 1 : 0);
   }
-  for (const p of s.players) h.int(p.credits).int(p.powerOut).int(p.powerIn);
+  for (const p of s.players) {
+    h.int(p.credits).int(p.powerOut).int(p.powerIn);
+    const st = p.stats;
+    h.int(st.unitsBuilt).int(st.unitsLost).int(st.buildingsBuilt).int(st.buildingsLost).int(st.shardsGathered).int(st.army.length).int(st.army[st.army.length - 1] ?? 0);
+  }
   for (const f of s.fog) for (const v of f) h.int(v);
   for (const v of s.shards) h.int(v);
   for (const p of s.projectiles) h.int(p.hit).int(p.targetId).int(p.damage);
