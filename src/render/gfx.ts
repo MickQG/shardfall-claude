@@ -91,7 +91,7 @@ export const hpFraction = (hp: number, kind: string, rank = 0): number => Math.m
 /** Screen offsets of a squad's figures (lead first), in px around the unit's ground point. */
 export function squadOffsets(size: number): { x: number; y: number }[] {
   if (size <= 1) return [{ x: 0, y: 0 }];
-  const ring = [{ x: 0, y: -3 }, { x: -7, y: 3 }, { x: 7, y: 3 }, { x: 0, y: 7 }, { x: -9, y: -2 }];
+  const ring = [{ x: 0, y: -5 }, { x: -11, y: 4 }, { x: 11, y: 4 }, { x: 0, y: 9 }, { x: -13, y: -3 }];
   return ring.slice(0, size);
 }
 
