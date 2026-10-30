@@ -1,12 +1,8 @@
 name: Desktop
 
+# Disabled for PRs and tags: run it by hand from the Actions tab (workflow_dispatch) when a desktop build is needed.
 on:
   workflow_dispatch:
-  push:
-    tags: ['v*']
-  pull_request:
-    branches: [main]
-    paths: ['desktop/**', 'package.json', 'package-lock.json', '.github/workflows/desktop.yml', 'src/**', 'public/**', 'index.html', 'vite.config.ts']
 
 jobs:
   windows:

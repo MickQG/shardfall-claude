@@ -14,6 +14,7 @@ const CSS = `
 #hud #result th:first-child, #hud #result td:first-child { text-align: left; color: #9fb4c6; }
 #hud #result .chart { display: block; margin: 10px auto 0; width: 320px; max-width: 100%; height: auto; }
 #hud #result .len { color: #9fb4c6; font-size: 12px; margin-top: 6px; }
+#hud #result .actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
 #hud #result button { font: inherit; font-size: 16px; padding: 10px 22px; border-radius: 6px; border: 1px solid #7ff5cd; background: #11202c; color: #dfe8e2; cursor: pointer; }
 #hud #toasts { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
 #hud .toast { padding: 6px 14px; border-radius: 6px; background: rgba(8,12,17,.9); border: 1px solid #28405a; font-weight: 600; animation: toastin .25s ease-out; }
@@ -68,7 +69,7 @@ export function createHud(): Hud {
   document.head.appendChild(style);
   const root = document.createElement('div');
   root.id = 'hud';
-  root.innerHTML = '<div id="topbar" class="panel">Shardfall</div><div id="minimap-box" class="panel"></div><div id="info" class="panel empty"></div><div id="selbox"></div><div id="toasts"></div><div id="pause"><h2>PAUSED</h2><button id="resume">Resume (P)</button><button id="quit">Quit to menu</button></div><div id="result"><h1></h1><div class="sub"></div><button id="again">Play again</button></div>';
+  root.innerHTML = '<div id="topbar" class="panel">Shardfall</div><div id="minimap-box" class="panel"></div><div id="info" class="panel empty"></div><div id="selbox"></div><div id="toasts"></div><div id="pause"><h2>PAUSED</h2><button id="resume">Resume (P)</button><button id="quit">Quit to menu</button></div><div id="result"><h1></h1><div class="sub"></div><div class="actions"><button id="again">Play again</button><button id="menu-btn">Main menu</button></div></div>';
   document.body.appendChild(root);
   const q = (sel: string): HTMLElement => root.querySelector(sel) as HTMLElement;
   const info = q('#info');
@@ -92,6 +93,7 @@ export function createHud(): Hud {
       (el.querySelector('h1') as HTMLElement).style.color = color;
       (el.querySelector('.sub') as HTMLElement).textContent = sub;
       (el.querySelector('#again') as HTMLElement).onclick = () => location.reload();
+      (el.querySelector('#menu-btn') as HTMLElement).onclick = () => (location.search = '');
     },
     toast(text, level) {
       const t = q('#toasts');

@@ -29,4 +29,8 @@ test('UX-1 UX-2 VIS-3 SCR-3: pause stops the game, and finishing the enemy base 
   await expect(score.locator('polyline')).toHaveCount(2);
   await page.screenshot({ path: 'test-results/score-screen.png' });
   expect(errors).toEqual([]);
+
+  // UX-2: the result screen also leads back to the main menu.
+  await page.locator('#result #menu-btn').click();
+  await expect(page.locator('#menu h1')).toHaveText('SHARDFALL');
 });
