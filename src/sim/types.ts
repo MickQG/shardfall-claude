@@ -66,6 +66,8 @@ export type SimEvent =
 export interface UnitSnap {
   /** Veterancy rank 0..3 (VET-3). */
   rank: number;
+  /** Id of the unit or building it is attacking, or -1 (turrets track it: GFX-10). */
+  target: number;
   id: number;
   owner: number;
   kind: string;

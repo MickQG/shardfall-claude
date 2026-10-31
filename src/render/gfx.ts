@@ -83,6 +83,22 @@ export const muzzleFor = (weapon: string): Muzzle => MUZZLES[weapon] ?? { len: 8
 const AIR_DEPTH = 1_000_000;
 
 /** Draw-order key of a unit at screen-y `y`: ground units sort with terrain and buildings, air units always above them. */
+/** Draw-order key of a shard crystal on a tile whose centre is at screen-y `y`: just behind the tile centre, so a unit standing on the tile draws over it (GFX-11). */
+export const crystalDepth = (y: number): number => y - 10;
+
+/** Facing for a weapon: towards its target while it has one in view, else the recent shot's aim while held, else the hull heading (GFX-10). */
+export function aimFacing(from: { x: number; y: number }, target: { x: number; y: number } | null, heading: number, held: number | null, facings: number): number {
+  if (target) {
+    const dx = target.x - from.x;
+    const dy = target.y - from.y;
+    if (dx !== 0 || dy !== 0) {
+      const k = Math.round(Math.atan2(dy, dx) / ((Math.PI * 2) / facings));
+      return ((k % facings) + facings) % facings;
+    }
+  }
+  return held ?? heading;
+}
+
 export const unitDepth = (y: number, air: boolean): number => (air ? y + AIR_DEPTH : y);
 
 /** Health 0..1 against the unit's full hit points at its veterancy rank. */

@@ -182,7 +182,7 @@ describe('camera, interpolation and host', () => {
   });
 
   it('CAM-2: interpolation blends positions by alpha and clamps it to [0, 1]', () => {
-    const mk = (x: number) => [{ id: 1, owner: 0, kind: 'hum_rifleman', x, y: 0, hp: 1, dest: null, load: 0, rank: 0 }];
+    const mk = (x: number) => [{ id: 1, owner: 0, kind: 'hum_rifleman', x, y: 0, hp: 1, dest: null, load: 0, rank: 0, target: -1 }];
     expect(interpolate(mk(0), mk(256), 0.5)[0]!.tx).toBeCloseTo(0.5);
     expect(interpolate(mk(0), mk(256), 2)[0]!.tx).toBeCloseTo(1);
     expect(interpolate(mk(0), mk(256), -1)[0]!.tx).toBeCloseTo(0);
