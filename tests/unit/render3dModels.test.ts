@@ -6,9 +6,9 @@ import { BUILDING_RIGS, crystalShape } from '../../src/render3d/buildings3d';
 import { CombatFx, LOOKS, scorchTexture, shotDuration } from '../../src/render3d/fx3d';
 import { Instancer } from '../../src/render3d/instancer';
 import { Shape } from '../../src/render3d/kit';
-import { angleDiff, bodyPose, follow, gaitPhase, restingMotion, stepMotion, turnToward, type Follow } from '../../src/render3d/motion';
+import { angleDiff, bodyPose, flightAfterWait, follow, gaitPhase, MAX_AIM_WAIT, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, type Follow } from '../../src/render3d/motion';
 import { muzzleCount, poseRig, recoil, rigTree, type RigPose } from '../../src/render3d/rig';
-import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, ROCK_AMP, rockOffset, scatter, shardCover, terrainMeshes } from '../../src/render3d/terrain3d';
+import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, ROCK_AMP, rockOffset, scatter, shardCover, terrainMeshes, TEXELS, waterAlpha, wetness } from '../../src/render3d/terrain3d';
 import { kneels, newMember, SQUAD_SPREAD, stepSquad, type Member, type SquadFrame } from '../../src/render3d/squad3d';
 import { demoMap, showcaseConfig, skirmishMap } from '../../src/data/maps';
 import type { MapDef } from '../../src/sim';
@@ -225,14 +225,17 @@ describe('terrain detail', () => {
     expect(rim).toBeGreaterThan(0);
   });
 
-  it('R3D-11: scatter is the same every time and stays off water, shard fields and building ground', () => {
+  it('R3D-11 R3D-14: scatter is the same every time, puts reeds by the water and stays off shard fields and building ground', () => {
     const W = 24;
     const t = { width: W, height: W, heights: new Array<number>(W * W).fill(0), blocked: (x: number, y: number) => x < 4 && y < 4, shards: (x: number, y: number) => x > 18 && y > 18 };
     const free = (x: number, y: number): boolean => !(x > 8 && x < 14 && y > 8 && y < 14);
     const a = scatter(t, free);
     expect(a.length).toBeGreaterThan(20);
     expect(scatter(t, free)).toEqual(a);
+    expect(a.some((it) => it.kind === 'reed')).toBe(true);
     for (const it of a) {
+      // Only reeds grow on water; nothing grows on shard fields or building ground.
+      if (it.kind === 'reed' && t.blocked(it.tx, it.ty)) continue;
       expect(t.blocked(it.tx, it.ty) || t.shards(it.tx, it.ty) || !free(it.tx, it.ty)).toBe(false);
       // Drawn where its tile's warped ground is (R3D-14): never far from that tile.
       expect(Math.hypot(it.x - Math.min(Math.max(it.x, it.tx), it.tx + 1), it.z - Math.min(Math.max(it.z, it.ty), it.ty + 1))).toBeLessThanOrEqual(EDGE_AMP + 1e-9);
@@ -306,6 +309,61 @@ describe('organic contours', () => {
   });
 });
 
+describe('turrets', () => {
+  it('R3D-9: a turret turns fast and fires once on target; the shell then flies shorter so it lands with the damage', () => {
+    expect((TURRET_RATE * 1000) / 1000).toBeGreaterThanOrEqual(Math.PI / 2 / 0.25); // a quarter turn within 0.25 s
+    expect(readyToFire(true, 0, 1, 0)).toBe(false);
+    expect(readyToFire(true, 0.95, 1, 0)).toBe(true);
+    expect(readyToFire(true, 0, 1, MAX_AIM_WAIT)).toBe(true); // never held back forever
+    expect(readyToFire(false, 0, 2, 0)).toBe(true); // rifles and claws fire at once
+    expect(flightAfterWait(700, 200)).toBe(500);
+    expect(flightAfterWait(100, 200)).toBe(60);
+  });
+});
+
+describe('shores', () => {
+  it('R3D-14: water fades in across a wavy shore, full inside the lake, never over walkable land beyond a sliver', () => {
+    const t = terrainOf(showcaseConfig(1).map);
+    // The pond covers tiles x 10..15, y 24..30.
+    expect(waterAlpha(t, 12.5, 27.5)).toBe(1);
+    expect(waterAlpha(t, 8.5, 27.5)).toBe(0);
+    expect(waterAlpha(t, 9.8, 27.5)).toBe(0); // land, 0.2 from the water
+    // Continuous across the shore: no step bigger than a tenth over a sixteenth of a tile.
+    let last = waterAlpha(t, 9, 26.3);
+    let partial = 0;
+    for (let x = 9 + 1 / 16; x <= 12; x += 1 / 16) {
+      const a = waterAlpha(t, x, 26.3);
+      expect(Math.abs(a - last)).toBeLessThan(0.25);
+      if (a > 0.05 && a < 0.95) partial++;
+      last = a;
+    }
+    expect(partial).toBeGreaterThan(1);
+    // The shore line wanders: where the water reaches half opacity differs along a straight tile edge.
+    const crossing = (y: number): number => {
+      for (let x = 9; x <= 12; x += 1 / 64) if (waterAlpha(t, x, y) >= 0.5) return x;
+      return 99;
+    };
+    const xs = [25.3, 26.1, 26.9, 27.7, 28.5].map(crossing);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(0.03);
+    // Corners round off at the scale of a tile: the lake's corner tile is less wet at its outer corner than mid-edge.
+    expect(wetness(t, 10.1, 24.1)).toBeLessThan(wetness(t, 12.5, 24.1));
+  });
+
+  it('R3D-14: ground by the water is painted as beach sand between the grass and the lake bed', () => {
+    const t = terrainOf(showcaseConfig(1).map);
+    const tex = groundTexture(t);
+    const px = (x: number, y: number): number[] => {
+      const k = (Math.floor(y * TEXELS) * tex.width + Math.floor(x * TEXELS)) * 4;
+      return [tex.data[k]!, tex.data[k + 1]!, tex.data[k + 2]!];
+    };
+    // Along a row from dry grass into the pond: somewhere it is sandy (red above green, bright), and the lake bed is blue.
+    const row = Array.from({ length: 48 }, (_, i) => px(7 + i / 16, 27.5));
+    expect(row.some(([r, g, b]) => r! > g! && r! > 130 && b! < r!)).toBe(true);
+    const bed = px(12.5, 27.5);
+    expect(bed[2]!).toBeGreaterThan(bed[0]!);
+  });
+});
+
 describe('smooth movement', () => {
   it('R3D-10: the drawn position rides through uneven snapshots without stalls or jumps, and snaps across long jumps', () => {
     // A unit moving at 2 tiles/s whose interpolated position stalls for 30 ms, then jumps, every 50 ms tick.
@@ -332,6 +390,28 @@ describe('smooth movement', () => {
     expect(worstDrawn).toBeLessThan(worstRaw * 0.35);
     follow(f, 50, 50, dt);
     expect([f.x, f.z]).toEqual([50, 50]);
+  });
+
+  it('R3D-10: vehicles pivot quickly, and turning on the spot rolls the inside wheels backwards', () => {
+    for (const [kind, make] of Object.entries(UNIT_RIGS)) {
+      const def = make();
+      if (def.move === 'tracked' || def.move === 'wheeled') expect(def.turn, kind).toBeGreaterThanOrEqual(5);
+      else expect(def.turn ?? 4, kind).toBeGreaterThanOrEqual(4);
+    }
+    // A quarter turn while standing: the heading gets there within a third of a second at the tank's rate.
+    let m = restingMotion(0);
+    const tank = UNIT_RIGS.hum_tank!();
+    for (let i = 0; i < 20; i++) m = stepMotion(m, Math.cos(Math.PI / 2) * 0.02, Math.sin(Math.PI / 2) * 0.02, 1 / 60, tank.turn!);
+    expect(m.heading).toBeCloseTo(Math.PI / 2, 5);
+    expect(m.turned).toBeCloseTo(Math.PI / 2, 5);
+    const t = rigTree(tank);
+    const wheels = t.anims.filter((a) => a.anim.k === 'wheel');
+    poseRig(t, { ...STILL, turned: 1 });
+    const left = wheels.filter((a) => a.pos.z > 0).map((a) => a.obj.rotation.z - a.rot.z);
+    const right = wheels.filter((a) => a.pos.z < 0).map((a) => a.obj.rotation.z - a.rot.z);
+    expect(left.length).toBeGreaterThan(0);
+    for (const l of left) expect(l).toBeGreaterThan(0);
+    for (const r of right) expect(r).toBeLessThan(0);
   });
 
   it('R3D-10: tiny wobbles do not turn the hull', () => {

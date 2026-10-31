@@ -150,6 +150,8 @@ export interface RigPose {
   walker: boolean;
   /** Kneeling, 0..1 (squad members firing, R3D-15). */
   crouch?: number;
+  /** Total turning of the hull, radians, for the wheels on each side. */
+  turned?: number;
 }
 
 /** Pose every animated node of a rig. Pure apart from writing the nodes' transforms. */
@@ -169,7 +171,8 @@ export function poseRig(tree: RigTree, p: RigPose): void {
         obj.position.x = a.pos.x - an.recoil * p.kick;
         break;
       case 'wheel':
-        obj.rotation.z = a.rot.z - p.dist / an.r;
+        // Each side rolls its own distance: turning on the spot, the inside wheels run backwards (R3D-10).
+        obj.rotation.z = a.rot.z - (p.dist - (p.turned ?? 0) * a.pos.z) / an.r;
         break;
       case 'steer':
         obj.rotation.y = a.rot.y - Math.max(-0.45, Math.min(0.45, p.turnRate * 0.3));

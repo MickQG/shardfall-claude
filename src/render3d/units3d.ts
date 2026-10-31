@@ -144,7 +144,7 @@ function runningGear(len: number, z: number, wheelR: number, count: number, y: n
 function tank(): RigDef {
   return {
     move: 'tracked',
-    turn: 2.6,
+    turn: 6,
     radius: 0.72,
     height: 0.52,
     weapon: 'cannon',
@@ -214,7 +214,7 @@ function tank(): RigDef {
 function artillery(): RigDef {
   return {
     move: 'tracked',
-    turn: 2,
+    turn: 5,
     radius: 0.74,
     height: 0.6,
     weapon: 'howitzer',
@@ -275,7 +275,7 @@ function buggy(): RigDef {
     front ? { anim: { k: 'steer' }, at: [x, 0.11, z], kids: [{ geo: 'wheel', anim: { k: 'wheel', r: 0.11 } }] } : { geo: 'wheel', at: [x, 0.11, z], anim: { k: 'wheel', r: 0.11 } };
   return {
     move: 'wheeled',
-    turn: 5,
+    turn: 7.5,
     radius: 0.6,
     height: 0.42,
     weapon: 'mg',
@@ -348,7 +348,7 @@ function hauler(): RigDef {
     front ? { anim: { k: 'steer' }, at: [x, 0.12, z], kids: [{ geo: 'wheel', anim: { k: 'wheel', r: 0.12 } }] } : { geo: 'wheel', at: [x, 0.12, z], anim: { k: 'wheel', r: 0.12 } };
   return {
     move: 'wheeled',
-    turn: 2.2,
+    turn: 5,
     radius: 0.8,
     height: 0.62,
     shapes: {
@@ -400,7 +400,7 @@ function hauler(): RigDef {
 function gunship(): RigDef {
   return {
     move: 'air',
-    turn: 2.4,
+    turn: 4.5,
     radius: 0.7,
     height: 0.45,
     weapon: 'chaingun',
@@ -644,7 +644,7 @@ function brute(): RigDef {
     move: 'walker',
     organic: true,
     stride: 0.75,
-    turn: 2.6,
+    turn: 5,
     radius: 0.8,
     height: 0.95,
     weapon: 'claw',
@@ -707,7 +707,7 @@ function lobber(): RigDef {
     move: 'walker',
     organic: true,
     stride: 0.55,
-    turn: 1.8,
+    turn: 4,
     radius: 0.8,
     height: 0.8,
     weapon: 'acidBig',
@@ -759,7 +759,7 @@ function gorger(): RigDef {
     move: 'walker',
     organic: true,
     stride: 0.4,
-    turn: 2.4,
+    turn: 4.5,
     radius: 0.8,
     height: 0.66,
     shapes: {
@@ -809,7 +809,7 @@ function wasp(): RigDef {
   return {
     move: 'air',
     organic: true,
-    turn: 3.2,
+    turn: 5,
     radius: 0.62,
     height: 0.4,
     weapon: 'sting',

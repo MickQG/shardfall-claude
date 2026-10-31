@@ -567,6 +567,27 @@ export function grassShape(variant: number, color: number): Shape {
   return s;
 }
 
+/** A clump of reeds: tall leaning blades and a couple of brown seed heads (R3D-14). */
+export function reedShape(variant: number): Shape {
+  const s = shape();
+  const n = 7 + variant;
+  for (let i = 0; i < n; i++) {
+    const a = hash3(variant, i, 21) * Math.PI * 2;
+    const h = 0.16 + hash3(variant, i, 22) * 0.14;
+    const lean = 0.12 + hash3(variant, i, 23) * 0.25;
+    const g = [0x5f7a3c, 0x6f8442, 0x52693a][i % 3] as number;
+    s.cone(0.011, h, g, { at: [Math.cos(a) * 0.04, h / 2, Math.sin(a) * 0.04], rot: [Math.sin(a) * lean, 0, -Math.cos(a) * lean], seg: 3 });
+  }
+  for (let i = 0; i < 2; i++) {
+    const a = hash3(variant, i, 24) * Math.PI * 2;
+    const x = Math.cos(a) * 0.02;
+    const z = Math.sin(a) * 0.02;
+    s.cyl(0.004, 0.26, 0x6a7a44, { at: [x, 0.13, z], seg: 3 });
+    s.cyl(0.012, 0.05, 0x5a3e28, { at: [x, 0.27, z], seg: 6 });
+  }
+  return s;
+}
+
 export const BUILDING_RIGS: Readonly<Record<string, () => RigDef>> = {
   hum_hq: humHq,
   hum_reactor: humReactor,

@@ -39,9 +39,11 @@ export interface MotionState {
   turnRate: number;
   /** 0 when standing, 1 at full stride: fades the gait in and out. */
   stride: number;
+  /** Total turning since spawn, radians (left positive): tracks on the inside of a turn roll back against the outside. */
+  turned: number;
 }
 
-export const restingMotion = (heading = 0): MotionState => ({ heading, dist: 0, speed: 0, accel: 0, turnRate: 0, stride: 0 });
+export const restingMotion = (heading = 0): MotionState => ({ heading, dist: 0, speed: 0, accel: 0, turnRate: 0, stride: 0, turned: 0 });
 
 /** Slower than this (tiles per second) is jitter, not travel: the hull keeps its heading. */
 const MOVING = 0.12;
@@ -96,7 +98,7 @@ export function stepMotion(m: MotionState, dx: number, dz: number, dt: number, t
   const heading = v > MOVING ? turnToward(m.heading, Math.atan2(dz, dx), turn * dt) : m.heading;
   const turnRate = approach(m.turnRate, angleDiff(m.heading, heading) / dt, 8, dt);
   const stride = approach(m.stride, v > MOVING ? 1 : 0, 8, dt);
-  return { heading, dist: m.dist + d, speed, accel, turnRate, stride };
+  return { heading, dist: m.dist + d, speed, accel, turnRate, stride, turned: m.turned + angleDiff(m.heading, heading) };
 }
 
 export interface BodyPose {
@@ -122,3 +124,17 @@ export function bodyPose(kind: 'tracked' | 'wheeled' | 'walker' | 'air' | 'stati
   if (kind === 'air') return { pitch: clamp(-m.accel * 0.08, 0.2) - m.speed * 0.05, roll: clamp(m.turnRate * 0.35, 0.45), bob: Math.sin(t * 0.0017 + seed) * 0.04 };
   return { pitch: 0, roll: 0, bob: 0 };
 }
+
+/** Turret traverse, radians per second (R3D-9). */
+export const TURRET_RATE = 7;
+/** A turret fires once it points within this of its target, radians, or once it has waited this long, ms (R3D-9). */
+export const ON_TARGET = 0.1;
+export const MAX_AIM_WAIT = 300;
+
+/** Whether a shot due `waited` ms ago may leave the barrel: weapons without a turret fire at once (R3D-9). */
+export const readyToFire = (turreted: boolean, turretYaw: number, aim: number, waited: number): boolean =>
+  !turreted || Math.abs(angleDiff(turretYaw, aim)) <= ON_TARGET || waited >= MAX_AIM_WAIT;
+
+/** A shell's drawn flight after waiting for its turret, ms: shorter by the wait, so it still lands with the damage. */
+export const flightAfterWait = (flightMs: number, waited: number): number => Math.max(60, flightMs - waited);
+

@@ -15,15 +15,15 @@ import { hpFraction } from '../render/gfx';
 import type { RenderUnit } from '../render/interp';
 import type { Projector } from '../render/projector';
 import { crystalLevel, propAt, rockVariant } from '../render/voxel/props';
-import { BUILDING_RIGS, crystalShape, grassShape, propShape } from './buildings3d';
+import { BUILDING_RIGS, crystalShape, grassShape, propShape, reedShape } from './buildings3d';
 import { cameraPose, FOV, PX_PER_UNIT } from './camera3d';
 import { CombatFx } from './fx3d';
 import { Instancer } from './instancer';
 import type { Built, Shape } from './kit';
-import { bodyPose, follow, gaitPhase, restingMotion, stepMotion, turnToward, type Follow, type MotionState } from './motion';
+import { bodyPose, flightAfterWait, follow, gaitPhase, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
-import { contourWarp, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
+import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
 
 /** How long a fallen squad member stays before it has sunk away, ms (R3D-15). */
@@ -37,7 +37,7 @@ const geometry = (d: MeshData & { uvs?: Float32Array }): THREE.BufferGeometry =>
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(d.positions, 3));
   g.setAttribute('normal', new THREE.BufferAttribute(d.normals, 3));
-  g.setAttribute('color', new THREE.BufferAttribute(d.colors, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(d.colors, d.colors.length === d.positions.length ? 3 : 4));
   if (d.uvs) g.setAttribute('uv', new THREE.BufferAttribute(d.uvs, 2));
   g.setIndex(new THREE.BufferAttribute(d.indices, 1));
   g.computeBoundingSphere();
@@ -140,6 +140,8 @@ interface UnitObj {
   aim: number;
   aimHold: number;
   turretYaw: number;
+  /** Has a turret that must face the target before it fires. */
+  turreted: boolean;
   figureYaw: number[];
   lastFire: number[];
   muzzleTurn: number;
@@ -167,6 +169,7 @@ interface BuildingObj {
   aim: number;
   aimHold: number;
   turretYaw: number;
+  turreted: boolean;
   lastFire: number;
   muzzleTurn: number;
   dying: number | null;
@@ -468,7 +471,7 @@ export class View3D {
     // Water ripples and glints (R3D-11): a scrolling normal map on a glossy surface.
     this.waterNormal = noiseNormalMap(128, 6, 9, 2);
     this.waterNormal.repeat.set(W / 4, snap.mapHeight / 4);
-    const water = new THREE.Mesh(geometry(m.water), new THREE.MeshStandardMaterial({ color: 0x2a6a8a, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.8, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.45, 0.45) }));
+    const water = new THREE.Mesh(geometry(m.water), new THREE.MeshStandardMaterial({ color: 0x2a6a8a, vertexColors: true, depthWrite: false, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.82, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.45, 0.45) }));
     water.receiveShadow = true;
     this.scene.add(ground, cliffs, water);
     if (snap.fog) {
@@ -520,7 +523,13 @@ export class View3D {
       let b = geos.get(kv);
       if (!b) {
         const it = list[0]!;
-        b = (it.kind === 'grass' ? grassShape(it.variant, [0x5d7a3a, 0x6f8a44, 0x4f6a34][it.variant % 3] as number) : it.kind === 'flora' ? propShape('sprout', it.variant) : propShape('pebbles', it.variant)).build(0xffffff);
+        const make = (): Shape => {
+          if (it.kind === 'grass') return grassShape(it.variant, [0x5d7a3a, 0x6f8a44, 0x4f6a34][it.variant % 3] as number);
+          if (it.kind === 'flora') return propShape('sprout', it.variant);
+          if (it.kind === 'reed') return reedShape(it.variant);
+          return propShape('pebbles', it.variant); // stones, and boulders scaled up
+        };
+        b = make().build(0xffffff);
         geos.set(kv, b);
       }
       for (const [geo, mat, shadow] of [[b.lit, this.propMat, false], [b.glow, this.glowMat, false]] as const) {
@@ -621,6 +630,7 @@ export class View3D {
       aim: heading,
       aimHold: 0,
       turretYaw: heading,
+      turreted: figures[0]!.anims.some((a) => a.anim.k === 'turret'),
       figureYaw: figures.map(() => heading),
       lastFire: figures.map(() => -1e9),
       muzzleTurn: 0,
@@ -636,6 +646,10 @@ export class View3D {
 
   /** Height of the drawn ground at (x, z): the level of the tile whose warped top lies there. */
   private groundAt(x: number, z: number): number {
+    // Every tile the warp could have moved here is at one level: no need to undo the warp.
+    const lv = (px: number, pz: number): number => this.heights[Math.max(0, Math.min(this.mapH - 1, Math.floor(pz))) * this.mapW + Math.max(0, Math.min(this.mapW - 1, Math.floor(px)))] ?? 0;
+    const a = lv(x - EDGE_AMP, z - EDGE_AMP);
+    if (a === lv(x + EDGE_AMP, z - EDGE_AMP) && a === lv(x - EDGE_AMP, z + EDGE_AMP) && a === lv(x + EDGE_AMP, z + EDGE_AMP)) return a * LEVEL_H;
     const d = this.liveWarp(x, z);
     const tx = Math.max(0, Math.min(this.mapW - 1, Math.floor(x - d[0])));
     const tz = Math.max(0, Math.min(this.mapH - 1, Math.floor(z - d[1])));
@@ -719,8 +733,14 @@ export class View3D {
         later.push(p);
         continue;
       }
+      // A turret fires once it is on target (R3D-9); the shell then flies that much faster, so it lands with the damage.
+      const late = now - p.at;
+      if (p.src && !readyToFire(p.src.turreted, p.src.turretYaw, p.src.aim, late)) {
+        later.push(p);
+        continue;
+      }
       const look = p.look ?? 'rifle';
-      const flight = p.e.flight * this.msPerTick;
+      const flight = flightAfterWait(p.e.flight * this.msPerTick, late);
       const muzzle = this.muzzleOf(p.src, p.figure);
       // The shooter may not have been drawn this frame (off screen), so bring its matrices up to date first.
       if (p.src && p.src.drawn !== this.frame) {
@@ -836,7 +856,7 @@ export class View3D {
     if (this.waterNormal) this.waterNormal.offset.set((t * 0.000018) % 1, (t * 0.000011) % 1);
     this.inst.begin();
     this.animateUnits(units, vs, snap, t, dt);
-    this.animateBuildings(vs, t);
+    this.animateBuildings(vs, t, dt);
     this.firePending(t);
     this.drawStatics();
     this.inst.end();
@@ -937,7 +957,7 @@ export class View3D {
       if (tgt) o.aim = Math.atan2(tgt.ty - o.z, tgt.tx - o.x);
       else if (tb) o.aim = Math.atan2(tb.ty + buildingDef(tb.kind).h / 2 - o.z, tb.tx + buildingDef(tb.kind).w / 2 - o.x);
       const aiming = !!tgt || !!tb || t <= o.aimHold;
-      o.turretYaw = turnToward(o.turretYaw, aiming ? o.aim : o.motion.heading, 3.2 * dt);
+      o.turretYaw = turnToward(o.turretYaw, aiming ? o.aim : o.motion.heading, TURRET_RATE * dt);
       this.poseUnit(o, aiming, t, dt);
       // UI: selection ring on the ground, health bar over the model (both instanced, R3D-13).
       const sel = vs.selectedUnits.has(u.id);
@@ -1144,7 +1164,7 @@ export class View3D {
         // Only the viewer's own new buildings rise from the ground (GFX-1).
         const born = this.seeded && b.owner === vs.viewer && !this.known.has(b.id) ? vs.time : -Infinity;
         const yaw = b.owner === 0 ? Math.PI / 4 : (-3 * Math.PI) / 4;
-        o = { kind: b.kind, team: OWNER_COLORS[b.owner] ?? 0xffffff, def, rig, root, ring, born, x, z, y, hpFrac: 1, aim: yaw, aimHold: 0, turretYaw: yaw, lastFire: -1e9, muzzleTurn: 0, dying: null, lastSmoke: 0, drawn: -1 };
+        o = { kind: b.kind, team: OWNER_COLORS[b.owner] ?? 0xffffff, def, rig, root, ring, born, x, z, y, hpFrac: 1, aim: yaw, aimHold: 0, turretYaw: yaw, turreted: rig.anims.some((a) => a.anim.k === 'turret'), lastFire: -1e9, muzzleTurn: 0, dying: null, lastSmoke: 0, drawn: -1 };
         this.buildings.set(b.id, o);
         this.known.add(b.id);
       }
@@ -1162,7 +1182,7 @@ export class View3D {
     }
   }
 
-  private animateBuildings(vs: ViewState, t: number): void {
+  private animateBuildings(vs: ViewState, t: number, dt: number): void {
     const rich = vs.fx.particles;
     for (const o of this.buildings.values()) {
       const def = o.def;
@@ -1179,8 +1199,8 @@ export class View3D {
           this.fx.burn(this.v.set(o.x, o.y + def.height * (1 - a) * 0.6, o.z), true, def.radius * 0.9, t);
         }
       }
-      if (t > o.aimHold) o.aim += 0.0004 * 16; // idle turrets sweep slowly
-      o.turretYaw = turnToward(o.turretYaw, o.aim, 0.06);
+      if (t > o.aimHold) o.aim += 0.4 * dt; // idle turrets sweep slowly
+      o.turretYaw = turnToward(o.turretYaw, o.aim, TURRET_RATE * dt);
       poseRig(o.rig, { ...STILL, turret: o.turretYaw, kick: recoil(t - o.lastFire), time: t });
       const visible = this.inView(o.x, o.y + def.height / 2, o.z, def.radius + def.height / 2);
       if (visible) {

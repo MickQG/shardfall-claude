@@ -66,9 +66,19 @@ describe('3D terrain', () => {
     for (let i = 1; i < m.ground.positions.length; i += 3) ys.add(Math.round(m.ground.positions[i]! * 1000) / 1000);
     expect([...ys].sort()).toEqual([0, LEVEL_H]);
     expect(m.cliffs.indices.length).toBeGreaterThan(0);
-    // One water tile: its shore waves, so its area is only about one tile.
-    expect(area(m.water)).toBeGreaterThan(0.6);
-    expect(area(m.water)).toBeLessThan(1.4);
+    // One water tile: opaque in its middle, fading out at its shore, never more than a sliver beyond it (R3D-14).
+    const wv = m.water;
+    let top = 0;
+    for (let i = 0; i < wv.positions.length / 3; i++) {
+      const a = wv.colors[i * 4 + 3]!;
+      top = Math.max(top, a);
+      if (a > 0.01) {
+        expect(wv.positions[i * 3]!).toBeGreaterThan(2 - 0.5);
+        expect(wv.positions[i * 3 + 2]!).toBeGreaterThan(2 - 0.5);
+      }
+    }
+    expect(top).toBeGreaterThan(0.9);
+    expect(area(wv)).toBeGreaterThan(0.3);
     expect(terrainMeshes(t).ground.positions).toEqual(m.ground.positions); // pure
     // Walls face out of the plateau: each triangle's winding agrees with its stored normal.
     const c = m.cliffs;
