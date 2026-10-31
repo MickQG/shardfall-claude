@@ -14,7 +14,7 @@ import { demoMap, showcaseConfig, skirmishMap } from '../../src/data/maps';
 import type { MapDef } from '../../src/sim';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
 import { HIDE_FROM, HIDE_FULL, unexploredMask } from '../../src/render3d/unexplored';
-import { CRASH_MS, damageLook, HIVE_GLOW } from '../../src/render3d/view3d';
+import { CRASH_MS, damageLook, GLOW, HIVE_GLOW } from '../../src/render3d/view3d';
 
 const STILL: RigPose = { turret: 0, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: 0, stride: 0, dist: 0, turnRate: 0, time: 0, reach: 0, walker: false };
 
@@ -305,6 +305,23 @@ describe('fog, damage, harvesters and deaths', () => {
       poseRig(t, { ...STILL, load: 1 });
       expect(cargo.obj.scale.y, kind).toBeGreaterThan(small + 0.2);
     }
+    // The hauler tips its bed back about the rear hinge to unload, and its cutter drum turns while mining.
+    const hauler = rigTree(UNIT_RIGS.hum_hauler!());
+    const bed = hauler.anims.find((a) => a.anim.k === 'tip')!;
+    const drum = hauler.anims.find((a) => a.anim.k === 'drum')!;
+    poseRig(hauler, { ...STILL, tip: 0, drum: 0 });
+    expect(bed.obj.rotation.z).toBe(0);
+    poseRig(hauler, { ...STILL, tip: 1, drum: 2 });
+    expect(bed.obj.rotation.z).toBeGreaterThan(0.5); // front up, so the load slides out of the back
+    expect(drum.obj.rotation.z).toBeCloseTo(-2, 6);
+    // The hinge stays where it is while the bed swings up about it.
+    bed.obj.updateMatrix();
+    const hinge = new THREE.Vector3(-0.72, 0.22, 0).applyMatrix4(bed.obj.matrix);
+    expect(hinge.x).toBeCloseTo(-0.72, 6);
+    expect(hinge.y).toBeCloseTo(0.22, 6);
+    // ...and the front of the bed rises above its resting height.
+    const front = new THREE.Vector3(0.3, 0.52, 0).applyMatrix4(bed.obj.matrix);
+    expect(front.y).toBeGreaterThan(0.8);
     const fx = new CombatFx();
     const hopper = new THREE.Vector3(5, 0.6, 5);
     const crystal = new THREE.Vector3(6, 0.2, 5);
@@ -321,7 +338,8 @@ describe('fog, damage, harvesters and deaths', () => {
 
   it('R3D-12: aircraft dive out of the sky in about half a second, and Vrax buildings glow softer than other glows', () => {
     expect(CRASH_MS).toBeLessThanOrEqual(600);
-    expect(HIVE_GLOW).toBeLessThan(2.2);
+    expect(HIVE_GLOW).toBeLessThan(GLOW);
+    expect(GLOW).toBeLessThanOrEqual(1.6);
   });
 
   it('R3D-3: riflemen and rocketeers read apart: different cloth, visor, size and build', () => {

@@ -102,7 +102,7 @@ export function stepSquad(members: Member[], f: SquadFrame): void {
       const [sx, sz] = slot(mode, i, n);
       // Kneeling riflemen hold their spot; the others sidestep between bursts.
       const holds = mode === 'fire' && kneels(f.seed, i);
-      const wander = mode === 'idle' ? 0.16 : mode === 'fire' ? (holds ? 0.02 : 0.08) : 0.05;
+      const wander = mode === 'idle' ? 0.1 : mode === 'fire' ? (holds ? 0.02 : 0.06) : 0.04;
       const a = r(1) * Math.PI * 2;
       const d = Math.sqrt(r(2)) * wander;
       let [gx, gz] = rotate(sx + Math.cos(a) * d, sz + Math.sin(a) * d, frame);
@@ -113,7 +113,7 @@ export function stepSquad(members: Member[], f: SquadFrame): void {
       m.gx = gx;
       m.gz = gz;
       m.look = f.heading + (r(3) - 0.5) * 2.4;
-      const [lo, hi] = mode === 'idle' ? [2400, 6000] : mode === 'fire' ? (holds ? [5000, 9000] : [1100, 2600]) : [700, 1500];
+      const [lo, hi] = mode === 'idle' ? [4500, 9000] : mode === 'fire' ? (holds ? [5000, 9000] : [1800, 3600]) : [1200, 2400];
       m.next = f.t + lo + r(4) * (hi - lo);
       m.picks++;
     }
@@ -127,14 +127,14 @@ export function stepSquad(members: Member[], f: SquadFrame): void {
       m.z += ez;
       m.vx = m.vz = 0;
     } else {
-      const gain = mode === 'idle' ? 2.2 : 4;
+      const gain = mode === 'idle' ? 1.4 : 3;
       let wx = f.vx + ex * gain;
       let wz = f.vz + ez * gain;
-      const top = Math.max(0.5, speed * 1.6);
+      const top = Math.max(0.4, speed * 1.35);
       const w = Math.hypot(wx, wz);
       if (w > top) [wx, wz] = [(wx / w) * top, (wz / w) * top];
       if (err < 0.02 && speed < 0.05) [wx, wz] = [0, 0];
-      const k = 1 - Math.exp(-7 * f.dt);
+      const k = 1 - Math.exp(-4.5 * f.dt);
       m.vx += (wx - m.vx) * k;
       m.vz += (wz - m.vz) * k;
     }

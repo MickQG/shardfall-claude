@@ -25,6 +25,7 @@ const BONE = 0xd9ccb2;
 const FLESH = 0x8c4460;
 const GREEN = 0x9dff3c;
 const ACID = 0xc8ff4a;
+const SAC = 0x7fb23a;
 const MAGENTA = 0xff5ab0;
 
 const shape = (): Shape => new Shape();
@@ -67,6 +68,63 @@ function boneArch(s: Shape, r: number, h: number, a: number, thick: number): voi
 function mound(s: Shape, w: number, d: number): Shape {
   s.lathe([[0, 0], [0.5, 0.0], [0.48, 0.06], [0.36, 0.11], [0, 0.13]], BELLY, { scale: [w * 0.98, 1, d * 0.98], seg: 18 });
   s.lathe([[0.47, 0], [0.5, 0.02], [0.47, 0.07], [0.42, 0.06]], CHITIN, { scale: [w * 0.98, 1, d * 0.98], seg: 18 });
+  return hiveBase(s, w, d, w * 7 + d);
+}
+
+/**
+ * Armour scutes and ridges over a Vrax dome (an ellipsoid centred at c with radii r): two bands of overlapping plates
+ * following its curve, a ridge of bone nubs along the top and a few pustules between the plates (R3D-3).
+ */
+function scutes(s: Shape, c: readonly [number, number, number], r: readonly [number, number, number], seed: number): Shape {
+  const pt = (phi: number, th: number, k = 1): [number, number, number] => [c[0] + r[0] * k * Math.cos(phi) * Math.cos(th), c[1] + r[1] * k * Math.sin(phi), c[2] + r[2] * k * Math.cos(phi) * Math.sin(th)];
+  const size = Math.min(r[0], r[1], r[2]);
+  for (const [phi, n] of [[0.3, 9], [0.8, 6]] as const) {
+    for (let i = 0; i < n; i++) {
+      const th = (i / n) * Math.PI * 2 + hash3(seed, i, phi * 10) * 0.3 + phi;
+      s.ball(size * 0.3, i % 2 ? CHITIN : 'teamDark', { at: pt(phi, th, 1.0), scale: [1.25, 0.32, 0.9], rot: [0, -th, phi + 0.25], seg: 7 });
+    }
+  }
+  for (let i = 0; i < 5; i++) s.cone(size * 0.07, size * 0.22, BONE, { at: pt(1.15 + i * 0.07, hash3(seed, i, 12) * 0.4, 1.0), seg: 4 });
+  for (let i = 0; i < 4; i++) s.ball(size * 0.08, SAC, { at: pt(0.55, (i / 4) * Math.PI * 2 + 0.5, 1.02), seg: 6 });
+  return s;
+}
+
+/**
+ * The living skin around a Vrax building's base (R3D-3): overlapping chitin plates with bone spines, root tendrils
+ * creeping out over the ground, dark veins climbing the walls and clusters of pustules, a few faintly glowing. Placed
+ * from a seed, so each building kind is the same every time.
+ */
+function hiveBase(s: Shape, w: number, d: number, seed: number): Shape {
+  const rx = w * 0.46;
+  const rz = d * 0.46;
+  const at = (a: number, k: number, y: number): [number, number, number] => [Math.cos(a) * rx * k, y, Math.sin(a) * rz * k];
+  // Overlapping chitin plates around the skirt, every other one crested with a bone spine.
+  const plates = 10 + Math.round((w + d) * 2);
+  for (let i = 0; i < plates; i++) {
+    const a = (i / plates) * Math.PI * 2 + hash3(seed, i, 1) * 0.2;
+    const size = 0.16 + hash3(seed, i, 2) * 0.08;
+    s.ball(size, i % 3 ? CHITIN2 : 'teamDark', { at: at(a, 0.93, 0.1), scale: [1.3, 0.38, 0.85], rot: [0, -a, 0.35], seg: 8 });
+    if (i % 2 === 0) s.cone(0.03, 0.14 + hash3(seed, i, 3) * 0.1, BONE, { at: at(a, 0.9, 0.2), rot: [0, -a, -0.5], seg: 4 });
+  }
+  // Root tendrils creeping out over the ground.
+  const roots = 6 + Math.round(w + d);
+  for (let i = 0; i < roots; i++) {
+    const a = (i / roots) * Math.PI * 2 + hash3(seed, i, 4) * 0.5;
+    const len = 0.35 + hash3(seed, i, 5) * 0.35;
+    s.cone(0.06, len, i % 2 ? CHITIN : BELLY, { at: at(a, 1.0 + len * 0.2, 0.03), rot: [0, -a, -Math.PI / 2 + 0.08], seg: 5 });
+  }
+  // Dark veins climbing from the skirt.
+  for (let i = 0; i < 6 + w + d; i++) {
+    const a = hash3(seed, i, 6) * Math.PI * 2;
+    s.tube(0.018, 0.32 + hash3(seed, i, 7) * 0.25, FLESH, { at: at(a, 0.78, 0.2), rot: [0, -a + Math.PI, 0.9 + hash3(seed, i, 8) * 0.4], seg: 5 });
+  }
+  // Clusters of pustules; only a few glow, and softly.
+  for (let i = 0; i < 4 + w + d; i++) {
+    const a = hash3(seed, i, 9) * Math.PI * 2;
+    const p = at(a, 0.82 + hash3(seed, i, 10) * 0.1, 0.12);
+    s.ball(0.05, i % 4 === 0 ? ACID : SAC, { at: p, seg: 6, glow: i % 4 === 0 });
+    s.ball(0.035, SAC, { at: [p[0] + 0.06, p[1] - 0.02, p[2] + 0.04], seg: 6 });
+  }
   return s;
 }
 
@@ -341,6 +399,7 @@ function aliHq(): RigDef {
         s.box(0.08, 1.1, 0.08, CHITIN2, { at: [Math.cos(a) * 0.55, 0.85, Math.sin(a) * 0.55], rot: [Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5], bevel: 0.4 });
       }
       s.lathe([[0.85, 0], [0.8, 0.25], [0.62, 0.5], [0.3, 0.62], [0, 0.65]], 'teamDark', { at: [0, 0.1, 0], seg: 18 }); // carapace skirt
+      scutes(s, [0, 0.1, 0], [0.85, 0.62, 0.85], 41);
       s.ring(0.82, 0.03, 'team', { at: [0, 0.2, 0], seg: 24 });
       s.ball(0.2, ACID, { at: [0, 1.55, 0], seg: 10, glow: true }); // crown bulb
       s.cone(0.12, 0.5, BONE, { at: [0, 1.9, 0], seg: 7 });
@@ -364,6 +423,7 @@ function aliGenerator(): RigDef {
         s.ball(r, CHITIN2, { at: [x, r * 0.75, z], scale: [1, 1.2, 1], seg: 14 });
         s.ball(r * 1.01, 'teamDark', { at: [x, r * 0.8, z], scale: [0.9, 1.15, 0.9], cut: 0.3, seg: 14 });
         s.ring(r * 0.55, 0.02, 'team', { at: [x, r * 1.55, z], seg: 12 });
+        scutes(s, [x, r * 0.75, z], [r, r * 1.2, r], Math.round(r * 100));
         for (let i = 0; i < 3; i++) s.tube(0.018, r * 1.4, GREEN, { at: [x, r * (0.5 + i * 0.25), z], rot: [0, i * 1.1, 0.4], glow: true, seg: 5 });
       }
       return s;
@@ -380,6 +440,7 @@ function aliExtractor(): RigDef {
       s.ball(0.6, CHITIN, { at: [-0.6, 0.35, -0.2], scale: [1.4, 0.95, 1], seg: 16 });
       s.ball(0.6, 'teamDark', { at: [-0.6, 0.38, -0.2], scale: [1.3, 0.92, 0.85], cut: 0.35, seg: 16 });
       s.ball(0.12, 'team', { at: [-0.6, 0.93, -0.2], scale: [3, 0.4, 1.2], seg: 10 });
+      scutes(s, [-0.6, 0.35, -0.2], [0.84, 0.57, 0.6], 53);
       for (let i = 0; i < 4; i++) s.cone(0.07, 0.4, BONE, { at: [-1.0 + i * 0.27, 0.95, -0.2], rot: [0, 0, 0.4], seg: 6 });
       for (const z of [0.4, -0.65]) s.tube(0.07, 0.8, FLESH, { at: [0.2, 0.15, z], rot: [0, 0.3, -0.25], seg: 8 });
       // Feeding maw with a glowing pool, front right, where gorgers unload.
@@ -404,6 +465,7 @@ function aliNest(): RigDef {
         s.ball(r, CHITIN2, { at: [x, r * 1.1, z], scale: [1, 1.4, 1], seg: 12 });
         s.ball(r * 1.02, 'teamDark', { at: [x, r * 1.0, z], scale: [0.95, 1.2, 0.95], cut: 0.25, seg: 12 });
         s.ball(r * 0.35, GREEN, { at: [x, r * 2.4, z], seg: 8, glow: true });
+        if (r >= 0.24) scutes(s, [x, r * 1.1, z], [r, r * 1.4, r], Math.round(r * 100) + 3);
       }
       return s;
     },
@@ -415,6 +477,7 @@ function aliPit(): RigDef {
     body: () => {
       const s = shape();
       // A crater ring with a glowing brood pool and bone arches over it.
+      hiveBase(s, 3, 3, 31);
       s.lathe([[1.42, 0], [1.38, 0.18], [1.1, 0.34], [0.85, 0.3], [0.7, 0.08], [0.6, 0.02]], CHITIN, { seg: 22 });
       s.lathe([[1.2, 0.3], [1.05, 0.36], [0.88, 0.32]], 'team', { seg: 22 });
       s.cyl(0.72, 0.04, ACID, { at: [0, 0.04, 0], seg: 22, glow: true });
@@ -428,7 +491,7 @@ function aliPit(): RigDef {
 function aliSpire(): RigDef {
   return def(1, 1, 1.5, {
     body: () => {
-      const s = shape();
+      const s = hiveBase(shape(), 1.1, 1.1, 17);
       s.lathe([[0.42, 0], [0.38, 0.12], [0.2, 0.4], [0.14, 0.9], [0.17, 1.05], [0.12, 1.1]], CHITIN, { seg: 10 });
       s.lathe([[0.4, 0.04], [0.34, 0.16], [0.26, 0.28]], 'team', { seg: 10 });
       for (let i = 0; i < 5; i++) {

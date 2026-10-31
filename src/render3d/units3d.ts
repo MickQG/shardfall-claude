@@ -103,7 +103,8 @@ function infantry(rocket: boolean): RigDef {
     shapes: { body: () => soldier(shape(), rocket), leg: () => soldierLeg(rocket) },
     move: 'walker',
     scale: rocket ? 1.45 : 1.35,
-    stride: 0.32,
+    // Long, easy strides: the legs swing gently rather than scurry.
+    stride: 0.46,
     turn: 9,
     radius: 0.5,
     height: 0.36,
@@ -111,8 +112,8 @@ function infantry(rocket: boolean): RigDef {
     root: {
       kids: [
         // Firing crouch: the hips sink and the legs brace, one forward and one back, feet on the ground.
-        { geo: 'leg', at: [0, 0.182, 0.026], anim: { k: 'gait', axis: 'z', amp: 0.55, phase: 0, kneel: 0.85, drop: 0.07 } },
-        { geo: 'leg', at: [0, 0.182, -0.026], anim: { k: 'gait', axis: 'z', amp: 0.55, phase: Math.PI, kneel: -0.85, drop: 0.07 } },
+        { geo: 'leg', at: [0, 0.182, 0.026], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: 0, kneel: 0.85, drop: 0.07 } },
+        { geo: 'leg', at: [0, 0.182, -0.026], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: Math.PI, kneel: -0.85, drop: 0.07 } },
         { geo: 'body', at: [0, 0.18, 0], anim: { k: 'body', drop: 0.07 }, kids: [{ muzzle: true, at: rocket ? [0.17, 0.14, 0.07] : [0.23, 0.08, 0.025] }] },
       ],
     },
@@ -384,14 +385,31 @@ function hauler(): RigDef {
         s.box(0.02, 0.04, 0.08, AMBER, { at: [0.7, 0.22, 0.18], glow: true, bevel: 0 });
         s.box(0.02, 0.04, 0.08, AMBER, { at: [0.7, 0.22, -0.18], glow: true, bevel: 0 });
         s.cyl(0.025, 0.3, GUN, { at: [0.33, 0.42, 0.22], seg: 8 }); // exhaust stack
-        // Ore hopper: sloped steel bin with team bands and hazard stripes.
+        s.box(0.12, 0.03, 0.56, STEEL2, { at: [0.74, 0.12, 0], bevel: 0.2 }); // cutter arms
+        s.box(0.015, 0.025, 0.05, RED, { at: [-0.785, 0.2, 0.12], glow: true, bevel: 0 }); // tail lights
+        s.box(0.015, 0.025, 0.05, RED, { at: [-0.785, 0.2, -0.12], glow: true, bevel: 0 });
+        s.cyl(0.03, 0.14, GUN, { at: [-0.62, 0.26, 0.2], rot: [0, 0, 0.5], seg: 8 }); // tipping rams
+        s.cyl(0.03, 0.14, GUN, { at: [-0.62, 0.26, -0.2], rot: [0, 0, 0.5], seg: 8 });
+        return s;
+      },
+      bed: () => {
+        // The ore bed: a sloped steel bin with team bands and hazard stripes, hinged at the back to tip.
+        const s = shape();
         s.slab([[-0.66, 0.2], [0.3, 0.2], [0.34, 0.52], [-0.7, 0.52]], 0.6, STEEL, { bevel: 0.025 });
         s.box(1.0, 0.04, 0.62, 'team', { at: [-0.18, 0.5, 0], bevel: 0.25 });
         for (let i = 0; i < 5; i++) s.box(0.06, 0.02, 0.625, i % 2 ? DARK : HAZARD, { at: [-0.6 + i * 0.07, 0.26, 0], bevel: 0 });
         s.box(0.9, 0.02, 0.5, DARK, { at: [-0.18, 0.525, 0], bevel: 0 }); // hopper mouth
-        s.box(0.12, 0.08, 0.3, STEEL2, { at: [-0.72, 0.22, 0] }); // tail gate
-        s.box(0.015, 0.025, 0.05, RED, { at: [-0.785, 0.24, 0.12], glow: true, bevel: 0 });
-        s.box(0.015, 0.025, 0.05, RED, { at: [-0.785, 0.24, -0.12], glow: true, bevel: 0 });
+        s.box(0.06, 0.26, 0.56, STEEL2, { at: [-0.72, 0.36, 0], bevel: 0.2 }); // tail gate
+        return s;
+      },
+      drum: () => {
+        // A toothed cutter drum across the front that chews crystals off the ground.
+        const s = shape();
+        s.cyl(0.07, 0.5, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 10 });
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          s.box(0.03, 0.03, 0.46, i % 2 ? HAZARD : GUN, { at: [Math.cos(a) * 0.07, Math.sin(a) * 0.07, 0], rot: [0, 0, a], bevel: 0 });
+        }
         return s;
       },
       cargo: () => {
@@ -402,7 +420,7 @@ function hauler(): RigDef {
           const z = (Math.floor(i / 3) - 1) * 0.16;
           const tilt: [number, number, number] = [0.35 * (i % 2 ? 1 : -1), 0, 0.25 * ((i % 3) - 1)];
           s.cyl(0.05, 0.2, 0x47e8c4, { at: [x, 0.6, z], rot: tilt, seg: 6 });
-          s.cone(0.05, 0.09, CYAN, { at: [x, 0.74, z], rot: tilt, seg: 6, glow: true });
+          s.cone(0.05, 0.09, 0x7ff0dc, { at: [x, 0.74, z], rot: tilt, seg: 6 });
         }
         return s;
       },
@@ -415,8 +433,15 @@ function hauler(): RigDef {
         wheel(-0.3, -0.28, false),
         wheel(-0.56, 0.28, false),
         wheel(-0.56, -0.28, false),
-        // The crystal pile rises from the hopper floor as the hauler fills.
-        { anim: { k: 'body' }, geo: 'body', kids: [{ geo: 'cargo', anim: { k: 'cargo', pivot: [-0.25, 0.5, 0] } }] },
+        {
+          anim: { k: 'body' },
+          geo: 'body',
+          kids: [
+            { geo: 'drum', at: [0.8, 0.1, 0], anim: { k: 'drum' } },
+            // The bed tips back about its rear hinge to unload; the crystal pile rides in it and rises as it fills.
+            { geo: 'bed', anim: { k: 'tip', pivot: [-0.72, 0.22, 0], max: 0.7 }, kids: [{ geo: 'cargo', anim: { k: 'cargo', pivot: [-0.25, 0.5, 0] } }] },
+          ],
+        },
       ],
     },
   };

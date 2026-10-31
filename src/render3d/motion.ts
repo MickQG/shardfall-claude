@@ -57,7 +57,7 @@ export interface Follow {
 }
 
 /** How far behind (s) a drawn unit trails its simulated position (R3D-10): enough to hide uneven snapshot timing. */
-export const SMOOTH_TIME = 0.09;
+export const SMOOTH_TIME = 0.12;
 
 /**
  * Move a drawn position toward the target (`tx`, `tz`) with a critically damped spring, in place (R3D-10). Snapshots
@@ -120,7 +120,7 @@ export function bodyPose(kind: 'tracked' | 'wheeled' | 'walker' | 'air' | 'stati
     const rumble = m.stride * (kind === 'tracked' ? 0.004 : 0.007) * Math.sin(t * 0.031 + seed);
     return { pitch: clamp(m.accel * 0.05, 0.08), roll: clamp(-m.turnRate * m.speed * (kind === 'wheeled' ? 0.07 : 0.04), 0.1), bob: rumble };
   }
-  if (kind === 'walker') return { pitch: m.stride * 0.05, roll: m.stride * 0.03 * Math.sin(phase), bob: m.stride * 0.012 * Math.abs(Math.sin(phase)) };
+  if (kind === 'walker') return { pitch: m.stride * 0.04, roll: m.stride * 0.012 * Math.sin(phase), bob: m.stride * 0.006 * Math.abs(Math.sin(phase)) };
   if (kind === 'air') return { pitch: clamp(-m.accel * 0.08, 0.2) - m.speed * 0.05, roll: clamp(m.turnRate * 0.35, 0.45), bob: Math.sin(t * 0.0017 + seed) * 0.04 };
   return { pitch: 0, roll: 0, bob: 0 };
 }

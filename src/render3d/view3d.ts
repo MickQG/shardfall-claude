@@ -39,8 +39,10 @@ export function damageLook(hp: number, t: number, seed: number): { tint: number;
   return { tint, lean: hp < 0.33 ? (0.33 - hp) * 0.12 : 0, sparkEvery: hp < 0.5 ? 400 + 2000 * hp : 0 };
 }
 
-/** Brightness of Vrax buildings' glowing parts under bloom (other glows are 2.2), so a hive glows without blazing. */
-export const HIVE_GLOW = 1.1;
+/** Brightness of Vrax buildings' glowing parts under bloom (softer than GLOW), so a hive glows without blazing. */
+export const HIVE_GLOW = 0.8;
+/** Brightness of other glowing parts under bloom: enough to bloom softly, not to blaze. */
+export const GLOW = 1.5;
 
 /** An aircraft's dive from the sky to the ground, ms, and how far its momentum carries it on, tiles (R3D-12). */
 export const CRASH_MS = 520;
@@ -174,6 +176,9 @@ interface UnitObj {
   unloadAt: number;
   /** Shards it can carry (0 for non-harvesters). */
   capacity: number;
+  /** How far the bed is tipped (or the belly squeezes), 0..1, and the cutter drum's angle (R3D-19). */
+  tip: number;
+  drum: number;
   alive: number;
   seed: number;
   dying: { t0: number; mode: 'wreck' | 'fall' | 'crash'; side: number; boomed: boolean } | null;
@@ -677,6 +682,8 @@ export class View3D {
       mineAt: -1e9,
       unloadAt: -1e9,
       capacity: d.capacity ?? 0,
+      tip: 0,
+      drum: 0,
       alive: size,
       seed,
       dying: null,
@@ -942,7 +949,7 @@ export class View3D {
     if (vs.fx.bloom !== this.bloomOn) {
       this.bloomOn = vs.fx.bloom;
       // Glowing parts are brighter than white with bloom, so the bloom pass picks them up; plain white without.
-      this.glowMat.color.setScalar(this.bloomOn ? 2.2 : 1);
+      this.glowMat.color.setScalar(this.bloomOn ? GLOW : 1);
       this.hiveGlowMat.color.setScalar(this.bloomOn ? HIVE_GLOW : 0.8);
     }
     if (vs.fx.decor !== this.shadowsOn) {
@@ -1025,7 +1032,7 @@ export class View3D {
         const h = o.motion.heading;
         this.fx.dust(this.v.set(o.x - Math.cos(h) * def.radius * 0.6, 0, o.z - Math.sin(h) * def.radius * 0.6), def.radius * 1.2, t);
       }
-      if (o.capacity > 0 && this.inView(o.x, o.groundY, o.z, 2.5)) this.harvestFx(u.id, o, t);
+      if (o.capacity > 0) this.harvestFx(u.id, o, t, dt);
       if (this.inView(o.x, o.root.position.y, o.z, def.radius + (o.members.length ? 0.5 : 0))) this.drawUnit(o, this.tint.setRGB(1, 1, 1), t);
     }
     for (const [id, o] of this.units) {
@@ -1079,44 +1086,29 @@ export class View3D {
   }
 
   /**
-   * A harvester at work (R3D-19): while its load rises it mines the nearest crystal (a cutting beam for the hauler,
-   * feeding tendrils for the gorger), and while it falls it pours a stream of fragments into the nearest own refinery.
+   * A harvester at work (R3D-19). While its load rises it mines: the hauler's cutter drum turns and throws chips into
+   * its bed, the gorger chomps at the ground. While its load falls it unloads: the hauler tips its bed and crystals
+   * tumble out of the back into the intake, the gorger squeezes its belly and spills a glowing mass at its maw.
    */
-  private harvestFx(id: number, o: UnitObj, t: number): void {
+  private harvestFx(id: number, o: UnitObj, t: number, dt: number): void {
     const organic = o.kind.startsWith('ali_');
     const fx = Math.cos(o.motion.heading);
     const fz = Math.sin(o.motion.heading);
-    if (t - o.mineAt < 300) {
-      // The nearest crystal clear of its own body (the one it stands on would hide the beam under it).
-      let best: Static | null = null;
-      let bd = 2.2 * 2.2;
-      for (const c of this.crystals) {
-        const d = (c.x - o.x) ** 2 + (c.z - o.z) ** 2;
-        if (d < bd && d > 0.6 * 0.6) {
-          bd = d;
-          best = c;
-        }
-      }
-      if (best) {
-        const from = organic ? this.v.set(o.x + fx * 0.55, o.groundY + 0.32, o.z + fz * 0.55) : this.v.set(o.x + fx * 0.6, o.groundY + 0.36, o.z + fz * 0.6);
-        this.fx.harvest(id, from, this.v2.set(best.x, best.y + 0.22, best.z), organic, false, t);
-      }
-    } else if (t - o.unloadAt < 300) {
-      const want = organic ? 'ali_extractor' : 'hum_refinery';
-      let best: BuildingObj | null = null;
-      let bd = 3.5 * 3.5;
-      for (const b of this.buildings.values()) {
-        if (b.kind !== want || b.team !== o.team || b.dying !== null) continue;
-        const d = (b.x - o.x) ** 2 + (b.z - o.z) ** 2;
-        if (d < bd) {
-          bd = d;
-          best = b;
-        }
-      }
-      if (best) {
-        const from = organic ? this.v.set(o.x, o.groundY + 0.5, o.z) : this.v.set(o.x - fx * 0.2, o.groundY + 0.64, o.z - fz * 0.2);
-        this.fx.harvest(id, from, this.v2.set(best.x, best.y + best.def.height * 0.55, best.z), organic, true, t);
-      }
+    const mining = t - o.mineAt < 300;
+    // Unloading takes about a second, so the bed snaps up and stays up a moment after the last crystals leave.
+    const unloading = !mining && t - o.unloadAt < 700;
+    o.tip += ((unloading ? 1 : 0) - o.tip) * Math.min(1, dt * (unloading ? 9 : 3));
+    if (mining) o.drum += dt * 14;
+    if (mining && organic && t - o.lunge > 700) o.lunge = t; // a chomp
+    const g = o.groundY;
+    if (mining) {
+      const from = organic ? this.v.set(o.x + fx * 0.75, g + 0.06, o.z + fz * 0.75) : this.v.set(o.x + fx * 0.85, g + 0.1, o.z + fz * 0.85);
+      const into = organic ? this.v2.set(o.x + fx * 0.55, g + 0.32, o.z + fz * 0.55) : this.v2.set(o.x - fx * 0.2, g + 0.62, o.z - fz * 0.2);
+      this.fx.harvest(id, from, into, organic, false, t);
+    } else if (unloading && t - o.unloadAt < 300 && o.tip > 0.3) {
+      const from = organic ? this.v.set(o.x + fx * 0.6, g + 0.3, o.z + fz * 0.6) : this.v.set(o.x - fx * 0.95, g + 0.5, o.z - fz * 0.95);
+      const onto = organic ? this.v2.set(o.x + fx * 0.95, g + 0.05, o.z + fz * 0.95) : this.v2.set(o.x - fx * 1.35, g + 0.05, o.z - fz * 1.35);
+      this.fx.harvest(id, from, onto, organic, true, t);
     }
   }
 
@@ -1186,6 +1178,8 @@ export class View3D {
         walker: def.move === 'walker',
         crouch: mm?.crouch ?? 0,
         load: o.capacity > 0 ? o.load / o.capacity : 1,
+        tip: o.tip,
+        drum: o.drum,
       });
     });
   }
