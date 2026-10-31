@@ -1,13 +1,8 @@
-import { TILE_H, TILE_W } from './iso';
-
-/** Painted lift per height level. Taller than the gameplay HEIGHT_PX so plateaus read as cliffs; nothing stands on them. */
-export const CLIFF_PX = 26;
 
 /**
- * "Next" style terrain (NXT-3): a pure painter from the map grid to pixels. Ground blends grass and dirt with noise,
- * raised tiles are rock plateaus with strata cliff walls (the sunward wall lit, the other in cool shade), cliff bases get
- * a contact shadow, and blocked low tiles are water with depth and a shoreline. Everything comes from tile coordinates
- * and the map, never from the simulation's random numbers.
+ * Terrain colours (NXT-3): ground blends grass and dirt with noise, raised tiles are rock with moss, cliff walls are rock
+ * strata (the sunward side warmer), and blocked low tiles are water with depth and a shoreline. Pure functions of tile
+ * coordinates, never of the simulation's random numbers.
  */
 
 export interface TerrainInput {
@@ -111,83 +106,4 @@ export function cliffRgb(wx: number, wy: number, depth: number, sunward: boolean
   const strata = 0.82 + valueNoise(wx * 2 + depth * 0.45, depth * 0.9) * 0.3;
   const base = scale(CLIFF, strata * (1 - depth * 0.012));
   return sunward ? mix(base, [190, 150, 100], 0.12) : mix(scale(base, 0.58), [60, 66, 104], 0.25);
-}
-
-const level = (t: TerrainInput, x: number, y: number): number => (x < 0 || y < 0 || x >= t.width || y >= t.height ? 0 : (t.heights[y * t.width + x] ?? 0));
-const isWater = (t: TerrainInput, x: number, y: number): boolean => x >= 0 && y >= 0 && x < t.width && y < t.height && level(t, x, y) === 0 && t.blocked(x, y);
-
-/** Screen-space bounds (before camera) of the whole map, including cliff walls. */
-export function terrainBounds(t: TerrainInput): { x: number; y: number; w: number; h: number } {
-  const maxLevel = t.heights.reduce((m, h) => Math.max(m, h), 0);
-  const x = -t.height * (TILE_W / 2);
-  const y = -maxLevel * CLIFF_PX;
-  return { x, y, w: (t.width + t.height) * (TILE_W / 2), h: (t.width + t.height) * (TILE_H / 2) + maxLevel * CLIFF_PX };
-}
-
-/**
- * Paint the tiles whose footprint lies in screen rect (x0, y0, w, h) into RGBA pixels, back to front: each tile's top,
- * then its walls down to lower neighbours in front. Pure.
- */
-export function paintTerrain(t: TerrainInput, x0: number, y0: number, w: number, h: number, only?: (tx: number, ty: number) => boolean): Uint8ClampedArray<ArrayBuffer> {
-  const px = new Uint8ClampedArray(w * h * 4);
-  const put = (sx: number, sy: number, c: Rgb): void => {
-    const x = sx - x0;
-    const y = sy - y0;
-    if (x < 0 || y < 0 || x >= w || y >= h) return;
-    const i = (y * w + x) * 4;
-    px[i] = c[0];
-    px[i + 1] = c[1];
-    px[i + 2] = c[2];
-    px[i + 3] = 255;
-  };
-  const hw = TILE_W / 2;
-  const hh = TILE_H / 2;
-  for (let s = 0; s < t.width + t.height - 1; s++) {
-    for (let ty = Math.max(0, s - t.width + 1); ty <= Math.min(t.height - 1, s); ty++) {
-      const tx = s - ty;
-      if (only && !only(tx, ty)) continue;
-      const lv = level(t, tx, ty);
-      const ox = (tx - ty) * hw;
-      const oy = (tx + ty) * hh - lv * CLIFF_PX;
-      if (ox + hw < x0 || ox - hw > x0 + w || oy > y0 + h || oy + TILE_H + lv * CLIFF_PX < y0) continue;
-      const water = isWater(t, tx, ty);
-      const behindHigher = (dx: number, dy: number): number => Math.max(0, level(t, tx + dx, ty + dy) - lv);
-      const backX = behindHigher(-1, 0);
-      const backY = behindHigher(0, -1);
-      // Which sides border the other kind (land beside water, water beside land): the shoreline follows only those edges.
-      const other = (dx: number, dy: number): boolean => isWater(t, tx + dx, ty + dy) !== water;
-      const sides = { nx: other(-1, 0), px: other(1, 0), ny: other(0, -1), py: other(0, 1) };
-      const shards = t.shards(tx, ty);
-      // Tile top: invert the diamond to (fx, fy) for every pixel.
-      for (let dy = 0; dy < TILE_H; dy++) {
-        const span = dy < hh ? (dy + 0.5) * 2 : (TILE_H - dy - 0.5) * 2;
-        for (let dx = -Math.ceil(span); dx <= Math.ceil(span); dx++) {
-          const fx = ((dx + 0.5) / hw + (dy + 0.5) / hh) / 2;
-          const fy = ((dy + 0.5) / hh - (dx + 0.5) / hw) / 2;
-          if (fx < 0 || fy < 0 || fx > 1 || fy > 1) continue;
-          // Contact shadow from higher ground behind (the sun is up and to the left).
-          const shade = Math.max(backX > 0 ? 1 - smooth(0, 0.55, fx) : 0, backY > 0 ? 0.6 * (1 - smooth(0, 0.45, fy)) : 0);
-          const toShore = Math.min(sides.nx ? fx : 9, sides.px ? 1 - fx : 9, sides.ny ? fy : 9, sides.py ? 1 - fy : 9);
-          const shore = toShore > 1 ? 0 : water ? Math.max(0, 1 - toShore * 2.6) : Math.max(0, 1 - toShore * 3.2) * 0.8;
-          let c = groundRgb(tx, ty, fx, fy, { level: lv, water, shade, shore, shards });
-          // Plateau lips: a sunlit rim above the sunward (+y) wall, a darker lip above the shaded (+x) wall.
-          if (lv > 0 && fy > 0.9 && level(t, tx, ty + 1) < lv) c = mix(c, [214, 182, 132], 0.35);
-          else if (lv > 0 && fx > 0.92 && level(t, tx + 1, ty) < lv) c = scale(c, 0.8);
-          put(ox + dx, oy + dy, c);
-        }
-      }
-      if (lv === 0) continue;
-      // Walls down to lower neighbours in front: +x is the lower-right edge (shaded), +y the lower-left edge (sunward).
-      for (const [ndx, ndy, sunward] of [[1, 0, false], [0, 1, true]] as const) {
-        const drop = (lv - level(t, tx + ndx, ty + ndy)) * CLIFF_PX;
-        if (drop <= 0) continue;
-        for (let k = 0; k <= hw; k++) {
-          const ex = ndx === 1 ? ox + hw - k : ox - hw + k;
-          const ey = oy + hh + k / 2;
-          for (let d = 0; d < drop; d++) put(Math.round(ex), Math.round(ey + d), cliffRgb(tx + k / hw, ty + (ndx === 1 ? 0 : 1), d, sunward));
-        }
-      }
-    }
-  }
-  return px;
 }

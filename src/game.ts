@@ -4,10 +4,9 @@ import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
 import { soundFor } from './audio/plan';
 import { SimClient } from './host/client';
-import { centerOnTile, mapBounds, pan, zoomAt, type Camera } from './render/camera';
+import { centerOnTile, clampCamera, mapBounds, pan, zoomAt, type Camera } from './render/camera';
 import { GameView, type PlacementPreview } from './render/gameView';
 import type { WorldRenderer } from './render/worldRenderer';
-import { View3D } from './render3d/view3d';
 import { interpolate } from './render/interp';
 import { tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
@@ -42,7 +41,8 @@ const map = cfg.map;
 const bounds = mapBounds(map.width, map.height);
 // Scenarios are scripted fights without an AI opponent; a normal game has the AI play player 1.
 const sim = new SimClient(cfg, scenario ? [] : [{ player: 1, difficulty: level }]);
-const view: WorldRenderer = use3d ? new View3D() : new GameView();
+// three.js loads only when the 3D view is asked for, so classic sessions do not download it.
+const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D() : new GameView();
 const frameStats = new FrameStats();
 const showFrameTime = use3d || scenario === 'showcase';
 const selection = new Selection();
@@ -437,7 +437,14 @@ async function boot(): Promise<void> {
     (e) => {
       e.preventDefault();
       if (!allowed('wheel')) return;
-      cam = zoomAt(cam, view.viewport, e.offsetX, e.offsetY, e.deltaY < 0 ? 1.1 : 1 / 1.1, bounds);
+      // Zoom about the screen centre, then shift so the ground point under the cursor stays put (R3D-4, both renderers).
+      const before = view.projector(cam).toGround(e.offsetX, e.offsetY);
+      const v = view.viewport;
+      const zoomed = zoomAt(cam, v, v.width / 2, v.height / 2, e.deltaY < 0 ? 1.1 : 1 / 1.1, bounds);
+      const after = view.projector(zoomed).toGround(e.offsetX, e.offsetY);
+      const a = tileToScreen(before.x, before.y);
+      const b = tileToScreen(after.x, after.y);
+      cam = clampCamera({ ...zoomed, x: zoomed.x + a.x - b.x, y: zoomed.y + a.y - b.y }, bounds);
     },
     { passive: false },
   );

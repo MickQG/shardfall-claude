@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
+import { buildingDef } from '../../src/data/defs';
 import { showcaseConfig } from '../../src/data/maps';
 import { isoProjector } from '../../src/render/projector';
 import { cliffRgb, groundRgb } from '../../src/render/terrainNext';
@@ -28,6 +29,12 @@ describe('showcase scenario and terrain colours', () => {
     const tiles = big.units!.map((u) => u.ty * big.map.width + u.tx);
     expect(new Set(tiles).size).toBe(tiles.length);
     expect(tiles.every((i) => !big.map.blocked?.[i])).toBe(true);
+    const footprint = new Set<number>();
+    for (const bd of big.buildings ?? []) {
+      const d = buildingDef(bd.kind);
+      for (let y = bd.ty; y < bd.ty + d.h; y++) for (let x = bd.tx; x < bd.tx + d.w; x++) footprint.add(y * big.map.width + x);
+    }
+    expect(tiles.some((i) => footprint.has(i))).toBe(false);
   });
 
   it('NXT-3: ground colour depends only on tile coordinates; sunward cliffs are brighter; water is blue', () => {
@@ -54,6 +61,13 @@ describe('3D terrain', () => {
     expect(m.cliffs.indices.length).toBeGreaterThan(0);
     expect(m.water.positions.length / 3).toBe(4); // one water tile
     expect(terrainMeshes(t).ground.positions).toEqual(m.ground.positions); // pure
+    // Walls face out of the plateau: each triangle's winding agrees with its stored normal.
+    const c = m.cliffs;
+    for (let i = 0; i < c.indices.length; i += 3) {
+      const [p0, p1, p2] = [c.indices[i]!, c.indices[i + 1]!, c.indices[i + 2]!].map((k) => new THREE.Vector3(c.positions[k * 3], c.positions[k * 3 + 1], c.positions[k * 3 + 2]));
+      const n = new THREE.Vector3().subVectors(p1!, p0!).cross(new THREE.Vector3().subVectors(p2!, p0!));
+      expect(n.dot(new THREE.Vector3(c.normals[c.indices[i]! * 3], c.normals[c.indices[i]! * 3 + 1], c.normals[c.indices[i]! * 3 + 2]))).toBeGreaterThan(0);
+    }
   });
 });
 

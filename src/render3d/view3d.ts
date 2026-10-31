@@ -42,6 +42,14 @@ function softTexture(): THREE.Texture {
   return soft;
 }
 
+/** Free an effect's own geometry and material (shared textures are left alone). */
+function dispose(o: THREE.Object3D): void {
+  const m = o as THREE.Mesh;
+  if (!(o instanceof THREE.Sprite)) m.geometry?.dispose();
+  const mats = Array.isArray(m.material) ? m.material : m.material ? [m.material] : [];
+  for (const mat of mats) mat.dispose();
+}
+
 const geometry = (d: MeshData & { uvs?: Float32Array }): THREE.BufferGeometry => {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(d.positions, 3));
@@ -104,6 +112,11 @@ export class View3D {
   private fx: Fx[] = [];
   private lights: { light: THREE.PointLight; until: number; power: number; born: number }[] = [];
   private fogTex: THREE.DataTexture | null = null;
+  private shadowsOn = true;
+  private proj: { key: string; p: Projector } | null = null;
+  private ray = new THREE.Raycaster();
+  private ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private hit = new THREE.Vector3();
   private fogData: Uint8Array | null = null;
   private lastFogTick = -1;
   private lastShardTick = -1;
@@ -192,7 +205,7 @@ export class View3D {
     const m = terrainMeshes(input);
     const ground = new THREE.Mesh(geometry(m.ground), new THREE.MeshStandardMaterial({ map, roughness: 0.95, metalness: 0 }));
     ground.receiveShadow = true;
-    const cliffs = new THREE.Mesh(geometry(m.cliffs), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }));
+    const cliffs = new THREE.Mesh(geometry(m.cliffs), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }));
     cliffs.receiveShadow = true;
     cliffs.castShadow = true;
     const water = new THREE.Mesh(geometry(m.water), new THREE.MeshStandardMaterial({ color: 0x1f5a78, roughness: 0.12, metalness: 0.25, transparent: true, opacity: 0.82 }));
@@ -208,8 +221,7 @@ export class View3D {
       const fogMat = new THREE.MeshBasicMaterial({ color: 0x0c0f22, alphaMap: this.fogTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       const fog = new THREE.Mesh(geometry(m.ground), fogMat);
       fog.renderOrder = 10;
-      const fogWalls = new THREE.Mesh(geometry(m.cliffs), new THREE.MeshBasicMaterial({ color: 0x0c0f22, transparent: true, opacity: 0, depthWrite: false }));
-      this.scene.add(fog, fogWalls);
+      this.scene.add(fog);
     }
   }
 
@@ -293,7 +305,7 @@ export class View3D {
     root.add(ring, barBg, barFg);
     if (d.air) root.position.y = AIR_Y;
     this.scene.add(root);
-    return { root, figures, turret, ring, barBg, barFg, height: height + (d.air ? 0 : 0), lastX: u.tx, lastZ: u.ty, heading: 0, aim: 0, aimHold: 0 };
+    return { root, figures, turret, ring, barBg, barFg, height, lastX: u.tx, lastZ: u.ty, heading: 0, aim: 0, aimHold: 0 };
   }
 
   /** Turret aim from shot events, held briefly when the shooter has no target in view. */
@@ -377,14 +389,21 @@ export class View3D {
     }
   }
 
+  /** A projector for `cam`, reused while the camera and viewport stay the same. */
   projector(cam: Camera): Projector {
-    this.applyCamera(cam);
-    const cameraRef = this.camera;
     const vp = this.viewport;
-    const ray = new THREE.Raycaster();
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    const hit = new THREE.Vector3();
-    return {
+    const key = `${cam.x}|${cam.y}|${cam.zoom}|${vp.width}|${vp.height}`;
+    if (this.proj?.key === key) return this.proj.p;
+    // A separate camera at the asked-for pose, so projecting never moves the one being rendered.
+    const cameraRef = this.camera.clone();
+    const pose = cameraPose(cam);
+    cameraRef.aspect = vp.width / Math.max(1, vp.height);
+    cameraRef.updateProjectionMatrix();
+    cameraRef.position.set(...pose.position);
+    cameraRef.lookAt(...pose.target);
+    cameraRef.updateMatrixWorld();
+    const { ray, ground: plane, hit } = this;
+    const p: Projector = {
       toScreen: (tx, ty, liftPx = 0) => {
         const v = new THREE.Vector3(tx, liftPx / PX_PER_UNIT, ty).project(cameraRef);
         return { x: ((v.x + 1) / 2) * vp.width, y: ((1 - v.y) / 2) * vp.height };
@@ -394,6 +413,8 @@ export class View3D {
         return ray.ray.intersectPlane(plane, hit) ? { x: hit.x, y: hit.z } : { x: 0, y: 0 };
       },
     };
+    this.proj = { key, p };
+    return p;
   }
 
   private applyCamera(cam: Camera): void {
@@ -402,7 +423,8 @@ export class View3D {
     this.camera.lookAt(...p.target);
     this.camera.updateMatrixWorld();
     // The shadow follows the view, so it stays sharp wherever the camera looks.
-    this.sun.position.set(p.target[0] - 14, 24, p.target[2] - 6);
+    // Sun from -X and +Z, as in the classic bake: walls facing screen-left are lit, those facing screen-right shaded.
+    this.sun.position.set(p.target[0] - 7, 24, p.target[2] + 15);
     this.sun.target.position.set(p.target[0], 0, p.target[2]);
   }
 
@@ -463,6 +485,11 @@ export class View3D {
     for (const [id, o] of this.units) {
       if (!seen.has(id)) {
         this.scene.remove(o.root);
+        // The ring and bars are per unit; the model geometry is shared and stays cached.
+        o.ring.geometry.dispose();
+        (o.ring.material as THREE.Material).dispose();
+        o.barBg.material.dispose();
+        o.barFg.material.dispose();
         this.units.delete(id);
       }
     }
@@ -485,13 +512,22 @@ export class View3D {
       const k = (t - f.born) / f.life;
       if (k >= 1) {
         this.scene.remove(f.obj);
+        dispose(f.obj);
         return false;
       }
       f.step(Math.max(0, k));
       return true;
     });
     for (const l of this.lights) l.light.intensity = t < l.until ? l.power * (1 - (t - l.born) / Math.max(1, l.until - l.born)) : 0;
-    this.renderer.shadowMap.enabled = vs.fx.decor;
+    if (vs.fx.decor !== this.shadowsOn) {
+      // Shadows follow the quality preset; programs must be rebuilt for the change to take effect.
+      this.shadowsOn = vs.fx.decor;
+      this.sun.castShadow = vs.fx.decor;
+      this.scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        for (const mat of Array.isArray(m) ? m : m ? [m] : []) mat.needsUpdate = true;
+      });
+    }
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -528,6 +564,8 @@ export class View3D {
     for (const [id, o] of this.buildings) {
       if (!seen.has(id)) {
         this.scene.remove(o.root);
+        o.ring.geometry.dispose();
+        (o.ring.material as THREE.Material).dispose();
         this.buildings.delete(id);
       }
     }

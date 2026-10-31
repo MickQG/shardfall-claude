@@ -92,12 +92,14 @@ export function terrainMeshes(t: TerrainInput): TerrainMeshes {
       const y = lv * LEVEL_H;
       const corners = [[tx, ty], [tx + 1, ty], [tx + 1, ty + 1], [tx, ty + 1]] as const;
       ground.quad(corners.map(([x, z]) => [x, y, z]), [0, 1, 0], [1, 1, 1], corners.map(([x, z]) => uv(x, z)));
-      if (water(t, tx, ty)) sea.quad(corners.map(([x, z]) => [x, -0.04, z]), [0, 1, 0], [1, 1, 1], corners.map(([x, z]) => uv(x, z)));
+      // The water surface floats just above the painted lake bed, so the bed shows through it.
+      if (water(t, tx, ty)) sea.quad(corners.map(([x, z]) => [x, 0.015, z]), [0, 1, 0], [1, 1, 1], corners.map(([x, z]) => uv(x, z)));
       // Walls towards every lower neighbour (all four sides, since the 3D camera can see more than two faces later).
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
         const nl = level(t, tx + dx, ty + dy);
         if (nl >= lv) continue;
-        const sunward = dy === 1 || dx === -1;
+        // The 3D sun shines from -X and +Z (as in the classic bake), so walls facing those ways are the lit, warmer ones.
+        const sunward = dx === -1 || dy === 1;
         // Edge endpoints on the shared side.
         const [a, b] = dx === 1 ? [[tx + 1, ty], [tx + 1, ty + 1]] : dx === -1 ? [[tx, ty + 1], [tx, ty]] : dy === 1 ? [[tx + 1, ty + 1], [tx, ty + 1]] : [[tx, ty], [tx + 1, ty]];
         const bands = Math.max(1, Math.round(((lv - nl) * LEVEL_H) / 0.075));
@@ -105,7 +107,8 @@ export function terrainMeshes(t: TerrainInput): TerrainMeshes {
           const top = y - (k * (lv - nl) * LEVEL_H) / bands;
           const bot = y - ((k + 1) * (lv - nl) * LEVEL_H) / bands;
           const c = cliffRgb(tx + 0.5, ty + 0.5, k * 2, sunward).map((v) => v / 255);
-          cliffs.quad([[a![0]!, top, a![1]!], [b![0]!, top, b![1]!], [b![0]!, bot, b![1]!], [a![0]!, bot, a![1]!]], [dx, 0, dy], c);
+          // Wound so the front face points out of the plateau, towards the lower neighbour.
+          cliffs.quad([[a![0]!, top, a![1]!], [a![0]!, bot, a![1]!], [b![0]!, bot, b![1]!], [b![0]!, top, b![1]!]], [dx, 0, dy], c);
         }
       }
     }

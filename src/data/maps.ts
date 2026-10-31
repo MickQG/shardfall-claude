@@ -1,4 +1,4 @@
-import type { Faction } from './defs';
+import { buildingDef, type Faction } from './defs';
 import type { BuildingSpawn, GameConfig, MapDef, PlayerSetup, UnitSpawn } from '../sim';
 
 export const MAP_SIZE = 96;
@@ -197,6 +197,10 @@ export function showcaseConfig(seed = 1, extra = 0): GameConfig {
   const u = (owner: number, kind: string, tx: number, ty: number): UnitSpawn => ({ owner, kind, tx, ty });
   // Stress-test crowds fill free, unblocked tiles outward from each army, one unit per tile.
   const taken = new Set<number>([[12, 11], [13, 12], [11, 13], [14, 13], [12, 14], [22, 20], [23, 21], [21, 22], [24, 20], [22, 22], [24, 22]].map(([x, y]) => (y as number) * W + (x as number)));
+  for (const [kind, bx, by] of [['hum_hq', 3, 3], ['hum_reactor', 3, 8], ['hum_factory', 8, 3], ['ali_hq', 28, 28], ['ali_generator', 32, 24], ['ali_pit', 23, 30]] as const) {
+    const d = buildingDef(kind);
+    for (let y = by; y < by + d.h; y++) for (let x = bx; x < bx + d.w; x++) taken.add(y * W + x);
+  }
   const free = (cx: number, cy: number, n: number): [number, number][] => {
     const out: [number, number][] = [];
     for (let r = 0; r < W && out.length < n; r++)
