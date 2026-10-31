@@ -20,13 +20,14 @@ import { cameraPose, FOV, PX_PER_UNIT } from './camera3d';
 import { CombatFx } from './fx3d';
 import { Instancer } from './instancer';
 import type { Built, Shape } from './kit';
-import { bodyPose, gaitPhase, restingMotion, stepMotion, turnToward, type MotionState } from './motion';
+import { bodyPose, follow, gaitPhase, restingMotion, stepMotion, turnToward, type Follow, type MotionState } from './motion';
+import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
-import { groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData } from './terrain3d';
+import { contourWarp, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
 
-/** Squad figure offsets in tiles around the lead, in the squad's own frame (R3D-3). */
-const SQUAD = [[0, 0], [-0.2, 0.16], [-0.2, -0.16], [-0.38, 0], [0.1, -0.2]] as const;
+/** How long a fallen squad member stays before it has sunk away, ms (R3D-15). */
+const FALLEN_MS = 2600;
 /** Air units fly this high (tiles). */
 export const AIR_Y = 0.85;
 /** Units are drawn when their bounding circle (plus a shadow margin) touches the view. */
@@ -127,9 +128,14 @@ interface UnitObj {
   /** Frame this unit's matrices were last brought up to date. */
   drawn: number;
   motion: MotionState;
+  /** Drawn position, smoothed toward the simulation's (R3D-10); `x`, `z` mirror it. */
+  follow: Follow;
   x: number;
   z: number;
   groundY: number;
+  /** Squads: each member's own movement (R3D-15), and members who fell, kept until they have sunk away. */
+  members: Member[];
+  fallen: { i: number; t0: number; side: number; x: number; z: number }[];
   /** World yaw the weapon points at, and until when a shot holds it. */
   aim: number;
   aimHold: number;
@@ -243,6 +249,12 @@ export class View3D {
   private mapW = 0;
   private mapH = 0;
   private heights: readonly number[] = [];
+  /** The terrain's organic-contour warp (R3D-14): where a point of the tile grid is drawn. */
+  private warp: Warp = () => [0, 0];
+  /** The same warp without its cache, for per-frame lookups at arbitrary points. */
+  private liveWarp: Warp = () => [0, 0];
+  private blocked: MapLook['blocked'] | null = null;
+  private fallTint = new THREE.Color();
   private composer: EffectComposer | null = null;
   private tint = new THREE.Color();
   private frame = 0;
@@ -431,6 +443,10 @@ export class View3D {
       blocked: (x: number, y: number) => !!look.blocked?.[y * W + x],
       shards: (x: number, y: number) => (look.shards?.[y * W + x] ?? 0) > 0,
     };
+    this.warp = contourWarp(input);
+    this.blocked = look.blocked ?? null;
+    this.liveWarp = contourWarp(input, false);
+    this.fx.groundAt = (x, z) => this.groundAt(x, z);
     const tex = groundTexture(input);
     const map = new THREE.DataTexture(tex.data, tex.width, tex.height);
     map.flipY = true;
@@ -482,7 +498,10 @@ export class View3D {
         if (!kind) continue;
         const v = rockVariant(x, y) % 3;
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rockVariant(y, x) * 0.7);
-        this.props.push({ key: `prop/${kind}${v}`, make: () => propShape(kind, v), m: new THREE.Matrix4().compose(new THREE.Vector3(x + 0.5, 0, y + 0.5), q.clone(), new THREE.Vector3(1, 1, 1)), x: x + 0.5, y: 0, z: y + 0.5 });
+        const d = this.warp(x + 0.5, y + 0.5);
+        const px = x + 0.5 + d[0];
+        const pz = y + 0.5 + d[1];
+        this.props.push({ key: `prop/${kind}${v}`, make: () => propShape(kind, v), m: new THREE.Matrix4().compose(new THREE.Vector3(px, 0, pz), q.clone(), new THREE.Vector3(1, 1, 1)), x: px, y: 0, z: pz });
       }
     }
     // Scatter in 16x16-tile chunks, each one instanced mesh per kind, so the view culls whole chunks.
@@ -531,8 +550,12 @@ export class View3D {
       const x = i % W;
       const y = Math.floor(i / W);
       const h = (snap.heights[i] ?? 0) * LEVEL_H;
-      const m = new THREE.Matrix4().makeRotationY(rockVariant(y, x) * 1.3).setPosition(x + 0.5, h, y + 0.5);
-      this.crystals.push({ x: x + 0.5, z: y + 0.5, y: h, level, variant: rockVariant(x, y) % 3, m });
+      // Off-centre within the tile (and on the warped ground), so a field does not read as a grid (R3D-14).
+      const jx = x + 0.5 + ((rockVariant(x * 3 + 1, y) % 7) / 6 - 0.5) * 0.36;
+      const jz = y + 0.5 + ((rockVariant(x, y * 3 + 2) % 7) / 6 - 0.5) * 0.36;
+      const d = this.warp(jx, jz);
+      const m = new THREE.Matrix4().makeRotationY(rockVariant(y, x) * 1.3).setPosition(jx + d[0], h, jz + d[1]);
+      this.crystals.push({ x: jx + d[0], z: jz + d[1], y: h, level, variant: rockVariant(x, y) % 3, m });
     }
   }
 
@@ -572,14 +595,14 @@ export class View3D {
     const figures: RigInst[] = [];
     for (let i = 0; i < size; i++) {
       const f = this.instantiate(def, u.kind, team);
-      const off = SQUAD[i] ?? [0, 0];
-      f.root.position.set(off[0], 0, off[1]);
       f.root.scale.setScalar(def.scale ?? 1);
       root.add(f.root);
       figures.push(f);
     }
     // Armies start facing each other across the map.
     const heading = u.owner === 0 ? Math.PI / 4 : (-3 * Math.PI) / 4;
+    const seed = (u.id * 7919) % 1000;
+    const members = size > 1 ? figures.map((_, i) => newMember({ x: u.tx, z: u.ty, heading, seed }, i, size)) : [];
     return {
       kind: u.kind,
       def,
@@ -589,6 +612,9 @@ export class View3D {
       ringR: def.radius * (size > 1 ? 1 : 0.62),
       drawn: -1,
       motion: restingMotion(heading),
+      follow: { x: u.tx, z: u.ty, vx: 0, vz: 0 },
+      members,
+      fallen: [],
       x: u.tx,
       z: u.ty,
       groundY: this.groundAt(u.tx, u.ty),
@@ -601,16 +627,18 @@ export class View3D {
       lunge: -1e9,
       load: 0,
       alive: size,
-      seed: (u.id * 7919) % 1000,
+      seed,
       dying: null,
       lastDust: 0,
       lastBurn: 0,
     };
   }
 
+  /** Height of the drawn ground at (x, z): the level of the tile whose warped top lies there. */
   private groundAt(x: number, z: number): number {
-    const tx = Math.max(0, Math.min(this.mapW - 1, Math.floor(x)));
-    const tz = Math.max(0, Math.min(this.mapH - 1, Math.floor(z)));
+    const d = this.liveWarp(x, z);
+    const tx = Math.max(0, Math.min(this.mapW - 1, Math.floor(x - d[0])));
+    const tz = Math.max(0, Math.min(this.mapH - 1, Math.floor(z - d[1])));
     return (this.heights[tz * this.mapW + tx] ?? 0) * LEVEL_H;
   }
 
@@ -894,40 +922,42 @@ export class View3D {
       }
       const def = o.def;
       const air = def.move === 'air';
-      o.motion = stepMotion(o.motion, u.tx - o.x, u.ty - o.z, dt, def.turn ?? 4);
-      o.x = u.tx;
-      o.z = u.ty;
+      // The drawn position rides a spring toward the simulation's, so uneven snapshots never show as jitter (R3D-10).
+      follow(o.follow, u.tx, u.ty, dt);
+      o.motion = stepMotion(o.motion, o.follow.x - o.x, o.follow.z - o.z, dt, def.turn ?? 4);
+      o.x = o.follow.x;
+      o.z = o.follow.z;
       o.load = u.load;
-      o.groundY += (this.groundAt(u.tx, u.ty) - o.groundY) * Math.min(1, dt * 10);
+      o.groundY += (this.groundAt(o.x, o.z) - o.groundY) * Math.min(1, dt * 10);
       const max = maxHpOf(u.kind, u.rank);
-      o.alive = squadAlive(u.kind, u.hp, max);
+      this.setAlive(o, squadAlive(u.kind, u.hp, max), t);
       // Aim: the current target (GFX-10), else a recently fired direction, else straight ahead.
       const tgt = u.target >= 0 ? byId.get(u.target) : undefined;
       const tb = !tgt && u.target >= 0 && snap ? snap.buildings.find((b) => b.id === u.target) : undefined;
-      if (tgt) o.aim = Math.atan2(tgt.ty - u.ty, tgt.tx - u.tx);
-      else if (tb) o.aim = Math.atan2(tb.ty + buildingDef(tb.kind).h / 2 - u.ty, tb.tx + buildingDef(tb.kind).w / 2 - u.tx);
+      if (tgt) o.aim = Math.atan2(tgt.ty - o.z, tgt.tx - o.x);
+      else if (tb) o.aim = Math.atan2(tb.ty + buildingDef(tb.kind).h / 2 - o.z, tb.tx + buildingDef(tb.kind).w / 2 - o.x);
       const aiming = !!tgt || !!tb || t <= o.aimHold;
       o.turretYaw = turnToward(o.turretYaw, aiming ? o.aim : o.motion.heading, 3.2 * dt);
       this.poseUnit(o, aiming, t, dt);
       // UI: selection ring on the ground, health bar over the model (both instanced, R3D-13).
       const sel = vs.selectedUnits.has(u.id);
       const frac = hpFraction(u.hp, u.kind, u.rank);
-      if ((sel || frac < 1) && this.inView(u.tx, o.groundY, u.ty, 0.5)) {
-        if (sel) this.ringAt(u.tx, o.groundY + 0.03, u.ty, o.ringR, o.team);
-        this.barAt(u.tx, o.groundY + def.height * (def.scale ?? 1) + (air ? AIR_Y : 0) + 0.22, u.ty, frac);
+      if ((sel || frac < 1) && this.inView(o.x, o.groundY, o.z, 0.5)) {
+        if (sel) this.ringAt(o.x, o.groundY + 0.03, o.z, o.ringR, o.team);
+        this.barAt(o.x, o.groundY + def.height * (def.scale ?? 1) + (air ? AIR_Y : 0) + 0.22, o.z, frac);
       }
       // Dust behind moving vehicles (R3D-12).
-      if ((def.move === 'tracked' || def.move === 'wheeled') && o.motion.speed > 0.4 && t - o.lastDust > 70 && this.inView(u.tx, 0, u.ty, 1)) {
+      if ((def.move === 'tracked' || def.move === 'wheeled') && o.motion.speed > 0.4 && t - o.lastDust > 70 && this.inView(o.x, 0, o.z, 1)) {
         o.lastDust = t;
         const h = o.motion.heading;
-        this.fx.dust(this.v.set(u.tx - Math.cos(h) * def.radius * 0.6, 0, u.ty - Math.sin(h) * def.radius * 0.6), def.radius * 1.2, t);
+        this.fx.dust(this.v.set(o.x - Math.cos(h) * def.radius * 0.6, 0, o.z - Math.sin(h) * def.radius * 0.6), def.radius * 1.2, t);
       }
-      if (this.inView(u.tx, o.root.position.y, u.ty, def.radius)) this.drawUnit(o, this.tint.setRGB(1, 1, 1));
+      if (this.inView(o.x, o.root.position.y, o.z, def.radius + (o.members.length ? 0.5 : 0))) this.drawUnit(o, this.tint.setRGB(1, 1, 1), t);
     }
     for (const [id, o] of this.units) {
       if (seen.has(id)) continue;
       if (o.dying && this.animateDeath(o, t)) {
-        if (this.inView(o.x, 0, o.z, o.def.radius)) this.drawUnit(o, this.tint);
+        if (this.inView(o.x, 0, o.z, o.def.radius + 0.5)) this.drawUnit(o, this.tint, t);
         continue;
       }
       // Gone (dead and finished, or out of sight); model geometry stays cached.
@@ -935,12 +965,52 @@ export class View3D {
     }
   }
 
-  private drawUnit(o: UnitObj, tint: THREE.Color): void {
+  private drawUnit(o: UnitObj, tint: THREE.Color, t: number): void {
+    // Fallen squad members stay where they dropped, topple and sink away (R3D-15).
+    if (o.fallen.length) o.fallen = o.fallen.filter((d) => t - d.t0 < FALLEN_MS && d.i >= o.alive);
+    for (const d of o.fallen) {
+      const f = o.figures[d.i]!;
+      const age = t - d.t0;
+      const k = Math.min(1, age / 380);
+      const sink = Math.max(0, (age - (FALLEN_MS - 1200)) / 1200) * o.def.height * 0.9;
+      f.root.position.set(d.x - o.root.position.x, o.groundY - o.root.position.y - sink, d.z - o.root.position.z);
+      f.root.rotation.x = d.side * (Math.PI / 2) * k * k;
+    }
     o.root.updateMatrixWorld(true); // also brings every figure's parts up to date
     o.drawn = this.frame;
     o.figures.forEach((f, i) => {
       if (i < o.alive) this.drawRig(f, tint, o.load);
     });
+    for (const d of o.fallen) this.drawRig(o.figures[d.i]!, this.fallTint.setScalar(1 - 0.5 * Math.min(1, (t - d.t0) / 600)), o.load);
+  }
+
+  /**
+   * A squad's standing count changed: members who fell stay behind where they stood, members who return (regrowth)
+   * appear in place, and everyone re-forms (R3D-15).
+   */
+  private setAlive(o: UnitObj, alive: number, t: number): void {
+    if (alive === o.alive) return;
+    if (o.members.length) {
+      for (let i = alive; i < o.alive; i++) {
+        const m = o.members[i]!;
+        o.fallen.push({ i, t0: t, side: (o.seed + i) % 2 ? 1 : -1, x: m.x, z: m.z });
+      }
+      for (let i = o.alive; i < alive; i++) {
+        o.members[i] = newMember({ x: o.x, z: o.z, heading: o.motion.heading, seed: o.seed }, i, o.members.length);
+        o.figures[i]!.root.rotation.x = 0;
+      }
+      for (const m of o.members) m.next = 0;
+    }
+    o.alive = alive;
+  }
+
+  /** Whether the drawn ground at (x, z) is water. */
+  private waterAt(x: number, z: number): boolean {
+    const d = this.liveWarp(x, z);
+    const tx = Math.floor(x - d[0]);
+    const tz = Math.floor(z - d[1]);
+    if (tx < 0 || tz < 0 || tx >= this.mapW || tz >= this.mapH) return true;
+    return (this.heights[tz * this.mapW + tx] ?? 0) === 0 && !!this.blocked?.[tz * this.mapW + tx];
   }
 
   /** Pose a living unit: hull heading, body pose, gait, wheels, turret, recoil and lunge (R3D-10). */
@@ -949,17 +1019,41 @@ export class View3D {
     const m = o.motion;
     const air = def.move === 'air';
     o.root.position.set(o.x, o.groundY + (air ? AIR_Y : 0), o.z);
-    o.root.rotation.set(0, -m.heading, 0);
-    const squad = o.figures.length > 1;
+    const squad = o.members.length > 0;
+    // Squads: every member walks on its own around the squad's position, in world axes (R3D-15).
+    o.root.rotation.set(0, squad ? 0 : -m.heading, 0);
+    if (squad) {
+      const y = this.groundAt(o.x, o.z);
+      stepSquad(o.members, {
+        x: o.x,
+        z: o.z,
+        vx: o.follow.vx,
+        vz: o.follow.vz,
+        heading: m.heading,
+        aiming,
+        aim: o.aim,
+        alive: o.alive,
+        t,
+        dt,
+        seed: o.seed,
+        free: (x, z) => Math.abs(this.groundAt(x, z) - y) < 1e-6 && !this.waterAt(x, z),
+      });
+    }
     o.figures.forEach((f, i) => {
-      // Squad members face their target when shooting; otherwise the way they walk.
-      if (squad || def.move === 'walker') {
+      if (i >= o.alive) return;
+      const mm = squad ? o.members[i]! : null;
+      const mo = mm ? mm.motion : m;
+      if (mm) {
+        f.root.position.set(mm.x - o.x, 0, mm.z - o.z);
+        f.root.rotation.set(0, -mm.yaw, 0);
+      } else if (def.move === 'walker') {
+        // A lone walker faces its target when shooting; otherwise the way it walks.
         const want = aiming && m.speed < 0.3 ? o.aim : m.heading;
         o.figureYaw[i] = turnToward(o.figureYaw[i] ?? m.heading, want, 8 * dt);
         f.root.rotation.y = -((o.figureYaw[i] as number) - m.heading);
       }
-      const phase = gaitPhase(m.dist, def.stride ?? 1) + i * 1.7 + o.seed;
-      const pose = bodyPose(def.move, m, phase, t, o.seed + i);
+      const phase = gaitPhase(mo.dist, def.stride ?? 1) + i * 1.7 + o.seed;
+      const pose = bodyPose(def.move, mo, phase, t, o.seed + i);
       poseRig(f, {
         turret: o.turretYaw - m.heading,
         kick: recoil(t - (o.lastFire[i] ?? -1e9)),
@@ -968,12 +1062,13 @@ export class View3D {
         roll: pose.roll,
         bob: pose.bob,
         phase,
-        stride: m.stride,
-        dist: m.dist,
-        turnRate: m.turnRate,
+        stride: mo.stride,
+        dist: mo.dist,
+        turnRate: mo.turnRate,
         time: t,
         reach: def.radius * 0.25,
         walker: def.move === 'walker',
+        crouch: mm?.crouch ?? 0,
       });
     });
   }
@@ -1005,7 +1100,9 @@ export class View3D {
     if (d.mode === 'fall') {
       // Topple sideways, then sink into the ground.
       const k = Math.min(1, age / 380);
-      for (const f of o.figures) f.root.rotation.x = d.side * (Math.PI / 2) * k * k;
+      o.figures.forEach((f, i) => {
+        if (i < o.alive) f.root.rotation.x = d.side * (Math.PI / 2) * k * k;
+      });
       const sink = Math.max(0, (age - 1400) / 1200);
       o.root.position.y = o.groundY - sink * o.def.height * 0.9;
       this.tint.setScalar(1 - 0.5 * Math.min(1, age / 600));

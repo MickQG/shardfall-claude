@@ -20,6 +20,9 @@ describe('trace', () => {
     expect(untested(bad.specs, bad.tests)).toEqual(['ABC-2']);
     const good = fixture(spec, "it('ABC-1 ABC-2: covered', () => {});");
     expect(untested(good.specs, good.tests)).toEqual([]);
+    // IDs whose prefix holds a digit count too.
+    const digits = fixture('- **R3D-1**: one\n- **R3D-2**: two\n', "it('R3D-1: covered', () => {});");
+    expect(untested(digits.specs, digits.tests)).toEqual(['R3D-2']);
   });
 
   it('FND-10: flags an ID defined twice, even across files', () => {

@@ -3,12 +3,15 @@ import * as THREE from 'three';
 import { BUILDING_DEFS, UNIT_DEFS, unitDef } from '../../src/data/defs';
 import { createGame, hash, snapshot, tick, type GameConfig, type SimEvent } from '../../src/sim';
 import { BUILDING_RIGS, crystalShape } from '../../src/render3d/buildings3d';
-import { CombatFx, LOOKS, shotDuration } from '../../src/render3d/fx3d';
+import { CombatFx, LOOKS, scorchTexture, shotDuration } from '../../src/render3d/fx3d';
 import { Instancer } from '../../src/render3d/instancer';
 import { Shape } from '../../src/render3d/kit';
-import { angleDiff, bodyPose, gaitPhase, restingMotion, stepMotion, turnToward } from '../../src/render3d/motion';
+import { angleDiff, bodyPose, follow, gaitPhase, restingMotion, stepMotion, turnToward, type Follow } from '../../src/render3d/motion';
 import { muzzleCount, poseRig, recoil, rigTree, type RigPose } from '../../src/render3d/rig';
-import { LEVEL_H, ROCK_AMP, rockOffset, scatter, terrainMeshes } from '../../src/render3d/terrain3d';
+import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, ROCK_AMP, rockOffset, scatter, shardCover, terrainMeshes } from '../../src/render3d/terrain3d';
+import { kneels, newMember, SQUAD_SPREAD, stepSquad, type Member, type SquadFrame } from '../../src/render3d/squad3d';
+import { demoMap, showcaseConfig, skirmishMap } from '../../src/data/maps';
+import type { MapDef } from '../../src/sim';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
 
 const STILL: RigPose = { turret: 0, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: 0, stride: 0, dist: 0, turnRate: 0, time: 0, reach: 0, walker: false };
@@ -204,17 +207,20 @@ describe('terrain detail', () => {
     expect(Math.hypot(...mid)).toBeGreaterThan(0);
     expect(Math.hypot(...mid)).toBeLessThanOrEqual(ROCK_AMP * 1.8);
     expect(rockOffset(3, LEVEL_H / 2, 7)).toEqual(mid);
-    // Every cliff vertex at a level height sits exactly on the tile grid, where the tile tops meet it.
+    // Every cliff vertex at a level height stands exactly over a vertex of the tile tops, so the rock meets the ground.
     const heights = [0, 0, 0, 0, 0, 0, 2, 1, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0];
     const m = terrainMeshes({ width: 5, height: 4, heights, blocked: () => false, shards: () => false });
+    const key = (x: number, z: number): string => `${Math.round(x * 1e4)},${Math.round(z * 1e4)}`;
+    const tops = new Set<string>();
+    const g = m.ground.positions;
+    for (let i = 0; i < g.length; i += 3) tops.add(key(g[i]!, g[i + 2]!));
     const p = m.cliffs.positions;
     let rim = 0;
     for (let i = 0; i < p.length; i += 3) {
       const y = p[i + 1]!;
       if (Math.abs(y / LEVEL_H - Math.round(y / LEVEL_H)) > 1e-6) continue;
       rim++;
-      expect(Math.abs(p[i]! * 4 - Math.round(p[i]! * 4))).toBeLessThan(1e-6);
-      expect(Math.abs(p[i + 2]! * 4 - Math.round(p[i + 2]! * 4))).toBeLessThan(1e-6);
+      expect(tops.has(key(p[i]!, p[i + 2]!))).toBe(true);
     }
     expect(rim).toBeGreaterThan(0);
   });
@@ -227,14 +233,179 @@ describe('terrain detail', () => {
     expect(a.length).toBeGreaterThan(20);
     expect(scatter(t, free)).toEqual(a);
     for (const it of a) {
-      const x = Math.floor(it.x);
-      const y = Math.floor(it.z);
-      expect(t.blocked(x, y) || t.shards(x, y) || !free(x, y)).toBe(false);
+      expect(t.blocked(it.tx, it.ty) || t.shards(it.tx, it.ty) || !free(it.tx, it.ty)).toBe(false);
+      // Drawn where its tile's warped ground is (R3D-14): never far from that tile.
+      expect(Math.hypot(it.x - Math.min(Math.max(it.x, it.tx), it.tx + 1), it.z - Math.min(Math.max(it.z, it.ty), it.ty + 1))).toBeLessThanOrEqual(EDGE_AMP + 1e-9);
     }
   });
 });
 
+const terrainOf = (m: MapDef) => ({
+  width: m.width,
+  height: m.height,
+  heights: m.heights,
+  blocked: (x: number, y: number) => !!m.blocked?.[y * m.width + x],
+  shards: (x: number, y: number) => (m.shards?.[y * m.width + x] ?? 0) > 0,
+});
+const MAPS: [string, MapDef][] = [['skirmish', skirmishMap()], ['demo', demoMap()], ['showcase', showcaseConfig(1).map]];
+
+describe('organic contours', () => {
+  it('R3D-14: the contour warp is bounded, zero away from contours and along the map border, and the same every time', () => {
+    const t = terrainOf(showcaseConfig(1).map);
+    const warp = contourWarp(t);
+    let moved = 0;
+    for (let z = 0; z <= t.height; z += 0.25) {
+      for (let x = 0; x <= t.width; x += 0.25) {
+        const [dx, dz] = warp(x, z);
+        expect(Math.hypot(dx, dz)).toBeLessThanOrEqual(EDGE_AMP + 1e-9);
+        if (x === 0 || x === t.width) expect(dx).toBe(0);
+        if (z === 0 || z === t.height) expect(dz).toBe(0);
+        if (Math.hypot(dx, dz) > 0.05) moved++;
+      }
+    }
+    expect(moved).toBeGreaterThan(200);
+    // Open ground far from any cliff or shore stays put: the middle of a 3x3 flat area.
+    const flat = { width: 9, height: 9, heights: new Array<number>(81).fill(0).map((_, i) => (i % 9 === 0 ? 1 : 0)), blocked: () => false, shards: () => false };
+    expect(contourWarp(flat)(6.5, 4.5)).toEqual([0, 0]);
+    expect(contourWarp(t)(17.25, 6)).toEqual(warp(17.25, 6));
+    expect(contourWarp(t, false)(17.3, 6.1)).toEqual(warp(17.3, 6.1));
+  });
+
+  it('R3D-14: on every map, cliff tops and shores wave and round off while the ground never folds or tears', () => {
+    for (const [name, map] of MAPS) {
+      const t = terrainOf(map);
+      const m = terrainMeshes(t);
+      const g = m.ground;
+      let abs = 0;
+      for (let i = 0; i < g.indices.length; i += 3) {
+        const [p, q, r] = [g.indices[i]!, g.indices[i + 1]!, g.indices[i + 2]!].map((k) => [g.positions[k * 3]!, g.positions[k * 3 + 2]!]);
+        // Tops wind the same way everywhere (a folded cell would flip its sign), and no cell is squeezed below a fifth
+        // of its size (a whole tile's triangle has a cross product of 1, a split tile's of 1/16).
+        const cross = (r![0]! - p![0]!) * (q![1]! - p![1]!) - (q![0]! - p![0]!) * (r![1]! - p![1]!);
+        expect(cross / (cross > 0.5 ? 1 : 1 / 16), `${name} squeezes or folds a cell`).toBeGreaterThan(0.18);
+        abs += cross / 2;
+      }
+      expect(abs, `${name} covers the map once`).toBeCloseTo(t.width * t.height, 3);
+      // Cliff rims are no longer straight tile edges.
+      const p = m.cliffs.positions;
+      let off = 0;
+      for (let i = 0; i < p.length; i += 3) if (Math.abs(p[i]! * 4 - Math.round(p[i]! * 4)) > 0.12) off++;
+      expect(off, name).toBeGreaterThan(50);
+    }
+  });
+
+  it('R3D-14: shard ground is a soft uneven patch: full at shard tiles, none at bare ones, blended between', () => {
+    const t = terrainOf(showcaseConfig(1).map);
+    expect(shardCover(t, 23.5, 9.5)).toBe(1);
+    expect(shardCover(t, 12.5, 12.5)).toBe(0);
+    const edge: number[] = [];
+    for (let x = 21; x <= 22.5; x += 0.0625) edge.push(shardCover(t, x, 9.3));
+    expect(edge.some((v) => v > 0.05 && v < 0.95)).toBe(true);
+    const tex = groundTexture(t);
+    expect(Buffer.from(groundTexture(t).data).equals(Buffer.from(tex.data))).toBe(true);
+  });
+});
+
+describe('smooth movement', () => {
+  it('R3D-10: the drawn position rides through uneven snapshots without stalls or jumps, and snaps across long jumps', () => {
+    // A unit moving at 2 tiles/s whose interpolated position stalls for 30 ms, then jumps, every 50 ms tick.
+    const dt = 1 / 120;
+    const f: Follow = { x: 0, z: 0, vx: 0, vz: 0 };
+    let worstRaw = 0;
+    let worstDrawn = 0;
+    let lastRaw = 0;
+    let lastDrawn = 0;
+    for (let k = 1; k < 600; k++) {
+      const time = k * dt;
+      const tick = Math.floor(time / 0.05);
+      const into = time - tick * 0.05;
+      const raw = (tick * 0.05 + Math.max(0, into - 0.03) * 2.5) * 2;
+      follow(f, raw, 0, dt);
+      if (k > 120) {
+        worstRaw = Math.max(worstRaw, Math.abs((raw - lastRaw) / dt - 2));
+        worstDrawn = Math.max(worstDrawn, Math.abs((f.x - lastDrawn) / dt - 2));
+      }
+      lastRaw = raw;
+      lastDrawn = f.x;
+    }
+    expect(worstRaw).toBeGreaterThan(2.5);
+    expect(worstDrawn).toBeLessThan(worstRaw * 0.35);
+    follow(f, 50, 50, dt);
+    expect([f.x, f.z]).toEqual([50, 50]);
+  });
+
+  it('R3D-10: tiny wobbles do not turn the hull', () => {
+    let m = restingMotion(0);
+    for (let i = 0; i < 120; i++) m = stepMotion(m, 0, (i % 2 ? 1 : -1) * 0.0008, 1 / 60, 6);
+    expect(m.heading).toBe(0);
+  });
+});
+
+describe('living squads', () => {
+  const run = (frames: number, f: Partial<SquadFrame>, seed = 5): { members: Member[]; trace: number[][] } => {
+    const base: SquadFrame = { x: 10, z: 10, vx: 0, vz: 0, heading: 0, aiming: false, aim: 0, alive: 3, t: 0, dt: 1 / 60, seed, free: () => true, ...f };
+    const members = [0, 1, 2].map((i) => newMember(base, i, 3));
+    const trace: number[][] = [];
+    for (let k = 0; k < frames; k++) {
+      const fr = { ...base, t: (k * 1000) / 60, x: base.x + base.vx * (k / 60), z: base.z + base.vz * (k / 60) };
+      stepSquad(members, fr);
+      trace.push(members.flatMap((m) => [m.x - fr.x, m.z - fr.z]));
+    }
+    return { members, trace };
+  };
+
+  it('R3D-15: idle squad members wander on their own around the squad, each within its reach', () => {
+    const { trace } = run(60 * 20, {});
+    for (const row of trace) for (let i = 0; i < row.length; i += 2) expect(Math.hypot(row[i]!, row[i + 1]!)).toBeLessThanOrEqual(SQUAD_SPREAD + 0.05);
+    // Every member moves over 20 s, and not in lockstep.
+    const first = trace[60]!;
+    const last = trace[trace.length - 1]!;
+    for (let i = 0; i < 3; i++) expect(Math.hypot(last[i * 2]! - first[i * 2]!, last[i * 2 + 1]! - first[i * 2 + 1]!) + Math.max(...trace.map((r) => Math.abs(r[i * 2]! - first[i * 2]!)))).toBeGreaterThan(0.03);
+    const d0 = trace.map((r) => r[0]!);
+    const d1 = trace.map((r) => r[2]!);
+    expect(d0.join()).not.toEqual(d1.join());
+    expect(run(60 * 20, {}).trace).toEqual(trace); // the same squad does the same thing every run
+  });
+
+  it('R3D-15: marching members keep up with the squad, firing members face the target and some kneel', () => {
+    const march = run(60 * 6, { vx: 1.2, heading: 0 });
+    for (const m of march.members) {
+      expect(Math.hypot(m.x - (10 + 1.2 * (359 / 60)), m.z - 10)).toBeLessThan(SQUAD_SPREAD + 0.15);
+      expect(m.motion.stride).toBeGreaterThan(0.5);
+    }
+    const seed = [1, 2, 3, 4, 5, 6, 7, 8].find((s) => [0, 1, 2].some((i) => kneels(s, i)))!;
+    const fire = run(60 * 4, { aiming: true, aim: Math.PI / 2 }, seed);
+    fire.members.forEach((m, i) => {
+      expect(Math.abs(angleDiff(m.yaw, Math.PI / 2))).toBeLessThan(0.2);
+      if (kneels(seed, i)) expect(m.crouch).toBeGreaterThan(0.8);
+    });
+  });
+
+  it('R3D-15: members never pick a spot that is not free (cliff edges, water)', () => {
+    const { trace } = run(60 * 20, { free: (x) => x <= 10 });
+    // After the first moments (they start in formation), every member keeps to the free side.
+    for (const row of trace.slice(120)) for (let i = 0; i < row.length; i += 2) expect(row[i]!).toBeLessThanOrEqual(0.02);
+  });
+});
+
 describe('effects budget and batching', () => {
+  it('R3D-12: tracers are subtle and scorch marks are soft blobs, transparent at the edges of their square', () => {
+    for (const look of ['rifle', 'mg', 'chaingun', 'sting', 'spine'] as const) {
+      expect(LOOKS[look].intensity).toBeLessThanOrEqual(1.6);
+      expect(LOOKS[look].flash).toBeLessThan(0.15);
+    }
+    // Shells, rockets and acid glow, but never brighter than this.
+    for (const L of Object.values(LOOKS)) expect(L.intensity).toBeLessThanOrEqual(2.6);
+    const tex = scorchTexture();
+    const { data, width } = tex.image as { data: Uint8Array; width: number };
+    const at = (x: number, y: number, c: number): number => data[(y * width + x) * 4 + c]!;
+    for (const [x, y] of [[0, 0], [width - 1, 0], [0, width - 1], [width - 1, width - 1], [width >> 1, 0], [0, width >> 1]] as const) {
+      expect(at(x, y, 1)).toBe(0); // an alpha map reads green
+      expect(at(x, y, 3)).toBe(0);
+    }
+    expect(at(width >> 1, width >> 1, 1)).toBeGreaterThan(150);
+  });
+
   it('R3D-12: the low preset thins effects: no dust and fewer explosion particles', () => {
     const rich = new CombatFx();
     const lean = new CombatFx();

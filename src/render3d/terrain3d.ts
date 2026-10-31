@@ -1,9 +1,11 @@
-import { cliffRgb, groundRgb, type TerrainInput } from '../render/terrainNext';
+import { cliffRgb, groundRgb, valueNoise, type TerrainInput } from '../render/terrainNext';
 
 /**
  * Terrain for the 3D view (R3D-2, R3D-11), built from the simulation's grid: one textured top per tile at its level's
  * height, faceted rock cliff walls (strata, the sunward side warmer) down to lower neighbours, and water surfaces on
- * blocked low tiles. Colours and rock shapes come from tile coordinates only. Pure.
+ * blocked low tiles. Cliff edges and shorelines follow organic contours (R3D-14): every vertex near one is moved by a
+ * smooth, position-only warp, so tile edges wave and corners round off. Colours and shapes come from tile coordinates
+ * only. Pure.
  */
 
 /** Triangle mesh data: positions, normals and colours per vertex, and indices. */
@@ -41,8 +43,135 @@ export function rockOffset(x: number, y: number, z: number): [number, number, nu
   return [(hashf(q(x), q(y), q(z)) - 0.5) * 2 * k, (hashf(q(x) + 17, q(y), q(z) + 5) - 0.5) * k * 0.6, (hashf(q(x), q(y) + 31, q(z) + 11) - 0.5) * 2 * k];
 }
 
+/** The furthest a drawn edge strays from its tile edge (R3D-14), tiles. Gameplay stays on the tile grid. */
+export const EDGE_AMP = 0.25;
+/** Tile tops near a contour are split into this many cells per edge (as many as a cliff wall has columns). */
+const SUB = COLS;
+
+/** A position-only warp of the ground plane: (x, z) -> how far to move that point, in tiles. */
+export type Warp = (x: number, z: number) => [number, number];
+
+/**
+ * The organic-contour warp for a map (R3D-14). Contours are the tile edges between different levels or between water
+ * and land. Points within a tile of a contour wave with smooth noise; corners where one tile differs from the other
+ * three round off toward it. Zero a tile or more from any contour and across the map border, never more than EDGE_AMP,
+ * and gentle enough that the ground never folds over. Pure.
+ */
+export function contourWarp(t: TerrainInput, cached = true): Warp {
+  const W = t.width;
+  const H = t.height;
+  // Points inside a tile that touches no contour never move: a quick test before any search.
+  const near = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) near[y * W + x] = nearContour(t, x, y) ? 1 : 0;
+  const ZERO: [number, number] = [0, 0];
+  // Out-of-map tiles copy the nearest edge tile, so the map border is never a contour.
+  const key = (x: number, y: number): number => {
+    const cx = Math.max(0, Math.min(W - 1, x));
+    const cy = Math.max(0, Math.min(H - 1, y));
+    return level(t, cx, cy) * 2 + (water(t, cx, cy) ? 1 : 0);
+  };
+  const cache = new Map<number, [number, number]>();
+  return (x, z) => {
+    const gx = Math.floor(x);
+    const gz = Math.floor(z);
+    // On a tile edge or corner the point belongs to every tile sharing it: it moves if any of them is near a contour.
+    let touched = false;
+    for (const ox of x === gx ? [gx - 1, gx] : [gx]) {
+      for (const oz of z === gz ? [gz - 1, gz] : [gz]) {
+        const cx = Math.max(0, Math.min(W - 1, ox));
+        const cz = Math.max(0, Math.min(H - 1, oz));
+        if (near[cz * W + cx]) touched = true;
+      }
+    }
+    if (!touched) return ZERO;
+    const id = Math.round(x * 64) * 131072 + Math.round(z * 64);
+    const hit = cached ? cache.get(id) : undefined;
+    if (hit) return hit;
+    // Distance to the nearest contour segment within reach.
+    let d = 9;
+    for (let j = gz - 1; j <= gz + 2; j++) {
+      for (let i = gx - 1; i <= gx + 2; i++) {
+        // Vertical edge at x = i, z in [j, j + 1]; horizontal edge at z = j, x in [i, i + 1].
+        if (key(i - 1, j) !== key(i, j)) d = Math.min(d, Math.hypot(x - i, z - Math.max(j, Math.min(j + 1, z))));
+        if (key(i, j - 1) !== key(i, j)) d = Math.min(d, Math.hypot(x - Math.max(i, Math.min(i + 1, x)), z - j));
+      }
+    }
+    let dx = 0;
+    let dz = 0;
+    if (d < 1) {
+      const m = 1 - d * d * (3 - 2 * d);
+      dx += m * ((valueNoise(x * 0.55 + 13, z * 0.55) - 0.5) * 0.32 + (valueNoise(x * 1.3 + 71, z * 1.3 + 5) - 0.5) * 0.1);
+      dz += m * ((valueNoise(x * 0.55, z * 0.55 + 29) - 0.5) * 0.32 + (valueNoise(x * 1.3 + 3, z * 1.3 + 91) - 0.5) * 0.1);
+      // Round off corners: pull toward the one tile of four that differs.
+      for (let j = Math.round(z) - 1; j <= Math.round(z) + 1; j++) {
+        for (let i = Math.round(x) - 1; i <= Math.round(x) + 1; i++) {
+          const r = Math.hypot(x - i, z - j);
+          if (r >= CORNER_R) continue;
+          const k = [key(i - 1, j - 1), key(i, j - 1), key(i - 1, j), key(i, j)];
+          for (let q = 0; q < 4; q++) {
+            const others = k.filter((_, n) => n !== q);
+            if (others[0] === k[q] || others.some((v) => v !== others[0])) continue;
+            const f = (1 - (r / CORNER_R) ** 2) ** 2 * CORNER_PULL * Math.SQRT1_2;
+            dx += (q % 2 ? 1 : -1) * f;
+            dz += (q >= 2 ? 1 : -1) * f;
+          }
+        }
+      }
+    }
+    // Points on the map border only slide along it.
+    dx *= Math.max(0, Math.min(1, x, W - x));
+    dz *= Math.max(0, Math.min(1, z, H - z));
+    const len = Math.hypot(dx, dz);
+    const out: [number, number] = len > EDGE_AMP ? [(dx / len) * EDGE_AMP, (dz / len) * EDGE_AMP] : [dx, dz];
+    if (cached) cache.set(id, out);
+    return out;
+  };
+}
+
+/** Corner rounding: reach and the corner point's pull, tiles. */
+const CORNER_R = 0.95;
+const CORNER_PULL = 0.2;
+
+/** Whether a tile touches a contour (its tops are subdivided and warped). */
+function nearContour(t: TerrainInput, tx: number, ty: number): boolean {
+  const k = (x: number, y: number): number => {
+    const cx = Math.max(0, Math.min(t.width - 1, x));
+    const cy = Math.max(0, Math.min(t.height - 1, y));
+    return level(t, cx, cy) * 2 + (water(t, cx, cy) ? 1 : 0);
+  };
+  const me = k(tx, ty);
+  // Every contour edge touching this tile (even at a corner) separates two of its 3x3 neighbourhood.
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (k(tx + dx, ty + dy) !== me) return true;
+  return false;
+}
+
 const level = (t: TerrainInput, x: number, y: number): number => (x < 0 || y < 0 || x >= t.width || y >= t.height ? 0 : (t.heights[y * t.width + x] ?? 0));
 const water = (t: TerrainInput, x: number, y: number): boolean => x >= 0 && y >= 0 && x < t.width && y < t.height && level(t, x, y) === 0 && t.blocked(x, y);
+
+/**
+ * How much shard ground covers the point (x, y), 0..1 (R3D-14): the shard tiles' centres blended across tiles and
+ * broken up by noise, so a field reads as an uneven patch. Full at every shard tile's centre, none at other centres.
+ */
+export function shardCover(t: TerrainInput, x: number, y: number): number {
+  const u = x - 0.5;
+  const v = y - 0.5;
+  const x0 = Math.floor(u);
+  const y0 = Math.floor(v);
+  const fx = u - x0;
+  const fy = v - y0;
+  const s = (a: number, b: number): number => (a >= 0 && b >= 0 && a < t.width && b < t.height && t.shards(a, b) && level(t, a, b) === 0 ? 1 : 0);
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const top = s(x0, y0) + (s(x0 + 1, y0) - s(x0, y0)) * sx;
+  const bottom = s(x0, y0 + 1) + (s(x0 + 1, y0 + 1) - s(x0, y0 + 1)) * sx;
+  const blend = top + (bottom - top) * sy;
+  // Noise only where the blend is partial, strongest half-way: the patch edge wanders, its heart and the bare ground
+  // around it stay as they are.
+  const n = (valueNoise(x * 1.6 + 211, y * 1.6 + 7) - 0.5) * 0.75 + (valueNoise(x * 4.1 + 5, y * 4.1 + 61) - 0.5) * 0.25;
+  const b = blend + n * 6.4 * blend * (1 - blend);
+  const k = Math.max(0, Math.min(1, (b - 0.38) / 0.24));
+  return k * k * (3 - 2 * k);
+}
 
 /** RGBA ground texture, TEXELS per tile, row 0 at tile row 0. */
 export function groundTexture(t: TerrainInput): { width: number; height: number; data: Uint8Array } {
@@ -56,19 +185,39 @@ export function groundTexture(t: TerrainInput): { width: number; height: number;
       const back = Math.max(0, level(t, tx - 1, ty) - lv);
       const other = (dx: number, dy: number): boolean => water(t, tx + dx, ty + dy) !== wet;
       const sides = { nx: other(-1, 0), px: other(1, 0), ny: other(0, -1), py: other(0, 1) };
-      const shards = t.shards(tx, ty);
+      const diag = [other(-1, -1), other(1, -1), other(-1, 1), other(1, 1)];
+      // Shard ground is a soft, uneven patch over the shard tiles rather than a tinted square (R3D-14).
+      const nearShards = lv === 0 && [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => shardCover(t, tx + 0.5 + dx, ty + 0.5 + dy) > 0));
       for (let j = 0; j < TEXELS; j++) {
         for (let i = 0; i < TEXELS; i++) {
           const fx = (i + 0.5) / TEXELS;
           const fy = (j + 0.5) / TEXELS;
-          const toShore = Math.min(sides.nx ? fx : 9, sides.px ? 1 - fx : 9, sides.ny ? fy : 9, sides.py ? 1 - fy : 9);
+          // Distance to the shore, including round corners where only a diagonal neighbour differs.
+          const toShore = Math.min(
+            sides.nx ? fx : 9,
+            sides.px ? 1 - fx : 9,
+            sides.ny ? fy : 9,
+            sides.py ? 1 - fy : 9,
+            diag[0] ? Math.hypot(fx, fy) : 9,
+            diag[1] ? Math.hypot(1 - fx, fy) : 9,
+            diag[2] ? Math.hypot(fx, 1 - fy) : 9,
+            diag[3] ? Math.hypot(1 - fx, 1 - fy) : 9,
+          );
           const shore = toShore > 1 ? 0 : wet ? Math.max(0, 1 - toShore * 2.6) : Math.max(0, 1 - toShore * 3.2) * 0.8;
           const shade = back > 0 ? Math.max(0, 1 - fx / 0.55) * 0.7 : 0;
-          const c = groundRgb(tx, ty, fx, fy, { level: lv, water: wet, shade, shore, shards });
+          const ctx = { level: lv, water: wet, shade, shore, shards: false };
+          let c = groundRgb(tx, ty, fx, fy, ctx);
+          if (nearShards) {
+            const k = shardCover(t, tx + fx, ty + fy);
+            if (k > 0) {
+              const s = groundRgb(tx, ty, fx, fy, { ...ctx, shards: true });
+              c = [c[0] + (s[0] - c[0]) * k, c[1] + (s[1] - c[1]) * k, c[2] + (s[2] - c[2]) * k];
+            }
+          }
           const k = ((ty * TEXELS + j) * w + tx * TEXELS + i) * 4;
-          data[k] = c[0];
-          data[k + 1] = c[1];
-          data[k + 2] = c[2];
+          data[k] = Math.round(c[0]);
+          data[k + 1] = Math.round(c[1]);
+          data[k + 2] = Math.round(c[2]);
           data[k + 3] = 255;
         }
       }
@@ -132,14 +281,28 @@ export function terrainMeshes(t: TerrainInput): TerrainMeshes {
   const W = t.width;
   const H = t.height;
   const uv = (x: number, y: number): number[] => [x / W, 1 - y / H];
+  const warp = contourWarp(t);
+  // A warped point on the ground plane at height y; texture coordinates stay with the unwarped point, so the painted
+  // shore, shade and shard ground move with the edge.
+  const at = (x: number, y: number, z: number): number[] => {
+    const d = warp(x, z);
+    return [x + d[0], y, z + d[1]];
+  };
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const lv = level(t, tx, ty);
       const y = lv * LEVEL_H;
-      const corners = [[tx, ty], [tx + 1, ty], [tx + 1, ty + 1], [tx, ty + 1]] as const;
-      ground.quad(corners.map(([x, z]) => [x, y, z]), [0, 1, 0], [1, 1, 1], corners.map(([x, z]) => uv(x, z)));
-      // The water surface floats just above the painted lake bed, so the bed shows through it.
-      if (water(t, tx, ty)) sea.quad(corners.map(([x, z]) => [x, 0.015, z]), [0, 1, 0], [1, 1, 1], corners.map(([x, z]) => uv(x, z)));
+      // Tiles near a contour are split so their edges can wave; the rest stay one quad (the warp is zero there).
+      const n = nearContour(t, tx, ty) ? SUB : 1;
+      const wet = water(t, tx, ty);
+      for (let j = 0; j < n; j++) {
+        for (let i = 0; i < n; i++) {
+          const corners = [[tx + i / n, ty + j / n], [tx + (i + 1) / n, ty + j / n], [tx + (i + 1) / n, ty + (j + 1) / n], [tx + i / n, ty + (j + 1) / n]] as const;
+          ground.quad(corners.map(([x, z]) => at(x, y, z)), [0, 1, 0], [1, 1, 1], corners.map(([x, z]) => uv(x, z)));
+          // The water surface floats just above the painted lake bed, so the bed shows through it.
+          if (wet) sea.quad(corners.map(([x, z]) => at(x, 0.015, z)), [0, 1, 0], [1, 1, 1], corners.map(([x, z]) => uv(x, z)));
+        }
+      }
       // Walls towards every lower neighbour (all four sides, since the 3D camera can see more than two faces later).
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
         const nl = level(t, tx + dx, ty + dy);
@@ -156,7 +319,8 @@ export function terrainMeshes(t: TerrainInput): TerrainMeshes {
           const z = a![1]! + (b![1]! - a![1]!) * f;
           const yy = y - (j / ROWS_PER_LEVEL) * LEVEL_H;
           const o = rockOffset(x, yy, z);
-          return [x + o[0], yy + o[1], z + o[2]];
+          const d = warp(x, z);
+          return [x + d[0] + o[0], yy + o[1], z + d[1] + o[2]];
         };
         for (let j = 0; j < rows; j++) {
           const c = cliffRgb(tx + 0.5, ty + 0.5, Math.round((lv * ROWS_PER_LEVEL - j) * 1.5), sunward).map((v) => v / 255);
@@ -189,14 +353,23 @@ export interface ScatterItem {
   z: number;
   rot: number;
   scale: number;
+  /** The tile it grows on (its drawn position follows the contour warp). */
+  tx: number;
+  ty: number;
 }
 
 /**
  * Ground scatter (R3D-11): grass tufts on grassy low ground, stones on any dry tile, the odd alien plant. Tiles that are
- * water, shard fields or not `free` (near buildings) stay clear. Positions come from tile coordinates only. Pure.
+ * water, shard fields or not `free` (near buildings) stay clear. Positions come from tile coordinates only and follow
+ * the contour warp, so items stay on their tile's drawn ground. Pure.
  */
 export function scatter(t: TerrainInput, free: (x: number, y: number) => boolean): ScatterItem[] {
   const out: ScatterItem[] = [];
+  const warp = contourWarp(t);
+  const put = (it: Omit<ScatterItem, 'tx' | 'ty'>, tx: number, ty: number): void => {
+    const d = warp(it.x, it.z);
+    out.push({ ...it, x: it.x + d[0], z: it.z + d[1], tx, ty });
+  };
   for (let ty = 0; ty < t.height; ty++) {
     for (let tx = 0; tx < t.width; tx++) {
       const lv = level(t, tx, ty);
@@ -208,10 +381,10 @@ export function scatter(t: TerrainInput, free: (x: number, y: number) => boolean
         const c = groundRgb(tx, ty, 0.5, 0.5, { level: 0, water: false, shade: 0, shore: 0, shards: false });
         const grassy = c[1] > c[0] * 1.08;
         const tufts = grassy ? Math.floor(r(1) * 4) : r(1) < 0.2 ? 1 : 0;
-        for (let i = 0; i < tufts; i++) out.push({ kind: 'grass', variant: Math.floor(r(10 + i) * 3), x: tx + 0.1 + r(20 + i) * 0.8, y, z: ty + 0.1 + r(30 + i) * 0.8, rot: r(40 + i) * Math.PI * 2, scale: 0.8 + r(50 + i) * 0.7 });
-        if (r(2) < 0.025) out.push({ kind: 'flora', variant: Math.floor(r(3) * 3), x: tx + 0.5, y, z: ty + 0.5, rot: r(4) * 6.28, scale: 0.55 + r(5) * 0.3 });
+        for (let i = 0; i < tufts; i++) put({ kind: 'grass', variant: Math.floor(r(10 + i) * 3), x: tx + 0.1 + r(20 + i) * 0.8, y, z: ty + 0.1 + r(30 + i) * 0.8, rot: r(40 + i) * Math.PI * 2, scale: 0.8 + r(50 + i) * 0.7 }, tx, ty);
+        if (r(2) < 0.025) put({ kind: 'flora', variant: Math.floor(r(3) * 3), x: tx + 0.5, y, z: ty + 0.5, rot: r(4) * 6.28, scale: 0.55 + r(5) * 0.3 }, tx, ty);
       }
-      if (r(6) < (lv > 0 ? 0.3 : 0.07)) out.push({ kind: 'stone', variant: Math.floor(r(7) * 3), x: tx + 0.2 + r(8) * 0.6, y, z: ty + 0.2 + r(9) * 0.6, rot: r(11) * 6.28, scale: 0.35 + r(12) * 0.35 });
+      if (r(6) < (lv > 0 ? 0.3 : 0.07)) put({ kind: 'stone', variant: Math.floor(r(7) * 3), x: tx + 0.2 + r(8) * 0.6, y, z: ty + 0.2 + r(9) * 0.6, rot: r(11) * 6.28, scale: 0.35 + r(12) * 0.35 }, tx, ty);
     }
   }
   return out;

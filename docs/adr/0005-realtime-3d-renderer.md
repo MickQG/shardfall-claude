@@ -22,6 +22,11 @@ Amended 2026-10-31 (models, motion and effects pass):
 - **Post-processing**: bloom on a half-float buffer, then tone mapping and FXAA. A multisampled half-float buffer looked the same but its resolve halved the frame rate on Intel integrated graphics. Shadows use `PCFShadowMap`: three.js r186 removed `PCFSoftShadowMap` and silently switched over on the first frame, which recompiled every program mid-game.
 - **Simulation events** name the shooter and the dead (`src`, `id`, `kind`), so effects start at the right barrel and deaths leave the right wreck (R3D-8). Events are outside the state hash; determinism is unchanged.
 
+Amended 2026-10-31 (organic terrain and living squads):
+
+- **Terrain contours** come from a position-only warp of the tile grid near contours, not from a smoothed height field (R3D-14). Moving points by their position alone keeps cliff walls, tile tops and water watertight without stitching, keeps tiles away from contours as single quads, and needs no change to the simulation's tile grid. Its strength is capped by a test on every map: no ground cell folds or shrinks below a fifth of its size.
+- **Smoothing and squads** live in the renderer (R3D-10, R3D-15). Drawn positions trail the simulation by under a tenth of a second through a spring, which hides uneven snapshot timing without touching the shared interpolation the classic view uses. Squad members move around the squad's simulated position with seeded render-side randomness; the simulation still knows one unit per squad.
+
 ## Consequences
 
 - A larger bundle (three.js, about 150 KB gzipped) and a different performance profile, measured with the frame-time readout against Constitution rule 8 (60 fps, about 200 units, integrated graphics).

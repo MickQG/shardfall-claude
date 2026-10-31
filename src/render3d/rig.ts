@@ -10,8 +10,8 @@ import type { Shape, V3 } from './kit';
 export type Axis = 'x' | 'y' | 'z';
 
 export type Anim =
-  /** Takes the hull's pitch, roll, bob and lunge. */
-  | { k: 'body' }
+  /** Takes the hull's pitch, roll, bob and lunge; sinks by `drop` when kneeling. */
+  | { k: 'body'; drop?: number }
   /** Turns toward the aim, relative to the hull. */
   | { k: 'turret' }
   /** Recoils backwards along its own -X when firing. */
@@ -20,8 +20,9 @@ export type Anim =
   | { k: 'wheel'; r: number }
   /** Front wheels: yaw with the hull's turning. */
   | { k: 'steer' }
-  /** Legs: swing about `axis` with the gait phase, lifting by `lift` on the forward stroke. */
-  | { k: 'gait'; axis: Axis; amp: number; phase: number; lift?: number }
+  /** Legs: swing about `axis` with the gait phase, lifting by `lift` on the forward stroke; kneeling turns the leg by
+   * `kneel` and lowers its hip by `drop`. */
+  | { k: 'gait'; axis: Axis; amp: number; phase: number; lift?: number; kneel?: number; drop?: number }
   /** Rotors, radar dishes: spin with time. */
   | { k: 'spin'; axis: Axis; rate: number }
   /** Wings: beat with time. */
@@ -147,6 +148,8 @@ export interface RigPose {
   /** How far a lunge throws the body forward, tiles. */
   reach: number;
   walker: boolean;
+  /** Kneeling, 0..1 (squad members firing, R3D-15). */
+  crouch?: number;
 }
 
 /** Pose every animated node of a rig. Pure apart from writing the nodes' transforms. */
@@ -156,7 +159,7 @@ export function poseRig(tree: RigTree, p: RigPose): void {
     const obj = a.obj;
     switch (an.k) {
       case 'body':
-        obj.position.set(a.pos.x + p.lunge * p.reach - p.kick * 0.01, a.pos.y + p.bob, a.pos.z);
+        obj.position.set(a.pos.x + p.lunge * p.reach - p.kick * 0.01, a.pos.y + p.bob - (p.crouch ?? 0) * (an.drop ?? 0), a.pos.z);
         obj.rotation.set(a.rot.x + p.roll, a.rot.y, a.rot.z + p.pitch - p.kick * (p.walker ? 0 : 0.03) - p.lunge * 0.15);
         break;
       case 'turret':
@@ -172,8 +175,9 @@ export function poseRig(tree: RigTree, p: RigPose): void {
         obj.rotation.y = a.rot.y - Math.max(-0.45, Math.min(0.45, p.turnRate * 0.3));
         break;
       case 'gait': {
-        obj.rotation[an.axis] = a.rot[an.axis] + Math.sin(p.phase + an.phase) * an.amp * p.stride;
-        if (an.lift) obj.position.y = a.pos.y + an.lift * Math.max(0, Math.cos(p.phase + an.phase)) * p.stride;
+        const c = p.crouch ?? 0;
+        obj.rotation[an.axis] = a.rot[an.axis] + Math.sin(p.phase + an.phase) * an.amp * p.stride + c * (an.kneel ?? 0);
+        if (an.lift || an.drop) obj.position.y = a.pos.y + (an.lift ?? 0) * Math.max(0, Math.cos(p.phase + an.phase)) * p.stride - c * (an.drop ?? 0);
         break;
       }
       case 'spin':

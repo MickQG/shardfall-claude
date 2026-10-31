@@ -88,9 +88,10 @@ function infantry(rocket: boolean): RigDef {
     weapon: rocket ? 'rocket' : 'rifle',
     root: {
       kids: [
-        { geo: 'leg', at: [0, 0.182, 0.026], anim: { k: 'gait', axis: 'z', amp: 0.55, phase: 0 } },
-        { geo: 'leg', at: [0, 0.182, -0.026], anim: { k: 'gait', axis: 'z', amp: 0.55, phase: Math.PI } },
-        { geo: 'body', at: [0, 0.18, 0], anim: { k: 'body' }, kids: [{ muzzle: true, at: rocket ? [0.16, 0.135, 0.06] : [0.23, 0.08, 0.025] }] },
+        // Firing crouch: the hips sink and the legs brace, one forward and one back, feet on the ground.
+        { geo: 'leg', at: [0, 0.182, 0.026], anim: { k: 'gait', axis: 'z', amp: 0.55, phase: 0, kneel: 0.85, drop: 0.07 } },
+        { geo: 'leg', at: [0, 0.182, -0.026], anim: { k: 'gait', axis: 'z', amp: 0.55, phase: Math.PI, kneel: -0.85, drop: 0.07 } },
+        { geo: 'body', at: [0, 0.18, 0], anim: { k: 'body', drop: 0.07 }, kids: [{ muzzle: true, at: rocket ? [0.16, 0.135, 0.06] : [0.23, 0.08, 0.025] }] },
       ],
     },
   };

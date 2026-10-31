@@ -43,8 +43,45 @@ export interface MotionState {
 
 export const restingMotion = (heading = 0): MotionState => ({ heading, dist: 0, speed: 0, accel: 0, turnRate: 0, stride: 0 });
 
-/** A move this short per frame is jitter, not travel. */
-const MOVING = 0.05;
+/** Slower than this (tiles per second) is jitter, not travel: the hull keeps its heading. */
+const MOVING = 0.12;
+
+/** A drawn position chasing the simulation's: position and velocity, tiles and tiles per second. */
+export interface Follow {
+  x: number;
+  z: number;
+  vx: number;
+  vz: number;
+}
+
+/** How far behind (s) a drawn unit trails its simulated position (R3D-10): enough to hide uneven snapshot timing. */
+export const SMOOTH_TIME = 0.09;
+
+/**
+ * Move a drawn position toward the target (`tx`, `tz`) with a critically damped spring, in place (R3D-10). Snapshots
+ * arrive unevenly, so the interpolated position stalls and jumps; the spring rides through both. A target more than
+ * `snap` tiles away is taken at once.
+ */
+export function follow(f: Follow, tx: number, tz: number, dt: number, smoothTime = SMOOTH_TIME, snap = 3): void {
+  if (Math.hypot(tx - f.x, tz - f.z) > snap) {
+    f.x = tx;
+    f.z = tz;
+    f.vx = f.vz = 0;
+    return;
+  }
+  if (dt <= 0) return;
+  const w = 2 / smoothTime;
+  const k = w * dt;
+  const e = 1 / (1 + k + 0.48 * k * k + 0.235 * k * k * k);
+  const ox = f.x - tx;
+  const oz = f.z - tz;
+  const sx = (f.vx + w * ox) * dt;
+  const sz = (f.vz + w * oz) * dt;
+  f.vx = (f.vx - w * sx) * e;
+  f.vz = (f.vz - w * sz) * e;
+  f.x = tx + (ox + sx) * e;
+  f.z = tz + (oz + sz) * e;
+}
 
 /**
  * Advance one frame: `dx`, `dz` is this frame's displacement in tiles, `dt` seconds, `turn` the hull's maximum turn

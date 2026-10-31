@@ -28,18 +28,18 @@ interface Look {
 }
 
 export const LOOKS: Record<WeaponLook, Look> = {
-  rifle: { color: 0xffe2a0, intensity: 3, speed: 38, len: 0.32, width: 0.008, arc: 0, flash: 0.14, flashColor: 0xffd27a, smokeTrail: false, hit: 'spark', shake: 0 },
-  mg: { color: 0xffcf80, intensity: 3, speed: 42, len: 0.36, width: 0.01, arc: 0, flash: 0.16, flashColor: 0xffc070, smokeTrail: false, hit: 'spark', shake: 0 },
-  chaingun: { color: 0xffc070, intensity: 3.5, speed: 46, len: 0.42, width: 0.011, arc: 0, flash: 0.18, flashColor: 0xffb060, smokeTrail: false, hit: 'spark', shake: 0 },
-  pulse: { color: 0x80e8ff, intensity: 4, speed: 30, len: 0.5, width: 0.022, arc: 0, flash: 0.26, flashColor: 0x9ff0ff, smokeTrail: false, hit: 'spark', shake: 0 },
-  cannon: { color: 0xffd090, intensity: 4, speed: 0, len: 0.3, width: 0.03, arc: 0.02, flash: 0.55, flashColor: 0xffc068, smokeTrail: false, hit: 'blast', shake: 0.04 },
-  howitzer: { color: 0xffb060, intensity: 3, speed: 0, len: 0.22, width: 0.035, arc: 0.38, flash: 0.8, flashColor: 0xffb050, smokeTrail: true, hit: 'blast', shake: 0.08 },
-  rocket: { color: 0xffa040, intensity: 4, speed: 0, len: 0.14, width: 0.03, arc: 0.12, flash: 0.22, flashColor: 0xffb060, smokeTrail: true, hit: 'blast', shake: 0.02 },
+  rifle: { color: 0xffe2a0, intensity: 1.3, speed: 38, len: 0.26, width: 0.0065, arc: 0, flash: 0.09, flashColor: 0xffd27a, smokeTrail: false, hit: 'spark', shake: 0 },
+  mg: { color: 0xffcf80, intensity: 1.35, speed: 42, len: 0.29, width: 0.008, arc: 0, flash: 0.11, flashColor: 0xffc070, smokeTrail: false, hit: 'spark', shake: 0 },
+  chaingun: { color: 0xffc070, intensity: 1.5, speed: 46, len: 0.34, width: 0.009, arc: 0, flash: 0.12, flashColor: 0xffb060, smokeTrail: false, hit: 'spark', shake: 0 },
+  pulse: { color: 0x80e8ff, intensity: 1.8, speed: 30, len: 0.4, width: 0.018, arc: 0, flash: 0.17, flashColor: 0x9ff0ff, smokeTrail: false, hit: 'spark', shake: 0 },
+  cannon: { color: 0xffd090, intensity: 2.2, speed: 0, len: 0.26, width: 0.026, arc: 0.02, flash: 0.55, flashColor: 0xffc068, smokeTrail: false, hit: 'blast', shake: 0.04 },
+  howitzer: { color: 0xffb060, intensity: 2.2, speed: 0, len: 0.22, width: 0.035, arc: 0.38, flash: 0.8, flashColor: 0xffb050, smokeTrail: true, hit: 'blast', shake: 0.08 },
+  rocket: { color: 0xffa040, intensity: 2.6, speed: 0, len: 0.14, width: 0.03, arc: 0.12, flash: 0.22, flashColor: 0xffb060, smokeTrail: true, hit: 'blast', shake: 0.02 },
   claw: { color: 0xd8ffb0, intensity: 2.5, speed: 0, len: 0, width: 0.02, arc: 0, flash: 0, flashColor: 0, smokeTrail: false, hit: 'slash', shake: 0 },
-  acid: { color: 0xb8ff40, intensity: 3, speed: 0, len: 0.1, width: 0.05, arc: 0.28, flash: 0.16, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0 },
-  acidBig: { color: 0xb8ff40, intensity: 3.5, speed: 0, len: 0.16, width: 0.09, arc: 0.45, flash: 0.35, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0.05 },
-  sting: { color: 0xe8ff70, intensity: 3, speed: 26, len: 0.24, width: 0.016, arc: 0, flash: 0.1, flashColor: 0xe0ff80, smokeTrail: false, hit: 'spark', shake: 0 },
-  spine: { color: 0xf0e6cc, intensity: 1.6, speed: 22, len: 0.3, width: 0.02, arc: 0.04, flash: 0.14, flashColor: 0xb6ff5c, smokeTrail: false, hit: 'bone', shake: 0 },
+  acid: { color: 0xb8ff40, intensity: 2, speed: 0, len: 0.1, width: 0.05, arc: 0.28, flash: 0.16, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0 },
+  acidBig: { color: 0xb8ff40, intensity: 2.4, speed: 0, len: 0.16, width: 0.09, arc: 0.45, flash: 0.35, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0.05 },
+  sting: { color: 0xe8ff70, intensity: 1.35, speed: 26, len: 0.2, width: 0.013, arc: 0, flash: 0.07, flashColor: 0xe0ff80, smokeTrail: false, hit: 'spark', shake: 0 },
+  spine: { color: 0xf0e6cc, intensity: 1.1, speed: 22, len: 0.26, width: 0.017, arc: 0.04, flash: 0.09, flashColor: 0xb6ff5c, smokeTrail: false, hit: 'bone', shake: 0 },
 };
 
 /**
@@ -130,6 +130,37 @@ function puffTexture(lumpy: boolean): THREE.Texture {
       const k = (y * N + x) * 4;
       data[k] = data[k + 1] = data[k + 2] = 255;
       data[k + 3] = Math.round(a * 255);
+    }
+  }
+  const t = new THREE.DataTexture(data, N, N);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
+/**
+ * A scorch mark: an uneven burnt blob that fades to nothing well inside its square (R3D-12). The value sits in every
+ * channel because an alpha map reads green.
+ */
+export function scorchTexture(): THREE.DataTexture {
+  const N = 64;
+  const data = new Uint8Array(N * N * 4);
+  const rng = new Rng(11);
+  const lobes = Array.from({ length: 9 }, () => ({ a: rng.range(0, Math.PI * 2), k: rng.range(0.06, 0.13), f: Math.floor(rng.range(2, 6)) }));
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const u = (x + 0.5) / N - 0.5;
+      const v = (y + 0.5) / N - 0.5;
+      const ang = Math.atan2(v, u);
+      let edge = 0.3;
+      for (const l of lobes) edge += l.k * 0.35 * Math.sin(ang * l.f + l.a);
+      edge = Math.min(0.46, edge);
+      const d = Math.hypot(u, v);
+      const a = Math.max(0, Math.min(1, (edge - d) / 0.16)) * (0.75 + 0.25 * Math.sin(u * 37 + v * 23) * Math.sin(v * 29 - u * 17));
+      const k = (y * N + x) * 4;
+      const val = Math.round(Math.max(0, Math.min(1, a)) * 255);
+      data[k] = data[k + 1] = data[k + 2] = data[k + 3] = val;
     }
   }
   const t = new THREE.DataTexture(data, N, N);
@@ -373,6 +404,8 @@ export class CombatFx {
   /** Current camera shake amplitude (tiles), decays. */
   shake = 0;
   quality: FxQuality = { rich: true };
+  /** Ground height under a point, so scorch marks lie on plateaus too; the view sets it. */
+  groundAt: (x: number, z: number) => number = () => 0;
 
   constructor() {
     this.glow = new ParticleLayer(GLOW_CAP, true);
@@ -392,7 +425,7 @@ export class CombatFx {
       this.root.add(mesh);
       this.rings.push({ mesh, born: -1e9, life: 1, size: 1 });
     }
-    const scorchTex = puffTexture(false);
+    const scorchTex = scorchTexture();
     const scorchGeo = new THREE.PlaneGeometry(1, 1);
     scorchGeo.rotateX(-Math.PI / 2);
     for (let i = 0; i < 24; i++) {
@@ -432,10 +465,12 @@ export class CombatFx {
     const L = LOOKS[look];
     if (L.flash <= 0) return;
     const r = this.rng;
-    this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 70, size0: L.flash * 1.4, size1: L.flash * 0.6, color0: 0xffffff, color1: L.flashColor, alpha: 1.6 }, now);
-    for (let i = 0; i < 3; i++) {
+    // Small arms get a dimmer, warmer core than guns and launchers.
+    const small = L.flash < 0.3;
+    this.glow.emit({ x: at.x, y: at.y, z: at.z, life: small ? 55 : 70, size0: L.flash * 1.4, size1: L.flash * 0.6, color0: small ? L.flashColor : 0xffffff, color1: L.flashColor, alpha: small ? 0.9 : 1.25 }, now);
+    for (let i = 0; i < (small ? 2 : 3); i++) {
       const s = r.range(0.4, 1.4);
-      this.glow.emit({ x: at.x + dir.x * L.flash * 0.4 * s, y: at.y + dir.y * L.flash * 0.4 * s, z: at.z + dir.z * L.flash * 0.4 * s, vx: dir.x * 2 * s, vy: dir.y * 2 * s, vz: dir.z * 2 * s, life: 60 + i * 15, size0: L.flash * 0.7, size1: L.flash * 0.3, color0: L.flashColor, alpha: 1.2 }, now);
+      this.glow.emit({ x: at.x + dir.x * L.flash * 0.4 * s, y: at.y + dir.y * L.flash * 0.4 * s, z: at.z + dir.z * L.flash * 0.4 * s, vx: dir.x * 2 * s, vy: dir.y * 2 * s, vz: dir.z * 2 * s, life: 60 + i * 15, size0: L.flash * 0.7, size1: L.flash * 0.3, color0: L.flashColor, alpha: small ? 0.7 : 1.2 }, now);
     }
     this.light(at.x, at.y + 0.1, at.z, L.flashColor, L.flash * 9, 90 + L.flash * 120, now);
     if (L.flash >= 0.5 || look === 'rocket') {
@@ -614,7 +649,7 @@ export class CombatFx {
 
   private scorch(at: Vec, size: number, now: number): void {
     const f = this.scorches.reduce((a, b) => (b.born < a.born ? b : a));
-    f.mesh.position.set(at.x, 0.02, at.z);
+    f.mesh.position.set(at.x, this.groundAt(at.x, at.z) + 0.02, at.z);
     f.mesh.rotation.y = this.rng.range(0, Math.PI * 2);
     f.mesh.scale.setScalar(size);
     f.born = now;

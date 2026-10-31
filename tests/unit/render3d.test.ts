@@ -52,12 +52,23 @@ describe('3D terrain', () => {
     const heights = [0, 0, 0, 0, 1, 0, 0, 0, 0];
     const t = { width: 3, height: 3, heights, blocked: (x: number, y: number) => (x === 2 && y === 2) || heights[y * 3 + x]! > 0, shards: () => false };
     const m = terrainMeshes(t);
-    expect(m.ground.positions.length / 3).toBe(9 * 4);
+    // Ground and water cover their tiles exactly (edges near a contour wave, R3D-14, but the area is kept).
+    const area = (d: { positions: Float32Array; indices: Uint32Array }): number => {
+      let a = 0;
+      for (let i = 0; i < d.indices.length; i += 3) {
+        const [p, q, r] = [d.indices[i]!, d.indices[i + 1]!, d.indices[i + 2]!].map((k) => [d.positions[k * 3]!, d.positions[k * 3 + 2]!]);
+        a += Math.abs((q![0]! - p![0]!) * (r![1]! - p![1]!) - (r![0]! - p![0]!) * (q![1]! - p![1]!)) / 2;
+      }
+      return a;
+    };
+    expect(area(m.ground)).toBeCloseTo(9, 6);
     const ys = new Set<number>();
     for (let i = 1; i < m.ground.positions.length; i += 3) ys.add(Math.round(m.ground.positions[i]! * 1000) / 1000);
     expect([...ys].sort()).toEqual([0, LEVEL_H]);
     expect(m.cliffs.indices.length).toBeGreaterThan(0);
-    expect(m.water.positions.length / 3).toBe(4); // one water tile
+    // One water tile: its shore waves, so its area is only about one tile.
+    expect(area(m.water)).toBeGreaterThan(0.6);
+    expect(area(m.water)).toBeLessThan(1.4);
     expect(terrainMeshes(t).ground.positions).toEqual(m.ground.positions); // pure
     // Walls face out of the plateau: each triangle's winding agrees with its stored normal.
     const c = m.cliffs;
