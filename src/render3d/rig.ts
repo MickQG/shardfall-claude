@@ -30,7 +30,12 @@ export type Anim =
   /** Organic structures: breathe (scale) with time. */
   | { k: 'breathe'; amp: number; rate: number }
   /** Shown only while the unit carries shards. */
-  | { k: 'cargo' };
+  /** Carried shards: a pile that rises from `pivot` (or, `swell`, a belly that swells) with the load (R3D-19). */
+  | { k: 'cargo'; pivot?: [number, number, number]; swell?: boolean }
+  /** A tipping bed: raised about the hinge at `pivot` by up to `max` radians while unloading (R3D-19). */
+  | { k: 'tip'; pivot: [number, number, number]; max: number }
+  /** A cutter drum: turns while mining (R3D-19). */
+  | { k: 'drum' };
 
 export interface RigNode {
   /** Shape key drawn at this node. */
@@ -152,6 +157,12 @@ export interface RigPose {
   crouch?: number;
   /** Total turning of the hull, radians, for the wheels on each side. */
   turned?: number;
+  /** How full a harvester is, 0..1 (R3D-19); full when absent. */
+  load?: number;
+  /** Unloading, 0..1: how far the bed is tipped, or how hard a belly squeezes (R3D-19). */
+  tip?: number;
+  /** The cutter drum's angle, radians (R3D-19). */
+  drum?: number;
 }
 
 /** Pose every animated node of a rig. Pure apart from writing the nodes' transforms. */
@@ -183,6 +194,19 @@ export function poseRig(tree: RigTree, p: RigPose): void {
         if (an.lift || an.drop) obj.position.y = a.pos.y + (an.lift ?? 0) * Math.max(0, Math.cos(p.phase + an.phase)) * p.stride - c * (an.drop ?? 0);
         break;
       }
+      case 'tip': {
+        // Rotate about the hinge: the node turns by the angle and shifts so the hinge stays put.
+        const ang = (p.tip ?? 0) * an.max;
+        const [hx, hy] = an.pivot;
+        const c = Math.cos(ang);
+        const sn = Math.sin(ang);
+        obj.rotation.z = a.rot.z + ang;
+        obj.position.set(a.pos.x + hx - (hx * c - hy * sn), a.pos.y + hy - (hx * sn + hy * c), a.pos.z);
+        break;
+      }
+      case 'drum':
+        obj.rotation.z = a.rot.z - (p.drum ?? 0);
+        break;
       case 'spin':
         obj.rotation[an.axis] = a.rot[an.axis] + ((an.rate * p.time) / 1000) % (Math.PI * 2);
         break;
@@ -192,8 +216,17 @@ export function poseRig(tree: RigTree, p: RigPose): void {
       case 'breathe':
         obj.scale.setScalar(1 + an.amp * Math.sin((an.rate * p.time) / 1000));
         break;
-      case 'cargo':
+      case 'cargo': {
+        const f = Math.max(0, Math.min(1, p.load ?? 1));
+        const [px, py, pz] = an.pivot ?? [0, 0, 0];
+        // A belly squeezes rhythmically while it empties.
+        const squeeze = an.swell ? 1 - 0.12 * (p.tip ?? 0) * Math.max(0, Math.sin(p.time * 0.012)) : 1;
+        const sxz = (an.swell ? 0.55 + 0.45 * f : 0.7 + 0.3 * f) * squeeze;
+        const sy = an.swell ? sxz : 0.15 + 0.85 * f;
+        obj.scale.set(sxz, sy, sxz);
+        obj.position.set(a.pos.x + px * (1 - sxz), a.pos.y + py * (1 - sy), a.pos.z + pz * (1 - sxz));
         break;
+      }
     }
   }
 }

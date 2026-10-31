@@ -7,19 +7,24 @@ export interface Settings {
 }
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
-const KEY = 'shardfall.settings.v1';
+/** v2 starts everyone on the high preset again (VIS-2); sound settings carry over from v1. */
+const KEY = 'shardfall.settings.v2';
+const OLD_KEY = 'shardfall.settings.v1';
 
-export const defaultSettings = (reducedMotion = false): Settings => ({ quality: reducedMotion ? 'low' : 'high', muted: false, volume: 0.6, reducedMotion });
+/** High quality by default for everyone; the reduced-motion preference only stops camera shake (VIS-2). */
+export const defaultSettings = (reducedMotion = false): Settings => ({ quality: 'high', muted: false, volume: 0.6, reducedMotion });
 
 /** Loads saved settings. Storage can be missing, blocked or corrupt (private windows, tests): every failure falls back to defaults. */
 export function loadSettings(store: Store | null | undefined, prefersReducedMotion = false): Settings {
   const d = defaultSettings(prefersReducedMotion);
   try {
     const raw = store?.getItem(KEY);
-    if (!raw) return d;
-    const p = JSON.parse(raw) as Partial<Settings>;
+    // Settings saved before v2 keep their sound choices; their quality is dropped so the default (high) applies.
+    const old = raw ? null : store?.getItem(OLD_KEY);
+    if (!raw && !old) return d;
+    const p = JSON.parse((raw ?? old) as string) as Partial<Settings>;
     return {
-      quality: p.quality === 'low' || p.quality === 'high' ? p.quality : d.quality,
+      quality: raw && (p.quality === 'low' || p.quality === 'high') ? p.quality : d.quality,
       muted: typeof p.muted === 'boolean' ? p.muted : d.muted,
       volume: typeof p.volume === 'number' && p.volume >= 0 && p.volume <= 1 ? p.volume : d.volume,
       // The system preference always wins over a saved value.
@@ -38,10 +43,10 @@ export function saveSettings(store: Store | null | undefined, s: Settings): void
   }
 }
 
-/** Whether decorative effects (bloom, particles, screen shake) should run. */
+/** Whether decorative effects run: the quality preset sets bloom, particles and decor; reduced motion stops shake. */
 export const effectsEnabled = (s: Settings): { bloom: boolean; particles: boolean; shake: boolean; decor: boolean } => ({
-  bloom: s.quality === 'high' && !s.reducedMotion,
-  particles: s.quality === 'high' && !s.reducedMotion,
+  bloom: s.quality === 'high',
+  particles: s.quality === 'high',
   shake: !s.reducedMotion,
-  decor: s.quality === 'high' && !s.reducedMotion,
+  decor: s.quality === 'high',
 });

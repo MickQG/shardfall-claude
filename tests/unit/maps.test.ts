@@ -48,3 +48,22 @@ describe('skirmish map', () => {
     expect(s.players[1]!.powerOut).toBeGreaterThanOrEqual(s.players[1]!.powerIn);
   });
 });
+
+describe('skirmish water', () => {
+  it('MAP-3: the map has mirrored ponds and lakes that keep clear of starts, starting buildings and shard fields', () => {
+    const m = skirmishMap();
+    const W = MAP_SIZE;
+    const water = (i: number): boolean => !!m.blocked![i] && m.heights[i] === 0;
+    let n = 0;
+    for (let i = 0; i < W * W; i++) {
+      if (!water(i)) continue;
+      n++;
+      expect(water((W - 1 - Math.floor(i / W)) * W + (W - 1 - (i % W)))).toBe(true); // mirrored
+      expect(m.shards![i]).toBe(0);
+    }
+    expect(n).toBeGreaterThan(120);
+    // Every lake body is separate and none is within reach of a base: no water within 8 tiles of either start.
+    for (const s of STARTS) for (let y = s.ty - 8; y <= s.ty + 8; y++) for (let x = s.tx - 8; x <= s.tx + 8; x++) expect(water(y * W + x)).toBe(false);
+    for (const b of skirmishConfig().buildings ?? []) expect(water(b.ty * W + b.tx)).toBe(false);
+  });
+});

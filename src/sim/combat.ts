@@ -10,6 +10,9 @@ import { ELITE_REPAIR, MAX_RANK, maxHpOf, rankFor, unitDamage } from './units';
 type Entity = Unit | Building;
 const isBuilding = (e: Entity): e is Building => 'tx' in e;
 
+/** How long a dead unit's sight lingers where it fell (FOG-6), ticks (3 s). */
+export const LINGERING_SIGHT = 60;
+
 /** Ticks between launching a superweapon and its impact. */
 export const SUPERWEAPON_DELAY = 60;
 /** Ticks without damage before regeneration starts. */
@@ -114,14 +117,48 @@ function land(s: State, p: { x: number; y: number; targetId: number; owner: numb
   if (t) hurt(s, t, damageAgainst(w, armorOf(t)), -1, credit);
 }
 
+/** Which building stands on each tile this tick (its id), or -1: what blocks a line of fire (CMB-14). */
+function buildingTiles(s: State): Int32Array {
+  const { width, height } = s.grid;
+  const occ = new Int32Array(width * height).fill(-1);
+  for (const b of s.buildings) {
+    const d = buildingDef(b.kind);
+    for (let y = b.ty; y < b.ty + d.h; y++) for (let x = b.tx; x < b.tx + d.w; x++) if (x >= 0 && y >= 0 && x < width && y < height) occ[y * width + x] = b.id;
+  }
+  return occ;
+}
+
+/**
+ * Whether a shot from (x, y) can reach `t` (CMB-14): direct fire is blocked by any building between them other than
+ * the target itself; lobbed weapons (artillery), aircraft, and shots at aircraft go over buildings. Walks the line in
+ * quarter-tile steps, in fixed point, so it is deterministic.
+ */
+export function lineOfFire(s: State, occ: Int32Array, x: number, y: number, t: Entity, w: WeaponDef, shooterAir: boolean): boolean {
+  if (w.indirect || shooterAir || armorOf(t) === 'air') return true;
+  const p = pos(t);
+  const dx = p.x - x;
+  const dy = p.y - y;
+  const steps = Math.max(1, Math.ceil((Math.max(Math.abs(dx), Math.abs(dy)) * 4) / FP));
+  const W = s.grid.width;
+  for (let i = 1; i < steps; i++) {
+    const tx = tileOf(x + Math.trunc((dx * i) / steps));
+    const ty = tileOf(y + Math.trunc((dy * i) / steps));
+    if (tx < 0 || ty < 0 || tx >= W || ty >= s.grid.height) continue;
+    const id = occ[ty * W + tx] as number;
+    if (id === t.id) return true; // reached the target building
+    if (id >= 0) return false;
+  }
+  return true;
+}
+
 /** Best visible enemy this weapon can hit within `reach` (fixed-point): armed targets first, then nearest. */
-function acquire(s: State, owner: number, x: number, y: number, w: WeaponDef, reach: number): number {
+function acquire(s: State, owner: number, x: number, y: number, w: WeaponDef, reach: number, clear: (e: Entity) => boolean = () => true): number {
   let best = -1;
   let bs = Infinity;
   const consider = (e: Entity, armed: boolean): void => {
     if (e.owner === owner || !canHit(w, e)) return;
     const d = distTo(x, y, e);
-    if (d > reach || !visibleTo(s, owner, e)) return;
+    if (d > reach || !visibleTo(s, owner, e) || !clear(e)) return;
     const score = d + (armed ? 0 : isBuilding(e) ? 6 * FP : 3 * FP);
     if (score < bs || (score === bs && e.id < best)) {
       bs = score;
@@ -140,7 +177,7 @@ function chase(s: State, u: Unit, t: Entity): void {
   orderMove(s, u, ty * s.grid.width + tx);
 }
 
-function tickUnit(s: State, u: Unit, byId: Map<number, Entity>): void {
+function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array): void {
   const def = unitDef(u.kind);
   if (u.cooldown > 0) u.cooldown--;
   u.sinceHurt = Math.min(u.sinceHurt + 1, 100000);
@@ -164,7 +201,9 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>): void {
 
   if (!t && (u.mode === 'idle' || u.mode === 'amove') && (s.tick + u.id) % 5 === 0) {
     const bonus = u.mode === 'amove' ? 4 : 2;
-    const id = acquire(s, u.owner, u.x, u.y, w, rangeFp(w) + bonus * FP);
+    // Targets behind a building are passed over while a clear one is in reach (CMB-14).
+    const air = !!def.air;
+    const id = acquire(s, u.owner, u.x, u.y, w, rangeFp(w) + bonus * FP, (e) => distTo(u.x, u.y, e) > rangeFp(w) || lineOfFire(s, occ, u.x, u.y, e, w, air));
     if (id >= 0) {
       u.target = id;
       t = byId.get(id);
@@ -184,6 +223,11 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>): void {
   }
 
   const d = distTo(u.x, u.y, t);
+  // In range but behind a building: move for a clear shot instead of firing through it (CMB-14).
+  if (d <= rangeFp(w) && !lineOfFire(s, occ, u.x, u.y, t, w, !!def.air)) {
+    if ((s.tick + u.id) % 10 === 0 || (u.path.length === 0 && !u.waiting)) chase(s, u, t);
+    return;
+  }
   if (d <= rangeFp(w)) {
     if (u.path.length > 0 || u.waiting) {
       u.path = [];
@@ -245,7 +289,8 @@ export function tickCombat(s: State): void {
   for (const u of s.units) byId.set(u.id, u);
   for (const b of s.buildings) byId.set(b.id, b);
 
-  for (const u of s.units) tickUnit(s, u, byId);
+  const occ = buildingTiles(s);
+  for (const u of s.units) tickUnit(s, u, byId, occ);
   for (const b of s.buildings) tickBuilding(s, b, byId);
 
   if (s.projectiles.length > 0) {
@@ -271,6 +316,8 @@ export function tickCombat(s: State): void {
   if (deadUnits.length > 0) {
     for (const u of deadUnits) {
       s.events.push({ t: 'die', x: u.x, y: u.y, big: unitDef(u.kind).armor === 'heavy', owner: u.owner, id: u.id, kind: u.kind });
+      // Its owner keeps seeing the spot for a few seconds, so a lost scout still shows what killed it.
+      s.lingering.push({ owner: u.owner, tx: tileOf(u.x), ty: tileOf(u.y), r: unitDef(u.kind).vision, until: s.tick + LINGERING_SIGHT });
       const p = s.players[u.owner];
       if (p) p.stats.unitsLost++;
     }

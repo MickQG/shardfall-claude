@@ -15,6 +15,8 @@ const DARK = 0x202428;
 const TREAD = 0x2b2b2d;
 const RUBBER = 0x1a1a1c;
 const OLIVE = 0x5c6a4e;
+/** Rocketeers' heavier gunmetal fatigues. */
+const HEAVY_CLOTH = 0x4a4f58;
 const HAZARD = 0xe0aa2c;
 const GLASS = 0x22384a;
 const SKIN = 0xb98a6a;
@@ -36,29 +38,48 @@ const shape = (): Shape => new Shape();
 
 // ---------------------------------------------------------------- Aegis infantry
 
-/** A rifleman or rocketeer figure: helmet, armoured vest, pack and arms; legs are separate gait nodes. */
+/**
+ * A rifleman or rocketeer figure: helmet, armoured vest, pack and arms; legs are separate gait nodes. The two read apart
+ * at a glance: riflemen are light olive troopers with a cyan visor and a rifle; rocketeers are heavier, in gunmetal grey
+ * with broad team-coloured pauldrons, a red visor, a rocket rack on the back and a fat launcher on the shoulder.
+ */
 function soldier(s: Shape, rocket: boolean): Shape {
-  s.box(0.07, 0.045, 0.095, OLIVE, { at: [0, 0.01, 0] }); // hips
-  s.box(0.08, 0.1, 0.105, STEEL, { at: [0, 0.075, 0], bevel: 0.3 }); // vest
-  s.box(0.06, 0.03, 0.11, 'team', { at: [0.01, 0.06, 0], bevel: 0.3 }); // chest band
-  s.ball(0.03, 'team', { at: [0, 0.115, 0.058], scale: [1, 0.8, 1], seg: 8 }); // pauldrons
-  s.ball(0.03, 'team', { at: [0, 0.115, -0.058], scale: [1, 0.8, 1], seg: 8 });
-  s.box(0.05, 0.085, 0.08, STEEL2, { at: [-0.06, 0.08, 0] }); // pack
-  s.box(0.02, 0.03, 0.03, AMBER, { at: [-0.087, 0.1, 0.02], glow: true, bevel: 0 }); // pack lamp
+  const cloth = rocket ? HEAVY_CLOTH : OLIVE;
+  s.box(0.07, 0.045, 0.095, cloth, { at: [0, 0.01, 0] }); // hips
+  s.box(rocket ? 0.09 : 0.08, rocket ? 0.11 : 0.1, rocket ? 0.12 : 0.105, rocket ? STEEL2 : STEEL, { at: [0, 0.075, 0], bevel: 0.3 }); // vest
+  s.box(0.06, 0.03, rocket ? 0.125 : 0.11, 'team', { at: [0.01, 0.06, 0], bevel: 0.3 }); // chest band
+  const pad = rocket ? 0.04 : 0.03;
+  s.ball(pad, 'team', { at: [0, 0.118, rocket ? 0.068 : 0.058], scale: [1, 0.8, 1], seg: 8 }); // pauldrons
+  s.ball(pad, 'team', { at: [0, 0.118, rocket ? -0.068 : -0.058], scale: [1, 0.8, 1], seg: 8 });
   s.ball(0.03, SKIN, { at: [0.005, 0.15, 0], seg: 8 }); // head
-  s.ball(0.04, STEEL2, { at: [0, 0.158, 0], cut: 0.55, seg: 10 }); // helmet
-  s.box(0.014, 0.014, 0.05, CYAN, { at: [0.032, 0.15, 0], glow: true, bevel: 0 }); // visor
-  // Arms forward, holding the weapon.
-  s.box(0.08, 0.026, 0.026, OLIVE, { at: [0.035, 0.085, 0.058], rot: [0, 0.25, -0.35] });
-  s.box(0.08, 0.026, 0.026, OLIVE, { at: [0.035, 0.085, -0.058], rot: [0, -0.35, -0.35] });
   if (rocket) {
-    s.tube(0.024, 0.24, STEEL2, { at: [0.02, 0.135, 0.06], seg: 10 }); // launcher on the shoulder
-    s.tube(0.026, 0.03, 'team', { at: [-0.04, 0.135, 0.06], seg: 10 });
-    s.tube(0.019, 0.01, DARK, { at: [0.145, 0.135, 0.06], seg: 10 });
-    s.box(0.04, 0.03, 0.02, GUN, { at: [0.04, 0.1, 0.06] }); // grip and sight
-    s.cone(0.012, 0.04, RED, { at: [-0.06, 0.16, -0.02], seg: 6, glow: true }); // spare rocket tips
-    s.cone(0.012, 0.04, RED, { at: [-0.06, 0.16, 0.0], seg: 6, glow: true });
+    // A closed heavy helmet with a red T-visor.
+    s.ball(0.044, STEEL2, { at: [0, 0.156, 0], cut: 0.62, seg: 10 });
+    s.box(0.012, 0.016, 0.05, RED, { at: [0.036, 0.152, 0], glow: true, bevel: 0 });
+    s.box(0.012, 0.03, 0.012, RED, { at: [0.036, 0.142, 0], glow: true, bevel: 0 });
+    // A rack of three rockets on the back, warheads up.
+    s.box(0.04, 0.1, 0.09, GUN, { at: [-0.065, 0.09, 0], bevel: 0.2 });
+    for (const z of [-0.028, 0, 0.028]) {
+      s.tube(0.011, 0.07, STEEL, { at: [-0.07, 0.15, z], rot: [0, 0, Math.PI / 2], seg: 6 });
+      s.cone(0.012, 0.03, RED, { at: [-0.07, 0.2, z], seg: 6, glow: true });
+    }
+    s.box(0.08, 0.03, 0.03, cloth, { at: [0.035, 0.085, 0.07], rot: [0, 0.25, -0.35] }); // arms
+    s.box(0.08, 0.03, 0.03, cloth, { at: [0.035, 0.085, -0.06], rot: [0, -0.35, -0.35] });
+    // A fat launcher on the right shoulder: team band, hazard stripe and a wide muzzle.
+    s.tube(0.03, 0.26, GUN, { at: [0.02, 0.14, 0.07], seg: 10 });
+    s.tube(0.033, 0.035, 'team', { at: [-0.05, 0.14, 0.07], seg: 10 });
+    s.tube(0.032, 0.02, HAZARD, { at: [0.09, 0.14, 0.07], seg: 10 });
+    s.tube(0.036, 0.02, DARK, { at: [0.155, 0.14, 0.07], seg: 10 });
+    s.box(0.04, 0.03, 0.02, GUN, { at: [0.04, 0.1, 0.07] }); // grip
+    s.box(0.03, 0.025, 0.02, STEEL, { at: [0.04, 0.17, 0.095] }); // sight
   } else {
+    s.box(0.05, 0.085, 0.08, STEEL2, { at: [-0.06, 0.08, 0] }); // pack
+    s.box(0.02, 0.03, 0.03, AMBER, { at: [-0.087, 0.1, 0.02], glow: true, bevel: 0 }); // pack lamp
+    s.ball(0.04, STEEL2, { at: [0, 0.158, 0], cut: 0.55, seg: 10 }); // helmet
+    s.box(0.014, 0.014, 0.05, CYAN, { at: [0.032, 0.15, 0], glow: true, bevel: 0 }); // visor
+    // Arms forward, holding the rifle.
+    s.box(0.08, 0.026, 0.026, cloth, { at: [0.035, 0.085, 0.058], rot: [0, 0.25, -0.35] });
+    s.box(0.08, 0.026, 0.026, cloth, { at: [0.035, 0.085, -0.058], rot: [0, -0.35, -0.35] });
     s.box(0.13, 0.026, 0.02, GUN, { at: [0.09, 0.075, 0.025], bevel: 0.2 }); // rifle body
     s.tube(0.006, 0.07, DARK, { at: [0.19, 0.08, 0.025] });
     s.box(0.02, 0.04, 0.014, GUN, { at: [0.08, 0.05, 0.025], rot: [0, 0, 0.2] }); // magazine
@@ -67,21 +88,23 @@ function soldier(s: Shape, rocket: boolean): Shape {
   return s;
 }
 
-function soldierLeg(): Shape {
+function soldierLeg(rocket: boolean): Shape {
   const s = shape();
-  s.box(0.042, 0.095, 0.046, OLIVE, { at: [0, -0.045, 0], bevel: 0.3 }); // thigh, from the hip down
-  s.box(0.04, 0.08, 0.042, OLIVE, { at: [0.006, -0.125, 0], bevel: 0.3 }); // shin
-  s.box(0.045, 0.03, 0.044, STEEL2, { at: [0.012, -0.11, 0] }); // knee pad
-  s.box(0.065, 0.028, 0.046, DARK, { at: [0.016, -0.168, 0] }); // boot
+  const cloth = rocket ? HEAVY_CLOTH : OLIVE;
+  s.box(rocket ? 0.048 : 0.042, 0.095, rocket ? 0.05 : 0.046, cloth, { at: [0, -0.045, 0], bevel: 0.3 }); // thigh, from the hip down
+  s.box(0.04, 0.08, 0.042, cloth, { at: [0.006, -0.125, 0], bevel: 0.3 }); // shin
+  s.box(rocket ? 0.05 : 0.045, rocket ? 0.04 : 0.03, rocket ? 0.05 : 0.044, rocket ? 'team' : STEEL2, { at: [0.012, -0.11, 0] }); // knee pad
+  s.box(rocket ? 0.07 : 0.065, 0.028, rocket ? 0.05 : 0.046, DARK, { at: [0.016, -0.168, 0] }); // boot
   return s;
 }
 
 function infantry(rocket: boolean): RigDef {
   return {
-    shapes: { body: () => soldier(shape(), rocket), leg: soldierLeg },
+    shapes: { body: () => soldier(shape(), rocket), leg: () => soldierLeg(rocket) },
     move: 'walker',
-    scale: 1.35,
-    stride: 0.32,
+    scale: rocket ? 1.45 : 1.35,
+    // Long, easy strides: the legs swing gently rather than scurry.
+    stride: 0.46,
     turn: 9,
     radius: 0.5,
     height: 0.36,
@@ -89,9 +112,9 @@ function infantry(rocket: boolean): RigDef {
     root: {
       kids: [
         // Firing crouch: the hips sink and the legs brace, one forward and one back, feet on the ground.
-        { geo: 'leg', at: [0, 0.182, 0.026], anim: { k: 'gait', axis: 'z', amp: 0.55, phase: 0, kneel: 0.85, drop: 0.07 } },
-        { geo: 'leg', at: [0, 0.182, -0.026], anim: { k: 'gait', axis: 'z', amp: 0.55, phase: Math.PI, kneel: -0.85, drop: 0.07 } },
-        { geo: 'body', at: [0, 0.18, 0], anim: { k: 'body', drop: 0.07 }, kids: [{ muzzle: true, at: rocket ? [0.16, 0.135, 0.06] : [0.23, 0.08, 0.025] }] },
+        { geo: 'leg', at: [0, 0.182, 0.026], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: 0, kneel: 0.85, drop: 0.07 } },
+        { geo: 'leg', at: [0, 0.182, -0.026], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: Math.PI, kneel: -0.85, drop: 0.07 } },
+        { geo: 'body', at: [0, 0.18, 0], anim: { k: 'body', drop: 0.07 }, kids: [{ muzzle: true, at: rocket ? [0.17, 0.14, 0.07] : [0.23, 0.08, 0.025] }] },
       ],
     },
   };
@@ -362,23 +385,42 @@ function hauler(): RigDef {
         s.box(0.02, 0.04, 0.08, AMBER, { at: [0.7, 0.22, 0.18], glow: true, bevel: 0 });
         s.box(0.02, 0.04, 0.08, AMBER, { at: [0.7, 0.22, -0.18], glow: true, bevel: 0 });
         s.cyl(0.025, 0.3, GUN, { at: [0.33, 0.42, 0.22], seg: 8 }); // exhaust stack
-        // Ore hopper: sloped steel bin with team bands and hazard stripes.
+        s.box(0.12, 0.03, 0.56, STEEL2, { at: [0.74, 0.12, 0], bevel: 0.2 }); // cutter arms
+        s.box(0.015, 0.025, 0.05, RED, { at: [-0.785, 0.2, 0.12], glow: true, bevel: 0 }); // tail lights
+        s.box(0.015, 0.025, 0.05, RED, { at: [-0.785, 0.2, -0.12], glow: true, bevel: 0 });
+        s.cyl(0.03, 0.14, GUN, { at: [-0.62, 0.26, 0.2], rot: [0, 0, 0.5], seg: 8 }); // tipping rams
+        s.cyl(0.03, 0.14, GUN, { at: [-0.62, 0.26, -0.2], rot: [0, 0, 0.5], seg: 8 });
+        return s;
+      },
+      bed: () => {
+        // The ore bed: a sloped steel bin with team bands and hazard stripes, hinged at the back to tip.
+        const s = shape();
         s.slab([[-0.66, 0.2], [0.3, 0.2], [0.34, 0.52], [-0.7, 0.52]], 0.6, STEEL, { bevel: 0.025 });
         s.box(1.0, 0.04, 0.62, 'team', { at: [-0.18, 0.5, 0], bevel: 0.25 });
         for (let i = 0; i < 5; i++) s.box(0.06, 0.02, 0.625, i % 2 ? DARK : HAZARD, { at: [-0.6 + i * 0.07, 0.26, 0], bevel: 0 });
         s.box(0.9, 0.02, 0.5, DARK, { at: [-0.18, 0.525, 0], bevel: 0 }); // hopper mouth
-        s.box(0.12, 0.08, 0.3, STEEL2, { at: [-0.72, 0.22, 0] }); // tail gate
-        s.box(0.015, 0.025, 0.05, RED, { at: [-0.785, 0.24, 0.12], glow: true, bevel: 0 });
-        s.box(0.015, 0.025, 0.05, RED, { at: [-0.785, 0.24, -0.12], glow: true, bevel: 0 });
+        s.box(0.06, 0.26, 0.56, STEEL2, { at: [-0.72, 0.36, 0], bevel: 0.2 }); // tail gate
+        return s;
+      },
+      drum: () => {
+        // A toothed cutter drum across the front that chews crystals off the ground.
+        const s = shape();
+        s.cyl(0.07, 0.5, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 10 });
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          s.box(0.03, 0.03, 0.46, i % 2 ? HAZARD : GUN, { at: [Math.cos(a) * 0.07, Math.sin(a) * 0.07, 0], rot: [0, 0, a], bevel: 0 });
+        }
         return s;
       },
       cargo: () => {
         const s = shape();
-        for (let i = 0; i < 6; i++) {
-          const x = -0.55 + (i % 3) * 0.3;
-          const z = i < 3 ? 0.12 : -0.12;
-          s.cyl(0.035, 0.14, 0x47e8c4, { at: [x, 0.56, z], rot: [0.3 * (i % 2 ? 1 : -1), 0, 0.2 * ((i % 3) - 1)], seg: 6 });
-          s.cone(0.035, 0.06, CYAN, { at: [x, 0.66, z], rot: [0.3 * (i % 2 ? 1 : -1), 0, 0.2 * ((i % 3) - 1)], seg: 6, glow: true });
+        // A heap of crystals standing proud of the hopper when full (it rises from the floor with the load).
+        for (let i = 0; i < 9; i++) {
+          const x = -0.58 + (i % 3) * 0.25 + (i % 2) * 0.04;
+          const z = (Math.floor(i / 3) - 1) * 0.16;
+          const tilt: [number, number, number] = [0.35 * (i % 2 ? 1 : -1), 0, 0.25 * ((i % 3) - 1)];
+          s.cyl(0.05, 0.2, 0x47e8c4, { at: [x, 0.6, z], rot: tilt, seg: 6 });
+          s.cone(0.05, 0.09, 0x7ff0dc, { at: [x, 0.74, z], rot: tilt, seg: 6 });
         }
         return s;
       },
@@ -391,7 +433,15 @@ function hauler(): RigDef {
         wheel(-0.3, -0.28, false),
         wheel(-0.56, 0.28, false),
         wheel(-0.56, -0.28, false),
-        { anim: { k: 'body' }, geo: 'body', kids: [{ geo: 'cargo', anim: { k: 'cargo' } }] },
+        {
+          anim: { k: 'body' },
+          geo: 'body',
+          kids: [
+            { geo: 'drum', at: [0.8, 0.1, 0], anim: { k: 'drum' } },
+            // The bed tips back about its rear hinge to unload; the crystal pile rides in it and rises as it fills.
+            { geo: 'bed', anim: { k: 'tip', pivot: [-0.72, 0.22, 0], max: 0.7 }, kids: [{ geo: 'cargo', anim: { k: 'cargo', pivot: [-0.25, 0.5, 0] } }] },
+          ],
+        },
       ],
     },
   };
@@ -797,7 +847,8 @@ function gorger(): RigDef {
           anim: { k: 'body' },
           geo: 'body',
           at: [0, 0.3, 0],
-          kids: [...sixLegs([0.35, 0.02, -0.32], -0.06, 0.16, 0.3, 0.04), { geo: 'cargo', anim: { k: 'cargo' } }],
+          // The glowing belly sac swells as the gorger feeds.
+          kids: [...sixLegs([0.35, 0.02, -0.32], -0.06, 0.16, 0.3, 0.04), { geo: 'cargo', anim: { k: 'cargo', pivot: [0.05, 0.2, 0], swell: true } }],
         },
       ],
     },

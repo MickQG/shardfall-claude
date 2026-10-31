@@ -9,6 +9,10 @@
     <title>Shardfall</title>
     <style>
       html, body, #app { margin: 0; height: 100%; background: #0b1015; overflow: hidden; }
+      /* The game frame is at most 16:9 (UI-10): on wider screens it is centred between dark bars, so the console stays
+         beside the action. The transform makes the HUD's fixed panels lay out inside the frame, not the window. */
+      html { background: #04070a; }
+      body { position: relative; max-width: calc(100vh * 16 / 9); margin: 0 auto; transform: translateZ(0); box-shadow: 0 0 40px #000; }
     </style>
   </head>
   <body>

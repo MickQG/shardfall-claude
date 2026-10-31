@@ -30,8 +30,7 @@ interface Look {
   bio?: boolean;
 }
 
-/** Vrax bioluminescence: bright core, body glow and the deep green it fades to. */
-const BIO_CORE = 0xeaffb0;
+/** Vrax bioluminescence: body glow and the deep green it fades to. */
 const BIO = 0xa8ff3c;
 const BIO_DEEP = 0x3f8a10;
 
@@ -428,6 +427,8 @@ export class CombatFx {
   warnings: { at: Vec; r: number; start: number; end: number; glow: number; core: number; lastRing: number; lastMote: number; lastLight: number }[] = [];
   /** Effects scheduled for later. */
   private later: { at: number; fn: (now: number) => void }[] = [];
+  /** Harvesters at work, by unit id (R3D-19): mining from a crystal or unloading into a refinery. */
+  links = new Map<number, { from: Vec; to: Vec; until: number; organic: boolean; unload: boolean; last: number; seed: number }>();
   private rng = new Rng(12345);
   private v = new THREE.Vector3();
   private w = new THREE.Vector3();
@@ -532,16 +533,16 @@ export class CombatFx {
   private spit(L: Look, at: Vec, dir: Vec, now: number): void {
     const r = this.rng;
     const f = L.flash;
-    this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 90, size0: f * 1.5, size1: f * 0.5, color0: BIO_CORE, color1: BIO, alpha: 1 }, now);
+    this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 90, size0: f * 1.3, size1: f * 0.5, color0: BIO, color1: BIO_DEEP, alpha: 0.6 }, now);
     const n = this.quality.rich ? 7 : 3;
     for (let i = 0; i < n; i++) {
       const sp = r.range(1.2, 3.2);
       const sx = r.range(-0.6, 0.6);
       const sz = r.range(-0.6, 0.6);
-      this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: (dir.x + sx * 0.5) * sp, vy: (dir.y + r.range(0, 0.5)) * sp, vz: (dir.z + sz * 0.5) * sp, life: r.range(180, 380), size0: f * 0.45, size1: f * 0.12, color0: BIO, color1: BIO_DEEP, alpha: 1.1, drag: 3, gravity: 5 }, now);
+      this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: (dir.x + sx * 0.5) * sp, vy: (dir.y + r.range(0, 0.5)) * sp, vz: (dir.z + sz * 0.5) * sp, life: r.range(180, 380), size0: f * 0.4, size1: f * 0.12, color0: BIO, color1: BIO_DEEP, alpha: 0.7, drag: 3, gravity: 5 }, now);
     }
     if (this.quality.rich && !this.busy) this.smoke.emit({ x: at.x + dir.x * f, y: at.y + dir.y * f, z: at.z + dir.z * f, vx: dir.x * 0.6, vy: 0.2, vz: dir.z * 0.6, life: 650, size0: f * 0.5, size1: f * 2, color0: 0x7aa04a, color1: 0x3a4a2a, alpha: 0.3, drag: 2 }, now);
-    this.light(at.x, at.y + 0.1, at.z, BIO, f * 10, 160 + f * 160, now);
+    this.light(at.x, at.y + 0.1, at.z, BIO, f * 4, 140 + f * 140, now);
     if (L.shake > 0) this.shake = Math.max(this.shake, L.shake);
   }
 
@@ -669,7 +670,7 @@ export class CombatFx {
         const b = r.range(0, Math.PI * 2);
         this.glow.emit({ x: at.x, y: at.y + 0.1, z: at.z, vx: Math.cos(b) * r.range(0.4, 1.4), vy: r.range(0.6, 1.6), vz: Math.sin(b) * r.range(0.4, 1.4), life: r.range(300, 550), size0: 0.035, size1: 0.02, color0: BIO, color1: BIO_DEEP, alpha: 1, gravity: 7 }, now);
       }
-      this.light(at.x, at.y + 0.2, at.z, BIO, 3, 160, now);
+      this.light(at.x, at.y + 0.2, at.z, BIO, 1, 140, now);
     }
     const n = L.hit === 'slash' ? 6 : 4;
     for (let i = 0; i < n; i++) {
@@ -678,8 +679,8 @@ export class CombatFx {
     }
     // Stings and spines burst in a small green puff with a glint of light.
     if (L.bio && L.hit !== 'slash') {
-      this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 160, size0: 0.08, size1: 0.2, color0: BIO_CORE, color1: BIO_DEEP, alpha: 0.9 }, now);
-      this.light(at.x, at.y + 0.15, at.z, BIO, 2, 140, now);
+      this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 160, size0: 0.08, size1: 0.18, color0: BIO, color1: BIO_DEEP, alpha: 0.45 }, now);
+      this.light(at.x, at.y + 0.15, at.z, BIO, 0.7, 120, now);
     }
     if (this.quality.rich) this.smoke.emit({ x: at.x, y: at.y, z: at.z, vy: 0.3, life: 450, size0: 0.06, size1: 0.22, color0: 0x8a7a5e, alpha: 0.35, drag: 2 }, now);
   }
@@ -695,7 +696,7 @@ export class CombatFx {
     // A splash crown of glowing acid, then bubbles that keep rising and popping from the puddle (R3D-12).
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2 + r.range(-0.3, 0.3);
-      this.glow.emit({ x: at.x, y: at.y + 0.04, z: at.z, vx: Math.cos(a) * size * 2.4, vy: r.range(1.6, 2.6), vz: Math.sin(a) * size * 2.4, life: r.range(380, 520), size0: 0.05, size1: 0.02, color0: BIO_CORE, color1: BIO, alpha: 1.2, drag: 1.5, gravity: 9 }, now);
+      this.glow.emit({ x: at.x, y: at.y + 0.04, z: at.z, vx: Math.cos(a) * size * 2.4, vy: r.range(1.6, 2.6), vz: Math.sin(a) * size * 2.4, life: r.range(380, 520), size0: 0.045, size1: 0.02, color0: BIO, color1: BIO_DEEP, alpha: 0.8, drag: 1.5, gravity: 9 }, now);
     }
     for (let i = 0; i < (this.quality.rich ? 9 : 4); i++) {
       const a = r.range(0, Math.PI * 2);
@@ -703,18 +704,81 @@ export class CombatFx {
       this.glow.emit({ x: at.x + Math.cos(a) * d, y: at.y + 0.02, z: at.z + Math.sin(a) * d, vy: r.range(0.15, 0.35), life: r.range(300, 500), size0: 0.02, size1: 0.05, color0: BIO, color1: BIO_DEEP, alpha: 0.9, delay: r.range(150, 1600) }, now);
     }
     this.puddle(at, size, now);
-    this.glow.emit({ x: at.x, y: at.y + 0.05, z: at.z, life: 220, size0: size * 1.6, size1: size * 2.2, color0: 0xe0ff90, color1: 0x80e020, alpha: 1.4 }, now);
+    this.glow.emit({ x: at.x, y: at.y + 0.05, z: at.z, life: 220, size0: size * 1.4, size1: size * 2, color0: 0xc8ff70, color1: 0x60b018, alpha: 0.8 }, now);
     for (let i = 0; i < 10; i++) {
       const a = r.range(0, Math.PI * 2);
       const sp = r.range(0.5, 2) * size * 2;
       this.glow.emit({ x: at.x, y: at.y + 0.05, z: at.z, vx: Math.cos(a) * sp, vy: r.range(0.6, 2), vz: Math.sin(a) * sp, life: r.range(300, 650), size0: 0.07, size1: 0.03, color0: 0xc8ff4a, color1: 0x5a9a10, alpha: 1.3, gravity: 6 }, now);
     }
     for (let i = 0; i < (this.quality.rich ? 5 : 2); i++) this.smoke.emit({ x: at.x + r.range(-0.1, 0.1), y: at.y + 0.1, z: at.z + r.range(-0.1, 0.1), vy: r.range(0.2, 0.5), life: r.range(1000, 1700), size0: size * 0.5, size1: size * 1.6, color0: 0x6a8a30, color1: 0x3a4a2a, alpha: 0.45, drag: 1 }, now);
-    this.light(at.x, at.y + 0.3, at.z, 0xa0ff40, 6 * size, 300, now);
+    this.light(at.x, at.y + 0.3, at.z, 0xa0ff40, 2.5 * size, 260, now);
     if (size >= 0.5) {
       this.scorch(at, size * 1.4, now);
       this.ring(at, size * 2, 380, now, BIO);
     }
+  }
+
+  /**
+   * A harvester at work this frame (R3D-19): what it throws or drops comes from `from` (its cutter, maw or bed lip) and
+   * goes toward `to` (its bed, or the intake below). Called every frame while it works; it stops a moment after.
+   */
+  harvest(id: number, from: Vec, to: Vec, organic: boolean, unload: boolean, now: number): void {
+    let l = this.links.get(id);
+    if (!l) {
+      l = { from: from.clone(), to: to.clone(), until: 0, organic, unload, last: -1e9, seed: (id * 7919) % 97 };
+      this.links.set(id, l);
+    }
+    l.from.copy(from);
+    l.to.copy(to);
+    l.organic = organic;
+    l.unload = unload;
+    l.until = now + 160;
+  }
+
+  /**
+   * Draw the working harvesters (R3D-19). Mining: crystal chips and grit kicked up at the cutter (or the gorger's maw)
+   * and thrown into the hopper (`to`). Unloading: crystals tumbling off the tipped bed's lip (or a glowing mass spilling
+   * from the gorger) and dropping into the intake below. No beams: everything falls under gravity.
+   */
+  private drawLinks(now: number): void {
+    const r = this.rng;
+    for (const [id, l] of this.links) {
+      if (now > l.until) {
+        this.links.delete(id);
+        continue;
+      }
+      const crystal = l.organic ? 0x7fc23a : 0x47e8c4;
+      if (!l.unload) {
+        if (now - l.last < 60) continue;
+        l.last = now;
+        // A chip thrown from the cutter into the hopper, on a ballistic arc.
+        const T = 0.4;
+        this.glow.emit({ x: l.from.x + r.range(-0.08, 0.08), y: l.from.y, z: l.from.z + r.range(-0.08, 0.08), vx: (l.to.x - l.from.x) / T, vy: (l.to.y - l.from.y) / T + 3 * T, vz: (l.to.z - l.from.z) / T, life: T * 1000, size0: 0.045, size1: 0.035, color0: crystal, alpha: 0.7, gravity: 6 }, now);
+        // Grit and dust where it cuts.
+        if (this.quality.rich && r.next() < 0.5) this.smoke.emit({ x: l.from.x, y: l.from.y, z: l.from.z, vx: r.range(-0.3, 0.3), vy: r.range(0.2, 0.5), vz: r.range(-0.3, 0.3), life: r.range(500, 800), size0: 0.06, size1: 0.2, color0: 0x8a8070, alpha: 0.3, drag: 2 }, now);
+      } else {
+        if (now - l.last < 45) continue;
+        l.last = now;
+        // Crystals tumble off the lip and drop into the intake.
+        for (let i = 0; i < (l.organic ? 1 : 2); i++) {
+          this.glow.emit({ x: l.from.x + r.range(-0.12, 0.12), y: l.from.y, z: l.from.z + r.range(-0.12, 0.12), vx: (l.to.x - l.from.x) * 1.6 + r.range(-0.15, 0.15), vy: r.range(0, 0.4), vz: (l.to.z - l.from.z) * 1.6 + r.range(-0.15, 0.15), life: r.range(380, 520), size0: l.organic ? 0.07 : 0.05, size1: 0.04, color0: crystal, alpha: 0.7, gravity: 7 }, now);
+        }
+        if (this.quality.rich && r.next() < 0.3) this.smoke.emit({ x: l.to.x, y: l.to.y, z: l.to.z, vx: r.range(-0.2, 0.2), vy: 0.3, vz: r.range(-0.2, 0.2), life: 600, size0: 0.1, size1: 0.3, color0: 0x9a9284, alpha: 0.25, drag: 2 }, now);
+      }
+    }
+  }
+
+  /** A burst from a damaged building (R3D-18): electric sparks for Aegis, a spurt of glowing ichor for the Vrax. */
+  sparks(at: Vec, organic: boolean, now: number): void {
+    const r = this.rng;
+    const n = this.quality.rich ? 7 : 3;
+    for (let i = 0; i < n; i++) {
+      const a = r.range(0, Math.PI * 2);
+      const sp = r.range(0.8, 2.2);
+      this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: Math.cos(a) * sp, vy: r.range(0.6, 2), vz: Math.sin(a) * sp, life: r.range(250, 500), size0: organic ? 0.045 : 0.03, size1: 0.01, color0: organic ? BIO : 0xfff2b0, color1: organic ? BIO_DEEP : 0xff8a30, alpha: 1.4, gravity: 7 }, now);
+    }
+    this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 90, size0: 0.12, size1: 0.2, color0: organic ? BIO : 0xcfe8ff, alpha: 1 }, now);
+    this.light(at.x, at.y + 0.1, at.z, organic ? BIO : 0x9fd0ff, 1, 100, now);
   }
 
   /** A glowing pool on the ground: acid that fades over a few seconds (R3D-12), or a superweapon's mark that grows. */
@@ -780,11 +844,13 @@ export class CombatFx {
     const rich = this.quality.rich;
     const R = Math.max(1.5, radius);
     this.glow.emit({ x: at.x, y: at.y + 0.6, z: at.z, life: 320, size0: R * 2.5, size1: R * 4.5, color0: 0xffffff, color1: P.core, alpha: 2.4 }, now);
-    this.glow.emit({ x: at.x, y: at.y + 0.3, z: at.z, life: 950, size0: R * 3, size1: R * 5, color0: P.glow, color1: P.deep, alpha: 0.9 }, now);
+    this.glow.emit({ x: at.x, y: at.y + 0.3, z: at.z, life: 2400, size0: R * 3, size1: R * 5, color0: P.glow, color1: P.deep, alpha: 0.9 }, now);
     const sky = at.clone().setY(at.y + 40);
-    this.beam(sky, at, R * 0.17, P.glow, 2.2, 1100, now);
-    this.beam(sky, at, R * 0.06, P.core, 6, 800, now);
-    this.light(at.x, at.y + 1.5, at.z, P.core, 90, 1600, now, 10 + R * 3);
+    this.beam(sky, at, R * 0.17, P.glow, 2.2, 2200, now);
+    this.beam(sky, at, R * 0.06, P.core, 6, 1500, now);
+    this.light(at.x, at.y + 1.5, at.z, P.core, 90, 3500, now, 10 + R * 3);
+    // The crater keeps glowing, cooling over several seconds.
+    this.puddle(at, R * 0.8, now, aegis ? 0xff7a30 : P.glow, 7000);
     [0, 140, 320].forEach((d, i) => this.after(now + d, (t) => this.ring(at, R * (1.6 + i * 0.9), 700 + i * 200, t, i === 0 ? 0xffffff : P.glow)));
     this.explosion(at, 2.2, now, P.fire);
     for (let i = 0; i < 8; i++) {
@@ -795,11 +861,11 @@ export class CombatFx {
     }
     // A mushroom of smoke: a column that rises, then a cap that spreads.
     for (let i = 0; i < (rich ? 26 : 10); i++) {
-      this.smoke.emit({ x: at.x + r.range(-0.3, 0.3), y: at.y + 0.3, z: at.z + r.range(-0.3, 0.3), vx: r.range(-0.3, 0.3), vy: r.range(1.6, 3.2), vz: r.range(-0.3, 0.3), life: r.range(2600, 4200), size0: 0.5, size1: R * r.range(0.7, 1.1), color0: aegis ? 0x4a4440 : 0x3a4a30, color1: 0x6a6660, alpha: 0.55, drag: 0.9, gravity: -0.2, delay: r.range(0, 500) }, now);
+      this.smoke.emit({ x: at.x + r.range(-0.3, 0.3), y: at.y + 0.3, z: at.z + r.range(-0.3, 0.3), vx: r.range(-0.3, 0.3), vy: r.range(1.6, 3.2), vz: r.range(-0.3, 0.3), life: r.range(5000, 8000), size0: 0.5, size1: R * r.range(0.8, 1.3), color0: aegis ? 0x4a4440 : 0x3a4a30, color1: 0x6a6660, alpha: 0.55, drag: 0.9, gravity: -0.2, delay: r.range(0, 500) }, now);
     }
     for (let i = 0; i < (rich ? 14 : 6); i++) {
       const a = r.range(0, Math.PI * 2);
-      this.smoke.emit({ x: at.x, y: at.y + 2.4, z: at.z, vx: Math.cos(a) * r.range(0.8, 1.4), vy: 0.35, vz: Math.sin(a) * r.range(0.8, 1.4), life: r.range(2400, 3600), size0: 0.8, size1: R * 1.1, color0: 0x5a5450, color1: 0x77736c, alpha: 0.5, drag: 1, delay: r.range(600, 1000) }, now);
+      this.smoke.emit({ x: at.x, y: at.y + 2.4, z: at.z, vx: Math.cos(a) * r.range(0.8, 1.4), vy: 0.35, vz: Math.sin(a) * r.range(0.8, 1.4), life: r.range(5000, 7500), size0: 0.8, size1: R * 1.3, color0: 0x5a5450, color1: 0x77736c, alpha: 0.5, drag: 1, delay: r.range(600, 1000) }, now);
     }
     for (let i = 0; i < (rich ? 36 : 14); i++) {
       const a = r.range(0, Math.PI * 2);
@@ -807,11 +873,12 @@ export class CombatFx {
       this.glow.emit({ x: at.x, y: at.y + 0.3, z: at.z, vx: Math.cos(a) * sp, vy: r.range(3, 7), vz: Math.sin(a) * sp, life: r.range(900, 1600), size0: 0.08, size1: 0.02, color0: P.core, color1: aegis ? 0xff7020 : P.deep, alpha: 1.4, gravity: 7 }, now);
     }
     this.scorch(at, R * 2.4, now);
-    for (let i = 0; i < (rich ? 12 : 5); i++) {
+    // Fires keep burning across the blast for about eight seconds.
+    for (let i = 0; i < (rich ? 26 : 8); i++) {
       const a = r.range(0, Math.PI * 2);
-      const d = R * r.range(0.1, 0.65);
+      const d = R * r.range(0.1, 0.7);
       const p = new THREE.Vector3(at.x + Math.cos(a) * d, at.y + 0.05, at.z + Math.sin(a) * d);
-      this.after(now + 300 + i * 320, (t) => this.burn(p, true, 0.6, t));
+      this.after(now + 300 + i * (rich ? 300 : 900), (t) => this.burn(p, true, 0.6, t));
     }
     if (!aegis) {
       this.acidBurst(at, 1, now);
@@ -937,10 +1004,11 @@ export class CombatFx {
     }
     this.shots = keep;
     this.landed = this.landed.filter((l) => now - l.at < 250);
+    this.drawLinks(now);
     this.flashes = this.flashes.filter((f) => {
       const k = (now - f.born) / 140;
       if (k >= 1) return false;
-      this.streaks.add(f.tail, f.head, 0.012 * (1 - k), 0xe8ffd0, 3);
+      this.streaks.add(f.tail, f.head, 0.012 * (1 - k), 0xc8f0a0, 1.6);
       return true;
     });
     this.streaks.end();

@@ -7,12 +7,14 @@ import { CombatFx, LOOKS, scorchTexture, shotDuration } from '../../src/render3d
 import { Instancer } from '../../src/render3d/instancer';
 import { Shape } from '../../src/render3d/kit';
 import { angleDiff, bodyPose, flightAfterWait, follow, gaitPhase, MAX_AIM_WAIT, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, type Follow } from '../../src/render3d/motion';
-import { muzzleCount, poseRig, recoil, rigTree, type RigPose } from '../../src/render3d/rig';
+import { muzzleCount, poseRig, recoil, rigTree, type RigDef, type RigPose } from '../../src/render3d/rig';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, ROCK_AMP, rockOffset, scatter, shardCover, terrainMeshes, TEXELS, waterAlpha, wetness } from '../../src/render3d/terrain3d';
 import { kneels, newMember, SQUAD_SPREAD, stepSquad, type Member, type SquadFrame } from '../../src/render3d/squad3d';
 import { demoMap, showcaseConfig, skirmishMap } from '../../src/data/maps';
 import type { MapDef } from '../../src/sim';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
+import { HIDE_FROM, HIDE_FULL, unexploredMask } from '../../src/render3d/unexplored';
+import { CRASH_MS, damageLook, GLOW, HIVE_GLOW } from '../../src/render3d/view3d';
 
 const STILL: RigPose = { turret: 0, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: 0, stride: 0, dist: 0, turnRate: 0, time: 0, reach: 0, walker: false };
 
@@ -251,6 +253,106 @@ const terrainOf = (m: MapDef) => ({
   shards: (x: number, y: number) => (m.shards?.[y * m.width + x] ?? 0) > 0,
 });
 const MAPS: [string, MapDef][] = [['skirmish', skirmishMap()], ['demo', demoMap()], ['showcase', showcaseConfig(1).map]];
+
+describe('fog, damage, harvesters and deaths', () => {
+  it('R3D-17: materials on unexplored tiles fade into the fog using the fog texture, for lit and unlit shaders alike', () => {
+    const mask = unexploredMask();
+    for (const mat of [new THREE.MeshStandardMaterial(), new THREE.MeshBasicMaterial()]) {
+      mask.apply(mat);
+      const lib = mat instanceof THREE.MeshStandardMaterial ? THREE.ShaderLib.physical : THREE.ShaderLib.basic;
+      const shader = { uniforms: {} as Record<string, unknown>, vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader };
+      mat.onBeforeCompile(shader as never, undefined as never);
+      expect(shader.vertexShader).toContain('vHideXZ = ( modelMatrix * hideW ).xz');
+      expect(shader.vertexShader).toContain('instanceMatrix * hideW');
+      expect(shader.fragmentShader).toContain('mix( gl_FragColor.rgb, uHideColor, hidden )');
+      expect(shader.uniforms.uHideMap).toBe(mask.uniforms.uHideMap);
+      expect(mat.customProgramCacheKey()).toBe('unexplored-mask');
+    }
+    // Explored tiles (fog green 120/255) are left alone; unexplored ones (245/255) are fully hidden.
+    expect(120 / 255).toBeLessThan(HIDE_FROM);
+    expect(245 / 255).toBeGreaterThan(HIDE_FULL);
+    const fog = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+    mask.use(fog, 96, 80);
+    expect(mask.uniforms.uHideMap.value).toBe(fog);
+    expect(mask.uniforms.uHideSize.value.toArray()).toEqual([96, 80]);
+  });
+
+  it('R3D-18: damage darkens a building steadily, sparks from half health, and below a third it sags and flickers', () => {
+    expect(damageLook(1, 0, 1)).toEqual({ tint: 1, lean: 0, sparkEvery: 0 });
+    const tints = [1, 0.8, 0.6, 0.4, 0.2].map((hp) => damageLook(hp, 0, 1).tint);
+    for (let i = 1; i < tints.length; i++) expect(tints[i]!).toBeLessThan(tints[i - 1]!);
+    expect(damageLook(0.6, 0, 1).sparkEvery).toBe(0);
+    expect(damageLook(0.45, 0, 1).sparkEvery).toBeGreaterThan(damageLook(0.1, 0, 1).sparkEvery);
+    expect(damageLook(0.4, 0, 1).lean).toBe(0);
+    expect(damageLook(0.1, 0, 1).lean).toBeGreaterThan(0);
+    // Its power flickers now and then when wrecked, never when healthy.
+    const low = Array.from({ length: 2000 }, (_, t) => damageLook(0.1, t * 7, 3).tint);
+    expect(Math.min(...low)).toBeLessThan(Math.max(...low) * 0.8);
+    const fine = Array.from({ length: 2000 }, (_, t) => damageLook(0.9, t * 7, 3).tint);
+    expect(Math.min(...fine)).toBe(Math.max(...fine));
+    const fx = new CombatFx();
+    fx.sparks(new THREE.Vector3(1, 1, 1), false, 0);
+    fx.update(16, 0.016);
+    expect(fx.particleCount).toBeGreaterThan(3);
+  });
+
+  it('R3D-19: each harvester cargo grows with its load, and mining and unloading play while they last', () => {
+    for (const kind of ['hum_hauler', 'ali_gorger']) {
+      const t = rigTree(UNIT_RIGS[kind]!());
+      const cargo = t.anims.find((a) => a.anim.k === 'cargo')!;
+      poseRig(t, { ...STILL, load: 0.1 });
+      const small = cargo.obj.scale.y;
+      poseRig(t, { ...STILL, load: 1 });
+      expect(cargo.obj.scale.y, kind).toBeGreaterThan(small + 0.2);
+    }
+    // The hauler tips its bed back about the rear hinge to unload, and its cutter drum turns while mining.
+    const hauler = rigTree(UNIT_RIGS.hum_hauler!());
+    const bed = hauler.anims.find((a) => a.anim.k === 'tip')!;
+    const drum = hauler.anims.find((a) => a.anim.k === 'drum')!;
+    poseRig(hauler, { ...STILL, tip: 0, drum: 0 });
+    expect(bed.obj.rotation.z).toBe(0);
+    poseRig(hauler, { ...STILL, tip: 1, drum: 2 });
+    expect(bed.obj.rotation.z).toBeGreaterThan(0.5); // front up, so the load slides out of the back
+    expect(drum.obj.rotation.z).toBeCloseTo(-2, 6);
+    // The hinge stays where it is while the bed swings up about it.
+    bed.obj.updateMatrix();
+    const hinge = new THREE.Vector3(-0.72, 0.22, 0).applyMatrix4(bed.obj.matrix);
+    expect(hinge.x).toBeCloseTo(-0.72, 6);
+    expect(hinge.y).toBeCloseTo(0.22, 6);
+    // ...and the front of the bed rises above its resting height.
+    const front = new THREE.Vector3(0.3, 0.52, 0).applyMatrix4(bed.obj.matrix);
+    expect(front.y).toBeGreaterThan(0.8);
+    const fx = new CombatFx();
+    const hopper = new THREE.Vector3(5, 0.6, 5);
+    const crystal = new THREE.Vector3(6, 0.2, 5);
+    for (let t = 0; t < 600; t += 16) {
+      fx.harvest(1, hopper, crystal, false, false, t);
+      fx.harvest(2, hopper, crystal, true, true, t);
+      fx.update(t, 0.016);
+    }
+    expect(fx.links.size).toBe(2);
+    expect(fx.particleCount).toBeGreaterThan(8);
+    fx.update(1000, 0.016);
+    expect(fx.links.size).toBe(0); // stops a moment after the work stops
+  });
+
+  it('R3D-12: aircraft dive out of the sky in about half a second, and Vrax buildings glow softer than other glows', () => {
+    expect(CRASH_MS).toBeLessThanOrEqual(600);
+    expect(HIVE_GLOW).toBeLessThan(GLOW);
+    expect(GLOW).toBeLessThanOrEqual(1.6);
+  });
+
+  it('R3D-3: riflemen and rocketeers read apart: different cloth, visor, size and build', () => {
+    const rifle = UNIT_RIGS.hum_rifleman!();
+    const rocket = UNIT_RIGS.hum_rocketeer!();
+    expect(rocket.scale!).toBeGreaterThan(rifle.scale!);
+    const colours = (def: RigDef): Set<string> => new Set(Object.values(def.shapes).flatMap((sh) => sh().pieces.map((p) => String(p.paint))));
+    const a = colours(rifle);
+    const b = colours(rocket);
+    expect([...b].filter((c) => !a.has(c)).length).toBeGreaterThanOrEqual(2);
+    expect(rocket.shapes.body!().pieces.length).toBeGreaterThan(rifle.shapes.body!().pieces.length);
+  });
+});
 
 describe('organic contours', () => {
   it('R3D-14: the contour warp is bounded, zero away from contours and along the map border, and the same every time', () => {
@@ -558,6 +660,10 @@ describe('effects budget and batching', () => {
     for (let t = 3042; t < 5000; t += 16) fx.update(t, 0.016);
     expect(fx.particleCount).toBeGreaterThan(0);
     expect(early).toBeGreaterThan(0);
+    // The blast lingers: smoke, fires and a glowing crater are still there six seconds on.
+    for (let t = 5000; t < 9010; t += 16) fx.update(t, 0.016);
+    expect(fx.particleCount).toBeGreaterThan(10);
+    expect(fx.puddles.some((p) => p.mesh.visible)).toBe(true);
     // The Vrax rift adds acid pools.
     const rift = new CombatFx();
     rift.superweaponStrike(to, 5, false, 0);

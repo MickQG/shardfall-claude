@@ -1,7 +1,7 @@
 # 007 Visual polish, audio and game feel (milestone 7)
 
 - **VIS-1**: Every unit kind has its own procedural drawing, distinct per kind, faction-styled and team-coloured; aircraft hover above their shadow, and ground units face the way they move.
-- **VIS-2**: A graphics-quality setting (high/low) and the system reduced-motion preference control bloom, particles and screen shake; settings persist and fall back safely when storage is unavailable.
+- **VIS-2**: A graphics-quality setting (high/low) controls bloom, particles and decorative effects, and starts at high for everyone; the system reduced-motion preference stops screen shake without lowering the quality. Settings persist and fall back safely when storage is unavailable; settings saved before the high default (version 1) keep their sound choices but start on high quality again.
 - **VIS-3**: Terrain has varied tint, faceted rock formations, ambient drifting particles and a vignette, without changing simulation data.
 - **AUD-1**: Simulation events map to sounds (shots by weapon type, explosions, deaths, superweapon launch and strike); events outside the viewer's interest are not played, and muting silences everything.
 - **AUD-2**: The ambient music is generated deterministically from a seed (same seed, same score) and stays in key.

@@ -520,7 +520,8 @@ async function boot(): Promise<void> {
   window.addEventListener('pointermove', (e) => {
     if (!drag) return;
     const r = canvas.getBoundingClientRect();
-    hud.selbox(Math.hypot(e.clientX - r.left - drag.x0, e.clientY - r.top - drag.y0) > 5 ? { x0: drag.x0 + r.left, y0: drag.y0 + r.top, x1: e.clientX, y1: e.clientY } : null);
+    // Canvas coordinates: the game frame may be centred between side bars on wide screens (UI-10).
+    hud.selbox(Math.hypot(e.clientX - r.left - drag.x0, e.clientY - r.top - drag.y0) > 5 ? { x0: drag.x0, y0: drag.y0, x1: e.clientX - r.left, y1: e.clientY - r.top } : null);
   });
   window.addEventListener('pointerup', (e) => {
     if (!drag || e.button !== 0 || !sim.curr || !sim.prev) return;

@@ -21,4 +21,5 @@ Shards are the single resource. Haulers gather shards and deliver them to refine
 - **DET-1**: An economy scenario with the same seed and commands yields the same state hash; changing a command changes it.
 - **UI-1**: The shared placement check agrees with the simulation, so the UI ghost is green exactly when a placement would be accepted.
 - **MAP-2**: The skirmish map is point-symmetric; both start positions are connected, and every shard field is reachable from both starts.
+- **MAP-3**: The skirmish map has water (blocked ground at level 0), mirrored like the rest of the map: a pond on each base's outer flank, clear of the base and its exits, and lakes beside the mid-map routes that narrow them without closing them. Water never covers a start, a starting building or a shard field.
 - **ECO-6**: Training a harvester costs less than a refinery, so a refinery's free first harvester is never the cheapest way to add harvesters.
