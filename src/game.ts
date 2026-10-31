@@ -35,16 +35,29 @@ const scenario = params.get('scenario');
 const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number] };
 const seed = Number(params.get('seed') ?? Date.now() % 100000);
 const cfg = scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0)) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
-/** The three.js world view (ADR 0005, R3D-1): chosen once here, never part of the simulation. */
-const use3d = params.get('renderer') === '3d';
+/**
+ * The world view (ADR 0005, R3D-1): the three.js 3D view by default; `?renderer=classic`, or a browser without WebGL2,
+ * gets the classic isometric view. Chosen once here, never part of the simulation.
+ */
+function hasWebGl2(): boolean {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    return !!gl;
+  } catch {
+    return false;
+  }
+}
+const use3d = params.get('renderer') !== 'classic' && hasWebGl2();
 const map = cfg.map;
 const bounds = mapBounds(map.width, map.height);
 // Scenarios are scripted fights without an AI opponent; a normal game has the AI play player 1.
 const sim = new SimClient(cfg, scenario ? [] : [{ player: 1, difficulty: level }]);
-// three.js loads only when the 3D view is asked for, so classic sessions do not download it.
+// three.js loads only for the 3D view, so classic sessions do not download it.
 const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D() : new GameView();
 const frameStats = new FrameStats();
-const showFrameTime = use3d || scenario === 'showcase';
+// The frame-time readout is for the showcase and for measuring (`?fps`), not for normal games.
+const showFrameTime = scenario === 'showcase' || params.has('fps');
 const selection = new Selection();
 const hud = createHud();
 const settings = loadSettings(safeStorage(), matchMedia('(prefers-reduced-motion: reduce)').matches);

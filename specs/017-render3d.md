@@ -1,8 +1,8 @@
 # 017 Real-time 3D renderer slice (milestone 17, ADR 0005)
 
-The world drawn in real-time 3D with three.js behind a switch, alongside the classic view until the owner approves it. Gameplay, HUD, minimap and input rules are unchanged.
+The world drawn in real-time 3D with three.js. Approved by the owner on 2026-10-31 and now the default view; the classic view stays behind `?renderer=classic`. Gameplay, HUD, minimap and input rules are unchanged.
 
-- **R3D-1**: `?renderer=3d` draws the world with the 3D renderer for the whole session: chosen once at startup, never part of the simulation; without it the classic view is used unchanged.
+- **R3D-1**: The 3D renderer is the default world view for the whole session; `?renderer=classic`, or a browser without WebGL2, uses the classic isometric view unchanged. The choice is made once at startup and is never part of the simulation. The frame-time readout shows in the showcase and with `?fps`, not in normal games.
 - **R3D-2**: The 3D terrain is built from the map grid alone: one ground surface per tile at its level's height, rock cliff walls down to every lower neighbour (the sunward walls warmer), water surfaces on blocked low tiles, and ground colours that come only from tile coordinates.
 - **R3D-3**: Every unit and building has a procedural 3D model shaped from bevelled plates, cylinders, domes and lathed shells (not voxel blocks) that keeps its kind's silhouette and role: team colour on its marked parts, glowing parts drawn unlit and bright, crystals as faceted clusters that shrink as they deplete, props as rocks and flora. Infantry squads show one figure per standing member; turrets turn on their own pivot; every weapon has named muzzle points.
 - **R3D-4**: The 3D camera follows the same camera state as the classic view (screen-centre point and zoom): it looks along the isometric heading at a fixed pitch from a distance set by the zoom, so pan, zoom, centring and the minimap behave the same.

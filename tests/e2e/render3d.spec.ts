@@ -14,7 +14,8 @@ test.describe.configure({ timeout: 180_000 });
 test('R3D-1 R3D-5 R3D-6 R3D-7: the showcase runs in 3D on both presets; clicking selects and right-clicking moves', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/?faction=human&scenario=showcase&seed=1&renderer=3d');
+  // R3D-1: the 3D view is the default, with no switch in the address.
+  await page.goto('/?faction=human&scenario=showcase&seed=1');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   await expect(page.locator('#frametime')).toContainText(/renderer 3d · \d+ fps/);
   expect((await page.locator('canvas').first().screenshot()).length).toBeGreaterThan(30_000);
@@ -38,8 +39,8 @@ test('R3D-1 R3D-5 R3D-6 R3D-7: the showcase runs in 3D on both presets; clicking
   await page.mouse.click(g.x, g.y, { button: 'right' });
   await expect.poll(async () => (await page.evaluate((id) => (window as unknown as { __shardfall: Hook }).__shardfall.snapshot()!.units.find((u) => u.id === id)?.dest ?? null, tank)) !== null).toBe(true);
 
-  // R3D-1: without the switch the classic view is used.
-  await page.goto('/?faction=human&scenario=showcase&seed=1');
+  // R3D-1: `?renderer=classic` uses the classic view.
+  await page.goto('/?faction=human&scenario=showcase&seed=1&renderer=classic');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   await expect(page.locator('#frametime')).toContainText('renderer classic');
   expect(errors).toEqual([]);
