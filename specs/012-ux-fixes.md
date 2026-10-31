@@ -4,7 +4,7 @@ Bug and usability fixes found in a review of the player-facing controls and HUD.
 
 ## Production
 
-- **PRD-11**: Every unit ordered from the sidebar, including each of the five from a Ctrl-click, goes to the producer of that kind with the shortest queue, ties going to the one with the least build time left; while a producer of that kind is selected, orders go to that building instead.
+- **PRD-11**: Every unit ordered from the sidebar, including each of the five from a Ctrl-click, goes to the producer of that kind that would finish it soonest (the least build time queued), ties going to the shorter queue and then the earlier building, so all of a player's producers of a kind keep working, whatever the mix of unit kinds; which building is selected does not change where orders go.
 - **PRD-12**: A single right-click on a unit or structure in the sidebar cancels the newest queued copy of that kind across all of the player's buildings (furthest back in its queue, then least progressed), so the item in progress keeps its progress until it is the last one.
 - **PRD-13**: An item is shown as unavailable whenever it cannot be queued right now (not enough credits, full queue, missing prerequisite), including while other copies of it are already queued; a structure ready to place stays clickable.
 
@@ -36,3 +36,4 @@ Bug and usability fixes found in a review of the player-facing controls and HUD.
 - **UI-8**: A drawn game shows a draw message, not a defeat message.
 - **ALR-2**: The "ready: place it" alert fires each time a structure becomes ready to place, not only the first time for that kind.
 - **UI-9**: While the player owns a superweapon, the right-hand console shows a superweapon panel near the top, outside the scrolling lists, with one row per weapon: its name, a charge bar, its state (charging with a percentage, low power, ready, or picking a target) and a fire button. The button is lit and pulses once the weapon is ready; pressing it arms targeting (the next click on the map fires), and pressing it again or right-clicking cancels. Pressing it before then shows why it cannot fire.
+- **UI-10**: The game frame (world view, console, minimap and every overlay) is at most 16:9: on wider screens it is centred between dark side bars, so the right-hand console stays beside the action instead of at the far edge of the screen. Pointer input, selection boxes and the minimap work the same inside the frame.

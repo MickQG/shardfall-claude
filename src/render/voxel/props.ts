@@ -73,7 +73,8 @@ export type PropKind = 'pebbles' | 'sprout' | 'spire';
 export function propAt(x: number, y: number, free: boolean): PropKind | null {
   if (!free) return null;
   const h = hash(x * 3 + 11, y * 5 + 7, 3);
-  return h < 0.012 ? 'pebbles' : h < 0.024 ? 'sprout' : h < 0.034 ? 'spire' : null;
+  // About one open tile in a hundred: enough to break up the ground without cluttering it.
+  return h < 0.003 ? 'pebbles' : h < 0.0075 ? 'sprout' : h < 0.0105 ? 'spire' : null;
 }
 
 export function propModel(kind: PropKind, variant: number): VoxelModel {

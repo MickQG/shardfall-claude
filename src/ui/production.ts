@@ -14,16 +14,21 @@ function workLeft(p: Producer): number {
 }
 
 /**
- * Which own building a unit order goes to: the selected building when it trains that kind, otherwise the producer with
- * the shortest queue, ties going to the least work left. Null when no producer has room.
+ * Which own building a unit order goes to (PRD-11): the producer of that kind that would finish it soonest (the least
+ * build time queued), ties going to the shorter queue, then the earlier building, so every producer keeps working.
+ * Which building is selected does not matter. Null when no producer has room.
  */
-export function trainSource(buildings: readonly Producer[], kind: string, selected: number | null): number | null {
+export function trainSource(buildings: readonly Producer[], kind: string): number | null {
   const producers = buildings.filter((b) => b.kind === unitDef(kind).builtAt && b.queue.length < QUEUE_MAX);
-  const chosen = producers.find((b) => b.id === selected);
-  if (chosen) return chosen.id;
   let best: Producer | undefined;
   for (const b of producers) {
-    if (!best || b.queue.length < best.queue.length || (b.queue.length === best.queue.length && workLeft(b) < workLeft(best))) best = b;
+    if (!best) {
+      best = b;
+      continue;
+    }
+    const w = workLeft(b);
+    const bw = workLeft(best);
+    if (w < bw || (w === bw && b.queue.length < best.queue.length)) best = b;
   }
   return best ? best.id : null;
 }
@@ -48,6 +53,6 @@ export function placementLive(placing: { source: number; kind: string }, buildin
 }
 
 /** Whether one more `kind` can be queued right now: prerequisites owned, affordable, and a producer with room. */
-export function queueable(kind: string, buildings: readonly Producer[], ownedKinds: readonly string[], credits: number, selected: number | null): boolean {
-  return queueRefusal(kind, ownedKinds, credits, trainSource(buildings, kind, selected) !== null) === null;
+export function queueable(kind: string, buildings: readonly Producer[], ownedKinds: readonly string[], credits: number): boolean {
+  return queueRefusal(kind, ownedKinds, credits, trainSource(buildings, kind) !== null) === null;
 }

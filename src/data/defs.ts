@@ -20,6 +20,8 @@ export interface WeaponDef {
   splash?: number;
   /** Ticks a projectile takes to land (0 = instant). */
   flight?: number;
+  /** Lobbed: fires over buildings (CMB-14). */
+  indirect?: boolean;
 }
 
 export interface UnitDef {
@@ -137,7 +139,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   },
   hum_artillery: {
     faction: 'human', name: 'Hammer Artillery', speed: 24, hp: 250, radius: 100, vision: 8, cost: 900, buildTime: 520, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', role: 'artillery',
-    weapon: { damage: 64, range: 11, cooldown: 60, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14 },
+    weapon: { damage: 64, range: 11, cooldown: 60, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
   },
   hum_gunship: {
     faction: 'human', name: 'Aegis Gunship', speed: 56, hp: 300, radius: 90, vision: 9, cost: 1200, buildTime: 600, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'air', air: true, role: 'air',
@@ -164,7 +166,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   },
   ali_lobber: {
     faction: 'alien', name: 'Lobber', speed: 26, hp: 240, radius: 100, vision: 8, cost: 800, buildTime: 500, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 2, role: 'artillery',
-    weapon: { damage: 62, range: 10, cooldown: 56, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14 },
+    weapon: { damage: 62, range: 10, cooldown: 56, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
   },
   ali_wasp: {
     faction: 'alien', name: 'Wasp', speed: 70, hp: 170, radius: 84, vision: 9, cost: 900, buildTime: 520, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'air', air: true, regen: 2, role: 'air',

@@ -30,7 +30,8 @@ export type Anim =
   /** Organic structures: breathe (scale) with time. */
   | { k: 'breathe'; amp: number; rate: number }
   /** Shown only while the unit carries shards. */
-  | { k: 'cargo' };
+  /** Carried shards: a pile that rises from `pivot` (or, `swell`, a belly that swells) with the load (R3D-19). */
+  | { k: 'cargo'; pivot?: [number, number, number]; swell?: boolean };
 
 export interface RigNode {
   /** Shape key drawn at this node. */
@@ -152,6 +153,8 @@ export interface RigPose {
   crouch?: number;
   /** Total turning of the hull, radians, for the wheels on each side. */
   turned?: number;
+  /** How full a harvester is, 0..1 (R3D-19); full when absent. */
+  load?: number;
 }
 
 /** Pose every animated node of a rig. Pure apart from writing the nodes' transforms. */
@@ -192,8 +195,15 @@ export function poseRig(tree: RigTree, p: RigPose): void {
       case 'breathe':
         obj.scale.setScalar(1 + an.amp * Math.sin((an.rate * p.time) / 1000));
         break;
-      case 'cargo':
+      case 'cargo': {
+        const f = Math.max(0, Math.min(1, p.load ?? 1));
+        const [px, py, pz] = an.pivot ?? [0, 0, 0];
+        const sxz = an.swell ? 0.55 + 0.45 * f : 0.7 + 0.3 * f;
+        const sy = an.swell ? sxz : 0.15 + 0.85 * f;
+        obj.scale.set(sxz, sy, sxz);
+        obj.position.set(a.pos.x + px * (1 - sxz), a.pos.y + py * (1 - sy), a.pos.z + pz * (1 - sxz));
         break;
+      }
     }
   }
 }

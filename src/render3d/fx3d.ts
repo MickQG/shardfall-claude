@@ -428,6 +428,8 @@ export class CombatFx {
   warnings: { at: Vec; r: number; start: number; end: number; glow: number; core: number; lastRing: number; lastMote: number; lastLight: number }[] = [];
   /** Effects scheduled for later. */
   private later: { at: number; fn: (now: number) => void }[] = [];
+  /** Harvesters at work, by unit id (R3D-19): mining from a crystal or unloading into a refinery. */
+  links = new Map<number, { from: Vec; to: Vec; until: number; organic: boolean; unload: boolean; last: number; seed: number }>();
   private rng = new Rng(12345);
   private v = new THREE.Vector3();
   private w = new THREE.Vector3();
@@ -717,6 +719,87 @@ export class CombatFx {
     }
   }
 
+  /**
+   * A harvester at work this frame (R3D-19), from its hopper or maw (`from`) to the crystal it mines or the intake it
+   * unloads into (`to`). Called every frame while it works; the effect stops a moment after the calls stop.
+   */
+  harvest(id: number, from: Vec, to: Vec, organic: boolean, unload: boolean, now: number): void {
+    let l = this.links.get(id);
+    if (!l) {
+      l = { from: from.clone(), to: to.clone(), until: 0, organic, unload, last: -1e9, seed: (id * 7919) % 97 };
+      this.links.set(id, l);
+    }
+    l.from.copy(from);
+    l.to.copy(to);
+    l.organic = organic;
+    l.unload = unload;
+    l.until = now + 160;
+  }
+
+  /** Draw the working harvesters: beams or tendrils while mining, a stream of fragments while unloading. */
+  private drawLinks(now: number): void {
+    const r = this.rng;
+    for (const [id, l] of this.links) {
+      if (now > l.until) {
+        this.links.delete(id);
+        continue;
+      }
+      const crystal = l.organic ? BIO : 0x47e8c4;
+      if (!l.unload) {
+        if (l.organic) {
+          // Two feeding tendrils that writhe between the maw and the crystal.
+          for (const side of [-1, 1]) {
+            this.v.lerpVectors(l.from, l.to, 0.5);
+            const wob = Math.sin(now * 0.006 + l.seed + side) * 0.12 * side;
+            this.v.x += -(l.to.z - l.from.z) * wob;
+            this.v.z += (l.to.x - l.from.x) * wob;
+            this.v.y += 0.12;
+            this.streaks.add(l.from, this.v, 0.024, BIO_DEEP, 2.4);
+            this.streaks.add(this.v, l.to, 0.018, BIO, 2.4);
+          }
+        } else {
+          // A flickering cutting beam onto the crystal.
+          this.streaks.add(l.from, l.to, 0.018 + 0.01 * Math.abs(Math.sin(now * 0.05 + l.seed)), 0x9ff8ff, 3);
+        }
+        if (now - l.last > 45) {
+          l.last = now;
+          // A bright working spot on the crystal.
+          this.glow.emit({ x: l.to.x, y: l.to.y, z: l.to.z, life: 110, size0: 0.22, size1: 0.12, color0: l.organic ? BIO_CORE : 0xe8ffff, color1: crystal, alpha: 1.1 }, now);
+          // Chips fly off the crystal into the hopper or maw.
+          const T = 0.45;
+          this.glow.emit({ x: l.to.x + r.range(-0.06, 0.06), y: l.to.y, z: l.to.z + r.range(-0.06, 0.06), vx: (l.from.x - l.to.x) / T, vy: (l.from.y - l.to.y) / T + 2 * T, vz: (l.from.z - l.to.z) / T, life: T * 1000, size0: 0.07, size1: 0.04, color0: crystal, color1: l.organic ? BIO_DEEP : 0x6fe2ff, alpha: 1.3, gravity: 4 }, now);
+          if (!l.organic) this.glow.emit({ x: l.to.x, y: l.to.y, z: l.to.z, vx: r.range(-0.8, 0.8), vy: r.range(0.4, 1.2), vz: r.range(-0.8, 0.8), life: 200, size0: 0.025, size1: 0.01, color0: 0xd8ffff, alpha: 1.4, gravity: 6 }, now);
+          this.light(l.to.x, l.to.y + 0.1, l.to.z, crystal, 1.6, 120, now);
+        }
+      } else {
+        // A stream of crystal fragments arcing from the hopper into the intake, which glows as it takes them in.
+        this.streaks.add(l.from, l.to, 0.016, crystal, 1.4);
+        if (now - l.last > 35) {
+          l.last = now;
+          const T = 0.5;
+          this.glow.emit({ x: l.from.x + r.range(-0.05, 0.05), y: l.from.y, z: l.from.z + r.range(-0.05, 0.05), vx: (l.to.x - l.from.x) / T, vy: (l.to.y - l.from.y) / T + 2 * T, vz: (l.to.z - l.from.z) / T, life: T * 1000, size0: 0.08, size1: 0.05, color0: crystal, color1: l.organic ? BIO_CORE : 0x9ff8ff, alpha: 1.3, gravity: 4 }, now);
+          if (Math.floor(now / 35) % 4 === 0) {
+            this.glow.emit({ x: l.to.x, y: l.to.y, z: l.to.z, life: 300, size0: 0.35, size1: 0.6, color0: crystal, alpha: 0.9 }, now);
+            this.light(l.to.x, l.to.y + 0.2, l.to.z, crystal, 3, 220, now);
+          }
+        }
+      }
+    }
+  }
+
+  /** A burst from a damaged building (R3D-18): electric sparks for Aegis, a spurt of glowing ichor for the Vrax. */
+  sparks(at: Vec, organic: boolean, now: number): void {
+    const r = this.rng;
+    const n = this.quality.rich ? 7 : 3;
+    for (let i = 0; i < n; i++) {
+      const a = r.range(0, Math.PI * 2);
+      const sp = r.range(0.8, 2.2);
+      this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: Math.cos(a) * sp, vy: r.range(0.6, 2), vz: Math.sin(a) * sp, life: r.range(250, 500), size0: organic ? 0.045 : 0.03, size1: 0.01, color0: organic ? BIO : 0xfff2b0, color1: organic ? BIO_DEEP : 0xff8a30, alpha: 1.4, gravity: 7 }, now);
+    }
+    this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 90, size0: 0.12, size1: 0.2, color0: organic ? BIO : 0xcfe8ff, alpha: 1 }, now);
+    this.light(at.x, at.y + 0.1, at.z, organic ? BIO : 0x9fd0ff, 2.5, 110, now);
+  }
+
   /** A glowing pool on the ground: acid that fades over a few seconds (R3D-12), or a superweapon's mark that grows. */
   private puddle(at: Vec, size: number, now: number, color = BIO, life = 3800, grow = false): void {
     const f = this.puddles.reduce((a, b) => (b.born < a.born ? b : a));
@@ -780,11 +863,13 @@ export class CombatFx {
     const rich = this.quality.rich;
     const R = Math.max(1.5, radius);
     this.glow.emit({ x: at.x, y: at.y + 0.6, z: at.z, life: 320, size0: R * 2.5, size1: R * 4.5, color0: 0xffffff, color1: P.core, alpha: 2.4 }, now);
-    this.glow.emit({ x: at.x, y: at.y + 0.3, z: at.z, life: 950, size0: R * 3, size1: R * 5, color0: P.glow, color1: P.deep, alpha: 0.9 }, now);
+    this.glow.emit({ x: at.x, y: at.y + 0.3, z: at.z, life: 2400, size0: R * 3, size1: R * 5, color0: P.glow, color1: P.deep, alpha: 0.9 }, now);
     const sky = at.clone().setY(at.y + 40);
-    this.beam(sky, at, R * 0.17, P.glow, 2.2, 1100, now);
-    this.beam(sky, at, R * 0.06, P.core, 6, 800, now);
-    this.light(at.x, at.y + 1.5, at.z, P.core, 90, 1600, now, 10 + R * 3);
+    this.beam(sky, at, R * 0.17, P.glow, 2.2, 2200, now);
+    this.beam(sky, at, R * 0.06, P.core, 6, 1500, now);
+    this.light(at.x, at.y + 1.5, at.z, P.core, 90, 3500, now, 10 + R * 3);
+    // The crater keeps glowing, cooling over several seconds.
+    this.puddle(at, R * 0.8, now, aegis ? 0xff7a30 : P.glow, 7000);
     [0, 140, 320].forEach((d, i) => this.after(now + d, (t) => this.ring(at, R * (1.6 + i * 0.9), 700 + i * 200, t, i === 0 ? 0xffffff : P.glow)));
     this.explosion(at, 2.2, now, P.fire);
     for (let i = 0; i < 8; i++) {
@@ -795,11 +880,11 @@ export class CombatFx {
     }
     // A mushroom of smoke: a column that rises, then a cap that spreads.
     for (let i = 0; i < (rich ? 26 : 10); i++) {
-      this.smoke.emit({ x: at.x + r.range(-0.3, 0.3), y: at.y + 0.3, z: at.z + r.range(-0.3, 0.3), vx: r.range(-0.3, 0.3), vy: r.range(1.6, 3.2), vz: r.range(-0.3, 0.3), life: r.range(2600, 4200), size0: 0.5, size1: R * r.range(0.7, 1.1), color0: aegis ? 0x4a4440 : 0x3a4a30, color1: 0x6a6660, alpha: 0.55, drag: 0.9, gravity: -0.2, delay: r.range(0, 500) }, now);
+      this.smoke.emit({ x: at.x + r.range(-0.3, 0.3), y: at.y + 0.3, z: at.z + r.range(-0.3, 0.3), vx: r.range(-0.3, 0.3), vy: r.range(1.6, 3.2), vz: r.range(-0.3, 0.3), life: r.range(5000, 8000), size0: 0.5, size1: R * r.range(0.8, 1.3), color0: aegis ? 0x4a4440 : 0x3a4a30, color1: 0x6a6660, alpha: 0.55, drag: 0.9, gravity: -0.2, delay: r.range(0, 500) }, now);
     }
     for (let i = 0; i < (rich ? 14 : 6); i++) {
       const a = r.range(0, Math.PI * 2);
-      this.smoke.emit({ x: at.x, y: at.y + 2.4, z: at.z, vx: Math.cos(a) * r.range(0.8, 1.4), vy: 0.35, vz: Math.sin(a) * r.range(0.8, 1.4), life: r.range(2400, 3600), size0: 0.8, size1: R * 1.1, color0: 0x5a5450, color1: 0x77736c, alpha: 0.5, drag: 1, delay: r.range(600, 1000) }, now);
+      this.smoke.emit({ x: at.x, y: at.y + 2.4, z: at.z, vx: Math.cos(a) * r.range(0.8, 1.4), vy: 0.35, vz: Math.sin(a) * r.range(0.8, 1.4), life: r.range(5000, 7500), size0: 0.8, size1: R * 1.3, color0: 0x5a5450, color1: 0x77736c, alpha: 0.5, drag: 1, delay: r.range(600, 1000) }, now);
     }
     for (let i = 0; i < (rich ? 36 : 14); i++) {
       const a = r.range(0, Math.PI * 2);
@@ -807,11 +892,12 @@ export class CombatFx {
       this.glow.emit({ x: at.x, y: at.y + 0.3, z: at.z, vx: Math.cos(a) * sp, vy: r.range(3, 7), vz: Math.sin(a) * sp, life: r.range(900, 1600), size0: 0.08, size1: 0.02, color0: P.core, color1: aegis ? 0xff7020 : P.deep, alpha: 1.4, gravity: 7 }, now);
     }
     this.scorch(at, R * 2.4, now);
-    for (let i = 0; i < (rich ? 12 : 5); i++) {
+    // Fires keep burning across the blast for about eight seconds.
+    for (let i = 0; i < (rich ? 26 : 8); i++) {
       const a = r.range(0, Math.PI * 2);
-      const d = R * r.range(0.1, 0.65);
+      const d = R * r.range(0.1, 0.7);
       const p = new THREE.Vector3(at.x + Math.cos(a) * d, at.y + 0.05, at.z + Math.sin(a) * d);
-      this.after(now + 300 + i * 320, (t) => this.burn(p, true, 0.6, t));
+      this.after(now + 300 + i * (rich ? 300 : 900), (t) => this.burn(p, true, 0.6, t));
     }
     if (!aegis) {
       this.acidBurst(at, 1, now);
@@ -937,6 +1023,7 @@ export class CombatFx {
     }
     this.shots = keep;
     this.landed = this.landed.filter((l) => now - l.at < 250);
+    this.drawLinks(now);
     this.flashes = this.flashes.filter((f) => {
       const k = (now - f.born) / 140;
       if (k >= 1) return false;

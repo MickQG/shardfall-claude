@@ -105,7 +105,6 @@ export class Sidebar {
   private swRefs = new Map<number, { row: HTMLElement; name: HTMLElement; state: HTMLElement; bar: HTMLElement; btn: HTMLButtonElement }>();
   private queues = new Map<number, { kind: string }[]>();
   private mine: BuildingSnap[] = [];
-  private selected: number | null = null;
   private lastKey = '';
   private selKey = 'init';
   private lastAt = 0;
@@ -140,7 +139,7 @@ export class Sidebar {
   private train(kind: string, bulk: boolean): void {
     const plan = this.mine.map((b) => ({ ...b, queue: [...b.queue] }));
     for (let i = 0; i < (bulk ? BULK_QUEUE : 1); i++) {
-      const src = trainSource(plan, kind, this.selected);
+      const src = trainSource(plan, kind);
       if (src === null) return;
       this.actions.produce(src, kind);
       plan.find((b) => b.id === src)?.queue.push({ kind, pct: 0, ready: false });
@@ -195,7 +194,6 @@ export class Sidebar {
     if (!player) return;
     const mine = own(snap);
     this.mine = mine;
-    this.selected = selectedBuilding;
     this.queues = new Map(mine.map((b) => [b.id, b.queue.map((q) => ({ kind: q.kind }))]));
     const armed = selectedBuilding !== null && this.sellConfirm.armed(selectedBuilding, now);
     const key = JSON.stringify([player.credits, player.powerOut, player.powerIn, mine.map((b) => [b.id, b.kind, b.hp, b.repairing, b.charge, b.queue.map((q) => [q.kind, q.pct, q.ready])]), selectedBuilding, armed, targeting]);
@@ -302,7 +300,7 @@ export class Sidebar {
         const miss = missing(snap, [d.builtAt, ...d.requires]);
         const queued = producers.flatMap((b) => b.queue.map((q, i) => ({ b, q, i }))).filter((x) => x.q.kind === kind);
         const lead = queued.reduce<(typeof queued)[number] | undefined>((best, x) => (!best || x.q.pct > best.q.pct ? x : best), undefined);
-        const why = queueRefusal(kind, mine.map((b) => b.kind), credits, trainSource(mine, kind, this.selected) !== null) ?? '';
+        const why = queueRefusal(kind, mine.map((b) => b.kind), credits, trainSource(mine, kind) !== null) ?? '';
         const off = why !== '';
         const title = miss.length ? `Requires ${miss.map((m) => buildingDef(m).name).join(', ')}` : `${d.name}: ${d.hp} HP`;
         this.item(this.trainEl, { act: 'train', kind, src: -1, idx: -1, name: d.name, cost: d.cost, off, ready: false, pct: lead ? lead.q.pct : 0, count: queued.length, title, why });

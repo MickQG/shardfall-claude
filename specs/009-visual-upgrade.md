@@ -1,6 +1,6 @@
 # 009 Visual upgrade
 
-Render layer only: nothing here may read or change simulation state beyond the existing snapshot, and all art stays procedural. Decorative work is skipped on the low-quality preset and under reduced motion.
+Render layer only: nothing here may read or change simulation state beyond the existing snapshot, and all art stays procedural. Decorative work is skipped on the low-quality preset (VIS-2).
 
 - **GFX-1**: A newly placed building plays a build-up animation (the building fades in and rises inside a team-coloured scaffold, about 1.5 s) driven by render time; only the viewing player's own new buildings animate; buildings already present when the view starts, ones first seen through the fog, enemy buildings and ghosts do not. Progress is a pure function of elapsed time, clamped to 0..1.
 - **GFX-2**: Buildings show damage states by hit-point fraction: intact above 66%, damaged (smoke) from 33% to 66%, critical (fire and smoke) below 33%; the state is a pure function of hp and maximum hp.
@@ -9,7 +9,7 @@ Render layer only: nothing here may read or change simulation state beyond the e
 - **GFX-5**: Weapon effects are polished: each weapon type has a distinct muzzle flash (length, width and colour), explosions leave a scorch mark that lingers for several seconds and fades, and a large death (a destroyed building) adds a column of lingering smoke to its debris burst.
 - **GFX-6**: Selection and health bars are upgraded: selected units show team-coloured corner brackets instead of a plain ring (buildings keep their footprint outline), a unit's or building's health bar is shown only when it is damaged or selected, and a production-progress bar shows on an own building while it is training or building something.
 - **GFX-7**: Unit and building art gain polish: unit shading and highlights, building roof rim-lighting, and faction idle animation (a blinking beacon on human buildings, a pulsing biomass glow on alien buildings); each unit and building kind stays distinct.
-- **GFX-8**: With the low-quality preset or reduced motion, the decorative work added by this spec (scaffold, smoke and fire, twinkles, idle animation, ground decals, extended scorch and lingering smoke) is switched off, while barrel aiming, health bars and selection stay on; the game renders without errors on both presets.
+- **GFX-8**: With the low-quality preset, the decorative work added by this spec (scaffold, smoke and fire, twinkles, idle animation, ground decals, extended scorch and lingering smoke) is switched off, while barrel aiming, health bars and selection stay on; the game renders without errors on both presets.
 - **GFX-9**: Air units are drawn above terrain, rocks, props, buildings and ground units wherever they fly, and in depth order among themselves.
 - **GFX-10**: A unit's turret or weapon keeps pointing at its current attack target between shots and while that target is in view (snapshots report each unit's target); with no target it holds the last shot's aim briefly, then follows the hull.
 - **GFX-11**: A unit standing on a shard tile is drawn over that tile's crystals, while a unit behind the tile is drawn under them.

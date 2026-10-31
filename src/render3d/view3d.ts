@@ -25,6 +25,26 @@ import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
+import { unexploredMask } from './unexplored';
+
+/**
+ * How damage shows on a building at health fraction `hp` (R3D-18): soot darkens it steadily; below half it throws
+ * sparks (every `sparkEvery` ms, faster as it weakens); below a third it sags (`lean`, radians) and its power flickers.
+ * Pure.
+ */
+export function damageLook(hp: number, t: number, seed: number): { tint: number; lean: number; sparkEvery: number } {
+  const dmg = Math.max(0, Math.min(1, 1 - hp));
+  let tint = 1 - 0.45 * dmg ** 1.2;
+  if (hp < 0.33 && Math.sin(t * 0.011 + seed * 1.7) > 0.94) tint *= 0.65;
+  return { tint, lean: hp < 0.33 ? (0.33 - hp) * 0.12 : 0, sparkEvery: hp < 0.5 ? 400 + 2000 * hp : 0 };
+}
+
+/** Brightness of Vrax buildings' glowing parts under bloom (other glows are 2.2), so a hive glows without blazing. */
+export const HIVE_GLOW = 1.1;
+
+/** An aircraft's dive from the sky to the ground, ms, and how far its momentum carries it on, tiles (R3D-12). */
+export const CRASH_MS = 520;
+const CRASH_CARRY = 0.8;
 
 /** How long a fallen squad member stays before it has sunk away, ms (R3D-15). */
 const FALLEN_MS = 2600;
@@ -109,6 +129,8 @@ interface Part {
   litKey: string;
   glowKey: string;
   mat: THREE.Material;
+  /** Unlit glowing parts: Vrax buildings use a softer glow than everything else (R3D-12). */
+  glowMat: THREE.Material;
 }
 
 /** A live rig with its parts resolved to batches. */
@@ -147,6 +169,11 @@ interface UnitObj {
   muzzleTurn: number;
   lunge: number;
   load: number;
+  /** When the load last rose (mining) and fell (unloading), ms (R3D-19). */
+  mineAt: number;
+  unloadAt: number;
+  /** Shards it can carry (0 for non-harvesters). */
+  capacity: number;
   alive: number;
   seed: number;
   dying: { t0: number; mode: 'wreck' | 'fall' | 'crash'; side: number; boomed: boolean } | null;
@@ -174,6 +201,8 @@ interface BuildingObj {
   muzzleTurn: number;
   dying: number | null;
   lastSmoke: number;
+  /** When the next spark or ichor spurt flies from a badly damaged building. */
+  nextSpark: number;
   drawn: number;
 }
 
@@ -218,6 +247,10 @@ export class View3D {
   private propMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.02 });
   private crystalMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.25, emissive: 0x0c3a34 });
   private glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+  /** Vrax buildings are covered in bioluminescence: their glow is softer, so a hive does not blaze under bloom. */
+  private hiveGlowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+  /** Everything standing on unexplored tiles fades into the fog's darkness (R3D-17). */
+  private unexplored = unexploredMask();
   private inst: Instancer;
   private fx = new CombatFx();
   private units = new Map<number, UnitObj>();
@@ -380,7 +413,7 @@ export class View3D {
     const warm = this.warmGroup;
     const geo = new THREE.BoxGeometry(0.001, 0.001, 0.001);
     geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(geo.attributes.position!.count * 3).fill(1), 3));
-    for (const [mat, shadow] of [[this.metalMat, true], [this.organicMat, true], [this.propMat, true], [this.crystalMat, true], [this.glowMat, false], [this.ringMat, false], [this.barMat, false]] as const) {
+    for (const [mat, shadow] of [[this.metalMat, true], [this.organicMat, true], [this.propMat, true], [this.crystalMat, true], [this.glowMat, false], [this.hiveGlowMat, false], [this.ringMat, false], [this.barMat, false]] as const) {
       const m = new THREE.InstancedMesh(geo, mat, 1);
       m.setColorAt(0, new THREE.Color(1, 1, 1));
       m.castShadow = m.receiveShadow = shadow;
@@ -465,7 +498,8 @@ export class View3D {
     const m = terrainMeshes(input);
     const ground = new THREE.Mesh(geometry(m.ground), new THREE.MeshStandardMaterial({ map, normalMap: relief, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.93, metalness: 0 }));
     ground.receiveShadow = true;
-    const cliffs = new THREE.Mesh(geometry(m.cliffs), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, flatShading: true }));
+    const cliffMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, flatShading: true });
+    const cliffs = new THREE.Mesh(geometry(m.cliffs), cliffMat);
     cliffs.receiveShadow = true;
     cliffs.castShadow = true;
     // Water ripples and glints (R3D-11): a scrolling normal map on a glossy surface.
@@ -474,6 +508,8 @@ export class View3D {
     const water = new THREE.Mesh(geometry(m.water), new THREE.MeshStandardMaterial({ color: 0x2a6a8a, vertexColors: true, depthWrite: false, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.82, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.45, 0.45) }));
     water.receiveShadow = true;
     this.scene.add(ground, cliffs, water);
+    // Cliffs, water, props, plants and crystals on unexplored tiles fade into the fog's darkness (R3D-17).
+    for (const mat of [cliffMat, water.material, this.propMat, this.crystalMat, this.glowMat, this.hiveGlowMat]) this.unexplored.apply(mat);
     if (snap.fog) {
       // Fog of war: the same tile tops, darkened through a per-tile alpha texture (linear filtering softens the edges).
       this.fogData = new Uint8Array(W * snap.mapHeight * 4);
@@ -481,6 +517,7 @@ export class View3D {
       this.fogTex.flipY = true;
       this.fogTex.magFilter = THREE.LinearFilter;
       this.fogTex.minFilter = THREE.LinearFilter;
+      this.unexplored.use(this.fogTex, W, snap.mapHeight);
       const fogMat = new THREE.MeshBasicMaterial({ color: 0x0c0f22, alphaMap: this.fogTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       const fog = new THREE.Mesh(geometry(m.ground), fogMat);
       fog.renderOrder = 10;
@@ -582,13 +619,14 @@ export class View3D {
   private instantiate(def: RigDef, kind: string, team: number): RigInst {
     const tree = rigTree(def);
     const mat = def.organic ? this.organicMat : this.metalMat;
+    const glowMat = kind.startsWith('ali_') && BUILDING_RIGS[kind] ? this.hiveGlowMat : this.glowMat;
     const parts: Part[] = [];
     for (const d of tree.drawn) {
       const shape = def.shapes[d.geo];
       if (!shape) continue;
       const key = `${kind}/${d.geo}`;
       const b = this.shapeGeo(key, shape, team);
-      parts.push({ obj: d.obj, cargo: d.cargo, lit: b.lit, glow: b.glow, litKey: `${key}|${team}|L`, glowKey: `${key}|${team}|G`, mat });
+      parts.push({ obj: d.obj, cargo: d.cargo, lit: b.lit, glow: b.glow, litKey: `${key}|${team}|L`, glowKey: `${key}|${team}|G`, mat, glowMat });
     }
     return { ...tree, parts };
   }
@@ -635,7 +673,10 @@ export class View3D {
       lastFire: figures.map(() => -1e9),
       muzzleTurn: 0,
       lunge: -1e9,
-      load: 0,
+      load: u.load,
+      mineAt: -1e9,
+      unloadAt: -1e9,
+      capacity: d.capacity ?? 0,
       alive: size,
       seed,
       dying: null,
@@ -902,6 +943,7 @@ export class View3D {
       this.bloomOn = vs.fx.bloom;
       // Glowing parts are brighter than white with bloom, so the bloom pass picks them up; plain white without.
       this.glowMat.color.setScalar(this.bloomOn ? 2.2 : 1);
+      this.hiveGlowMat.color.setScalar(this.bloomOn ? HIVE_GLOW : 0.8);
     }
     if (vs.fx.decor !== this.shadowsOn) {
       this.shadowsOn = vs.fx.decor;
@@ -934,7 +976,7 @@ export class View3D {
     for (const p of rig.parts) {
       if (p.cargo && load <= 0) continue;
       if (p.lit) this.inst.push(p.litKey, p.lit, p.mat, true, p.obj.matrixWorld, tint);
-      if (p.glow) this.inst.push(p.glowKey, p.glow, this.glowMat, false, p.obj.matrixWorld, tint);
+      if (p.glow) this.inst.push(p.glowKey, p.glow, p.glowMat, false, p.obj.matrixWorld, tint);
     }
   }
 
@@ -955,6 +997,9 @@ export class View3D {
       o.motion = stepMotion(o.motion, o.follow.x - o.x, o.follow.z - o.z, dt, def.turn ?? 4);
       o.x = o.follow.x;
       o.z = o.follow.z;
+      // Harvesters (R3D-19): a rising load means mining, a falling one unloading.
+      if (u.load > o.load) o.mineAt = t;
+      else if (u.load < o.load) o.unloadAt = t;
       o.load = u.load;
       o.groundY += (this.groundAt(o.x, o.z) - o.groundY) * Math.min(1, dt * 10);
       const max = maxHpOf(u.kind, u.rank);
@@ -980,6 +1025,7 @@ export class View3D {
         const h = o.motion.heading;
         this.fx.dust(this.v.set(o.x - Math.cos(h) * def.radius * 0.6, 0, o.z - Math.sin(h) * def.radius * 0.6), def.radius * 1.2, t);
       }
+      if (o.capacity > 0 && this.inView(o.x, o.groundY, o.z, 2.5)) this.harvestFx(u.id, o, t);
       if (this.inView(o.x, o.root.position.y, o.z, def.radius + (o.members.length ? 0.5 : 0))) this.drawUnit(o, this.tint.setRGB(1, 1, 1), t);
     }
     for (const [id, o] of this.units) {
@@ -1030,6 +1076,48 @@ export class View3D {
       for (const m of o.members) m.next = 0;
     }
     o.alive = alive;
+  }
+
+  /**
+   * A harvester at work (R3D-19): while its load rises it mines the nearest crystal (a cutting beam for the hauler,
+   * feeding tendrils for the gorger), and while it falls it pours a stream of fragments into the nearest own refinery.
+   */
+  private harvestFx(id: number, o: UnitObj, t: number): void {
+    const organic = o.kind.startsWith('ali_');
+    const fx = Math.cos(o.motion.heading);
+    const fz = Math.sin(o.motion.heading);
+    if (t - o.mineAt < 300) {
+      // The nearest crystal clear of its own body (the one it stands on would hide the beam under it).
+      let best: Static | null = null;
+      let bd = 2.2 * 2.2;
+      for (const c of this.crystals) {
+        const d = (c.x - o.x) ** 2 + (c.z - o.z) ** 2;
+        if (d < bd && d > 0.6 * 0.6) {
+          bd = d;
+          best = c;
+        }
+      }
+      if (best) {
+        const from = organic ? this.v.set(o.x + fx * 0.55, o.groundY + 0.32, o.z + fz * 0.55) : this.v.set(o.x + fx * 0.6, o.groundY + 0.36, o.z + fz * 0.6);
+        this.fx.harvest(id, from, this.v2.set(best.x, best.y + 0.22, best.z), organic, false, t);
+      }
+    } else if (t - o.unloadAt < 300) {
+      const want = organic ? 'ali_extractor' : 'hum_refinery';
+      let best: BuildingObj | null = null;
+      let bd = 3.5 * 3.5;
+      for (const b of this.buildings.values()) {
+        if (b.kind !== want || b.team !== o.team || b.dying !== null) continue;
+        const d = (b.x - o.x) ** 2 + (b.z - o.z) ** 2;
+        if (d < bd) {
+          bd = d;
+          best = b;
+        }
+      }
+      if (best) {
+        const from = organic ? this.v.set(o.x, o.groundY + 0.5, o.z) : this.v.set(o.x - fx * 0.2, o.groundY + 0.64, o.z - fz * 0.2);
+        this.fx.harvest(id, from, this.v2.set(best.x, best.y + best.def.height * 0.55, best.z), organic, true, t);
+      }
+    }
   }
 
   /** Whether the drawn ground at (x, z) is water. */
@@ -1097,6 +1185,7 @@ export class View3D {
         reach: def.radius * 0.25,
         walker: def.move === 'walker',
         crouch: mm?.crouch ?? 0,
+        load: o.capacity > 0 ? o.load / o.capacity : 1,
       });
     });
   }
@@ -1109,18 +1198,30 @@ export class View3D {
     const life = d.mode === 'fall' ? 2600 : rich ? 9000 : 3500;
     if (age > life) return false;
     if (d.mode === 'crash') {
-      // Fall out of the sky, spinning, then burn as a wreck.
-      const k = Math.min(1, age / 750);
-      o.root.position.y = o.groundY + AIR_Y * (1 - k * k);
-      o.root.rotation.y -= 0.12;
-      o.root.rotation.z = -0.5 * k;
+      // Dive out of the sky nose first, spinning and trailing fire, carried on by its momentum (R3D-12).
+      const k = Math.min(1, age / CRASH_MS);
+      const h = o.motion.heading;
+      const carry = CRASH_CARRY * (1 - (1 - k) ** 2);
+      o.root.position.set(o.x + Math.cos(h) * carry, o.groundY + AIR_Y * (1 - k * k) - (k >= 1 ? 0.04 : 0), o.z + Math.sin(h) * carry);
+      // The spin winds down as it falls and stops dead on impact: a wreck does not turn on the ground.
+      o.root.rotation.set(d.side * 0.55 * k, -h - d.side * 2.4 * (1 - (1 - k) ** 2), -0.6 * k);
+      if (k < 1 && t - o.lastBurn > 30) {
+        o.lastBurn = t;
+        this.fx.burn(this.v.copy(o.root.position).setY(o.root.position.y + 0.1), true, 0.7, t);
+      }
       if (k >= 1 && !d.boomed) {
         d.boomed = true;
-        this.fx.explosion(this.v.set(o.x, o.groundY + 0.15, o.z), 0.8, t);
+        this.fx.explosion(this.v.set(o.root.position.x, o.groundY + 0.15, o.root.position.z), 1, t);
+        this.fx.shake = Math.max(this.fx.shake, 0.06);
       }
-      if (t - o.lastBurn > 60) {
-        o.lastBurn = t;
-        this.fx.burn(this.v.set(o.x, o.root.position.y + 0.15, o.z), true, 0.8, t);
+      if (k >= 1) {
+        // Then a burning wreck that sinks away at the end, like a vehicle's.
+        const life = this.fx.quality.rich ? 9000 : 3500;
+        o.root.position.y -= Math.max(0, (age - (life - 2500)) / 2500) * o.def.height;
+        if (t - o.lastBurn > 150 && age < life - 1500) {
+          o.lastBurn = t;
+          this.fx.burn(this.v.set(o.root.position.x, o.groundY + 0.2, o.root.position.z), age < 4000, o.def.radius, t);
+        }
       }
       this.tint.setScalar(0.25);
       return true;
@@ -1172,7 +1273,7 @@ export class View3D {
         // Only the viewer's own new buildings rise from the ground (GFX-1).
         const born = this.seeded && b.owner === vs.viewer && !this.known.has(b.id) ? vs.time : -Infinity;
         const yaw = b.owner === 0 ? Math.PI / 4 : (-3 * Math.PI) / 4;
-        o = { kind: b.kind, team: OWNER_COLORS[b.owner] ?? 0xffffff, def, rig, root, ring, born, x, z, y, hpFrac: 1, aim: yaw, aimHold: 0, turretYaw: yaw, turreted: rig.anims.some((a) => a.anim.k === 'turret'), lastFire: -1e9, muzzleTurn: 0, dying: null, lastSmoke: 0, drawn: -1 };
+        o = { kind: b.kind, team: OWNER_COLORS[b.owner] ?? 0xffffff, def, rig, root, ring, born, x, z, y, hpFrac: 1, aim: yaw, aimHold: 0, turretYaw: yaw, turreted: rig.anims.some((a) => a.anim.k === 'turret'), lastFire: -1e9, muzzleTurn: 0, dying: null, lastSmoke: 0, nextSpark: 0, drawn: -1 };
         this.buildings.set(b.id, o);
         this.known.add(b.id);
       }
@@ -1207,6 +1308,13 @@ export class View3D {
           this.fx.burn(this.v.set(o.x, o.y + def.height * (1 - a) * 0.6, o.z), true, def.radius * 0.9, t);
         }
       }
+      // Damage shows on the building itself (R3D-18): soot darkens it as it loses health, and a wrecked one sags and
+      // its power flickers.
+      const look = damageLook(o.hpFrac, t, o.root.id);
+      if (o.dying === null) {
+        tint *= look.tint;
+        o.root.rotation.set(look.lean * (o.root.id % 2 ? 1 : -1), 0, look.lean * (o.root.id % 3 ? 0.6 : -0.6));
+      }
       if (t > o.aimHold) o.aim += 0.4 * dt; // idle turrets sweep slowly
       o.turretYaw = turnToward(o.turretYaw, o.aim, TURRET_RATE * dt);
       poseRig(o.rig, { ...STILL, turret: o.turretYaw, kick: recoil(t - o.lastFire), time: t });
@@ -1228,6 +1336,14 @@ export class View3D {
         } else if (rich && def.vents) {
           for (const v of def.vents) this.fx.steam(this.v.set(o.x + v[0], o.y + v[1], o.z + v[2]), t);
         }
+      }
+      // Below half health, sparks (Aegis) or spurts of ichor (Vrax) fly from its damaged upper works, more often as it
+      // weakens.
+      if (look.sparkEvery > 0 && t >= o.nextSpark) {
+        const bd = buildingDef(o.kind);
+        const r = (o.root.id * 7919 + Math.floor(t)) % 997;
+        this.fx.sparks(this.v.set(o.x + ((r % 10) / 10 - 0.5) * bd.w * 0.7, o.y + def.height * (0.5 + ((r >> 3) % 5) / 10), o.z + (((r >> 5) % 10) / 10 - 0.5) * bd.h * 0.7), o.kind.startsWith('ali_'), t);
+        o.nextSpark = t + look.sparkEvery * (0.6 + ((r >> 2) % 9) / 10);
       }
     }
   }

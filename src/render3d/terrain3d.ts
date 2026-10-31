@@ -482,14 +482,14 @@ export function scatter(t: TerrainInput, free: (x: number, y: number) => boolean
           const wv = wetness(t, px, pz);
           const a = waterAlpha(t, px, pz, wv);
           if (a < 0.75 && wv > 0.36 && wv < 0.7 && r(80 + k) < 0.6) put({ kind: 'reed', variant: Math.floor(r(90 + k) * 3), x: px, y, z: pz, rot: r(95 + k) * 6.28, scale: 0.8 + r(97 + k) * 0.6 }, tx, ty);
-          else if (!wetTile && wv > 0.16 && wv < 0.42 && r(100 + k) < 0.22) put({ kind: 'stone', variant: Math.floor(r(105 + k) * 3), x: px, y, z: pz, rot: r(107 + k) * 6.28, scale: 0.22 + r(109 + k) * 0.18 }, tx, ty);
+          else if (!wetTile && wv > 0.16 && wv < 0.42 && r(100 + k) < 0.1) put({ kind: 'stone', variant: Math.floor(r(105 + k) * 3), x: px, y, z: pz, rot: r(107 + k) * 6.28, scale: 0.22 + r(109 + k) * 0.18 }, tx, ty);
         }
       }
       if (wetTile) continue;
       if (t.shards(tx, ty) || !free(tx, ty)) continue;
       // Boulders at the foot of a cliff break up its base line.
       sides.forEach(([dx, dy], k) => {
-        if (level(t, tx + dx, ty + dy) <= lv || r(110 + k) > 0.4) return;
+        if (level(t, tx + dx, ty + dy) <= lv || r(110 + k) > 0.15) return;
         const along = 0.15 + r(115 + k) * 0.7;
         const bx = dx === 0 ? tx + along : dx > 0 ? tx + 0.88 : tx + 0.12;
         const bz = dy === 0 ? ty + along : dy > 0 ? ty + 0.88 : ty + 0.12;
@@ -502,7 +502,7 @@ export function scatter(t: TerrainInput, free: (x: number, y: number) => boolean
         for (let i = 0; i < tufts; i++) put({ kind: 'grass', variant: Math.floor(r(10 + i) * 3), x: tx + 0.1 + r(20 + i) * 0.8, y, z: ty + 0.1 + r(30 + i) * 0.8, rot: r(40 + i) * Math.PI * 2, scale: 0.8 + r(50 + i) * 0.7 }, tx, ty);
         if (r(2) < 0.025) put({ kind: 'flora', variant: Math.floor(r(3) * 3), x: tx + 0.5, y, z: ty + 0.5, rot: r(4) * 6.28, scale: 0.55 + r(5) * 0.3 }, tx, ty);
       }
-      if (r(6) < (lv > 0 ? 0.3 : 0.07)) put({ kind: 'stone', variant: Math.floor(r(7) * 3), x: tx + 0.2 + r(8) * 0.6, y, z: ty + 0.2 + r(9) * 0.6, rot: r(11) * 6.28, scale: 0.35 + r(12) * 0.35 }, tx, ty);
+      if (r(6) < (lv > 0 ? 0.05 : 0.02)) put({ kind: 'stone', variant: Math.floor(r(7) * 3), x: tx + 0.2 + r(8) * 0.6, y, z: ty + 0.2 + r(9) * 0.6, rot: r(11) * 6.28, scale: 0.35 + r(12) * 0.35 }, tx, ty);
     }
   }
   return out;

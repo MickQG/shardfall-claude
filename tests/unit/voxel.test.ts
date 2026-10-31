@@ -330,7 +330,7 @@ describe('terrain props', () => {
     expect([m.sx, m.sy]).toEqual([16, 16]); // exactly one tile
   });
 
-  it('VOX-17: props appear on a few percent of free ground, from coordinates alone, and never on occupied tiles', () => {
+  it('VOX-17: props appear on about one percent of free ground, from coordinates alone, and never on occupied tiles', () => {
     let n = 0;
     const kinds = new Set<string>();
     for (let y = 0; y < 96; y++) {
@@ -344,8 +344,8 @@ describe('terrain props', () => {
         }
       }
     }
-    expect(n / (96 * 96)).toBeGreaterThan(0.015);
-    expect(n / (96 * 96)).toBeLessThan(0.07);
+    expect(n / (96 * 96)).toBeGreaterThan(0.005);
+    expect(n / (96 * 96)).toBeLessThan(0.02);
     expect(kinds.size).toBe(3);
     for (const k of kinds) expect(voxelCount(propModel(k as never, 1))).toBeGreaterThan(8);
   });

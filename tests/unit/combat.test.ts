@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BUILDING_DEFS, DAMAGE_PCT, UNIT_DEFS, buildingDef, unitDef, type BuildingDef, type UnitDef } from '../../src/data/defs';
-import { createGame, damageAgainst, FP, hash, snapshot, submit, tick, type Game, type GameConfig, type MapDef, type SimEvent } from '../../src/sim';
+import { createGame, damageAgainst, FP, hash, snapshot, submit, tick, VISIBLE, type Game, type GameConfig, type MapDef, type SimEvent } from '../../src/sim';
 
 const W = 50;
 const open = (blockedTiles: [number, number][] = [], w = W, h = W): MapDef => {
@@ -301,5 +301,63 @@ describe('rosters', () => {
       return hash(g);
     };
     expect(play(1)).toBe(play(1));
+  });
+});
+
+describe('lingering sight', () => {
+  it('FOG-6: a dead unit\'s sight lingers where it fell for 3 seconds, then fades', () => {
+    const g = createGame(cfg({
+      buildings: [{ owner: 0, kind: 'hum_hq', tx: 2, ty: 2 }, { owner: 1, kind: 'ali_hq', tx: 44, ty: 44 }],
+      units: [sp(0, 'hum_buggy', 30, 12)],
+    }));
+    run(g, 2);
+    const at = 12 * g.state.grid.width + 30;
+    const seen = (): boolean => ((g.state.fog[0]![at] as number) & VISIBLE) !== 0;
+    expect(seen()).toBe(true);
+    g.state.units.find((u) => u.kind === 'hum_buggy')!.hp = 0;
+    const before = hash(g);
+    run(g, 1);
+    expect(g.state.units.some((u) => u.kind === 'hum_buggy')).toBe(false);
+    expect(seen()).toBe(true); // still in sight just after it died
+    expect(hash(g)).not.toBe(before);
+    run(g, 55);
+    expect(seen()).toBe(true);
+    run(g, 6);
+    expect(seen()).toBe(false); // faded after 3 s (60 ticks)
+    expect(g.state.lingering).toHaveLength(0);
+  });
+});
+
+describe('line of fire', () => {
+  // A rifleman (or artillery) at x 10 and a target 4 tiles east, with a reactor in between on row 20.
+  const setup = (kind: string, wall: boolean) => createGame(cfg({
+    buildings: [...(wall ? [{ owner: 0, kind: 'hum_reactor', tx: 12, ty: 19 }] : []), { owner: 0, kind: 'hum_hq', tx: 2, ty: 40 }, { owner: 1, kind: 'ali_hq', tx: 44, ty: 44 }],
+    units: [sp(0, kind, 10, 20), sp(1, 'ali_gorger', 14, 20)],
+  }));
+  const shots = (g: Game, n: number): number => run(g, n).filter((e) => e.t === 'shot' && e.owner === 0).length;
+
+  it('CMB-14: direct fire never passes through a building; an attacking unit moves for a clear shot instead', () => {
+    const open = setup('hum_rifleman', false);
+    expect(shots(open, 20)).toBeGreaterThan(0);
+    const walled = setup('hum_rifleman', true);
+    const rifle = walled.state.units.find((u) => u.kind === 'hum_rifleman')!;
+    const start = { x: rifle.x, y: rifle.y };
+    // Idle, it does not fire through the reactor at the target behind it.
+    expect(shots(walled, 60)).toBe(0);
+    // Ordered to attack, it works its way round the reactor and then hits the target.
+    const gorger = walled.state.units.find((u) => u.kind === 'ali_gorger')!;
+    submit(walled, { type: 'attack', player: 0, units: [rifle.id], target: gorger.id });
+    const later = run(walled, 400).filter((e) => e.t === 'shot' && e.owner === 0);
+    expect(later.length).toBeGreaterThan(0);
+    expect(Math.hypot(rifle.x - start.x, rifle.y - start.y)).toBeGreaterThan(FP);
+  });
+
+  it('CMB-14: artillery lobs its shells over the building without moving', () => {
+    const g = setup('hum_artillery', true);
+    const art = g.state.units.find((u) => u.kind === 'hum_artillery')!;
+    const start = { x: art.x, y: art.y };
+    expect(shots(g, 80)).toBeGreaterThan(0);
+    expect(art.x).toBe(start.x);
+    expect(art.y).toBe(start.y);
   });
 });

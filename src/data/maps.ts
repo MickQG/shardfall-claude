@@ -26,6 +26,17 @@ const ROCKS: Blob[] = [
   { cx: 58, cy: 40, rx: 3, ry: 2 },
 ];
 
+/**
+ * Water for half of the map (MAP-3), mirrored like the rocks: a pond on each base's outer flank (cover at its back, clear
+ * of its exits) and lakes beside the mid-map routes that narrow them without closing them.
+ */
+const LAKES: Blob[] = [
+  { cx: 5, cy: 34, rx: 2, ry: 4 },
+  { cx: 36, cy: 4, rx: 4, ry: 2 },
+  { cx: 15, cy: 52, rx: 3, ry: 3 },
+  { cx: 60, cy: 25, rx: 3, ry: 3 },
+];
+
 interface Field {
   cx: number;
   cy: number;
@@ -40,7 +51,7 @@ const FIELDS: Field[] = [
 ];
 const CENTRE_AMOUNT = 5000;
 
-/** A symmetric 96x96 two-player map with chokepoints, rock outcrops and contested shard fields. */
+/** A symmetric 96x96 two-player map with chokepoints, rock outcrops, lakes and contested shard fields. */
 export function skirmishMap(): MapDef {
   const W = MAP_SIZE;
   const heights = new Array<number>(W * W).fill(0);
@@ -60,6 +71,22 @@ export function skirmishMap(): MapDef {
         const h = d < 0.45 ? 2 : 1;
         set(x, y, h);
         set(W - 1 - x, W - 1 - y, h);
+      }
+    }
+  }
+  for (const b of LAKES) {
+    for (let y = b.cy - b.ry; y <= b.cy + b.ry; y++) {
+      for (let x = b.cx - b.rx; x <= b.cx + b.rx; x++) {
+        // A rounder, slightly uneven outline than the rocks: water is blocked ground at level 0.
+        const wobble = 0.12 * Math.sin(x * 1.7 + y * 0.9);
+        const d = ((x - b.cx) / (b.rx + 0.5)) ** 2 + ((y - b.cy) / (b.ry + 0.5)) ** 2;
+        if (d > 1 + wobble) continue;
+        for (const [wx, wy] of [[x, y], [W - 1 - x, W - 1 - y]] as const) {
+          if (wx < 0 || wy < 0 || wx >= W || wy >= W) continue;
+          const i = wy * W + wx;
+          if ((heights[i] as number) > 0) continue;
+          blocked[i] = 1;
+        }
       }
     }
   }

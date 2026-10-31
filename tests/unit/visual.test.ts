@@ -80,10 +80,10 @@ describe('effects and bars', () => {
     expect(new Set(h).size).toBeLessThanOrEqual(2); // on/off beacon
     expect(new Set(a).size).toBeGreaterThan(2); // smooth pulse
   });
-  it('GFX-8: low quality and reduced motion turn the decorative work off, keeping the rest', () => {
+  it('GFX-8: low quality turns the decorative work off, keeping the rest; reduced motion alone keeps it', () => {
     expect(effectsEnabled(defaultSettings(false)).decor).toBe(true);
     expect(effectsEnabled({ ...defaultSettings(false), quality: 'low' }).decor).toBe(false);
-    expect(effectsEnabled(defaultSettings(true)).decor).toBe(false);
+    expect(effectsEnabled(defaultSettings(true)).decor).toBe(true);
   });
 });
 

@@ -20,7 +20,9 @@ describe('visuals and settings', () => {
     const hi = defaultSettings(false);
     expect(effectsEnabled(hi)).toEqual({ bloom: true, particles: true, shake: true, decor: true });
     expect(effectsEnabled({ ...hi, quality: 'low' })).toEqual({ bloom: false, particles: false, shake: true, decor: false });
-    expect(effectsEnabled(defaultSettings(true))).toEqual({ bloom: false, particles: false, shake: false, decor: false });
+    // Reduced motion keeps the high preset and only stops camera shake.
+    expect(defaultSettings(true).quality).toBe('high');
+    expect(effectsEnabled(defaultSettings(true))).toEqual({ bloom: true, particles: true, shake: false, decor: true });
 
     const mem = new Map<string, string>();
     const store = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
@@ -28,6 +30,9 @@ describe('visuals and settings', () => {
     expect(loadSettings(store, false)).toMatchObject({ quality: 'low', muted: true, volume: 0.2 });
     expect(loadSettings(store, true).reducedMotion).toBe(true); // the system preference wins
 
+    // Settings saved by version 1 keep their sound choices but start on high quality again.
+    const v1 = new Map<string, string>([['shardfall.settings.v1', JSON.stringify({ quality: 'low', muted: true, volume: 0.3 })]]);
+    expect(loadSettings({ getItem: (k) => v1.get(k) ?? null, setItem: () => undefined }, false)).toMatchObject({ quality: 'high', muted: true, volume: 0.3 });
     expect(loadSettings(null)).toEqual(defaultSettings(false));
     expect(loadSettings({ getItem: () => 'not json', setItem: () => undefined })).toEqual(defaultSettings(false));
     expect(loadSettings({ getItem: () => JSON.stringify({ quality: 'ultra', volume: 9 }), setItem: () => undefined })).toEqual(defaultSettings(false));

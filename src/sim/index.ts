@@ -61,8 +61,10 @@ function buildingSnap(b: Building, detail: boolean): BuildingSnap {
 
 function updateFog(s: State): void {
   const { width, height } = s.grid;
+  if (s.lingering.length > 0) s.lingering = s.lingering.filter((l) => l.until > s.tick);
   s.fog.forEach((fog, player) => {
     const sources: VisionSource[] = [];
+    for (const l of s.lingering) if (l.owner === player) sources.push({ tx: l.tx, ty: l.ty, r: l.r });
     for (const u of s.units) if (u.owner === player) sources.push({ tx: tileOf(u.x), ty: tileOf(u.y), r: unitDef(u.kind).vision });
     for (const b of s.buildings) {
       if (b.owner !== player) continue;
@@ -276,6 +278,7 @@ export function hash(game: Game): number {
   for (const v of s.shards) h.int(v);
   for (const p of s.projectiles) h.int(p.hit).int(p.targetId).int(p.damage);
   for (const k of s.strikes) h.int(k.hit).int(k.x).int(k.y);
+  for (const l of s.lingering) h.int(l.owner).int(l.tx).int(l.ty).int(l.until);
   h.int(s.over ? 1 : 0).int(s.winner ?? -1);
   return h.value;
 }
