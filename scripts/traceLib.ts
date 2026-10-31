@@ -1,8 +1,9 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const REQ_DEF = /^\s*-\s+\*\*([A-Z]+-\d+)\*\*/gm;
-const REQ_REF = /\b([A-Z]+-\d+)\b/g;
+// A requirement ID is a capital letter, then capitals or digits (R3D), a dash and a number.
+const REQ_DEF = /^\s*-\s+\*\*([A-Z][A-Z0-9]*-\d+)\*\*/gm;
+const REQ_REF = /\b([A-Z][A-Z0-9]*-\d+)\b/g;
 
 function walk(dir: string, ext: RegExp, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

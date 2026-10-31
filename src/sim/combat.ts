@@ -87,7 +87,7 @@ function hurt(s: State, e: Entity, amount: number, attackerId: number, credit?: 
 function fire(s: State, shooter: { x: number; y: number; owner: number; id: number }, w: WeaponDef, t: Entity, unit?: Unit): void {
   const tp = pos(t);
   const damage = unit ? unitDamage(unit.kind, unit.hp, unit.rank) : w.damage;
-  s.events.push({ t: 'shot', x: shooter.x, y: shooter.y, tx: tp.x, ty: tp.y, weapon: w.type, owner: shooter.owner, air: armorOf(t) === 'air', flight: w.flight ?? 0 });
+  s.events.push({ t: 'shot', x: shooter.x, y: shooter.y, tx: tp.x, ty: tp.y, weapon: w.type, owner: shooter.owner, air: armorOf(t) === 'air', flight: w.flight ?? 0, src: shooter.id });
   if ((w.flight ?? 0) > 0) {
     s.projectiles.push({ hit: s.tick + (w.flight as number), x: tp.x, y: tp.y, targetId: t.id, owner: shooter.owner, damage, type: w.type, splash: w.splash ?? 0, air: armorOf(t) === 'air', shooter: unit ? unit.id : -1 });
   } else {
@@ -270,7 +270,7 @@ export function tickCombat(s: State): void {
   const deadUnits = s.units.filter((u) => u.hp <= 0);
   if (deadUnits.length > 0) {
     for (const u of deadUnits) {
-      s.events.push({ t: 'die', x: u.x, y: u.y, big: unitDef(u.kind).armor === 'heavy', owner: u.owner });
+      s.events.push({ t: 'die', x: u.x, y: u.y, big: unitDef(u.kind).armor === 'heavy', owner: u.owner, id: u.id, kind: u.kind });
       const p = s.players[u.owner];
       if (p) p.stats.unitsLost++;
     }
@@ -278,7 +278,7 @@ export function tickCombat(s: State): void {
   }
   for (const b of s.buildings.filter((q) => q.hp <= 0)) {
     const c = pos(b);
-    s.events.push({ t: 'die', x: c.x, y: c.y, big: true, owner: b.owner });
+    s.events.push({ t: 'die', x: c.x, y: c.y, big: true, owner: b.owner, id: b.id, kind: b.kind });
     const p = s.players[b.owner];
     if (p) p.stats.buildingsLost++;
     removeBuilding(s, b);

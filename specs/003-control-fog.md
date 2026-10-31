@@ -5,7 +5,7 @@
 - **FOG-3**: A player's snapshot always lists their own units and lists enemy units only on currently visible tiles; the god-view snapshot lists all.
 - **FOG-4**: Fog state is part of the state hash.
 - **CMD-1**: A `stop` command clears the path and destination of owned units and ignores units the player does not own.
-- **CTL-1**: Clicking selects the nearest own unit within a pick radius; clicking empty ground clears the selection; enemy units are never selected.
+- **CTL-1**: Clicking selects the own unit under the pointer: each unit can be clicked anywhere over its drawn body at the current zoom (its size with a margin, a squad's whole spread, from its feet up to the top of its body, and never less than 18 pixels around it), and where reaches overlap the unit the click lands on most squarely wins. Right-clicking an enemy to attack uses the same reach; clicking empty ground clears the selection; enemy units are never selected.
 - **CTL-2**: Box-select selects own units inside the rectangle; if the rectangle holds at least one combat unit, the non-combat units in it are left out. With shift, the units the box would select are added to the existing selection, and units already selected stay selected; shift-clicking a single unit toggles it.
 - **CTL-3**: Double-click selects all own units of the same kind on screen.
 - **CTL-4**: Control groups: assign with a key, recall with the same key; recalling drops units that no longer exist.

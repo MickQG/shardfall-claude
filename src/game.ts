@@ -1,13 +1,14 @@
 import { DIFFICULTIES } from './ai/ai';
-import { duelConfig, rushConfig, skirmishConfig } from './data/maps';
+import { duelConfig, rushConfig, showcaseConfig, skirmishConfig } from './data/maps';
 import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
 import { soundFor } from './audio/plan';
 import { SimClient } from './host/client';
-import { centerOnTile, mapBounds, pan, screenToWorld, zoomAt, type Camera } from './render/camera';
+import { centerOnTile, clampCamera, mapBounds, pan, zoomAt, type Camera } from './render/camera';
 import { GameView, type PlacementPreview } from './render/gameView';
+import type { WorldRenderer } from './render/worldRenderer';
 import { interpolate } from './render/interp';
-import { screenToTile, tileToScreen } from './render/iso';
+import { tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
 import { createHud, resultText, type ScoreView } from './ui/hud';
@@ -18,6 +19,7 @@ import { clampTile, Minimap, miniToTile } from './ui/minimap';
 import { rallyLine } from './ui/rally';
 import { effectsEnabled, loadSettings, saveSettings } from './ui/settings';
 import { placementLive } from './ui/production';
+import { FrameStats } from './ui/frameStats';
 import { Sidebar } from './ui/sidebar';
 import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
 import { boxSelect, Selection, selectKinds, selectSameKind, toScreenUnits } from './ui/selection';
@@ -32,12 +34,17 @@ const level = (['easy', 'medium', 'hard'] as const).find((d) => d === params.get
 const scenario = params.get('scenario');
 const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number] };
 const seed = Number(params.get('seed') ?? Date.now() % 100000);
-const cfg = scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
+const cfg = scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0)) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
+/** The three.js world view (ADR 0005, R3D-1): chosen once here, never part of the simulation. */
+const use3d = params.get('renderer') === '3d';
 const map = cfg.map;
 const bounds = mapBounds(map.width, map.height);
 // Scenarios are scripted fights without an AI opponent; a normal game has the AI play player 1.
 const sim = new SimClient(cfg, scenario ? [] : [{ player: 1, difficulty: level }]);
-const view = new GameView();
+// three.js loads only when the 3D view is asked for, so classic sessions do not download it.
+const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D() : new GameView();
+const frameStats = new FrameStats();
+const showFrameTime = use3d || scenario === 'showcase';
 const selection = new Selection();
 const hud = createHud();
 const settings = loadSettings(safeStorage(), matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -88,10 +95,7 @@ let lastAlertTick = -1;
 const EDGE = 12;
 const PAN_SPEED = 900;
 
-const tileFromScreen = (sx: number, sy: number): { x: number; y: number } => {
-  const w = screenToWorld(cam, view.viewport, sx, sy);
-  return screenToTile(w.x, w.y);
-};
+const tileFromScreen = (sx: number, sy: number): { x: number; y: number } => view.projector(cam).toGround(sx, sy);
 
 const aliveOwn = (snap: Snapshot): Set<number> => new Set(snap.units.filter((u) => u.owner === PLAYER).map((u) => u.id));
 
@@ -106,12 +110,17 @@ function centerOnUnits(units: readonly { x: number; y: number }[]): void {
 
 /** One picking context per query: units are interpolated to the same instant for hover, right-click and left-click. */
 function hitContext(snap: Snapshot): HitContext {
+  const proj = view.projector(cam);
   const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
   return {
     player: PLAYER,
-    units: toScreenUnits(interpolate(sim.prev?.units ?? snap.units, snap.units, alpha), cam, view.viewport),
+    units: toScreenUnits(interpolate(sim.prev?.units ?? snap.units, snap.units, alpha), proj),
     buildings: snap.buildings,
-    toWorld: (sx, sy) => screenToWorld(cam, view.viewport, sx, sy),
+    // The hit-test works in isometric pixels: map the ground point under the pointer back into them.
+    toWorld: (sx, sy) => {
+      const g = proj.toGround(sx, sy);
+      return tileToScreen(g.x, g.y);
+    },
     blocked: (tx, ty) => !!map.blocked?.[ty * map.width + tx],
     shardAt: (tx, ty) => (snap.shards[ty * snap.mapWidth + tx] ?? 0) > 0,
   };
@@ -187,6 +196,7 @@ function cursorState(): CursorState {
 
 function frame(prevTime: number): (t: number) => void {
   return (t) => {
+    if (showFrameTime) frameStats.push(t - prevTime);
     const dt = Math.min(0.05, (t - prevTime) / 1000);
     prevTime = t;
     const v = view.viewport;
@@ -199,12 +209,11 @@ function frame(prevTime: number): (t: number) => void {
     if ((dx || dy) && allowed('w')) cam = pan(cam, dx * PAN_SPEED * dt, dy * PAN_SPEED * dt, bounds);
 
     for (const ev of sim.events.splice(0)) {
-      view.effects.spawn(ev, t);
-      view.aim(ev, t);
+      view.spawn(ev, t);
       const s = soundFor(ev, PLAYER);
       audio.play(s.name, s.gain);
     }
-    view.app.canvas.style.cursor = cursorCss(cursorFor(cursorState()));
+    view.canvas.style.cursor = cursorCss(cursorFor(cursorState()));
     const curr = sim.curr;
     if (curr && curr.over && !resultShown) {
       resultShown = true;
@@ -331,8 +340,21 @@ async function boot(): Promise<void> {
     const poll = (): void => (sim.curr ? resolve(sim.curr) : void setTimeout(poll, 10));
     poll();
   });
-  await view.mount(host as HTMLElement, first);
-  const canvas = view.app.canvas;
+  await view.mount(host as HTMLElement, first, { blocked: map.blocked, shards: map.shards });
+  if (scenario === 'showcase') {
+    // Both armies march into each other so the fight and its effects can be seen.
+    const army = (p: number): number[] => first.units.filter((u) => u.owner === p).map((u) => u.id);
+    sim.send({ type: 'attackmove', player: 0, units: army(0), x: 30 * FP, y: 30 * FP });
+    sim.send({ type: 'attackmove', player: 1, units: army(1), x: 5 * FP, y: 5 * FP });
+  }
+  if (showFrameTime) {
+    const el = document.createElement('div');
+    el.id = 'frametime';
+    el.style.cssText = 'position:fixed;left:12px;top:52px;padding:4px 8px;border-radius:5px;background:rgba(8,12,17,.8);color:#9fe8ff;font:12px/1.3 ui-monospace,monospace;pointer-events:none;z-index:5';
+    document.body.appendChild(el);
+    setInterval(() => (el.textContent = `${use3d ? 'renderer 3d' : 'renderer classic'} · ${frameStats.label()}${view.readout ? ` · ${view.readout()}` : ''}`), 500);
+  }
+  const canvas = view.canvas;
   const hq = first.buildings.find((b) => b.owner === PLAYER && buildingDef(b.kind).hq);
   if (hq) centerOn(hq.tx + 1.5, hq.ty + 1.5);
 
@@ -415,7 +437,14 @@ async function boot(): Promise<void> {
     (e) => {
       e.preventDefault();
       if (!allowed('wheel')) return;
-      cam = zoomAt(cam, view.viewport, e.offsetX, e.offsetY, e.deltaY < 0 ? 1.1 : 1 / 1.1, bounds);
+      // Zoom about the screen centre, then shift so the ground point under the cursor stays put (R3D-4, both renderers).
+      const before = view.projector(cam).toGround(e.offsetX, e.offsetY);
+      const v = view.viewport;
+      const zoomed = zoomAt(cam, v, v.width / 2, v.height / 2, e.deltaY < 0 ? 1.1 : 1 / 1.1, bounds);
+      const after = view.projector(zoomed).toGround(e.offsetX, e.offsetY);
+      const a = tileToScreen(before.x, before.y);
+      const b = tileToScreen(after.x, after.y);
+      cam = clampCamera({ ...zoomed, x: zoomed.x + a.x - b.x, y: zoomed.y + a.y - b.y }, bounds);
     },
     { passive: false },
   );
@@ -535,22 +564,17 @@ async function boot(): Promise<void> {
     placing: () => placing,
     send: (c: Parameters<SimClient['send']>[0]) => sim.send(c),
     setSpeed: (v: number) => sim.setSpeed(v),
-    tileScreen: (tx: number, ty: number) => {
-      const w = tileToScreen(tx, ty);
-      return { x: (w.x - cam.x) * cam.zoom + view.viewport.width / 2, y: (w.y - cam.y) * cam.zoom + view.viewport.height / 2 };
-    },
+    tileScreen: (tx: number, ty: number) => view.projector(cam).toScreen(tx, ty),
     screenPos: (id: number) => {
       if (!sim.curr) return null;
-      const su = toScreenUnits(interpolate(sim.curr.units, sim.curr.units, 1), cam, view.viewport).find((u) => u.id === id);
+      const su = toScreenUnits(interpolate(sim.curr.units, sim.curr.units, 1), view.projector(cam)).find((u) => u.id === id);
       return su ? { x: su.sx, y: su.sy } : null;
     },
     buildingScreenPos: (id: number) => {
       const b = sim.curr?.buildings.find((x) => x.id === id);
       if (!b) return null;
       const d = buildingDef(b.kind);
-      const w = tileToScreen(b.tx + d.w / 2, b.ty + d.h / 2);
-      const s = { x: (w.x - cam.x) * cam.zoom + view.viewport.width / 2, y: (w.y - 10 - cam.y) * cam.zoom + view.viewport.height / 2 };
-      return s;
+      return view.projector(cam).toScreen(b.tx + d.w / 2, b.ty + d.h / 2, 10);
     },
   };
   const vig = document.createElement('div');

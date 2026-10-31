@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createGame, EXPLORED, FP, hash, snapshot, submit, tick, VISIBLE, type MapDef, type UnitSpawn } from '../../src/sim';
 import { miniToTile, tileToMini, type MiniLayout } from '../../src/ui/minimap';
-import { boxSelect, pickUnit, Selection, selectKinds, selectSameKind, type ScreenUnit } from '../../src/ui/selection';
+import { boxSelect, PICK_RADIUS, pickEnemy, pickReach, pickUnit, Selection, selectKinds, selectSameKind, toScreenUnits, type ScreenUnit } from '../../src/ui/selection';
 
 const open = (w: number, h: number): MapDef => ({ width: w, height: h, heights: new Array<number>(w * h).fill(0) });
 const idx = (w: number, x: number, y: number): number => y * w + x;
@@ -94,6 +94,31 @@ describe('selection', () => {
     expect(pickUnit(units, 108, 104, 0)).toBe(2);
     expect(pickUnit(units, 105, 100, 0)).not.toBe(3); // enemy underneath is ignored
     expect(pickUnit(units, 600, 600, 0)).toBeNull();
+  });
+
+  it('CTL-1: a unit can be clicked anywhere over its drawn body at the current zoom, and attacking uses the same reach', () => {
+    // A projector at zoom 4: 64 px per tile along each ground axis, body heights scale too.
+    const proj = { toScreen: (tx: number, ty: number, lift = 0) => ({ x: tx * 64, y: ty * 64 - lift * 4 }), toGround: (x: number, y: number) => ({ x: x / 64, y: y / 64 }) };
+    const ru = (id: number, owner: number, kind: string, tx: number, ty: number) => ({ id, owner, kind, tx, ty, hp: 1, load: 0, rank: 0, target: -1 });
+    const sc = toScreenUnits([ru(1, 0, 'hum_tank', 5, 5), ru(2, 0, 'hum_rifleman', 6.1, 5), ru(3, 1, 'ali_brute', 5, 9)], proj);
+    const tank = sc[0]!;
+    // The edge of the tank, well beyond the old fixed 18 px, still selects it; so does the top of its turret.
+    const edge = pickReach('hum_tank') * 64 * 0.9;
+    expect(edge).toBeGreaterThan(PICK_RADIUS * 1.5);
+    expect(pickUnit(sc, tank.sx - edge, tank.sy, 0)).toBe(1);
+    expect(pickUnit(sc, tank.hx!, tank.hy! - 10, 0)).toBe(1);
+    // A squad member standing at the edge of its squad's spread.
+    expect(pickReach('hum_rifleman')).toBeGreaterThan(pickReach('hum_buggy'));
+    expect(pickUnit(sc, sc[1]!.sx, sc[1]!.sy + 0.7 * 64, 0)).toBe(2);
+    // The attack cursor reaches the edge of an enemy just the same.
+    expect(pickEnemy(sc, sc[2]!.sx - pickReach('ali_brute') * 64 * 0.9, sc[2]!.sy, 0)).toBe(3);
+    // Between two units, the one the click lands on most squarely wins; empty ground selects nothing.
+    expect(pickUnit(sc, 5.7 * 64, 5 * 64, 0)).toBe(2);
+    expect(pickUnit(sc, 5.3 * 64, 5 * 64, 0)).toBe(1);
+    expect(pickUnit(sc, 7 * 64, 2 * 64, 0)).toBeNull();
+    // Zoomed far out, the reach never drops below the smallest pick radius.
+    const far = { ...proj, toScreen: (tx: number, ty: number, lift = 0) => ({ x: tx * 4, y: ty * 4 - lift / 4 }) };
+    expect(toScreenUnits([ru(1, 0, 'hum_rifleman', 5, 5)], far)[0]!.r).toBe(PICK_RADIUS);
   });
 
   it('CTL-2: box select picks own units inside the rectangle; shift-box adds, shift-click toggles', () => {

@@ -46,14 +46,14 @@ describe('visuals and settings', () => {
 
 describe('audio', () => {
   it('AUD-1: simulation events map to the right sounds; own fire is louder than enemy fire', () => {
-    const shot = (weapon: string, owner: number): SimEvent => ({ t: 'shot', x: 0, y: 0, tx: 0, ty: 0, weapon, owner, air: false, flight: 0 });
+    const shot = (weapon: string, owner: number): SimEvent => ({ t: 'shot', x: 0, y: 0, tx: 0, ty: 0, weapon, owner, air: false, flight: 0, src: 1 });
     expect(soundFor(shot('pierce', 0), 0).name).toBe('zap');
     expect(soundFor(shot('rocket', 0), 0).name).toBe('rocket');
     expect(soundFor(shot('blast', 0), 0).name).toBe('cannon');
     expect(soundFor(shot('claw', 0), 0).name).toBe('slash');
     expect(soundFor(shot('pierce', 0), 0).gain).toBeGreaterThan(soundFor(shot('pierce', 1), 0).gain);
-    expect(soundFor({ t: 'die', x: 0, y: 0, big: true, owner: 1 }, 0).name).toBe('bigboom');
-    expect(soundFor({ t: 'die', x: 0, y: 0, big: false, owner: 1 }, 0).name).toBe('pop');
+    expect(soundFor({ t: 'die', x: 0, y: 0, big: true, owner: 1, id: 2, kind: 'hum_tank' }, 0).name).toBe('bigboom');
+    expect(soundFor({ t: 'die', x: 0, y: 0, big: false, owner: 1, id: 3, kind: 'hum_rifleman' }, 0).name).toBe('pop');
     expect(soundFor({ t: 'boom', x: 0, y: 0, r: 1.5 }, 0).name).toBe('boom');
     expect(soundFor({ t: 'launch', x: 0, y: 0, owner: 1, kind: 'x', delay: 60 }, 0).name).toBe('sw_launch');
     expect(soundFor({ t: 'strike', x: 0, y: 0, owner: 1, kind: '', r: 4 }, 0).name).toBe('sw_strike');
