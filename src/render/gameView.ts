@@ -1,3 +1,5 @@
+// Pixi's eval-free code paths, so the classic view runs under the strict Content-Security-Policy (SEC-1).
+import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Sprite } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
 import { buildingDef, unitDef } from '../data/defs';

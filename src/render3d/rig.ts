@@ -166,6 +166,14 @@ export interface RigPose {
 }
 
 /** Pose every animated node of a rig. Pure apart from writing the nodes' transforms. */
+/**
+ * Set one rotation axis only when it changes (PERF-1): every write makes three.js rebuild the node's quaternion, and many
+ * parts (idle legs, parked turrets) hold still from frame to frame.
+ */
+function turn(obj: THREE.Object3D, axis: 'x' | 'y' | 'z', v: number): void {
+  if (obj.rotation[axis] !== v) obj.rotation[axis] = v;
+}
+
 export function poseRig(tree: RigTree, p: RigPose): void {
   for (const a of tree.anims) {
     const an = a.anim;
@@ -173,24 +181,29 @@ export function poseRig(tree: RigTree, p: RigPose): void {
     switch (an.k) {
       case 'body':
         obj.position.set(a.pos.x + p.lunge * p.reach - p.kick * 0.01, a.pos.y + p.bob - (p.crouch ?? 0) * (an.drop ?? 0), a.pos.z);
-        obj.rotation.set(a.rot.x + p.roll, a.rot.y, a.rot.z + p.pitch - p.kick * (p.walker ? 0 : 0.03) - p.lunge * 0.15);
+        {
+          const rx = a.rot.x + p.roll;
+          const rz = a.rot.z + p.pitch - p.kick * (p.walker ? 0 : 0.03) - p.lunge * 0.15;
+          const r = obj.rotation;
+          if (r.x !== rx || r.y !== a.rot.y || r.z !== rz) r.set(rx, a.rot.y, rz);
+        }
         break;
       case 'turret':
-        obj.rotation.y = a.rot.y - p.turret;
+        turn(obj, 'y', a.rot.y - p.turret);
         break;
       case 'barrel':
         obj.position.x = a.pos.x - an.recoil * p.kick;
         break;
       case 'wheel':
         // Each side rolls its own distance: turning on the spot, the inside wheels run backwards (R3D-10).
-        obj.rotation.z = a.rot.z - (p.dist - (p.turned ?? 0) * a.pos.z) / an.r;
+        turn(obj, 'z', a.rot.z - (p.dist - (p.turned ?? 0) * a.pos.z) / an.r);
         break;
       case 'steer':
-        obj.rotation.y = a.rot.y - Math.max(-0.45, Math.min(0.45, p.turnRate * 0.3));
+        turn(obj, 'y', a.rot.y - Math.max(-0.45, Math.min(0.45, p.turnRate * 0.3)));
         break;
       case 'gait': {
         const c = p.crouch ?? 0;
-        obj.rotation[an.axis] = a.rot[an.axis] + Math.sin(p.phase + an.phase) * an.amp * p.stride + c * (an.kneel ?? 0);
+        turn(obj, an.axis, a.rot[an.axis] + Math.sin(p.phase + an.phase) * an.amp * p.stride + c * (an.kneel ?? 0));
         if (an.lift || an.drop) obj.position.y = a.pos.y + (an.lift ?? 0) * Math.max(0, Math.cos(p.phase + an.phase)) * p.stride - c * (an.drop ?? 0);
         break;
       }
@@ -200,12 +213,12 @@ export function poseRig(tree: RigTree, p: RigPose): void {
         const [hx, hy] = an.pivot;
         const c = Math.cos(ang);
         const sn = Math.sin(ang);
-        obj.rotation.z = a.rot.z + ang;
+        turn(obj, 'z', a.rot.z + ang);
         obj.position.set(a.pos.x + hx - (hx * c - hy * sn), a.pos.y + hy - (hx * sn + hy * c), a.pos.z);
         break;
       }
       case 'drum':
-        obj.rotation.z = a.rot.z - (p.drum ?? 0);
+        turn(obj, 'z', a.rot.z - (p.drum ?? 0));
         break;
       case 'spin':
         obj.rotation[an.axis] = a.rot[an.axis] + ((an.rate * p.time) / 1000) % (Math.PI * 2);

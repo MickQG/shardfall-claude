@@ -1,5 +1,5 @@
 import { buildingDef, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
-import { skirmishConfig } from '../data/maps';
+import { skirmishConfig, type MapId } from '../data/maps';
 import { createGame, FP, hash, Rng, snapshot, submit, tick, type Game } from '../sim';
 import { Hv } from '../sim/state';
 import { AI, type AiStats, type Difficulty } from './ai';
@@ -26,6 +26,8 @@ export interface MatchOptions {
   factions: [Faction, Faction];
   difficulties: [Difficulty, Difficulty];
   maxTicks: number;
+  /** The skirmish map (MAP-4); Crossroads by default. */
+  map?: MapId;
 }
 
 export interface MatchResult {
@@ -53,7 +55,7 @@ const material = (g: Game, p: number): number => {
 
 /** Plays one complete AI-vs-AI match headlessly and reports the result plus any bad behaviour observed. */
 export function playMatch(o: MatchOptions): MatchResult {
-  const cfg = skirmishConfig(o.seed, { factions: o.factions, bonuses: [o.difficulties[0].bonus, o.difficulties[1].bonus] });
+  const cfg = skirmishConfig(o.seed, { factions: o.factions, bonuses: [o.difficulties[0].bonus, o.difficulties[1].bonus], map: o.map });
   const game = createGame(cfg);
   const ais = [0, 1].map((p) => new AI(p, o.factions[p] as Faction, o.difficulties[p] as Difficulty, cfg.map, o.seed)) as [AI, AI];
   // Random think phases per match: when mirrored armies meet, a few ticks of timing decide the fight, so a fixed offset would hand one side every game.

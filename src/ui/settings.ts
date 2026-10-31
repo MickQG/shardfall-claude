@@ -1,9 +1,13 @@
+import { DEFAULT_MAP, mapIdOf, type MapId } from '../data/maps';
+
 export interface Settings {
   quality: 'high' | 'low';
   muted: boolean;
   /** 0..1 */
   volume: number;
   reducedMotion: boolean;
+  /** The skirmish map last picked in the menu (MAP-4). */
+  map: MapId;
 }
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
@@ -12,7 +16,7 @@ const KEY = 'shardfall.settings.v2';
 const OLD_KEY = 'shardfall.settings.v1';
 
 /** High quality by default for everyone; the reduced-motion preference only stops camera shake (VIS-2). */
-export const defaultSettings = (reducedMotion = false): Settings => ({ quality: 'high', muted: false, volume: 0.6, reducedMotion });
+export const defaultSettings = (reducedMotion = false): Settings => ({ quality: 'high', muted: false, volume: 0.6, reducedMotion, map: DEFAULT_MAP });
 
 /** Loads saved settings. Storage can be missing, blocked or corrupt (private windows, tests): every failure falls back to defaults. */
 export function loadSettings(store: Store | null | undefined, prefersReducedMotion = false): Settings {
@@ -29,9 +33,19 @@ export function loadSettings(store: Store | null | undefined, prefersReducedMoti
       volume: typeof p.volume === 'number' && p.volume >= 0 && p.volume <= 1 ? p.volume : d.volume,
       // The system preference always wins over a saved value.
       reducedMotion: prefersReducedMotion || d.reducedMotion,
+      map: mapIdOf(p.map),
     };
   } catch {
     return d;
+  }
+}
+
+/** The browser's local storage, or null where it is blocked (some private windows throw on access). */
+export function safeStorage(): Storage | null {
+  try {
+    return localStorage;
+  } catch {
+    return null;
   }
 }
 

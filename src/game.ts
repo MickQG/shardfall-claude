@@ -1,5 +1,5 @@
 import { DIFFICULTIES } from './ai/ai';
-import { duelConfig, rushConfig, showcaseConfig, skirmishConfig } from './data/maps';
+import { duelConfig, mapIdOf, rushConfig, showcaseConfig, skirmishConfig } from './data/maps';
 import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
 import { soundFor } from './audio/plan';
@@ -17,7 +17,8 @@ import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, inputAll
 import { cursorCss, cursorFor, type CursorState } from './ui/cursor';
 import { clampTile, Minimap, miniToTile } from './ui/minimap';
 import { rallyLine } from './ui/rally';
-import { effectsEnabled, loadSettings, saveSettings } from './ui/settings';
+import { seedOf } from './ui/params';
+import { effectsEnabled, loadSettings, safeStorage, saveSettings } from './ui/settings';
 import { placementLive } from './ui/production';
 import { FrameStats } from './ui/frameStats';
 import { Sidebar } from './ui/sidebar';
@@ -33,8 +34,8 @@ const params = new URLSearchParams(location.search);
 const myFaction = params.get('faction') === 'alien' ? 'alien' : 'human';
 const level = (['easy', 'medium', 'hard'] as const).find((d) => d === params.get('difficulty')) ?? 'medium';
 const scenario = params.get('scenario');
-const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number] };
-const seed = Number(params.get('seed') ?? Date.now() % 100000);
+const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number], map: mapIdOf(params.get('map')) };
+const seed = seedOf(params.get('seed'), Date.now() % 100000);
 const cfg = scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0)) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
 /** What this browser's WebGL2 is: missing, software-rendered, or on a graphics chip. */
 function probeGpu(): GpuProbe {
@@ -70,14 +71,6 @@ const alerts = new AlertTracker(PLAYER);
 let paused = false;
 let speedIdx = 1;
 const SPEEDS = [0.5, 1, 2, 4];
-
-function safeStorage(): Storage | null {
-  try {
-    return localStorage;
-  } catch {
-    return null;
-  }
-}
 
 function topbar(): void {
   hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · E select same kind · F attack-move · F2 quality: ${settings.quality}`);

@@ -8,6 +8,7 @@
 - **Seam** – the public simulation API through which everything else interacts with it.
 - **State hash** – a deterministic hash of the full game state, used to prove determinism.
 - **Faction** – Humans or Aliens.
+- **Map** – the battlefield a skirmish is played on (Crossroads, Riverbed or Highlands), chosen before the game; every map is the same for both players, turned half a turn.
 - **Tier** – depth in the tech tree (1–3).
 - **Power grid** – total power produced versus consumed; a deficit slows production and disables power-hungry buildings.
 - **Fog of war** – per-player visibility: hidden, explored (remembered), visible.
