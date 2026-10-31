@@ -174,8 +174,9 @@ const sidebar = new Sidebar({
   },
   sell: (id) => sim.send({ type: 'sell', player: PLAYER, building: id }),
   repair: (id, on) => sim.send({ type: 'repair', player: PLAYER, building: id, on }),
+  // The fire button arms targeting; pressed again (or right-click) it cancels (UI-9).
   fire: (id) => {
-    targeting = { building: id };
+    targeting = targeting?.building === id ? null : { building: id };
   },
   refused: (reason) => refuse(reason),
 });
@@ -251,7 +252,7 @@ function frame(prevTime: number): (t: number) => void {
           if (a.at && minimap) minimap.ping(a.at.tx, a.at.ty, t, a.level === 'bad' ? '#ff5a4a' : '#ffd34a');
         }
       }
-      sidebar.update(curr, selectedBuilding, t);
+      sidebar.update(curr, selectedBuilding, t, targeting?.building ?? null);
 
       const own = curr.units.filter((u) => selection.has(u.id));
       const kinds = new Map<string, number>();

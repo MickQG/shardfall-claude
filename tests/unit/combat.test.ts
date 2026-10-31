@@ -233,6 +233,23 @@ describe('air units and the end of the game', () => {
   });
 });
 
+describe('superweapon events', () => {
+  it('R3D-8: a superweapon launch names its target and its strike names the weapon', () => {
+    const g = createGame(cfg({
+      buildings: [{ owner: 0, kind: 'hum_lance', tx: 2, ty: 2 }, { owner: 0, kind: 'hum_hq', tx: 10, ty: 2 }, { owner: 0, kind: 'hum_reactor', tx: 14, ty: 2 }, { owner: 0, kind: 'hum_reactor', tx: 17, ty: 2 }, { owner: 1, kind: 'ali_hq', tx: 44, ty: 44 }],
+    }));
+    run(g, 2);
+    const lance = g.state.buildings.find((b) => b.kind === 'hum_lance')!;
+    lance.charge = buildingDef('hum_lance').superweapon!.charge;
+    const x = 30 * FP + FP / 2;
+    const y = 31 * FP + FP / 2;
+    submit(g, { type: 'superweapon', player: 0, building: lance.id, x, y });
+    const events = run(g, 70);
+    expect(events.find((e) => e.t === 'launch')).toMatchObject({ tx: x, ty: y, kind: 'hum_lance', owner: 0 });
+    expect(events.find((e) => e.t === 'strike')).toMatchObject({ x, y, kind: 'hum_lance' });
+  });
+});
+
 describe('rosters', () => {
   const kinds = (f: 'human' | 'alien'): { b: [string, BuildingDef][]; u: [string, UnitDef][] } => ({
     b: Object.entries(BUILDING_DEFS).filter(([, d]) => d.faction === f),

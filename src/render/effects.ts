@@ -1,5 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import type { SimEvent } from '../sim';
+import { buildingDef } from '../data/defs';
 import { OWNER_COLORS } from './colors';
 import { muzzleFor, shadeCube } from './gfx';
 import { tileToScreen } from './iso';
@@ -156,6 +157,16 @@ export class Effects {
       g.clear().rect(p.x - 3, p.y - 400 * k - 40, 6, 400 * k).fill({ color: 0xffffff, alpha: 1 - k * 0.4 });
       g.circle(p.x, p.y - 40, 14 * (1 - k) + 4).fill({ color: 0x9ff0ff, alpha: 0.7 });
     }, p.y);
+    // The target is marked until the strike lands: a glowing disc and rings pulsing faster as it nears (R3D-16).
+    const t = toScreen(e.tx, e.ty);
+    const r = (buildingDef(e.kind).superweapon?.radius ?? 3) * 34;
+    const color = e.kind.startsWith('ali_') ? 0xb6ff5c : 0x8fd8ff;
+    this.add(e.delay * TICK_MS, now, (k, g) => {
+      const pulse = (k * (3 + 6 * k)) % 1;
+      g.clear().ellipse(t.x, t.y, r, r * 0.5).fill({ color, alpha: 0.08 + 0.25 * k });
+      g.ellipse(t.x, t.y, r * (1.1 - 0.8 * pulse), r * (1.1 - 0.8 * pulse) * 0.5).stroke({ color, width: 3, alpha: 0.9 - 0.5 * pulse });
+      g.rect(t.x - 1 - 3 * k, t.y - 900, 2 + 6 * k, 900).fill({ color: 0xffffff, alpha: 0.15 + 0.5 * k });
+    }, t.y);
   }
 
   private strike(e: Extract<SimEvent, { t: 'strike' }>, now: number): void {

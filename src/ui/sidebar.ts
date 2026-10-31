@@ -1,6 +1,6 @@
 import { buildingDef, hqOf, structuresOf, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
 import { cancelPlan } from './cancelPlan';
-import { fireState, queueRefusal, rallyHint, SellConfirm } from './feedback';
+import { fireState, queueRefusal, rallyHint, SellConfirm, superweaponRows } from './feedback';
 import { newestQueued, trainSource } from './production';
 import { QUEUE_MAX, type BuildingSnap, type Snapshot } from '../sim';
 
@@ -29,6 +29,22 @@ const CSS = `
 #sidebar button.act:hover { border-color: #7ff5cd; }
 #sidebar .sel-name { font-weight: 600; margin-bottom: 4px; }
 @keyframes pulse { from { box-shadow: 0 0 4px #ffd34a66; } to { box-shadow: 0 0 12px #ffd34acc; } }
+#sidebar .sw { border-color: #5a3f2c; }
+#sidebar .sw-row { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; align-items: center; }
+#sidebar .sw-row + .sw-row { margin-top: 8px; }
+#sidebar .sw-name { font-weight: 600; }
+#sidebar .sw-state { font-size: 11px; color: #9fb4c6; }
+#sidebar .sw-bar { grid-column: 1 / -1; height: 5px; background: #1a2733; border-radius: 3px; overflow: hidden; }
+#sidebar .sw-bar > i { display: block; height: 100%; background: linear-gradient(90deg, #a0582a, #ff9a3a); }
+#sidebar button.fire { grid-row: 1 / span 2; grid-column: 2; min-width: 66px; padding: 9px 10px; border-radius: 5px; border: 1px solid #4a3a30; background: #20160f; color: #b0907a; font: 700 12px/1 system-ui, sans-serif; letter-spacing: .1em; cursor: not-allowed; }
+#sidebar .sw-row.ready .sw-bar > i { background: #ffd34a; }
+#sidebar .sw-row.ready button.fire { cursor: pointer; color: #1a0d05; background: linear-gradient(#ffe27a, #ff8a3a); border-color: #ffd34a; animation: swpulse .8s infinite alternate; }
+#sidebar .sw.alien .sw-row.ready .sw-bar > i { background: #b6ff5c; }
+#sidebar .sw.alien .sw-row.ready button.fire { background: linear-gradient(#e2ff9a, #6ad02a); border-color: #b6ff5c; animation-name: swpulse-g; }
+#sidebar .sw-row.armed button.fire { cursor: pointer; background: #3a1010; color: #ff9a8a; border-color: #ff5a4a; animation: none; }
+#sidebar .sw-row.armed .sw-state { color: #ff9a8a; }
+@keyframes swpulse { from { box-shadow: 0 0 4px #ff8a3a66; } to { box-shadow: 0 0 16px #ffb04add; } }
+@keyframes swpulse-g { from { box-shadow: 0 0 4px #6ad02a66; } to { box-shadow: 0 0 16px #b6ff5cdd; } }
 `;
 
 interface ItemData {
@@ -84,6 +100,9 @@ export class Sidebar {
   private buildEl: HTMLElement;
   private trainEl: HTMLElement;
   private selEl: HTMLElement;
+  private swEl: HTMLElement;
+  private swRows: HTMLElement;
+  private swRefs = new Map<number, { row: HTMLElement; name: HTMLElement; state: HTMLElement; bar: HTMLElement; btn: HTMLButtonElement }>();
   private queues = new Map<number, { kind: string }[]>();
   private mine: BuildingSnap[] = [];
   private selected: number | null = null;
@@ -97,12 +116,14 @@ export class Sidebar {
     style.textContent = CSS;
     document.head.appendChild(style);
     this.root.id = 'sidebar';
-    this.root.innerHTML = '<div class="box" id="sb-res"></div><div class="scroll"><div class="box" id="sb-sel" style="display:none"></div><div class="box"><h4>Structures</h4><div class="list" id="sb-build"></div></div><div class="box"><h4>Units</h4><div class="list" id="sb-train"></div></div></div>';
+    this.root.innerHTML = '<div class="box" id="sb-res"></div><div class="box sw" id="sb-sw" style="display:none"><h4>Superweapon</h4><div id="sb-sw-rows"></div></div><div class="scroll"><div class="box" id="sb-sel" style="display:none"></div><div class="box"><h4>Structures</h4><div class="list" id="sb-build"></div></div><div class="box"><h4>Units</h4><div class="list" id="sb-train"></div></div></div>';
     document.body.appendChild(this.root);
     this.resEl = this.root.querySelector('#sb-res') as HTMLElement;
     this.buildEl = this.root.querySelector('#sb-build') as HTMLElement;
     this.trainEl = this.root.querySelector('#sb-train') as HTMLElement;
     this.selEl = this.root.querySelector('#sb-sel') as HTMLElement;
+    this.swEl = this.root.querySelector('#sb-sw') as HTMLElement;
+    this.swRows = this.root.querySelector('#sb-sw-rows') as HTMLElement;
     this.root.addEventListener('click', (e) => this.onClick(e, false));
     this.root.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -167,7 +188,7 @@ export class Sidebar {
     else if (a === 'fire') this.actions.fire(src);
   }
 
-  update(snap: Snapshot, selectedBuilding: number | null, now: number): void {
+  update(snap: Snapshot, selectedBuilding: number | null, now: number, targeting: number | null = null): void {
     const me = snap.viewer;
     if (me === null) return;
     const player = snap.players[me];
@@ -177,7 +198,7 @@ export class Sidebar {
     this.selected = selectedBuilding;
     this.queues = new Map(mine.map((b) => [b.id, b.queue.map((q) => ({ kind: q.kind }))]));
     const armed = selectedBuilding !== null && this.sellConfirm.armed(selectedBuilding, now);
-    const key = JSON.stringify([player.credits, player.powerOut, player.powerIn, mine.map((b) => [b.id, b.kind, b.hp, b.repairing, b.charge, b.queue.map((q) => [q.kind, q.pct, q.ready])]), selectedBuilding, armed]);
+    const key = JSON.stringify([player.credits, player.powerOut, player.powerIn, mine.map((b) => [b.id, b.kind, b.hp, b.repairing, b.charge, b.queue.map((q) => [q.kind, q.pct, q.ready])]), selectedBuilding, armed, targeting]);
     if (key === this.lastKey || now - this.lastAt < 120) return;
     this.lastKey = key;
     this.lastAt = now;
@@ -189,6 +210,43 @@ export class Sidebar {
     this.renderBuild(snap, player.faction, player.credits, mine);
     this.renderTrain(snap, player.faction, player.credits, mine);
     this.renderSelection(mine, selectedBuilding, low, armed);
+    this.renderSuperweapons(mine, low, targeting, player.faction);
+  }
+
+  /** The superweapon panel (UI-9): always in view while the player owns one, with a fire button once it is ready. */
+  private renderSuperweapons(mine: BuildingSnap[], low: boolean, targeting: number | null, faction: Faction): void {
+    const rows = superweaponRows(mine, low, targeting);
+    this.swEl.style.display = rows.length ? 'block' : 'none';
+    this.swEl.classList.toggle('alien', faction === 'alien');
+    const seen = new Set<number>();
+    for (const r of rows) {
+      seen.add(r.id);
+      let ref = this.swRefs.get(r.id);
+      if (!ref) {
+        // Built once per weapon and updated in place, so a click is never lost to a re-render.
+        const row = document.createElement('div');
+        row.className = 'sw-row';
+        row.innerHTML = '<span class="sw-name"></span><button class="fire" data-act="fire"></button><span class="sw-state"></span><div class="sw-bar"><i></i></div>';
+        this.swRows.appendChild(row);
+        ref = { row, name: row.querySelector('.sw-name') as HTMLElement, state: row.querySelector('.sw-state') as HTMLElement, bar: row.querySelector('.sw-bar > i') as HTMLElement, btn: row.querySelector('button') as HTMLButtonElement };
+        ref.btn.dataset.src = String(r.id);
+        this.swRefs.set(r.id, ref);
+      }
+      ref.name.textContent = r.name;
+      if (ref.state.textContent !== r.state) ref.state.textContent = r.state;
+      if (ref.btn.textContent !== r.button) ref.btn.textContent = r.button;
+      ref.bar.style.width = `${r.pct}%`;
+      ref.row.classList.toggle('ready', r.ready && !r.armed);
+      ref.row.classList.toggle('armed', r.armed);
+      ref.btn.classList.toggle('off', !r.ready && !r.armed);
+      ref.btn.dataset.why = r.why;
+      ref.btn.title = r.armed ? 'Cancel targeting (or right-click the map)' : r.ready ? 'Fire: then click the target' : r.why;
+    }
+    for (const [id, ref] of this.swRefs) {
+      if (seen.has(id)) continue;
+      ref.row.remove();
+      this.swRefs.delete(id);
+    }
   }
 
   private refs = new Map<string, ItemRef>();

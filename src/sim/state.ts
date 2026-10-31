@@ -61,6 +61,8 @@ export interface Projectile {
 }
 
 export interface Strike {
+  /** The superweapon's building kind (for its look; not part of the state hash). */
+  kind: string;
   hit: number;
   x: number;
   y: number;
