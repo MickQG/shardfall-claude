@@ -504,6 +504,37 @@ describe('effects budget and batching', () => {
     expect(dustOnly.particleCount).toBe(0);
   });
 
+  it('R3D-12: Vrax weapons have their own flair: spit bursts, glowing wakes and drips, claw slashes, acid puddles', () => {
+    const at = new THREE.Vector3(2, 0.3, 2);
+    const dir = new THREE.Vector3(1, 0, 0);
+    const count = (f: (fx: CombatFx) => void, t: number): number => {
+      const fx = new CombatFx();
+      f(fx);
+      fx.update(t, 0.016);
+      return fx.particleCount;
+    };
+    // A spit burst is richer than a rifle's flash.
+    expect(count((fx) => fx.muzzle('acid', at, dir, 0), 20)).toBeGreaterThan(count((fx) => fx.muzzle('rifle', at, dir, 0), 20) + 3);
+    // A sting leaves a wake of motes in flight; a rifle round leaves none.
+    const flight = (look: 'sting' | 'rifle'): number => {
+      const fx = new CombatFx();
+      fx.shot(look, at, new THREE.Vector3(12, 0.3, 2), 0, 0);
+      for (let t = 16; t <= 160; t += 16) fx.update(t, 0.016);
+      return fx.particleCount;
+    };
+    expect(flight('sting')).toBeGreaterThan(2);
+    expect(flight('rifle')).toBe(0);
+    // A claw strike sprays ichor.
+    expect(count((fx) => fx.shot('claw', at, at, 0, 0), 20)).toBeGreaterThanOrEqual(8);
+    // Acid splashes leave a glowing puddle that fades within a few seconds.
+    const fx = new CombatFx();
+    fx.shot('acidBig', new THREE.Vector3(0, 0.3, 0), at, 300, 0);
+    for (let t = 16; t <= 400; t += 16) fx.update(t, 0.016);
+    expect(fx.puddles.some((p) => p.mesh.visible)).toBe(true);
+    fx.update(5000, 0.016);
+    expect(fx.puddles.some((p) => p.mesh.visible)).toBe(false);
+  });
+
   it('R3D-13: one draw call per model part and team, however many units; particles stay within budget', () => {
     const scene = new THREE.Scene();
     const inst = new Instancer(scene);

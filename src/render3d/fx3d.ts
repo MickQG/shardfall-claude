@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { valueNoise } from '../render/terrainNext';
 import type { WeaponLook } from './rig';
 
 /**
@@ -25,7 +26,14 @@ interface Look {
   /** Impact flavour. */
   hit: 'spark' | 'blast' | 'acid' | 'slash' | 'bone';
   shake: number;
+  /** Vrax weapons: bioluminescent spit, drips and wakes instead of fire and smoke (R3D-12). */
+  bio?: boolean;
 }
+
+/** Vrax bioluminescence: bright core, body glow and the deep green it fades to. */
+const BIO_CORE = 0xeaffb0;
+const BIO = 0xa8ff3c;
+const BIO_DEEP = 0x3f8a10;
 
 export const LOOKS: Record<WeaponLook, Look> = {
   rifle: { color: 0xffe2a0, intensity: 1.3, speed: 38, len: 0.26, width: 0.0065, arc: 0, flash: 0.09, flashColor: 0xffd27a, smokeTrail: false, hit: 'spark', shake: 0 },
@@ -35,11 +43,11 @@ export const LOOKS: Record<WeaponLook, Look> = {
   cannon: { color: 0xffd090, intensity: 2.2, speed: 0, len: 0.26, width: 0.026, arc: 0.02, flash: 0.55, flashColor: 0xffc068, smokeTrail: false, hit: 'blast', shake: 0.04 },
   howitzer: { color: 0xffb060, intensity: 2.2, speed: 0, len: 0.22, width: 0.035, arc: 0.38, flash: 0.8, flashColor: 0xffb050, smokeTrail: true, hit: 'blast', shake: 0.08 },
   rocket: { color: 0xffa040, intensity: 2.6, speed: 0, len: 0.14, width: 0.03, arc: 0.12, flash: 0.22, flashColor: 0xffb060, smokeTrail: true, hit: 'blast', shake: 0.02 },
-  claw: { color: 0xd8ffb0, intensity: 2.5, speed: 0, len: 0, width: 0.02, arc: 0, flash: 0, flashColor: 0, smokeTrail: false, hit: 'slash', shake: 0 },
-  acid: { color: 0xb8ff40, intensity: 2, speed: 0, len: 0.1, width: 0.05, arc: 0.28, flash: 0.16, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0 },
-  acidBig: { color: 0xb8ff40, intensity: 2.4, speed: 0, len: 0.16, width: 0.09, arc: 0.45, flash: 0.35, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0.05 },
-  sting: { color: 0xe8ff70, intensity: 1.35, speed: 26, len: 0.2, width: 0.013, arc: 0, flash: 0.07, flashColor: 0xe0ff80, smokeTrail: false, hit: 'spark', shake: 0 },
-  spine: { color: 0xf0e6cc, intensity: 1.1, speed: 22, len: 0.26, width: 0.017, arc: 0.04, flash: 0.09, flashColor: 0xb6ff5c, smokeTrail: false, hit: 'bone', shake: 0 },
+  claw: { color: 0xd8ffb0, intensity: 2.5, speed: 0, len: 0, width: 0.02, arc: 0, flash: 0, flashColor: 0, smokeTrail: false, hit: 'slash', shake: 0, bio: true },
+  acid: { color: 0xb8ff40, intensity: 2, speed: 0, len: 0.1, width: 0.05, arc: 0.28, flash: 0.16, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0, bio: true },
+  acidBig: { color: 0xb8ff40, intensity: 2.4, speed: 0, len: 0.16, width: 0.09, arc: 0.45, flash: 0.35, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0.05, bio: true },
+  sting: { color: 0xe8ff70, intensity: 1.35, speed: 26, len: 0.2, width: 0.013, arc: 0, flash: 0.07, flashColor: 0xe0ff80, smokeTrail: false, hit: 'spark', shake: 0, bio: true },
+  spine: { color: 0xf0e6cc, intensity: 1.1, speed: 22, len: 0.26, width: 0.017, arc: 0.04, flash: 0.09, flashColor: 0xb6ff5c, smokeTrail: false, hit: 'bone', shake: 0, bio: true },
 };
 
 /**
@@ -141,23 +149,23 @@ function puffTexture(lumpy: boolean): THREE.Texture {
 
 /**
  * A scorch mark: an uneven burnt blob that fades to nothing well inside its square (R3D-12). The value sits in every
- * channel because an alpha map reads green.
+ * channel because an alpha map reads green. `lobes` sets how uneven its edge is (acid puddles are rounder).
  */
-export function scorchTexture(): THREE.DataTexture {
+export function scorchTexture(lobes = 0.35): THREE.DataTexture {
   const N = 64;
   const data = new Uint8Array(N * N * 4);
   const rng = new Rng(11);
-  const lobes = Array.from({ length: 9 }, () => ({ a: rng.range(0, Math.PI * 2), k: rng.range(0.06, 0.13), f: Math.floor(rng.range(2, 6)) }));
+  const shape = Array.from({ length: 9 }, () => ({ a: rng.range(0, Math.PI * 2), k: rng.range(0.06, 0.13), f: Math.floor(rng.range(2, 6)) }));
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       const u = (x + 0.5) / N - 0.5;
       const v = (y + 0.5) / N - 0.5;
       const ang = Math.atan2(v, u);
       let edge = 0.3;
-      for (const l of lobes) edge += l.k * 0.35 * Math.sin(ang * l.f + l.a);
+      for (const l of shape) edge += l.k * lobes * Math.sin(ang * l.f + l.a);
       edge = Math.min(0.46, edge);
       const d = Math.hypot(u, v);
-      const a = Math.max(0, Math.min(1, (edge - d) / 0.16)) * (0.75 + 0.25 * Math.sin(u * 37 + v * 23) * Math.sin(v * 29 - u * 17));
+      const a = Math.max(0, Math.min(1, (edge - d) / 0.16)) * (0.72 + 0.28 * valueNoise(u * 7 + 3, v * 7 + 11));
       const k = (y * N + x) * 4;
       const val = Math.round(Math.max(0, Math.min(1, a)) * 255);
       data[k] = data[k + 1] = data[k + 2] = data[k + 3] = val;
@@ -169,6 +177,16 @@ export function scorchTexture(): THREE.DataTexture {
   t.needsUpdate = true;
   return t;
 }
+
+/** A flat unit square lying on the ground, for scorch marks and puddles. */
+let groundSquare: THREE.PlaneGeometry | null = null;
+const scorchGeoFor = (): THREE.PlaneGeometry => {
+  if (!groundSquare) {
+    groundSquare = new THREE.PlaneGeometry(1, 1);
+    groundSquare.rotateX(-Math.PI / 2);
+  }
+  return groundSquare;
+};
 
 /** One pooled particle layer drawn as camera-facing points (glowing = additive, else alpha-blended smoke). */
 class ParticleLayer {
@@ -398,6 +416,8 @@ export class CombatFx {
   private lights: { light: THREE.PointLight; until: number; power: number; born: number }[] = [];
   private rings: Flash[] = [];
   private scorches: Flash[] = [];
+  /** Glowing acid puddles, drawn additively over the ground. */
+  puddles: Flash[] = [];
   private rng = new Rng(12345);
   private v = new THREE.Vector3();
   private w = new THREE.Vector3();
@@ -426,8 +446,16 @@ export class CombatFx {
       this.rings.push({ mesh, born: -1e9, life: 1, size: 1 });
     }
     const scorchTex = scorchTexture();
-    const scorchGeo = new THREE.PlaneGeometry(1, 1);
-    scorchGeo.rotateX(-Math.PI / 2);
+    // Puddles are rounder than scorch marks.
+    const puddleTex = scorchTexture(0.1);
+    for (let i = 0; i < 12; i++) {
+      const mesh = new THREE.Mesh(scorchGeoFor(), new THREE.MeshBasicMaterial({ color: BIO, alphaMap: puddleTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, opacity: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+      mesh.visible = false;
+      mesh.renderOrder = 3;
+      this.root.add(mesh);
+      this.puddles.push({ mesh, born: -1e9, life: 1, size: 1 });
+    }
+    const scorchGeo = scorchGeoFor();
     for (let i = 0; i < 24; i++) {
       const mesh = new THREE.Mesh(scorchGeo, new THREE.MeshBasicMaterial({ color: 0x0a0806, alphaMap: scorchTex, transparent: true, depthWrite: false, opacity: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
       mesh.visible = false;
@@ -439,7 +467,7 @@ export class CombatFx {
 
   /** Show every pooled effect mesh (for shader compilation before the first frame), or restore them. */
   warm(on: boolean): void {
-    for (const f of [...this.rings, ...this.scorches]) f.mesh.visible = on;
+    for (const f of [...this.rings, ...this.scorches, ...this.puddles]) f.mesh.visible = on;
     this.glow.points.geometry.setDrawRange(0, on ? 1 : 0);
     this.smoke.points.geometry.setDrawRange(0, on ? 1 : 0);
     this.streaks.mesh.count = on ? 1 : 0;
@@ -465,6 +493,10 @@ export class CombatFx {
     const L = LOOKS[look];
     if (L.flash <= 0) return;
     const r = this.rng;
+    if (L.bio) {
+      this.spit(L, at, dir, now);
+      return;
+    }
     // Small arms get a dimmer, warmer core than guns and launchers.
     const small = L.flash < 0.3;
     this.glow.emit({ x: at.x, y: at.y, z: at.z, life: small ? 55 : 70, size0: L.flash * 1.4, size1: L.flash * 0.6, color0: small ? L.flashColor : 0xffffff, color1: L.flashColor, alpha: small ? 0.9 : 1.25 }, now);
@@ -481,6 +513,26 @@ export class CombatFx {
       }
       this.shake = Math.max(this.shake, L.shake);
     }
+  }
+
+  /**
+   * A Vrax weapon's discharge (R3D-12): a glowing spit burst fanning forward from the mouth or stinger, droplets that
+   * arc and fall, a breath of green vapour and a green glow, in place of a fire flash.
+   */
+  private spit(L: Look, at: Vec, dir: Vec, now: number): void {
+    const r = this.rng;
+    const f = L.flash;
+    this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 90, size0: f * 1.5, size1: f * 0.5, color0: BIO_CORE, color1: BIO, alpha: 1 }, now);
+    const n = this.quality.rich ? 7 : 3;
+    for (let i = 0; i < n; i++) {
+      const sp = r.range(1.2, 3.2);
+      const sx = r.range(-0.6, 0.6);
+      const sz = r.range(-0.6, 0.6);
+      this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: (dir.x + sx * 0.5) * sp, vy: (dir.y + r.range(0, 0.5)) * sp, vz: (dir.z + sz * 0.5) * sp, life: r.range(180, 380), size0: f * 0.45, size1: f * 0.12, color0: BIO, color1: BIO_DEEP, alpha: 1.1, drag: 3, gravity: 5 }, now);
+    }
+    if (this.quality.rich && !this.busy) this.smoke.emit({ x: at.x + dir.x * f, y: at.y + dir.y * f, z: at.z + dir.z * f, vx: dir.x * 0.6, vy: 0.2, vz: dir.z * 0.6, life: 650, size0: f * 0.5, size1: f * 2, color0: 0x7aa04a, color1: 0x3a4a2a, alpha: 0.3, drag: 2 }, now);
+    this.light(at.x, at.y + 0.1, at.z, BIO, f * 10, 160 + f * 160, now);
+    if (L.shake > 0) this.shake = Math.max(this.shake, L.shake);
   }
 
   /** A shot from `from` to `to`: straight tracers fly at their look's speed; others take `flightMs` (from the sim). */
@@ -592,18 +644,32 @@ export class CombatFx {
       return;
     }
     if (L.hit === 'slash') {
-      // Two crossing claw swipes and a spray of sparks.
+      // Three raking claw arcs that glow and fade, a spatter of ichor and a pulse of light (R3D-12).
       const a = r.range(0, Math.PI);
-      for (const da of [0, 1.2]) {
-        this.v.set(Math.cos(a + da) * 0.18, 0.12, Math.sin(a + da) * 0.18);
-        const tail = this.w.copy(at).sub(this.v);
-        this.streakFlash(tail, at.clone().add(this.v), now);
+      for (let c = 0; c < 3; c++) {
+        const off = (c - 1) * 0.05;
+        const p = (t: number): Vec => {
+          // A shallow downward arc across the target, each claw a little apart.
+          const u = t * 2 - 1;
+          return new THREE.Vector3(Math.cos(a) * u * 0.22 - Math.sin(a) * off, 0.16 - u * 0.12 - Math.abs(u) * 0.04, Math.sin(a) * u * 0.22 + Math.cos(a) * off).add(at);
+        };
+        for (let k = 0; k < 4; k++) this.streakFlash(p(k / 4), p((k + 1) / 4), now);
       }
+      for (let i = 0; i < (this.quality.rich ? 8 : 4); i++) {
+        const b = r.range(0, Math.PI * 2);
+        this.glow.emit({ x: at.x, y: at.y + 0.1, z: at.z, vx: Math.cos(b) * r.range(0.4, 1.4), vy: r.range(0.6, 1.6), vz: Math.sin(b) * r.range(0.4, 1.4), life: r.range(300, 550), size0: 0.035, size1: 0.02, color0: BIO, color1: BIO_DEEP, alpha: 1, gravity: 7 }, now);
+      }
+      this.light(at.x, at.y + 0.2, at.z, BIO, 3, 160, now);
     }
     const n = L.hit === 'slash' ? 6 : 4;
     for (let i = 0; i < n; i++) {
       const a = r.range(0, Math.PI * 2);
       this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: Math.cos(a) * r.range(0.6, 1.8), vy: r.range(0.5, 1.8), vz: Math.sin(a) * r.range(0.6, 1.8), life: r.range(140, 300), size0: 0.04, size1: 0.015, color0: L.hit === 'bone' ? 0xb6ff5c : L.color, alpha: 1.5, gravity: 6 }, now);
+    }
+    // Stings and spines burst in a small green puff with a glint of light.
+    if (L.bio && L.hit !== 'slash') {
+      this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 160, size0: 0.08, size1: 0.2, color0: BIO_CORE, color1: BIO_DEEP, alpha: 0.9 }, now);
+      this.light(at.x, at.y + 0.15, at.z, BIO, 2, 140, now);
     }
     if (this.quality.rich) this.smoke.emit({ x: at.x, y: at.y, z: at.z, vy: 0.3, life: 450, size0: 0.06, size1: 0.22, color0: 0x8a7a5e, alpha: 0.35, drag: 2 }, now);
   }
@@ -616,6 +682,17 @@ export class CombatFx {
 
   private acidBurst(at: Vec, size: number, now: number): void {
     const r = this.rng;
+    // A splash crown of glowing acid, then bubbles that keep rising and popping from the puddle (R3D-12).
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + r.range(-0.3, 0.3);
+      this.glow.emit({ x: at.x, y: at.y + 0.04, z: at.z, vx: Math.cos(a) * size * 2.4, vy: r.range(1.6, 2.6), vz: Math.sin(a) * size * 2.4, life: r.range(380, 520), size0: 0.05, size1: 0.02, color0: BIO_CORE, color1: BIO, alpha: 1.2, drag: 1.5, gravity: 9 }, now);
+    }
+    for (let i = 0; i < (this.quality.rich ? 9 : 4); i++) {
+      const a = r.range(0, Math.PI * 2);
+      const d = Math.sqrt(r.next()) * size * 0.7;
+      this.glow.emit({ x: at.x + Math.cos(a) * d, y: at.y + 0.02, z: at.z + Math.sin(a) * d, vy: r.range(0.15, 0.35), life: r.range(300, 500), size0: 0.02, size1: 0.05, color0: BIO, color1: BIO_DEEP, alpha: 0.9, delay: r.range(150, 1600) }, now);
+    }
+    this.puddle(at, size, now);
     this.glow.emit({ x: at.x, y: at.y + 0.05, z: at.z, life: 220, size0: size * 1.6, size1: size * 2.2, color0: 0xe0ff90, color1: 0x80e020, alpha: 1.4 }, now);
     for (let i = 0; i < 10; i++) {
       const a = r.range(0, Math.PI * 2);
@@ -624,7 +701,22 @@ export class CombatFx {
     }
     for (let i = 0; i < (this.quality.rich ? 5 : 2); i++) this.smoke.emit({ x: at.x + r.range(-0.1, 0.1), y: at.y + 0.1, z: at.z + r.range(-0.1, 0.1), vy: r.range(0.2, 0.5), life: r.range(1000, 1700), size0: size * 0.5, size1: size * 1.6, color0: 0x6a8a30, color1: 0x3a4a2a, alpha: 0.45, drag: 1 }, now);
     this.light(at.x, at.y + 0.3, at.z, 0xa0ff40, 6 * size, 300, now);
-    if (size >= 0.5) this.scorch(at, size * 1.4, now);
+    if (size >= 0.5) {
+      this.scorch(at, size * 1.4, now);
+      this.ring(at, size * 2, 380, now, BIO);
+    }
+  }
+
+  /** A glowing green acid puddle that fades over a few seconds (R3D-12). */
+  private puddle(at: Vec, size: number, now: number): void {
+    const f = this.puddles.reduce((a, b) => (b.born < a.born ? b : a));
+    f.mesh.position.set(at.x, this.groundAt(at.x, at.z) + 0.025, at.z);
+    f.mesh.rotation.y = this.rng.range(0, Math.PI * 2);
+    f.mesh.scale.setScalar(size * 1.5);
+    f.born = now;
+    f.life = 3800;
+    f.size = size;
+    f.mesh.visible = true;
   }
 
   private light(x: number, y: number, z: number, color: number, power: number, life: number, now: number): void {
@@ -638,9 +730,10 @@ export class CombatFx {
     slot.until = now + life;
   }
 
-  private ring(at: Vec, size: number, life: number, now: number): void {
+  private ring(at: Vec, size: number, life: number, now: number, color = 0xffd8a0): void {
     const f = this.rings.reduce((a, b) => (b.born < a.born ? b : a));
-    f.mesh.position.set(at.x, 0.06, at.z);
+    f.mesh.position.set(at.x, this.groundAt(at.x, at.z) + 0.06, at.z);
+    (f.mesh.material as THREE.MeshBasicMaterial).color.setHex(color);
     f.born = now;
     f.life = life;
     f.size = size;
@@ -676,6 +769,11 @@ export class CombatFx {
         const back = Math.min(L.len, s.from.distanceTo(this.v));
         this.w.subVectors(s.to, s.from).normalize().multiplyScalar(-back).add(this.v);
         this.streaks.add(this.w, this.v, L.width, L.color, L.intensity);
+        // Stings and spines leave a short glowing wake of motes that drift and fade (R3D-12).
+        if (L.bio && now - s.lastTrail > 22) {
+          s.lastTrail = now;
+          this.glow.emit({ x: this.w.x, y: this.w.y, z: this.w.z, vy: 0.15, life: 260, size0: L.width * 4, size1: L.width, color0: BIO, color1: BIO_DEEP, alpha: 0.8 }, now);
+        }
       } else {
         this.pathAt(s, Math.max(0, k - 0.04), this.w);
         const d = this.v.distanceTo(this.w);
@@ -684,7 +782,13 @@ export class CombatFx {
         if (now - s.lastTrail > 16) {
           s.lastTrail = now;
           if (L.smokeTrail) this.smoke.emit({ x: this.v.x, y: this.v.y, z: this.v.z, vy: 0.1, life: this.quality.rich ? 900 : 400, size0: 0.05, size1: 0.28, color0: 0xb8b2a8, color1: 0x77736c, alpha: 0.42, drag: 1 }, now);
-          this.glow.emit({ x: this.v.x, y: this.v.y, z: this.v.z, life: 90, size0: L.width * 5, size1: L.width * 2, color0: L.color, alpha: 1.1 }, now);
+          this.glow.emit({ x: this.v.x, y: this.v.y, z: this.v.z, life: L.bio ? 220 : 90, size0: L.width * (L.bio ? 6 : 5), size1: L.width * 2, color0: L.color, color1: L.bio ? BIO_DEEP : L.color, alpha: 1.1 }, now);
+          if (L.bio) {
+            // An acid glob drips glowing droplets and trails a wisp of green vapour (R3D-12).
+            const r = this.rng;
+            if (r.next() < 0.45) this.glow.emit({ x: this.v.x, y: this.v.y, z: this.v.z, vx: r.range(-0.2, 0.2), vz: r.range(-0.2, 0.2), life: r.range(350, 600), size0: L.width * 1.6, size1: L.width * 0.8, color0: BIO, color1: BIO_DEEP, alpha: 1, gravity: 7 }, now);
+            if (this.quality.rich && !this.busy && r.next() < 0.5) this.smoke.emit({ x: this.v.x, y: this.v.y, z: this.v.z, vy: 0.1, life: 700, size0: L.width * 1.5, size1: L.width * 5, color0: 0x8ab050, color1: 0x3a4a2a, alpha: 0.28, drag: 1 }, now);
+          }
         }
       }
     }
@@ -708,6 +812,15 @@ export class CombatFx {
       }
       f.mesh.scale.setScalar(f.size * (0.15 + k));
       (f.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - k) ** 2;
+    }
+    for (const f of this.puddles) {
+      const k = (now - f.born) / f.life;
+      if (k >= 1) {
+        f.mesh.visible = false;
+        continue;
+      }
+      // Glows brightest just after the splash, with a slow shimmer, then fades away.
+      (f.mesh.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - k) ** 1.5 * (0.85 + 0.15 * Math.sin(now / 90 + f.size * 7));
     }
     for (const f of this.scorches) {
       const k = (now - f.born) / f.life;
