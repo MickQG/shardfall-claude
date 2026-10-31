@@ -27,7 +27,7 @@ Amended 2026-10-31 (organic terrain and living squads):
 - **Terrain contours** come from a position-only warp of the tile grid near contours, not from a smoothed height field (R3D-14). Moving points by their position alone keeps cliff walls, tile tops and water watertight without stitching, keeps tiles away from contours as single quads, and needs no change to the simulation's tile grid. Its strength is capped by a test on every map: no ground cell folds or shrinks below a fifth of its size. Shores add a second, smoother field (wetness blended over a tile and a half) that fades the water surface and paints the beach, because a warp strong enough to round a lake at that scale would fold the ground.
 - **Smoothing and squads** live in the renderer (R3D-10, R3D-15). Drawn positions trail the simulation by under a tenth of a second through a spring, which hides uneven snapshot timing without touching the shared interpolation the classic view uses. Squad members move around the squad's simulated position with seeded render-side randomness; the simulation still knows one unit per squad.
 
-Amended 2026-10-31 (default): the owner approved the 3D view, so it is now the default. The classic renderer stays behind `?renderer=classic` and is used automatically where WebGL2 is missing, until it is removed.
+Amended 2026-10-31 (default): the owner approved the 3D view, so it is now the default. The classic renderer stays behind `?renderer=classic` and is used automatically where WebGL2 is missing or only rendered in software (SwiftShader, llvmpipe), until it is removed; `?renderer=3d` forces the 3D view. CI's browsers render in software, so the gameplay e2e tests run the classic view and the 3D e2e tests force the 3D view.
 
 ## Consequences
 

@@ -22,6 +22,7 @@ import { placementLive } from './ui/production';
 import { FrameStats } from './ui/frameStats';
 import { Sidebar } from './ui/sidebar';
 import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
+import { chooseRenderer, type GpuProbe } from './render/chooseRenderer';
 import { boxSelect, Selection, selectKinds, selectSameKind, toScreenUnits } from './ui/selection';
 
 const PLAYER = 0;
@@ -35,20 +36,21 @@ const scenario = params.get('scenario');
 const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number] };
 const seed = Number(params.get('seed') ?? Date.now() % 100000);
 const cfg = scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0)) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
-/**
- * The world view (ADR 0005, R3D-1): the three.js 3D view by default; `?renderer=classic`, or a browser without WebGL2,
- * gets the classic isometric view. Chosen once here, never part of the simulation.
- */
-function hasWebGl2(): boolean {
+/** What this browser's WebGL2 is: missing, software-rendered, or on a graphics chip. */
+function probeGpu(): GpuProbe {
   try {
     const gl = document.createElement('canvas').getContext('webgl2');
-    gl?.getExtension('WEBGL_lose_context')?.loseContext();
-    return !!gl;
+    if (!gl) return { webgl2: false, renderer: '' };
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return { webgl2: true, renderer };
   } catch {
-    return false;
+    return { webgl2: false, renderer: '' };
   }
 }
-const use3d = params.get('renderer') !== 'classic' && hasWebGl2();
+/** The world view (ADR 0005, R3D-1), chosen once here and never part of the simulation. */
+const use3d = chooseRenderer(params.get('renderer'), probeGpu()) === '3d';
 const map = cfg.map;
 const bounds = mapBounds(map.width, map.height);
 // Scenarios are scripted fights without an AI opponent; a normal game has the AI play player 1.
