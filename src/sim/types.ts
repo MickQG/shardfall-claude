@@ -57,9 +57,9 @@ export type Command =
 
 /** One-tick effects for the renderer and audio. Positions are fixed-point world units. */
 export type SimEvent =
-  | { t: 'shot'; x: number; y: number; tx: number; ty: number; weapon: string; owner: number; air: boolean; flight: number }
+  | { t: 'shot'; x: number; y: number; tx: number; ty: number; weapon: string; owner: number; air: boolean; flight: number; src: number }
   | { t: 'boom'; x: number; y: number; r: number }
-  | { t: 'die'; x: number; y: number; big: boolean; owner: number }
+  | { t: 'die'; x: number; y: number; big: boolean; owner: number; id: number; kind: string }
   | { t: 'launch'; x: number; y: number; owner: number; kind: string; delay: number }
   | { t: 'strike'; x: number; y: number; owner: number; kind: string; r: number };
 

@@ -4,10 +4,8 @@ import { buildingDef } from '../../src/data/defs';
 import { showcaseConfig } from '../../src/data/maps';
 import { isoProjector } from '../../src/render/projector';
 import { cliffRgb, groundRgb } from '../../src/render/terrainNext';
-import { box, createModel } from '../../src/render/voxel/model';
 import { cameraPose, FOV, PITCH_RISE } from '../../src/render3d/camera3d';
 import { LEVEL_H, terrainMeshes } from '../../src/render3d/terrain3d';
-import { voxelMesh } from '../../src/render3d/voxelMesh';
 import { createGame, hash, tick } from '../../src/sim';
 import { FrameStats } from '../../src/ui/frameStats';
 
@@ -67,37 +65,6 @@ describe('3D terrain', () => {
       const [p0, p1, p2] = [c.indices[i]!, c.indices[i + 1]!, c.indices[i + 2]!].map((k) => new THREE.Vector3(c.positions[k * 3], c.positions[k * 3 + 1], c.positions[k * 3 + 2]));
       const n = new THREE.Vector3().subVectors(p1!, p0!).cross(new THREE.Vector3().subVectors(p2!, p0!));
       expect(n.dot(new THREE.Vector3(c.normals[c.indices[i]! * 3], c.normals[c.indices[i]! * 3 + 1], c.normals[c.indices[i]! * 3 + 2]))).toBeGreaterThan(0);
-    }
-  });
-});
-
-describe('voxel models in 3D', () => {
-  it('R3D-3: a solid block becomes six merged faces, team material takes the team colour, glow is split out', () => {
-    const m = createModel(4, 3, 2, [{ color: 0xff0000 }, { color: 0, team: true }, { color: 0x00ff00, glow: true }]);
-    box(m, 0, 0, 0, 4, 3, 2, 1);
-    const one = voxelMesh(m, 0x0000ff);
-    expect(one.quads).toBe(6);
-    expect(one.glow.indices.length).toBe(0);
-    box(m, 0, 0, 1, 4, 3, 1, 2); // top layer in team colour
-    box(m, 1, 1, 1, 1, 1, 1, 3); // one glowing voxel
-    const mixed = voxelMesh(m, 0x0000ff);
-    const cols = mixed.lit.colors;
-    let blue = false;
-    for (let i = 0; i < cols.length; i += 3) if (cols[i] === 0 && cols[i + 2] === 1) blue = true;
-    expect(blue).toBe(true);
-    expect(mixed.glow.indices.length).toBeGreaterThan(0);
-  });
-
-  it('R3D-3: every face winds outward (its triangle normal agrees with the stored normal)', () => {
-    const m = createModel(3, 3, 3, [{ color: 0xffffff }]);
-    box(m, 0, 0, 0, 3, 3, 1, 1);
-    box(m, 1, 1, 1, 1, 1, 2, 1);
-    const d = voxelMesh(m, 0).lit;
-    for (let t = 0; t < d.indices.length; t += 3) {
-      const [a, b, c] = [d.indices[t]!, d.indices[t + 1]!, d.indices[t + 2]!].map((i) => new THREE.Vector3(d.positions[i * 3], d.positions[i * 3 + 1], d.positions[i * 3 + 2]));
-      const n = new THREE.Vector3().subVectors(b!, a!).cross(new THREE.Vector3().subVectors(c!, a!));
-      const stored = new THREE.Vector3(d.normals[d.indices[t]! * 3], d.normals[d.indices[t]! * 3 + 1], d.normals[d.indices[t]! * 3 + 2]);
-      expect(n.dot(stored)).toBeGreaterThan(0);
     }
   });
 });

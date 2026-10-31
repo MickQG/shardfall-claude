@@ -352,7 +352,7 @@ async function boot(): Promise<void> {
     el.id = 'frametime';
     el.style.cssText = 'position:fixed;left:12px;top:52px;padding:4px 8px;border-radius:5px;background:rgba(8,12,17,.8);color:#9fe8ff;font:12px/1.3 ui-monospace,monospace;pointer-events:none;z-index:5';
     document.body.appendChild(el);
-    setInterval(() => (el.textContent = `${use3d ? 'renderer 3d' : 'renderer classic'} · ${frameStats.label()}`), 500);
+    setInterval(() => (el.textContent = `${use3d ? 'renderer 3d' : 'renderer classic'} · ${frameStats.label()}${view.readout ? ` · ${view.readout()}` : ''}`), 500);
   }
   const canvas = view.canvas;
   const hq = first.buildings.find((b) => b.owner === PLAYER && buildingDef(b.kind).hq);

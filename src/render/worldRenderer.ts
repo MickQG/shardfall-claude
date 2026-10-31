@@ -18,6 +18,8 @@ export interface WorldRenderer {
   update(units: readonly RenderUnit[], cam: Camera, vs: ViewState, snap: Snapshot | null): void;
   /** A simulation event to show (effects, turret aim). */
   spawn(e: SimEvent, now: number): void;
+  /** Extra figures for the frame-time readout (draw calls, CPU time), if the renderer has any. */
+  readout?(): string;
   /** Screen and ground mapping for the current camera (R3D-5). */
   projector(cam: Camera): Projector;
 }
