@@ -34,7 +34,15 @@ test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CTL-11 CUR-1 CUR-3: Q selects combat units,
   await expect(page.getByText(/F2 quality: low/)).toBeVisible();
 
   // CUR-1 / CUR-3: the canvas cursor is an inline SVG once units are selected and the pointer is over open ground.
-  const p = await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.tileScreen(30, 14));
+  // An open-ground tile that shows well inside the view in either renderer (the 3D camera frames less below).
+  const tile = await page.evaluate(() => {
+    for (const t of [[30, 14], [26, 13], [24, 14], [20, 14], [16, 14], [18, 12]] as const) {
+      const s = (window as unknown as { __shardfall: Hook }).__shardfall.tileScreen(t[0], t[1]);
+      if (s.x > 300 && s.x < innerWidth - 300 && s.y > 120 && s.y < innerHeight - 180) return t;
+    }
+    throw new Error('no open ground tile in view');
+  });
+  const p = await page.evaluate((t) => (window as unknown as { __shardfall: Hook }).__shardfall.tileScreen(t[0], t[1]), tile);
   await page.mouse.move(p.x, p.y);
   await expect.poll(() => page.locator('canvas').first().evaluate((c) => (c as HTMLCanvasElement).style.cursor)).toContain('data:image/svg+xml');
   const moveCursor = await page.locator('canvas').first().evaluate((c) => (c as HTMLCanvasElement).style.cursor);
@@ -48,7 +56,7 @@ test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CTL-11 CUR-1 CUR-3: Q selects combat units,
     await page.keyboard.up(key);
   }
   // Panning moved the view by a frame-rate-dependent amount, so put the pointer back over the same open-ground tile.
-  const back = await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.tileScreen(30, 14));
+  const back = await page.evaluate((t) => (window as unknown as { __shardfall: Hook }).__shardfall.tileScreen(t[0], t[1]), tile);
   await page.mouse.move(back.x, back.y);
   await expect.poll(cursor).toBe(moveCursor);
   await page.keyboard.down('Control');

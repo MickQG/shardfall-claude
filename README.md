@@ -21,8 +21,8 @@ Harvest shards, build a base up a three-tier tech tree, scout through fog of war
 - **Spec first.** Requirements with stable IDs live in [`specs/`](specs/README.md) (umbrella spec: issue #1). Every requirement ID must appear in a test name; `npm run trace` (and CI) fails otherwise. 76+ requirements today.
 - **One seam.** `src/sim` is a deterministic, fixed-tick, integer-math simulation behind a small API (`createGame`, `submit`, `tick`, `snapshot`, `hash`). The renderer, UI, AI and tests only use that API. No `Math.random`, `Date` or DOM is allowed in `src/sim`, `src/ai` or `src/data` (enforced by lint). See [`CONSTITUTION.md`](CONSTITUTION.md) and [`docs/adr`](docs/adr).
 - **Same rules for the AI.** The AI reads a fog-limited snapshot and issues ordinary commands. Difficulty changes only reaction time, orders per decision and a shard bonus. A headless AI-vs-AI harness (`npm run harness`) plays full matches in CI and checks for bad behaviour: idle haulers, stuck units, unfixed power outages, hoarded shards, undefended bases, suicidal waves.
-- **Procedural everything.** All art is drawn in code with PixiJS (isometric terrain, buildings, 14 unit types, bloom, particles) and all audio is synthesised with Web Audio. No third-party assets.
-- **Stack.** TypeScript, Vite, PixiJS v8, Vitest, Playwright; static hosting on Azure Static Web Apps with a preview per PR.
+- **Procedural everything.** All art is generated in code: a real-time 3D view with three.js (procedural models for every unit and building, organic terrain, bloom, particles), and the classic isometric PixiJS view behind `?renderer=classic`. All audio is synthesised with Web Audio. No third-party assets.
+- **Stack.** TypeScript, Vite, three.js, PixiJS v8, Vitest, Playwright; static hosting on Azure Static Web Apps with a preview per PR.
 
 ## Develop
 

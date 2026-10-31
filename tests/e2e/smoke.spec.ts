@@ -59,7 +59,14 @@ test('CTL-5 SIM-2: click selects a unit and a right-click moves only the selecti
 
   const read = (): Promise<{ id: number; x: number; y: number }[]> => page.evaluate(() => window.__shardfall.snapshot()!.units.map((u) => ({ id: u.id, x: u.x, y: u.y })));
   const before = await read();
-  const dest = await page.evaluate(() => window.__shardfall.tileScreen(20, 17)); // on screen, several tiles from the selected unit
+  // Open ground several tiles from the selected unit that shows well inside the view (the 3D camera frames less below).
+  const dest = await page.evaluate(() => {
+    for (const [x, y] of [[20, 17], [20, 14], [19, 13], [22, 15], [18, 12]] as const) {
+      const s = window.__shardfall.tileScreen(x, y);
+      if (s.x > 280 && s.x < innerWidth - 280 && s.y > 100 && s.y < innerHeight - 160) return s;
+    }
+    throw new Error('no open ground tile in view');
+  });
   await page.mouse.click(box.x + dest.x, box.y + dest.y, { button: 'right' });
   await page.waitForTimeout(1500);
   const after = await read();
