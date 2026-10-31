@@ -1,5 +1,5 @@
 import { Container, Sprite, Texture } from 'pixi.js';
-import type { SimEvent } from '../sim';
+import { FP, type SimEvent } from '../sim';
 import { tileToScreen } from './iso';
 
 /** A short-lived pool of light on the battlefield (NXT-5): position in world pixels, radius in px, colour, life in ms. */
@@ -16,7 +16,7 @@ export interface LightSpec {
 /** At most this many lights live at once; the oldest give way, so a huge fight cannot flood the GPU. */
 export const MAX_LIGHTS = 40;
 
-const at = (x: number, y: number): { x: number; y: number } => tileToScreen(x / 256, y / 256);
+const at = (x: number, y: number): { x: number; y: number } => tileToScreen(x / FP, y / FP);
 
 /** Which light, if any, a simulation event casts. Pure. */
 export function lightFor(e: SimEvent): LightSpec | null {

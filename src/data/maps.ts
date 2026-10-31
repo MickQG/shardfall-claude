@@ -195,12 +195,25 @@ export function showcaseConfig(seed = 1, extra = 0): GameConfig {
   set(22, 8, 25, 11, (i) => (shards[i] = 400));
   const b = (owner: number, kind: string, tx: number, ty: number): BuildingSpawn => ({ owner, kind, tx, ty });
   const u = (owner: number, kind: string, tx: number, ty: number): UnitSpawn => ({ owner, kind, tx, ty });
-  const crowd: UnitSpawn[] = [];
-  for (let k = 0; k < extra; k++) {
-    const dx = k % 6;
-    const dy = Math.floor(k / 6) % 12;
-    crowd.push(u(0, k % 3 === 2 ? 'hum_tank' : 'hum_rifleman', 8 + dx, 9 + dy), u(1, k % 3 === 2 ? 'ali_brute' : 'ali_skitter', 22 + dx, 13 + dy));
-  }
+  // Stress-test crowds fill free, unblocked tiles outward from each army, one unit per tile.
+  const taken = new Set<number>([[12, 11], [13, 12], [11, 13], [14, 13], [12, 14], [22, 20], [23, 21], [21, 22], [24, 20], [22, 22], [24, 22]].map(([x, y]) => (y as number) * W + (x as number)));
+  const free = (cx: number, cy: number, n: number): [number, number][] => {
+    const out: [number, number][] = [];
+    for (let r = 0; r < W && out.length < n; r++)
+      for (let y = cy - r; y <= cy + r && out.length < n; y++)
+        for (let x = cx - r; x <= cx + r && out.length < n; x++) {
+          if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== r || x < 1 || y < 1 || x >= W - 1 || y >= W - 1) continue;
+          const i = y * W + x;
+          if (blocked[i] || taken.has(i)) continue;
+          taken.add(i);
+          out.push([x, y]);
+        }
+    return out;
+  };
+  const crowd: UnitSpawn[] = [
+    ...free(12, 13, extra).map(([x, y], k) => u(0, k % 3 === 2 ? 'hum_tank' : 'hum_rifleman', x, y)),
+    ...free(23, 21, extra).map(([x, y], k) => u(1, k % 3 === 2 ? 'ali_brute' : 'ali_skitter', x, y)),
+  ];
   return {
     seed,
     map: { width: W, height: W, heights, blocked, shards },

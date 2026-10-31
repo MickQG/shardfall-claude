@@ -11,7 +11,7 @@ import { crystalLevel, crystalModel, crystalTipPx, propAt, propModel, rockModel,
 import { sprites } from './voxel/spriteCache';
 import { FogView } from './fogView';
 import { LightPools } from './lightsNext';
-import { paintTerrain, terrainBounds, type TerrainInput } from './terrainNext';
+import { CLIFF_PX, paintTerrain, terrainBounds, type TerrainInput } from './terrainNext';
 import type { RenderUnit } from './interp';
 import { TILE_H, TILE_W, tileToScreen } from './iso';
 import type { RallyLine } from '../ui/rally';
@@ -138,7 +138,7 @@ export class GameView {
     if (this.next) {
       // Late-afternoon grade: warmer highlights, a touch more contrast and saturation.
       this.grade = new ColorMatrixFilter();
-      this.grade.matrix = [1.08, 0.02, 0, 0, 0.01, 0, 1.02, 0, 0, 0, 0, 0, 0.94, 0.02, 0.01, 0, 0, 0, 1, 0];
+      this.grade.matrix = [1.08, 0.02, 0, 0, 0.01, 0, 1.02, 0, 0, 0, 0, 0.02, 0.94, 0, 0, 0, 0, 0, 1, 0];
       this.grade.saturate(0.12, true);
       this.grade.contrast(0.08, true);
     }
@@ -154,8 +154,8 @@ export class GameView {
       this.bloomOn = fx.bloom;
       this.shardGfx.filters = fx.bloom ? [this.bloom] : [];
       this.effects.layer.filters = fx.bloom ? [this.bloom] : [];
+      if (this.next) this.unitLayer.filters = fx.bloom ? [this.bloom] : [];
     }
-    if (this.next && this.bloom) this.unitLayer.filters = fx.bloom ? [this.bloom] : [];
     if (this.next && this.grade && fx.decor !== this.gradeOn) {
       this.gradeOn = fx.decor;
       this.world.filters = fx.decor ? [this.grade] : [];
@@ -202,7 +202,8 @@ export class GameView {
         c.width = w;
         c.height = h;
         const ctx = c.getContext('2d') as CanvasRenderingContext2D;
-        ctx.putImageData(new ImageData(new Uint8ClampedArray(paintTerrain(input, Math.floor(x), Math.floor(y), w, h)), w, h), 0, 0);
+        // Plateaus are left out here and drawn as depth-sorted sprites, so a cliff hides what stands behind it.
+        ctx.putImageData(new ImageData(paintTerrain(input, Math.floor(x), Math.floor(y), w, h, (tx, ty) => (snap.heights[ty * W + tx] ?? 0) === 0), w, h), 0, 0);
         const s = new Sprite(Texture.from(c));
         s.position.set(Math.floor(x), Math.floor(y));
         root.addChild(s);
@@ -210,7 +211,9 @@ export class GameView {
     }
     for (let y = 0; y < snap.mapHeight; y++) {
       for (let x = 0; x < W; x++) {
-        if ((snap.heights[y * W + x] ?? 0) === 0 && look.blocked?.[y * W + x]) {
+        const lvl = snap.heights[y * W + x] ?? 0;
+        if (lvl > 0) this.unitLayer.addChild(this.plateauTile(input, x, y, lvl));
+        if (lvl === 0 && look.blocked?.[y * W + x] && ((x * 7 + y * 13) % 17) / 17 <= 0.55) {
           const c = tileToScreen(x + 0.5, y + 0.5);
           this.water.push({ x: c.x + (((x * 31 + y * 17) % 13) - 6), y: c.y + (((x * 11 + y * 29) % 7) - 3), p: ((x * 7 + y * 13) % 17) / 17 });
         }
@@ -219,11 +222,27 @@ export class GameView {
     return root;
   }
 
+  /** One raised tile (its top and the cliff walls below it) as a sprite sorted with units and buildings, like a rock pile. */
+  private plateauTile(input: TerrainInput, x: number, y: number, lvl: number): Sprite {
+    const p = tileToScreen(x, y);
+    const x0 = Math.floor(p.x - TILE_W / 2);
+    const y0 = Math.floor(p.y - lvl * CLIFF_PX);
+    const w = TILE_W + 1;
+    const h = TILE_H + lvl * CLIFF_PX + 1;
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    (c.getContext('2d') as CanvasRenderingContext2D).putImageData(new ImageData(paintTerrain(input, x0, y0, w, h, (tx, ty) => tx === x && ty === y), w, h), 0, 0);
+    const s = new Sprite(Texture.from(c));
+    s.position.set(x0, y0);
+    s.zIndex = tileToScreen(x + 1, y + 1).y - 4;
+    return s;
+  }
+
   /** Sun glints drifting on the water tiles. */
   private drawWater(t: number): void {
     const g = this.waterGfx.clear();
     for (const w of this.water) {
-      if (w.p > 0.55) continue; // only some tiles glint, so the pattern does not repeat per tile
       const k = Math.sin(t / 900 + w.p * 6.28) * 0.5 + 0.5;
       const dx = Math.sin(t / 1600 + w.p * 9) * 8;
       g.moveTo(w.x - 7 + dx, w.y - 2).lineTo(w.x + 5 + dx, w.y - 2).stroke({ color: 0xfff1cf, width: 1.2, alpha: 0.15 + 0.35 * k });

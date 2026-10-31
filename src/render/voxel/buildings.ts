@@ -337,11 +337,12 @@ export const BUILDING_MODELS: Readonly<Record<string, () => VoxelModel>> = {
 
 const heights = new Map<string, number>();
 
-/** Height in px of a building's roof above its footprint, from its model (for overlays, bars and picking). */
 /** The model maker for a building kind in the current art style (the next style overrides the showcase buildings). */
 export function buildingModel(kind: string): (() => VoxelModel) | undefined {
   return (renderStyle.current === 'next' ? NEXT_BUILDING_MODELS[kind] : undefined) ?? BUILDING_MODELS[kind];
 }
+
+/** Height in px of a building's roof above its footprint, from its model (for overlays, bars and picking). */
 
 export function buildingHeightPx(kind: string): number {
   let h = heights.get(`${renderStyle.current}|${kind}`);

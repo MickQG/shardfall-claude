@@ -33,17 +33,20 @@ export class SpriteCache {
   constructor(private toTexture: (s: Sprite) => Texture = canvasTexture) {}
 
   model(kind: string): UnitModel {
-    let m = this.models.get(kind);
+    const key = `${renderStyle.current}|${kind}`;
+    let m = this.models.get(key);
     if (!m) {
       const make = (renderStyle.current === 'next' ? NEXT_UNIT_MODELS[kind] : undefined) ?? UNIT_MODELS[kind];
       if (!make) throw new Error(`no voxel model for ${kind}`);
       m = make();
-      this.models.set(kind, m);
+      this.models.set(key, m);
     }
     return m;
   }
 
+  /** Keys carry the art style, so a style switch can never return a sprite baked in the other style. */
   private bake(key: string, make: () => Sprite): Baked {
+    key = `${renderStyle.current}|${key}`;
     let b = this.baked.get(key);
     if (!b) {
       const s = make();

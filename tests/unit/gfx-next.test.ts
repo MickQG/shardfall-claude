@@ -32,6 +32,11 @@ describe('graphics mockup: showcase scenario', () => {
     };
     expect(run()).toBe(run());
     expect(showcaseConfig(1, 20).units!.length).toBe((c.units ?? []).length + 40);
+    // Stress crowds stand only on free, unblocked tiles, one unit per tile, even for the largest army.
+    const big = showcaseConfig(1, 150);
+    const tiles = big.units!.map((u) => u.ty * big.map.width + u.tx);
+    expect(new Set(tiles).size).toBe(tiles.length);
+    expect(tiles.every((i) => !big.map.blocked?.[i])).toBe(true);
   });
 });
 

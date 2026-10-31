@@ -118,7 +118,7 @@ const isWater = (t: TerrainInput, x: number, y: number): boolean => x >= 0 && y 
 
 /** Screen-space bounds (before camera) of the whole map, including cliff walls. */
 export function terrainBounds(t: TerrainInput): { x: number; y: number; w: number; h: number } {
-  const maxLevel = Math.max(0, ...t.heights);
+  const maxLevel = t.heights.reduce((m, h) => Math.max(m, h), 0);
   const x = -t.height * (TILE_W / 2);
   const y = -maxLevel * CLIFF_PX;
   return { x, y, w: (t.width + t.height) * (TILE_W / 2), h: (t.width + t.height) * (TILE_H / 2) + maxLevel * CLIFF_PX };
@@ -128,7 +128,7 @@ export function terrainBounds(t: TerrainInput): { x: number; y: number; w: numbe
  * Paint the tiles whose footprint lies in screen rect (x0, y0, w, h) into RGBA pixels, back to front: each tile's top,
  * then its walls down to lower neighbours in front. Pure.
  */
-export function paintTerrain(t: TerrainInput, x0: number, y0: number, w: number, h: number): Uint8ClampedArray {
+export function paintTerrain(t: TerrainInput, x0: number, y0: number, w: number, h: number, only?: (tx: number, ty: number) => boolean): Uint8ClampedArray<ArrayBuffer> {
   const px = new Uint8ClampedArray(w * h * 4);
   const put = (sx: number, sy: number, c: Rgb): void => {
     const x = sx - x0;
@@ -145,6 +145,7 @@ export function paintTerrain(t: TerrainInput, x0: number, y0: number, w: number,
   for (let s = 0; s < t.width + t.height - 1; s++) {
     for (let ty = Math.max(0, s - t.width + 1); ty <= Math.min(t.height - 1, s); ty++) {
       const tx = s - ty;
+      if (only && !only(tx, ty)) continue;
       const lv = level(t, tx, ty);
       const ox = (tx - ty) * hw;
       const oy = (tx + ty) * hh - lv * CLIFF_PX;

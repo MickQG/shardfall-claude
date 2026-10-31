@@ -27,6 +27,9 @@ const NEXT = {
 
 export type BakeStyle = 'classic' | 'next';
 
+/** Horizontal neighbours checked for contact shading. */
+const NEIGHBOURS: readonly (readonly [number, number])[] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
 export interface BakeOptions {
   /** Team colour as 0xRRGGBB. */
   team: number;
@@ -209,7 +212,8 @@ export function bakeModel(m: VoxelModel, o: BakeOptions): Sprite {
     const base = mat.team ? o.team : mat.color;
     const noise = mat.glow ? 1 : 1 + (hash3(v.x, v.y, v.z) - 0.5) * 0.08;
     // Next style: crevices under overhangs and the lowest layers are a little darker, which grounds the model.
-    const occluded = next ? [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => solid(v.x + (dx as number), v.y + (dy as number), v.z + 1) !== 0).length : 0;
+    let occluded = 0;
+    if (next) for (const [dx, dy] of NEIGHBOURS) if (solid(v.x + dx, v.y + dy, v.z + 1) !== 0) occluded++;
     const contact = next ? (1 - 0.07 * occluded) * (0.8 + 0.2 * Math.min(1, (v.z + 0.5) / Math.max(3, m.sz * 0.4))) : 1;
     const paint = (intensity: number, top: boolean, diffuse: number): [number, number, number] => {
       const hi = mat.metal && top ? 0.28 : 0;
