@@ -16,27 +16,6 @@ interface Blob {
   ry: number;
 }
 
-/** Rock outcrops for half of the map; the other half is the 180-degree mirror. */
-const ROCKS: Blob[] = [
-  { cx: 30, cy: 18, rx: 5, ry: 2 },
-  { cx: 18, cy: 32, rx: 2, ry: 5 },
-  { cx: 38, cy: 34, rx: 4, ry: 3 },
-  { cx: 28, cy: 50, rx: 3, ry: 6 },
-  { cx: 46, cy: 22, rx: 2, ry: 3 },
-  { cx: 58, cy: 40, rx: 3, ry: 2 },
-];
-
-/**
- * Water for half of the map (MAP-3), mirrored like the rocks: a pond on each base's outer flank (cover at its back, clear
- * of its exits) and lakes beside the mid-map routes that narrow them without closing them.
- */
-const LAKES: Blob[] = [
-  { cx: 5, cy: 34, rx: 2, ry: 4 },
-  { cx: 36, cy: 4, rx: 4, ry: 2 },
-  { cx: 15, cy: 52, rx: 3, ry: 3 },
-  { cx: 60, cy: 25, rx: 3, ry: 3 },
-];
-
 interface Field {
   cx: number;
   cy: number;
@@ -44,15 +23,21 @@ interface Field {
   amount: number;
 }
 
-const FIELDS: Field[] = [
-  { cx: 22, cy: 12, r: 2, amount: 3000 },
-  { cx: 12, cy: 24, r: 2, amount: 2500 },
-  { cx: 34, cy: 64, r: 2, amount: 3500 },
-];
-const CENTRE_AMOUNT = 5000;
+/**
+ * One half of a point-symmetric map (MAP-4): every rock, lake and field listed is mirrored through the map centre, so
+ * both players get the same ground. `water` adds a per-tile shape that must be point-symmetric itself.
+ */
+interface MapPlan {
+  rocks: Blob[];
+  lakes: Blob[];
+  fields: Field[];
+  /** Shards in the disc of radius `r` around the exact centre; amount 0 for none. */
+  centre: { r: number; amount: number };
+  /** Extra water. */
+  water?: (x: number, y: number) => boolean;
+}
 
-/** A symmetric 96x96 two-player map with chokepoints, rock outcrops, lakes and contested shard fields. */
-export function skirmishMap(): MapDef {
+function buildMap(plan: MapPlan): MapDef {
   const W = MAP_SIZE;
   const heights = new Array<number>(W * W).fill(0);
   const blocked = new Array<number>(W * W).fill(0);
@@ -63,7 +48,7 @@ export function skirmishMap(): MapDef {
     heights[i] = Math.max(heights[i] as number, rock);
     blocked[i] = 1;
   };
-  for (const b of ROCKS) {
+  for (const b of plan.rocks) {
     for (let y = b.cy - b.ry; y <= b.cy + b.ry; y++) {
       for (let x = b.cx - b.rx; x <= b.cx + b.rx; x++) {
         const d = ((x - b.cx) / (b.rx + 0.5)) ** 2 + ((y - b.cy) / (b.ry + 0.5)) ** 2;
@@ -74,35 +59,174 @@ export function skirmishMap(): MapDef {
       }
     }
   }
-  for (const b of LAKES) {
-    for (let y = b.cy - b.ry; y <= b.cy + b.ry; y++) {
-      for (let x = b.cx - b.rx; x <= b.cx + b.rx; x++) {
-        // A rounder, slightly uneven outline than the rocks: water is blocked ground at level 0.
-        const wobble = 0.12 * Math.sin(x * 1.7 + y * 0.9);
-        const d = ((x - b.cx) / (b.rx + 0.5)) ** 2 + ((y - b.cy) / (b.ry + 0.5)) ** 2;
-        if (d > 1 + wobble) continue;
-        for (const [wx, wy] of [[x, y], [W - 1 - x, W - 1 - y]] as const) {
-          if (wx < 0 || wy < 0 || wx >= W || wy >= W) continue;
-          const i = wy * W + wx;
-          if ((heights[i] as number) > 0) continue;
-          blocked[i] = 1;
+  // A crest (level 2) needs rock all round it, so rock always steps down one level at a time to open ground.
+  const crest = heights.slice();
+  for (let y = 0; y < W; y++) {
+    for (let x = 0; x < W; x++) {
+      if (crest[y * W + x] !== 2) continue;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx >= 0 && ny >= 0 && nx < W && ny < W && !crest[ny * W + nx]) heights[y * W + x] = 1;
         }
       }
     }
   }
-  const field = (f: Field, mirror: boolean): void => {
+  // Water is blocked ground at level 0; it never replaces rock.
+  const wet = (x: number, y: number): void => {
+    if (x < 0 || y < 0 || x >= W || y >= W) return;
+    const i = y * W + x;
+    if ((heights[i] as number) > 0) return;
+    blocked[i] = 1;
+  };
+  for (const b of plan.lakes) {
+    for (let y = b.cy - b.ry; y <= b.cy + b.ry; y++) {
+      for (let x = b.cx - b.rx; x <= b.cx + b.rx; x++) {
+        // A rounder, slightly uneven outline than the rocks.
+        const wobble = 0.12 * Math.sin(x * 1.7 + y * 0.9);
+        const d = ((x - b.cx) / (b.rx + 0.5)) ** 2 + ((y - b.cy) / (b.ry + 0.5)) ** 2;
+        if (d > 1 + wobble) continue;
+        wet(x, y);
+        wet(W - 1 - x, W - 1 - y);
+      }
+    }
+  }
+  if (plan.water) for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (plan.water(x, y)) wet(x, y);
+  // Shards lie on open ground only, never under rock or water.
+  const shard = (i: number, amount: number): void => {
+    if (!blocked[i]) shards[i] = amount;
+  };
+  for (const f of plan.fields) {
     for (let y = f.cy - f.r; y <= f.cy + f.r; y++) {
       for (let x = f.cx - f.r; x <= f.cx + f.r; x++) {
         if ((x - f.cx) ** 2 + (y - f.cy) ** 2 > f.r * f.r + 1) continue;
-        shards[y * W + x] = f.amount;
-        if (mirror) shards[(W - 1 - y) * W + (W - 1 - x)] = f.amount;
+        shard(y * W + x, f.amount);
+        shard((W - 1 - y) * W + (W - 1 - x), f.amount);
       }
     }
-  };
-  for (const f of FIELDS) field(f, true);
+  }
   // The centre field is a disc around the map's exact centre (47.5, 47.5), so it is point-symmetric.
-  for (let y = 43; y <= 52; y++) for (let x = 43; x <= 52; x++) if ((x - 47.5) ** 2 + (y - 47.5) ** 2 <= 3.6 ** 2) shards[y * W + x] = CENTRE_AMOUNT;
+  const c = (W - 1) / 2;
+  const r = plan.centre.r;
+  if (plan.centre.amount > 0) for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if ((x - c) ** 2 + (y - c) ** 2 <= r * r) shard(y * W + x, plan.centre.amount);
   return { width: W, height: W, heights, blocked, shards };
+}
+
+/** Shard fields beside each base, the same on every map, so every start has a working economy. */
+const HOME_FIELDS: Field[] = [
+  { cx: 22, cy: 12, r: 2, amount: 3000 },
+  { cx: 12, cy: 24, r: 2, amount: 2500 },
+];
+
+/**
+ * Crossroads: rock outcrops funnel the armies through chokepoints; a pond on each base's outer flank (cover at its back,
+ * clear of its exits) and lakes beside the mid-map routes that narrow them without closing them (MAP-3).
+ */
+const CROSSROADS: MapPlan = {
+  rocks: [
+    { cx: 30, cy: 18, rx: 5, ry: 2 },
+    { cx: 18, cy: 32, rx: 2, ry: 5 },
+    { cx: 38, cy: 34, rx: 4, ry: 3 },
+    { cx: 28, cy: 50, rx: 3, ry: 6 },
+    { cx: 46, cy: 22, rx: 2, ry: 3 },
+    { cx: 58, cy: 40, rx: 3, ry: 2 },
+  ],
+  lakes: [
+    { cx: 5, cy: 34, rx: 2, ry: 4 },
+    { cx: 36, cy: 4, rx: 4, ry: 2 },
+    { cx: 15, cy: 52, rx: 3, ry: 3 },
+    { cx: 60, cy: 25, rx: 3, ry: 3 },
+  ],
+  fields: [...HOME_FIELDS, { cx: 34, cy: 64, r: 2, amount: 3500 }],
+  centre: { r: 3.6, amount: 5000 },
+};
+
+/**
+ * Riverbed (MAP-5): a river winds from corner to corner between the bases and is crossed in three places: a land bridge
+ * at the centre over the richest field, and a ford toward each flank. Rich fields lie on both banks near the crossings.
+ */
+const RIVERBED: MapPlan = {
+  rocks: [
+    { cx: 30, cy: 18, rx: 5, ry: 2 },
+    { cx: 18, cy: 32, rx: 2, ry: 5 },
+    { cx: 36, cy: 40, rx: 2, ry: 2 },
+    { cx: 50, cy: 22, rx: 3, ry: 2 },
+  ],
+  lakes: [{ cx: 4, cy: 36, rx: 2, ry: 3 }],
+  fields: [...HOME_FIELDS, { cx: 31, cy: 54, r: 2, amount: 4000 }, { cx: 56, cy: 30, r: 2, amount: 3500 }],
+  centre: { r: 3.6, amount: 6000 },
+  water: (x, y) => {
+    // Along the anti-diagonal x + y = 95, its own mirror image, meandering by an odd function of the position along it.
+    const along = x - y;
+    const across = x + y - (MAP_SIZE - 1);
+    if (Math.abs(across - 7 * Math.sin(along * 0.09)) > 2.8) return false;
+    // Crossings: the land bridge at the centre and a ford toward each flank.
+    if (Math.abs(along) <= 6) return false;
+    if (Math.abs(Math.abs(along) - 44) <= 3) return false;
+    return true;
+  },
+};
+
+/**
+ * The Highlands ridge ring (half of it: the mirror adds the rest) as chains of overlapping outcrops along the sides of a
+ * square around the centre, aligned with the tile grid, so the ridges read as rounded rock rather than a staircase (in
+ * the isometric view the square is a diamond). Each side waves a little and leaves a pass at its middle, and the two
+ * corners facing the bases are open, so the straight road between the bases runs through the basin.
+ */
+function ridgeRing(): Blob[] {
+  const c = Math.round((MAP_SIZE - 1) / 2); // 48: the ring sits a half tile off true centre; the mirror balances it
+  const R = 20;
+  const pass = 4; // tiles either side of a pass's axis
+  const out: Blob[] = [];
+  for (let t = -R; t <= R; t += 4) {
+    if (Math.abs(t) <= pass + 1) continue;
+    const wave = Math.round(1.2 * Math.sin(t * 0.35));
+    // The north side runs along x and the east side along y; the mirror makes the south and west sides. The north-east
+    // corner belongs to the north side alone, so no two chains pile up there; the north-west and south-east corners,
+    // which face the bases, are left open.
+    if (t > -R + 4) out.push({ cx: c + t, cy: c - R + wave, rx: 3, ry: 2 });
+    if (t > -R && t < R - 4) out.push({ cx: c + R - wave, cy: c + t, rx: 2, ry: 3 });
+  }
+  return out;
+}
+
+/**
+ * Highlands (MAP-6): a ring of ridges walls in a central basin with a pool at its heart, entered by a pass in the middle
+ * of each side and by a wide gap at each corner facing a base; mesas guard the approaches from each base. The richest
+ * fields lie in the basin, beside the pool.
+ */
+const HIGHLANDS: MapPlan = {
+  rocks: [
+    ...ridgeRing(),
+    { cx: 34, cy: 13, rx: 5, ry: 2 },
+    { cx: 13, cy: 34, rx: 2, ry: 5 },
+    { cx: 9, cy: 47, rx: 3, ry: 2 },
+    { cx: 47, cy: 9, rx: 2, ry: 3 },
+  ],
+  lakes: [{ cx: 4, cy: 30, rx: 2, ry: 3 }],
+  fields: [...HOME_FIELDS, { cx: 38, cy: 46, r: 2, amount: 4500 }, { cx: 20, cy: 75, r: 2, amount: 3500 }],
+  centre: { r: 0, amount: 0 },
+  water: (x, y) => Math.hypot(x - (MAP_SIZE - 1) / 2, y - (MAP_SIZE - 1) / 2) <= 2.6,
+};
+
+export type MapId = 'crossroads' | 'riverbed' | 'highlands';
+
+/** The skirmish maps in menu order; the first is the default (MAP-4). */
+export const MAPS: readonly { id: MapId; name: string; blurb: string; plan: MapPlan }[] = [
+  { id: 'crossroads', name: 'Crossroads', blurb: 'Rock outcrops and lakes funnel the fight through chokepoints.', plan: CROSSROADS },
+  { id: 'riverbed', name: 'Riverbed', blurb: 'A river between the bases: hold the bridge and the two fords.', plan: RIVERBED },
+  { id: 'highlands', name: 'Highlands', blurb: 'A ring of ridges around a rich basin, entered by its passes and corner gaps.', plan: HIGHLANDS },
+];
+
+export const DEFAULT_MAP: MapId = 'crossroads';
+
+/** A map id from untrusted input (the address bar, saved settings), or the default. */
+export const mapIdOf = (v: unknown): MapId => MAPS.find((m) => m.id === v)?.id ?? DEFAULT_MAP;
+
+/** A 96x96 point-symmetric two-player skirmish map (MAP-2, MAP-4): Crossroads unless another is named. */
+export function skirmishMap(id: MapId = DEFAULT_MAP): MapDef {
+  return buildMap(MAPS.find((m) => m.id === id)!.plan);
 }
 
 function startingForce(owner: number, faction: Faction): { buildings: BuildingSpawn[]; units: UnitSpawn[] } {
@@ -136,6 +260,8 @@ export interface SkirmishOptions {
   /** Percent shard-income bonus per player. */
   bonuses?: [number, number];
   credits?: number;
+  /** Which skirmish map (MAP-4); Crossroads by default. */
+  map?: MapId;
 }
 
 export function skirmishConfig(seed = 1, o: SkirmishOptions = {}): GameConfig {
@@ -146,7 +272,7 @@ export function skirmishConfig(seed = 1, o: SkirmishOptions = {}): GameConfig {
     { faction: f[0], credits: o.credits ?? 1800, bonus: o.bonuses?.[0] ?? 0 },
     { faction: f[1], credits: o.credits ?? 1800, bonus: o.bonuses?.[1] ?? 0 },
   ];
-  return { seed, map: skirmishMap(), players, buildings: [...a.buildings, ...b.buildings], units: [...a.units, ...b.units] };
+  return { seed, map: skirmishMap(o.map), players, buildings: [...a.buildings, ...b.buildings], units: [...a.units, ...b.units] };
 }
 
 /** Small deterministic test terrain: a ridge ring with gaps around the centre. */

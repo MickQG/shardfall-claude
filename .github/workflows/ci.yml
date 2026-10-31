@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
 
+# Read-only token: CI only checks the code (SEC-4).
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -16,6 +20,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Shipped dependencies must have no known high or critical vulnerabilities (SEC-4).
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test

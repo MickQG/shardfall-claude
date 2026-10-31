@@ -21,5 +21,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `015-squads-veterancy.md` | Light infantry squads and veterancy | 15 |
 | `016-gfx-next.md` | Showcase scenario and frame-time readout (from the 2D mockup) | 16 |
 | `017-render3d.md` | Real-time 3D renderer slice (three.js) | 17 |
+| `018-performance-security.md` | Frame-rate headroom; web, desktop and CI security | 18 |
 
 Umbrella spec: GitHub issue #1.

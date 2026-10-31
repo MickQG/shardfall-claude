@@ -252,7 +252,7 @@ const terrainOf = (m: MapDef) => ({
   blocked: (x: number, y: number) => !!m.blocked?.[y * m.width + x],
   shards: (x: number, y: number) => (m.shards?.[y * m.width + x] ?? 0) > 0,
 });
-const MAPS: [string, MapDef][] = [['skirmish', skirmishMap()], ['demo', demoMap()], ['showcase', showcaseConfig(1).map]];
+const MAPS: [string, MapDef][] = [['skirmish', skirmishMap()], ['riverbed', skirmishMap('riverbed')], ['highlands', skirmishMap('highlands')], ['demo', demoMap()], ['showcase', showcaseConfig(1).map]];
 
 describe('fog, damage, harvesters and deaths', () => {
   it('R3D-17: materials on unexplored tiles fade into the fog using the fog texture, for lit and unlit shaders alike', () => {

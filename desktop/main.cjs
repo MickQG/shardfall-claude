@@ -4,7 +4,7 @@
 const { app, BrowserWindow, Menu, net, protocol, shell } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { APP_ORIGIN, isInternalUrl, resolveAppPath } = require('./paths.cjs');
+const { APP_ORIGIN, CSP, isInternalUrl, resolveAppPath } = require('./paths.cjs');
 
 const ROOT = path.join(__dirname, '..', 'dist');
 
@@ -64,9 +64,13 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
-    protocol.handle('app', (request) => {
+    protocol.handle('app', async (request) => {
       const file = resolveAppPath(ROOT, new URL(request.url).pathname);
-      return file ? net.fetch(pathToFileURL(file).toString()) : new Response('Not found', { status: 404 });
+      if (!file) return new Response('Not found', { status: 404 });
+      // Every file goes out under the same Content-Security-Policy as on the website (SEC-1).
+      const res = await net.fetch(pathToFileURL(file).toString());
+      const headers = { ...Object.fromEntries(res.headers), 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff' };
+      return new Response(res.body, { status: res.status, headers });
     });
     createWindow();
     app.on('activate', () => {

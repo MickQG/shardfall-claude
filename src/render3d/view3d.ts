@@ -26,6 +26,7 @@ import { poseRig, recoil, rigTree, type RigDef, type RigPose, type RigTree } fro
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
 import { unexploredMask } from './unexplored';
+import { PR_MAX, ResolutionGovernor } from './resolution';
 
 /**
  * How damage shows on a building at health fraction `hp` (R3D-18): soot darkens it steadily; below half it throws
@@ -41,6 +42,12 @@ export function damageLook(hp: number, t: number, seed: number): { tint: number;
 
 /** Brightness of Vrax buildings' glowing parts under bloom (softer than GLOW), so a hive glows without blazing. */
 export const HIVE_GLOW = 0.8;
+/** Extra reach beyond the view, tiles, within which units are still posed (PERF-1). */
+export const POSE_MARGIN = 2;
+
+/** Frames per redraw of the sun's shadow map (PERF-1). */
+export const SHADOW_EVERY = 2;
+
 /** Brightness of other glowing parts under bloom: enough to bloom softly, not to blaze. */
 export const GLOW = 1.5;
 
@@ -316,11 +323,15 @@ export class View3D {
   private size: Viewport = { width: 1, height: 1 };
   private warmGroup = new THREE.Group();
   private cpuMs = 0;
+  /** Adaptive resolution (PERF-2); created on the first fit, when the device pixel ratio is known. */
+  private res: ResolutionGovernor | null = null;
 
   constructor() {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoftShadowMap was removed in r186 (it silently switched over and recompiled everything)
+    // The sun's shadows are redrawn every other frame (PERF-1): at 60 fps a shadow trailing its unit by one frame is invisible.
+    this.renderer.shadowMap.autoUpdate = false;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.2;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -333,11 +344,16 @@ export class View3D {
     return this.renderer.domElement;
   }
 
-  /** Size the canvas and buffers: at most 1.25 device pixels per CSS pixel (sharp, and affordable on integrated GPUs). */
+  /**
+   * Size the canvas and buffers: at most 1.25 device pixels per CSS pixel (sharp, and affordable on integrated GPUs),
+   * lowered while the GPU cannot keep up (PERF-2).
+   */
   private fit(): void {
     const host = this.host;
     if (!host) return;
-    const pr = Math.min(1.25, window.devicePixelRatio || 1);
+    const max = Math.min(PR_MAX, window.devicePixelRatio || 1);
+    if (!this.res || this.res.max !== max) this.res = new ResolutionGovernor(max);
+    const pr = this.res.ratio;
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(host.clientWidth, host.clientHeight);
     this.size = { width: host.clientWidth || 1, height: host.clientHeight || 1 };
@@ -448,6 +464,7 @@ export class View3D {
       }
     }
     this.scene.add(upload);
+    this.renderer.shadowMap.needsUpdate = true;
     if (this.composer) this.composer.render(0.016);
     else this.renderer.render(this.scene, this.camera);
     this.scene.remove(upload);
@@ -463,6 +480,7 @@ export class View3D {
    */
   private compileAll(): void {
     this.fx.warm(true);
+    this.renderer.shadowMap.needsUpdate = true;
     if (this.bloomOn && this.composer) {
       this.renderer.setRenderTarget(this.composer.readBuffer);
       this.renderer.compile(this.scene, this.camera);
@@ -932,9 +950,11 @@ export class View3D {
     } else this.rally.visible = false;
     this.fx.update(t, dt);
     this.applyQuality(vs);
+    if (this.frame % SHADOW_EVERY === 0) this.renderer.shadowMap.needsUpdate = true;
     if (this.bloomOn && this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
     this.cpuMs += (performance.now() - cpu0 - this.cpuMs) * 0.05;
+    if (this.res?.step(dt * 1000, this.cpuMs)) this.fit();
   }
 
   /** Draw calls of the last frame and the smoothed CPU time of an update, for the frame-time readout. */
@@ -1147,10 +1167,16 @@ export class View3D {
         free: (x, z) => Math.abs(this.groundAt(x, z) - y) < 1e-6 && !this.waterAt(x, z),
       });
     }
+    // Parts are posed only for units in or near the view (PERF-1); their walk and aim go on off screen, so nothing jumps.
+    const posed = this.inView(o.x, o.root.position.y, o.z, def.radius + POSE_MARGIN);
     o.figures.forEach((f, i) => {
       if (i >= o.alive) return;
       const mm = squad ? o.members[i]! : null;
       const mo = mm ? mm.motion : m;
+      if (!posed) {
+        if (!mm && def.move === 'walker') o.figureYaw[i] = turnToward(o.figureYaw[i] ?? m.heading, aiming && m.speed < 0.3 ? o.aim : m.heading, 8 * dt);
+        return;
+      }
       if (mm) {
         f.root.position.set(mm.x - o.x, 0, mm.z - o.z);
         f.root.rotation.set(0, -mm.yaw, 0);

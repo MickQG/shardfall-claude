@@ -36,6 +36,10 @@ export class Minimap {
   private terrain: HTMLCanvasElement;
   readonly layout: MiniLayout;
   private pings: { tx: number; ty: number; born: number; color: string }[] = [];
+  /** Terrain, fog, buildings and shards, redrawn a few times a second rather than every frame (PERF-1). */
+  private layer: HTMLCanvasElement;
+  private layerTick = -1;
+  private layerAt = -Infinity;
 
   /** Flash a ring on the minimap (alerts). `now` is the caller's clock in ms. */
   ping(tx: number, ty: number, now: number, color = '#ff5a4a'): void {
@@ -48,7 +52,13 @@ export class Minimap {
     this.layout = { width, height, mapW: snap.mapWidth, mapH: snap.mapHeight };
     this.ctx = this.canvas.getContext('2d') as CanvasRenderingContext2D;
     this.terrain = this.bakeTerrain(snap);
+    this.layer = document.createElement('canvas');
+    this.layer.width = width;
+    this.layer.height = height;
   }
+
+  /** How often, at most, the fog, buildings and shards are redrawn, ms (PERF-1). */
+  static readonly LAYER_MS = 200;
 
   private bakeTerrain(snap: Snapshot): HTMLCanvasElement {
     const c = document.createElement('canvas');
@@ -69,6 +79,20 @@ export class Minimap {
 
   draw(snap: Snapshot, camTiles: { x: number; y: number }[], now = 0): void {
     const { ctx, layout: l } = this;
+    // The slow-changing layer follows the sim at most every LAYER_MS (and at once if the clock jumps back).
+    if (snap.tick !== this.layerTick && (now - this.layerAt >= Minimap.LAYER_MS || now < this.layerAt)) {
+      this.drawLayer(snap);
+      this.layerTick = snap.tick;
+      this.layerAt = now;
+    }
+    ctx.clearRect(0, 0, l.width, l.height);
+    ctx.drawImage(this.layer, 0, 0);
+    this.drawLive(snap, camTiles, now);
+  }
+
+  private drawLayer(snap: Snapshot): void {
+    const l = this.layout;
+    const ctx = this.layer.getContext('2d') as CanvasRenderingContext2D;
     ctx.clearRect(0, 0, l.width, l.height);
     ctx.drawImage(this.terrain, 0, 0);
     if (snap.fog) {
@@ -94,6 +118,10 @@ export class Minimap {
       ctx.fillStyle = '#35e0a1';
       ctx.fillRect(p.x - 1, p.y - 0.5, 2, 1.4);
     }
+  }
+
+  private drawLive(snap: Snapshot, camTiles: { x: number; y: number }[], now: number): void {
+    const { ctx, layout: l } = this;
     for (const u of snap.units) {
       const p = tileToMini(l, u.x / 256, u.y / 256);
       ctx.fillStyle = `#${(OWNER_COLORS[u.owner] ?? 0xffffff).toString(16).padStart(6, '0')}`;

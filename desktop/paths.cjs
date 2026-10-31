@@ -31,4 +31,25 @@ function isInternalUrl(url) {
   return url === APP_ORIGIN || url.startsWith(APP_ORIGIN + '/');
 }
 
-module.exports = { APP_ORIGIN, resolveAppPath, isInternalUrl };
+/**
+ * Content-Security-Policy for the game page (SEC-1), the same on the website and in the desktop app: code, workers and
+ * data come only from the game's own origin; styles may be inline (the HUD sets them from code); images may be data or
+ * blob URLs (cursors, generated textures); no plugins, and no other site may frame the page or receive its forms.
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "worker-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "media-src 'self' blob:",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+module.exports = { APP_ORIGIN, CSP, resolveAppPath, isInternalUrl };

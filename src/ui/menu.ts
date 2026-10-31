@@ -1,3 +1,5 @@
+import { MAPS, type MapId } from '../data/maps';
+import { loadSettings, safeStorage, saveSettings } from './settings';
 import { unitCards } from './unitInfo';
 
 const CSS = `
@@ -72,13 +74,16 @@ export function showMenu(): void {
     </div>
     <div class="row"><label>Opponent</label>
       <button class="pill" data-diff="easy">Easy</button><button class="pill" data-diff="medium">Medium</button><button class="pill" data-diff="hard">Hard</button></div>
+    <div class="row"><label>Map</label>
+      ${MAPS.map((m) => `<button class="pill" data-map="${m.id}" title="${m.blurb}">${m.name}</button>`).join('')}</div>
     <div class="row"><button id="go">START</button><button id="info-btn" title="Unit info" aria-label="Unit info">i</button></div>
     <div class="help">${HELP_TEXT}</div>`;
   document.body.appendChild(root);
   const info = document.createElement('div');
   info.id = 'unit-info';
   document.body.appendChild(info);
-  const pick: Pick = { faction: 'human', difficulty: 'medium' };
+  const settings = loadSettings(safeStorage());
+  const pick: Pick & { map: MapId } = { faction: 'human', difficulty: 'medium', map: settings.map };
   const showInfo = (open: boolean): void => {
     if (open) info.innerHTML = infoSheet(pick.faction);
     info.classList.toggle('open', open);
@@ -92,14 +97,19 @@ export function showMenu(): void {
   const sync = (): void => {
     root.querySelectorAll<HTMLElement>('[data-faction]').forEach((e) => e.classList.toggle('sel', e.dataset.faction === pick.faction));
     root.querySelectorAll<HTMLElement>('[data-diff]').forEach((e) => e.classList.toggle('sel', e.dataset.diff === pick.difficulty));
+    root.querySelectorAll<HTMLElement>('[data-map]').forEach((e) => e.classList.toggle('sel', e.dataset.map === pick.map));
   };
   root.addEventListener('click', (e) => {
-    const t = (e.target as HTMLElement).closest('[data-faction],[data-diff],#go,#info-btn') as HTMLElement | null;
+    const t = (e.target as HTMLElement).closest('[data-faction],[data-diff],[data-map],#go,#info-btn') as HTMLElement | null;
     if (!t) return;
     if (t.id === 'info-btn') return showInfo(true);
     if (t.dataset.faction) pick.faction = t.dataset.faction as Pick['faction'];
     else if (t.dataset.diff) pick.difficulty = t.dataset.diff as Pick['difficulty'];
-    else if (t.id === 'go') location.search = `?faction=${pick.faction}&difficulty=${pick.difficulty}`;
+    else if (t.dataset.map) {
+      pick.map = MAPS.find((m) => m.id === t.dataset.map)?.id ?? pick.map;
+      saveSettings(safeStorage(), { ...loadSettings(safeStorage()), map: pick.map });
+    }
+    else if (t.id === 'go') location.search = `?faction=${pick.faction}&difficulty=${pick.difficulty}&map=${pick.map}`;
     sync();
   });
   sync();
