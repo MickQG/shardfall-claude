@@ -45,14 +45,20 @@ export function unitCards(faction: Faction): UnitCard[] {
         kind,
         name: d.name,
         cost: d.cost,
-        role: ROLE[d.role],
+        role: d.hero ? 'Hero tank' : ROLE[d.role],
         toughness: toughness(d.hp),
         speed: speed(d.speed),
         range: w ? range(w.range) : null,
         hitsAir: !!w?.antiAir,
         regenerates: d.regen !== undefined,
         canAttack: !!w,
-        strong: w ? ARMOUR.filter(([a]) => hurts(w, a)).map(([a, label]) => ({ armour: label, units: enemies.filter((e) => e.armor === a).map((e) => e.name) })) : [],
+        // Unit armour classes the enemy fields no unit of (no aircraft, since the heroes replaced them) are left out.
+        strong: w
+          ? ARMOUR.filter(([a]) => hurts(w, a))
+              .map(([a, label]) => ({ armour: label, units: enemies.filter((e) => e.armor === a).map((e) => e.name), structure: a === 'structure' }))
+              .filter((x) => x.structure || x.units.length > 0)
+              .map(({ armour, units }) => ({ armour, units }))
+          : [],
         weak: enemies.filter((e) => e.weapon && hurts(e.weapon, d.armor)).map((e) => e.name),
       };
     });

@@ -9,7 +9,7 @@ const units = [
   { id: 2, owner: 0, kind: 'hum_hauler' },
   { id: 3, owner: 1, kind: 'ali_skitter' },
   { id: 4, owner: 0, kind: 'hum_tank' },
-  { id: 5, owner: 0, kind: 'hum_gunship' },
+  { id: 5, owner: 0, kind: 'ali_strider' },
 ];
 
 describe('select-all-combat', () => {

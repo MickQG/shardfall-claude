@@ -48,6 +48,8 @@ export interface UnitDef {
   regen?: number;
   /** Infantry squads: figures in the squad; damage scales with figures still standing (SQD-1). */
   squad?: number;
+  /** A hero (HERO-1): one at a time per player, alive or in production. */
+  hero?: boolean;
   /** Role hint used by the AI for composition. */
   role: 'harvester' | 'infantry' | 'antiarmor' | 'scout' | 'tank' | 'artillery' | 'air' | 'raider';
 }
@@ -141,9 +143,11 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
     faction: 'human', name: 'Hammer Artillery', speed: 24, hp: 250, radius: 100, vision: 8, cost: 900, buildTime: 520, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', role: 'artillery',
     weapon: { damage: 64, range: 11, cooldown: 60, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
   },
-  hum_gunship: {
-    faction: 'human', name: 'Aegis Gunship', speed: 56, hp: 300, radius: 90, vision: 9, cost: 1200, buildTime: 600, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'air', air: true, role: 'air',
-    weapon: { damage: 13, range: 4, cooldown: 8, type: 'pierce', antiAir: true, antiGround: true },
+  // The Aegis hero (HERO-1): a heavy assault tank whose cannon and missile pods engage ground and air alike; one at a
+  // time, and it slowly repairs itself.
+  hum_paladin: {
+    faction: 'human', name: 'Paladin', speed: 32, hp: 1600, radius: 118, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, role: 'tank',
+    weapon: { damage: 46, range: 7, cooldown: 16, type: 'rocket', antiAir: true, antiGround: true, flight: 4 },
   },
 
   // ---- Aliens ----
@@ -168,9 +172,11 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
     faction: 'alien', name: 'Lobber', speed: 26, hp: 240, radius: 100, vision: 8, cost: 800, buildTime: 500, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 2, role: 'artillery',
     weapon: { damage: 62, range: 10, cooldown: 56, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
   },
-  ali_wasp: {
-    faction: 'alien', name: 'Wasp', speed: 70, hp: 170, radius: 84, vision: 9, cost: 900, buildTime: 520, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'air', air: true, regen: 2, role: 'air',
-    weapon: { damage: 10, range: 3.5, cooldown: 7, type: 'pierce', antiAir: true, antiGround: true },
+  // The Vrax hero (HERO-2): a towering six-legged bio-walker whose acid cannon hits ground and air; one at a time, and
+  // it regenerates.
+  ali_strider: {
+    faction: 'alien', name: 'Dreadstrider', speed: 32, hp: 1600, radius: 130, vision: 10, cost: 2000, buildTime: 900, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 3, hero: true, role: 'tank',
+    weapon: { damage: 46, range: 7, cooldown: 16, type: 'rocket', antiAir: true, antiGround: true, flight: 5 },
   },
 };
 

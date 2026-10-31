@@ -533,16 +533,16 @@ export class CombatFx {
   private spit(L: Look, at: Vec, dir: Vec, now: number): void {
     const r = this.rng;
     const f = L.flash;
-    this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 90, size0: f * 1.3, size1: f * 0.5, color0: BIO, color1: BIO_DEEP, alpha: 0.6 }, now);
+    this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 90, size0: f * 1.3, size1: f * 0.5, color0: BIO, color1: BIO_DEEP, alpha: 0.85 }, now);
     const n = this.quality.rich ? 7 : 3;
     for (let i = 0; i < n; i++) {
       const sp = r.range(1.2, 3.2);
       const sx = r.range(-0.6, 0.6);
       const sz = r.range(-0.6, 0.6);
-      this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: (dir.x + sx * 0.5) * sp, vy: (dir.y + r.range(0, 0.5)) * sp, vz: (dir.z + sz * 0.5) * sp, life: r.range(180, 380), size0: f * 0.4, size1: f * 0.12, color0: BIO, color1: BIO_DEEP, alpha: 0.7, drag: 3, gravity: 5 }, now);
+      this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: (dir.x + sx * 0.5) * sp, vy: (dir.y + r.range(0, 0.5)) * sp, vz: (dir.z + sz * 0.5) * sp, life: r.range(180, 380), size0: f * 0.4, size1: f * 0.12, color0: BIO, color1: BIO_DEEP, alpha: 0.9, drag: 3, gravity: 5 }, now);
     }
     if (this.quality.rich && !this.busy) this.smoke.emit({ x: at.x + dir.x * f, y: at.y + dir.y * f, z: at.z + dir.z * f, vx: dir.x * 0.6, vy: 0.2, vz: dir.z * 0.6, life: 650, size0: f * 0.5, size1: f * 2, color0: 0x7aa04a, color1: 0x3a4a2a, alpha: 0.3, drag: 2 }, now);
-    this.light(at.x, at.y + 0.1, at.z, BIO, f * 4, 140 + f * 140, now);
+    this.light(at.x, at.y + 0.1, at.z, BIO, f * 6, 140 + f * 140, now);
     if (L.shake > 0) this.shake = Math.max(this.shake, L.shake);
   }
 
@@ -622,8 +622,28 @@ export class CombatFx {
   burn(at: Vec, fire: boolean, scale: number, now: number): void {
     if (this.busy && !fire) return;
     const r = this.rng;
-    this.smoke.emit({ x: at.x + r.range(-0.08, 0.08) * scale, y: at.y, z: at.z + r.range(-0.08, 0.08) * scale, vx: 0.15 + r.range(-0.05, 0.05), vy: r.range(0.4, 0.7), vz: 0.08 + r.range(-0.05, 0.05), life: r.range(1800, 2800), size0: 0.15 * scale, size1: 0.8 * scale, color0: 0x2c2a28, color1: 0x5a5753, alpha: 0.55, drag: 0.6, gravity: -0.05 }, now);
-    if (fire) this.glow.emit({ x: at.x + r.range(-0.1, 0.1) * scale, y: at.y, z: at.z + r.range(-0.1, 0.1) * scale, vy: r.range(0.4, 0.8), life: r.range(300, 550), size0: 0.22 * scale, size1: 0.06 * scale, color0: 0xffc060, color1: 0xff3a10, alpha: 1.3, drag: 1, gravity: -0.5 }, now);
+    this.smoke.emit({ x: at.x + r.range(-0.08, 0.08) * scale, y: at.y, z: at.z + r.range(-0.08, 0.08) * scale, vx: 0.15 + r.range(-0.05, 0.05), vy: r.range(0.4, 0.7), vz: 0.08 + r.range(-0.05, 0.05), life: r.range(2000, 3200), size0: 0.16 * scale, size1: 0.85 * scale, color0: fire ? 0x1c1a19 : 0x2c2a28, color1: 0x5a5753, alpha: 0.68, drag: 0.6, gravity: -0.05 }, now);
+    if (fire) {
+      // A tongue of flame and a hot core, so a burning building reads at a glance.
+      this.glow.emit({ x: at.x + r.range(-0.12, 0.12) * scale, y: at.y, z: at.z + r.range(-0.12, 0.12) * scale, vy: r.range(0.5, 0.9), life: r.range(380, 650), size0: 0.28 * scale, size1: 0.07 * scale, color0: 0xffc060, color1: 0xff3a10, alpha: 1.3, drag: 1, gravity: -0.5 }, now);
+      this.glow.emit({ x: at.x, y: at.y - 0.05, z: at.z, life: 160, size0: 0.16 * scale, size1: 0.12 * scale, color0: 0xffe0a0, color1: 0xff7020, alpha: 0.9 }, now);
+    }
+  }
+
+  /**
+   * A damaged building's plume (R3D-20): thick dark smoke that climbs well above the roof and, when `fire`, big flames
+   * with embers and a flickering firelight. Heavier than `burn` (wrecks), so a struggling building reads from afar.
+   */
+  buildingDamage(at: Vec, fire: boolean, scale: number, now: number): void {
+    const r = this.rng;
+    for (let i = 0; i < 2; i++) {
+      this.smoke.emit({ x: at.x + r.range(-0.12, 0.12) * scale, y: at.y + i * 0.1, z: at.z + r.range(-0.12, 0.12) * scale, vx: 0.18 + r.range(-0.06, 0.06), vy: r.range(0.6, 1.0), vz: 0.1 + r.range(-0.06, 0.06), life: r.range(3000, 4600), size0: 0.22 * scale, size1: 1.25 * scale, color0: fire ? 0x141211 : 0x262422, color1: 0x55514c, alpha: 0.85, drag: 0.5, gravity: -0.06 }, now);
+    }
+    if (!fire) return;
+    for (let i = 0; i < 2; i++) this.glow.emit({ x: at.x + r.range(-0.15, 0.15) * scale, y: at.y - 0.05, z: at.z + r.range(-0.15, 0.15) * scale, vy: r.range(0.6, 1.1), life: r.range(450, 780), size0: 0.36 * scale, size1: 0.08 * scale, color0: 0xffc060, color1: 0xff3a10, alpha: 1.4, drag: 1, gravity: -0.6 }, now);
+    this.glow.emit({ x: at.x, y: at.y - 0.08, z: at.z, life: 200, size0: 0.22 * scale, size1: 0.16 * scale, color0: 0xffe0a0, color1: 0xff7020, alpha: 1 }, now);
+    if (r.next() < 0.35) this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: r.range(-0.5, 0.5), vy: r.range(1.4, 2.4), vz: r.range(-0.5, 0.5), life: r.range(700, 1100), size0: 0.035, size1: 0.015, color0: 0xffd080, color1: 0xff5010, alpha: 1.4, drag: 0.6, gravity: -0.2 }, now);
+    if (r.next() < 0.12) this.light(at.x, at.y + 0.3, at.z, 0xff8a40, 1.6 * scale, 260, now);
   }
 
   /** Light steam from vents and cooling towers. */
@@ -670,7 +690,7 @@ export class CombatFx {
         const b = r.range(0, Math.PI * 2);
         this.glow.emit({ x: at.x, y: at.y + 0.1, z: at.z, vx: Math.cos(b) * r.range(0.4, 1.4), vy: r.range(0.6, 1.6), vz: Math.sin(b) * r.range(0.4, 1.4), life: r.range(300, 550), size0: 0.035, size1: 0.02, color0: BIO, color1: BIO_DEEP, alpha: 1, gravity: 7 }, now);
       }
-      this.light(at.x, at.y + 0.2, at.z, BIO, 1, 140, now);
+      this.light(at.x, at.y + 0.2, at.z, BIO, 1.8, 140, now);
     }
     const n = L.hit === 'slash' ? 6 : 4;
     for (let i = 0; i < n; i++) {
@@ -679,8 +699,8 @@ export class CombatFx {
     }
     // Stings and spines burst in a small green puff with a glint of light.
     if (L.bio && L.hit !== 'slash') {
-      this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 160, size0: 0.08, size1: 0.18, color0: BIO, color1: BIO_DEEP, alpha: 0.45 }, now);
-      this.light(at.x, at.y + 0.15, at.z, BIO, 0.7, 120, now);
+      this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 160, size0: 0.08, size1: 0.18, color0: BIO, color1: BIO_DEEP, alpha: 0.65 }, now);
+      this.light(at.x, at.y + 0.15, at.z, BIO, 1.2, 120, now);
     }
     if (this.quality.rich) this.smoke.emit({ x: at.x, y: at.y, z: at.z, vy: 0.3, life: 450, size0: 0.06, size1: 0.22, color0: 0x8a7a5e, alpha: 0.35, drag: 2 }, now);
   }
@@ -696,7 +716,7 @@ export class CombatFx {
     // A splash crown of glowing acid, then bubbles that keep rising and popping from the puddle (R3D-12).
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2 + r.range(-0.3, 0.3);
-      this.glow.emit({ x: at.x, y: at.y + 0.04, z: at.z, vx: Math.cos(a) * size * 2.4, vy: r.range(1.6, 2.6), vz: Math.sin(a) * size * 2.4, life: r.range(380, 520), size0: 0.045, size1: 0.02, color0: BIO, color1: BIO_DEEP, alpha: 0.8, drag: 1.5, gravity: 9 }, now);
+      this.glow.emit({ x: at.x, y: at.y + 0.04, z: at.z, vx: Math.cos(a) * size * 2.4, vy: r.range(1.6, 2.6), vz: Math.sin(a) * size * 2.4, life: r.range(380, 520), size0: 0.045, size1: 0.02, color0: BIO, color1: BIO_DEEP, alpha: 1.05, drag: 1.5, gravity: 9 }, now);
     }
     for (let i = 0; i < (this.quality.rich ? 9 : 4); i++) {
       const a = r.range(0, Math.PI * 2);
@@ -704,14 +724,14 @@ export class CombatFx {
       this.glow.emit({ x: at.x + Math.cos(a) * d, y: at.y + 0.02, z: at.z + Math.sin(a) * d, vy: r.range(0.15, 0.35), life: r.range(300, 500), size0: 0.02, size1: 0.05, color0: BIO, color1: BIO_DEEP, alpha: 0.9, delay: r.range(150, 1600) }, now);
     }
     this.puddle(at, size, now);
-    this.glow.emit({ x: at.x, y: at.y + 0.05, z: at.z, life: 220, size0: size * 1.4, size1: size * 2, color0: 0xc8ff70, color1: 0x60b018, alpha: 0.8 }, now);
+    this.glow.emit({ x: at.x, y: at.y + 0.05, z: at.z, life: 220, size0: size * 1.4, size1: size * 2, color0: 0xc8ff70, color1: 0x60b018, alpha: 1.1 }, now);
     for (let i = 0; i < 10; i++) {
       const a = r.range(0, Math.PI * 2);
       const sp = r.range(0.5, 2) * size * 2;
       this.glow.emit({ x: at.x, y: at.y + 0.05, z: at.z, vx: Math.cos(a) * sp, vy: r.range(0.6, 2), vz: Math.sin(a) * sp, life: r.range(300, 650), size0: 0.07, size1: 0.03, color0: 0xc8ff4a, color1: 0x5a9a10, alpha: 1.3, gravity: 6 }, now);
     }
     for (let i = 0; i < (this.quality.rich ? 5 : 2); i++) this.smoke.emit({ x: at.x + r.range(-0.1, 0.1), y: at.y + 0.1, z: at.z + r.range(-0.1, 0.1), vy: r.range(0.2, 0.5), life: r.range(1000, 1700), size0: size * 0.5, size1: size * 1.6, color0: 0x6a8a30, color1: 0x3a4a2a, alpha: 0.45, drag: 1 }, now);
-    this.light(at.x, at.y + 0.3, at.z, 0xa0ff40, 2.5 * size, 260, now);
+    this.light(at.x, at.y + 0.3, at.z, 0xa0ff40, 4 * size, 260, now);
     if (size >= 0.5) {
       this.scorch(at, size * 1.4, now);
       this.ring(at, size * 2, 380, now, BIO);

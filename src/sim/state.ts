@@ -129,8 +129,8 @@ export interface State {
   pathQueue: number[];
   projectiles: Projectile[];
   strikes: Strike[];
-  /** Sight that lingers where units died (FOG-6): owner, tile, radius and the tick it fades at. */
-  lingering: { owner: number; tx: number; ty: number; r: number; until: number }[];
+  /** Per player and tile, the tick until which the tile stays in sight after it was last seen (FOG-6, FOG-7). */
+  sightUntil: Int32Array[];
   events: SimEvent[];
   over: boolean;
   winner: number | null;
@@ -169,7 +169,7 @@ export function createState(cfg: GameConfig): State {
     pathQueue: [],
     projectiles: [],
     strikes: [],
-    lingering: [],
+    sightUntil: setups.map(() => new Int32Array(width * height)),
     events: [],
     over: false,
     winner: null,

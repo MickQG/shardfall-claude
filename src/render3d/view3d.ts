@@ -26,6 +26,7 @@ import { poseRig, recoil, rigTree, type RigDef, type RigPose, type RigTree } fro
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
 import { unexploredMask } from './unexplored';
+import { RallyMarker } from './rally3d';
 import { PR_MAX, ResolutionGovernor } from './resolution';
 
 /**
@@ -40,8 +41,36 @@ export function damageLook(hp: number, t: number, seed: number): { tint: number;
   return { tint, lean: hp < 0.33 ? (0.33 - hp) * 0.12 : 0, sparkEvery: hp < 0.5 ? 400 + 2000 * hp : 0 };
 }
 
-/** Brightness of Vrax buildings' glowing parts under bloom (softer than GLOW), so a hive glows without blazing. */
-export const HIVE_GLOW = 0.8;
+/** Whether a building shows its health bar (R3D-20): while selected, and whenever it is below half health. */
+export const buildingBar = (hpFrac: number, selected: boolean): boolean => selected || hpFrac < 0.5;
+
+/** How long a badly damaged building jolts after a hit, ms (R3D-20). */
+export const JOLT_MS = 260;
+
+/**
+ * A building's jolt `age` ms after a hit (R3D-20): below half health it shakes, harder the weaker it is, and settles
+ * within JOLT_MS. Offsets in tiles, tilt in radians.
+ */
+export function jolt(age: number, hpFrac: number, seed: number): { dx: number; dz: number; tilt: number } {
+  if (hpFrac >= 0.5 || age < 0 || age >= JOLT_MS) return { dx: 0, dz: 0, tilt: 0 };
+  const k = (1 - age / JOLT_MS) ** 2;
+  const a = 0.05 * k * (1.4 - hpFrac);
+  return { dx: a * Math.sin(age * 0.09 + seed), dz: 0.7 * a * Math.cos(age * 0.11 + seed), tilt: 0.035 * k * Math.sin(age * 0.07 + seed) };
+}
+
+/**
+ * Smoke and fire on a damaged building (R3D-20): none above two thirds (GFX-2), then plumes that thicken, grow and
+ * puff faster as it weakens (one, two below half, three below a third), with fire below a third. `every` is ms between
+ * puffs; `scale` sizes them.
+ */
+export function damageSmoke(hpFrac: number): { plumes: number; every: number; scale: number; fire: boolean } {
+  if (hpFrac > 0.66) return { plumes: 0, every: 0, scale: 0, fire: false };
+  const w = Math.min(1, (0.66 - hpFrac) / 0.66);
+  return { plumes: hpFrac <= 0.33 ? 3 : hpFrac < 0.5 ? 2 : 1, every: Math.round(100 - 40 * w), scale: 1.1 + 1.1 * w, fire: hpFrac <= 0.33 };
+}
+
+/** Brightness of Vrax buildings' bioluminescence under bloom: a touch brighter than other glows, so a hive reads alive. */
+export const HIVE_GLOW = 1.15;
 /** Extra reach beyond the view, tiles, within which units are still posed (PERF-1). */
 export const POSE_MARGIN = 2;
 
@@ -49,7 +78,10 @@ export const POSE_MARGIN = 2;
 export const SHADOW_EVERY = 2;
 
 /** Brightness of other glowing parts under bloom: enough to bloom softly, not to blaze. */
-export const GLOW = 1.5;
+export const GLOW = 1;
+
+/** Glow brightness (other parts, Vrax buildings) with and without bloom. Applied from the first frame (R3D-12). */
+export const glowLevels = (bloom: boolean): { glow: number; hive: number } => (bloom ? { glow: GLOW, hive: HIVE_GLOW } : { glow: 1, hive: 0.9 });
 
 /** An aircraft's dive from the sky to the ground, ms, and how far its momentum carries it on, tiles (R3D-12). */
 export const CRASH_MS = 520;
@@ -215,6 +247,8 @@ interface BuildingObj {
   lastSmoke: number;
   /** When the next spark or ichor spurt flies from a badly damaged building. */
   nextSpark: number;
+  /** When it last lost health, ms: a badly damaged building jolts (R3D-20). */
+  hitAt: number;
   drawn: number;
 }
 
@@ -258,9 +292,10 @@ export class View3D {
   private organicMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.05 });
   private propMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.02 });
   private crystalMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.25, emissive: 0x0c3a34 });
-  private glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
-  /** Vrax buildings are covered in bioluminescence: their glow is softer, so a hive does not blaze under bloom. */
-  private hiveGlowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+  // The view starts with bloom on (`bloomOn`), so the glows start at their bloom levels; applyQuality changes them.
+  private glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, color: new THREE.Color().setScalar(glowLevels(true).glow) });
+  /** Vrax buildings are covered in bioluminescence, with their own brightness. */
+  private hiveGlowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, color: new THREE.Color().setScalar(glowLevels(true).hive) });
   /** Everything standing on unexplored tiles fades into the fog's darkness (R3D-17). */
   private unexplored = unexploredMask();
   private inst: Instancer;
@@ -291,7 +326,8 @@ export class View3D {
   private msPerTick = 1000 / TICKS_PER_SECOND;
   private lastTime = 0;
   private placement = new THREE.Mesh(new THREE.BoxGeometry(1, 0.06, 1), new THREE.MeshBasicMaterial({ color: 0x3cff8a, transparent: true, opacity: 0.4, depthWrite: false }));
-  private rally = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: 0x7ff5cd, dashSize: 0.3, gapSize: 0.2 }));
+  /** Rally point flag, ring and marching line (R3D-21). */
+  private rally = new RallyMarker();
   private known = new Set<number>();
   private seeded = false;
   private mapW = 0;
@@ -410,8 +446,7 @@ export class View3D {
     this.buildProps(snap, look);
     this.syncShards(snap);
     this.placement.visible = false;
-    this.rally.visible = false;
-    s.add(this.placement, this.rally);
+    s.add(this.placement, this.rally.root);
     this.prewarm();
   }
 
@@ -480,6 +515,7 @@ export class View3D {
    */
   private compileAll(): void {
     this.fx.warm(true);
+    this.rally.warm(true); // its programs too, or the first rally point would stall a frame
     this.renderer.shadowMap.needsUpdate = true;
     if (this.bloomOn && this.composer) {
       this.renderer.setRenderTarget(this.composer.readBuffer);
@@ -491,6 +527,7 @@ export class View3D {
       this.renderer.render(this.scene, this.camera);
     }
     this.fx.warm(false);
+    this.rally.warm(false);
   }
 
   private buildTerrain(snap: Snapshot, look: MapLook): void {
@@ -942,12 +979,9 @@ export class View3D {
       this.placement.position.set(vs.placement.tx + d.w / 2, 0.04, vs.placement.ty + d.h / 2);
       (this.placement.material as THREE.MeshBasicMaterial).color.setHex(vs.placement.ok ? 0x3cff8a : 0xff4a4a);
     } else this.placement.visible = false;
-    if (vs.rally) {
-      const r = vs.rally;
-      this.rally.geometry.setFromPoints([new THREE.Vector3(r.from.tx, 0.05, r.from.ty), new THREE.Vector3(r.to.tx, 0.05, r.to.ty)]);
-      this.rally.computeLineDistances();
-      this.rally.visible = true;
-    } else this.rally.visible = false;
+    // The rally point is a tile: the flag stands at its centre.
+    const r = vs.rally;
+    this.rally.update(r ? { from: r.from, to: { tx: r.to.tx + 0.5, ty: r.to.ty + 0.5 } } : null, OWNER_COLORS[vs.viewer] ?? 0x7ff5cd, t, (x, z) => this.groundAt(x, z));
     this.fx.update(t, dt);
     this.applyQuality(vs);
     if (this.frame % SHADOW_EVERY === 0) this.renderer.shadowMap.needsUpdate = true;
@@ -969,8 +1003,9 @@ export class View3D {
     if (vs.fx.bloom !== this.bloomOn) {
       this.bloomOn = vs.fx.bloom;
       // Glowing parts are brighter than white with bloom, so the bloom pass picks them up; plain white without.
-      this.glowMat.color.setScalar(this.bloomOn ? GLOW : 1);
-      this.hiveGlowMat.color.setScalar(this.bloomOn ? HIVE_GLOW : 0.8);
+      const lv = glowLevels(this.bloomOn);
+      this.glowMat.color.setScalar(lv.glow);
+      this.hiveGlowMat.color.setScalar(lv.hive);
     }
     if (vs.fx.decor !== this.shadowsOn) {
       this.shadowsOn = vs.fx.decor;
@@ -989,12 +1024,13 @@ export class View3D {
   }
 
   /** A health bar facing the camera: a dark back and a coloured fill from the left. */
-  private barAt(x: number, y: number, z: number, frac: number): void {
+  private barAt(x: number, y: number, z: number, frac: number, width = 0.62): void {
     const q = this.camera.quaternion;
-    this.uiM.compose(this.uiP.set(x, y, z), q, this.uiS.set(0.62, 0.07, 1));
+    const inner = width - 0.04;
+    this.uiM.compose(this.uiP.set(x, y, z), q, this.uiS.set(width, 0.07, 1));
     this.inst.push('ui/barBg', this.barGeo, this.barMat, false, this.uiM, this.uiC.setRGB(0.012, 0.03, 0.02), 20);
-    this.uiP.addScaledVector(this.camRight, -0.29);
-    this.uiM.compose(this.uiP, q, this.uiS.set(0.58 * Math.max(0, frac), 0.045, 1));
+    this.uiP.addScaledVector(this.camRight, -inner / 2);
+    this.uiM.compose(this.uiP, q, this.uiS.set(inner * Math.max(0, frac), 0.045, 1));
     this.inst.push('ui/barFg', this.barFgGeo, this.barMat, false, this.uiM, this.uiC.setHex(frac > 0.5 ? 0x4cd964 : frac > 0.25 ? 0xffcc00 : 0xff3b30), 21);
   }
 
@@ -1293,11 +1329,13 @@ export class View3D {
         // Only the viewer's own new buildings rise from the ground (GFX-1).
         const born = this.seeded && b.owner === vs.viewer && !this.known.has(b.id) ? vs.time : -Infinity;
         const yaw = b.owner === 0 ? Math.PI / 4 : (-3 * Math.PI) / 4;
-        o = { kind: b.kind, team: OWNER_COLORS[b.owner] ?? 0xffffff, def, rig, root, ring, born, x, z, y, hpFrac: 1, aim: yaw, aimHold: 0, turretYaw: yaw, turreted: rig.anims.some((a) => a.anim.k === 'turret'), lastFire: -1e9, muzzleTurn: 0, dying: null, lastSmoke: 0, nextSpark: 0, drawn: -1 };
+        o = { kind: b.kind, team: OWNER_COLORS[b.owner] ?? 0xffffff, def, rig, root, ring, born, x, z, y, hpFrac: 1, aim: yaw, aimHold: 0, turretYaw: yaw, turreted: rig.anims.some((a) => a.anim.k === 'turret'), lastFire: -1e9, muzzleTurn: 0, dying: null, lastSmoke: 0, nextSpark: 0, hitAt: -1e9, drawn: -1 };
         this.buildings.set(b.id, o);
         this.known.add(b.id);
       }
-      o.hpFrac = b.hp / Math.max(1, d.hp);
+      const hp = b.hp / Math.max(1, d.hp);
+      if (hp < o.hpFrac - 1e-6) o.hitAt = vs.time;
+      o.hpFrac = hp;
       o.ring.visible = vs.selectedBuilding === b.id;
     }
     this.seeded = true;
@@ -1313,7 +1351,7 @@ export class View3D {
 
   private animateBuildings(vs: ViewState, t: number, dt: number): void {
     const rich = vs.fx.particles;
-    for (const o of this.buildings.values()) {
+    for (const [id, o] of this.buildings) {
       const def = o.def;
       const k = Math.min(1, (t - o.born) / 1500);
       let tint = 1;
@@ -1333,7 +1371,10 @@ export class View3D {
       const look = damageLook(o.hpFrac, t, o.root.id);
       if (o.dying === null) {
         tint *= look.tint;
-        o.root.rotation.set(look.lean * (o.root.id % 2 ? 1 : -1), 0, look.lean * (o.root.id % 3 ? 0.6 : -0.6));
+        // A badly damaged building jolts when hit (R3D-20).
+        const j = jolt(t - o.hitAt, o.hpFrac, o.root.id);
+        o.root.position.set(o.x + j.dx, o.y, o.z + j.dz);
+        o.root.rotation.set(look.lean * (o.root.id % 2 ? 1 : -1) + j.tilt, 0, look.lean * (o.root.id % 3 ? 0.6 : -0.6) - j.tilt * 0.6);
       }
       if (t > o.aimHold) o.aim += 0.4 * dt; // idle turrets sweep slowly
       o.turretYaw = turnToward(o.turretYaw, o.aim, TURRET_RATE * dt);
@@ -1345,17 +1386,26 @@ export class View3D {
         this.drawRig(o.rig, this.tint.setScalar(tint), 1);
       }
       if (!visible || o.dying !== null || k < 1) continue;
-      // Damage: smoke below two thirds, fire below one third (GFX-2 thresholds); vents steam on the high preset.
-      if (t - o.lastSmoke > 110) {
+      // Health bar while selected or below half health (R3D-20), sized to the building.
+      if (buildingBar(o.hpFrac, vs.selectedBuilding === id)) {
+        const bd = buildingDef(o.kind);
+        this.barAt(o.x, o.y + def.height + 0.35, o.z, o.hpFrac, Math.min(1.8, 0.45 * Math.max(bd.w, bd.h)));
+      }
+      // Damage: smoke below two thirds, fire below one third (GFX-2 thresholds), heavier as it weakens (R3D-20); vents
+      // steam on the high preset.
+      const sm = damageSmoke(o.hpFrac);
+      if (sm.plumes > 0 && t - o.lastSmoke > sm.every) {
         o.lastSmoke = t;
-        if (o.hpFrac <= 0.66) {
-          const n = Math.floor(t / 110) % 3;
-          const ox = (((o.root.id * 13 + n * 7) % 10) / 10 - 0.5) * def.radius;
-          const oz = (((o.root.id * 7 + n * 11) % 10) / 10 - 0.5) * def.radius;
-          this.fx.burn(this.v.set(o.x + ox, o.y + def.height * 0.55, o.z + oz), o.hpFrac <= 0.33, 0.9, t);
-        } else if (rich && def.vents) {
-          for (const v of def.vents) this.fx.steam(this.v.set(o.x + v[0], o.y + v[1], o.z + v[2]), t);
+        const bd = buildingDef(o.kind);
+        for (let p = 0; p < sm.plumes; p++) {
+          // Plumes rise from fixed spots across the roof, different for every building.
+          const ox = (((o.root.id * 13 + p * 7) % 10) / 10 - 0.5) * bd.w * 0.6;
+          const oz = (((o.root.id * 7 + p * 11) % 10) / 10 - 0.5) * bd.h * 0.6;
+          this.fx.buildingDamage(this.v.set(o.x + ox, o.y + def.height * (0.5 + 0.1 * p), o.z + oz), sm.fire && p < 2, sm.scale, t);
         }
+      } else if (sm.plumes === 0 && rich && def.vents && t - o.lastSmoke > 110) {
+        o.lastSmoke = t;
+        for (const v of def.vents) this.fx.steam(this.v.set(o.x + v[0], o.y + v[1], o.z + v[2]), t);
       }
       // Below half health, sparks (Aegis) or spurts of ichor (Vrax) fly from its damaged upper works, more often as it
       // weakens.

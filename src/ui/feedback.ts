@@ -1,11 +1,12 @@
 import { buildingDef, isBuildingKind, trainableAt, unitDef } from '../data/defs';
 
 /** Why `kind` cannot be queued right now, or null when it can: a missing building first, then credits, then room. */
-export function queueRefusal(kind: string, ownedKinds: readonly string[], credits: number, hasRoom: boolean): string | null {
+export function queueRefusal(kind: string, ownedKinds: readonly string[], credits: number, hasRoom: boolean, heroTaken = false): string | null {
   const d = isBuildingKind(kind) ? buildingDef(kind) : unitDef(kind);
   const needs = isBuildingKind(kind) ? d.requires : [unitDef(kind).builtAt, ...d.requires];
   const miss = needs.filter((k) => !ownedKinds.includes(k));
   if (miss.length > 0) return `Requires ${miss.map((k) => buildingDef(k).name).join(', ')}`;
+  if (heroTaken) return 'Only one at a time';
   if (credits < d.cost) return 'Not enough credits';
   if (!hasRoom) return 'Queue full';
   return null;

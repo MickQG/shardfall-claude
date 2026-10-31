@@ -69,7 +69,7 @@ export function showMenu(): void {
     <h1>SHARDFALL</h1>
     <div class="tag">An original isometric RTS · skirmish against the AI</div>
     <div class="cards">
-      <button class="card" data-faction="human" style="--c:#6fd3ff"><h2>Aegis Union</h2><p>Humans. Armoured, structured, combined arms: tanks, rocketeers, artillery and gunships behind pulse turrets.</p></button>
+      <button class="card" data-faction="human" style="--c:#6fd3ff"><h2>Aegis Union</h2><p>Humans. Armoured, structured, combined arms: tanks, rocketeers, artillery and the Paladin hero tank behind pulse turrets.</p></button>
       <button class="card" data-faction="alien" style="--c:#b6ff5c"><h2>Vrax Hive</h2><p>Aliens. Fast, organic and regenerating: skitterers, brutes and spitters that heal between fights.</p></button>
     </div>
     <div class="row"><label>Opponent</label>

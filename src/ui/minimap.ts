@@ -29,6 +29,10 @@ export function clampTile(tx: number, ty: number, width: number, height: number)
   return { x: Math.min(width - 0.5, Math.max(0, tx)), y: Math.min(height - 0.5, Math.max(0, ty)) };
 }
 
+/** Minimap size in CSS pixels (UI-11): the map's diamond, twice as wide as tall. */
+export const MINIMAP_W = 280;
+export const MINIMAP_H = 140;
+
 /** Draws the minimap: terrain, fog, units and the camera view marker. */
 export class Minimap {
   readonly canvas = document.createElement('canvas');
@@ -46,7 +50,7 @@ export class Minimap {
     this.pings.push({ tx, ty, born: now, color });
   }
 
-  constructor(snap: Snapshot, width = 220, height = 110) {
+  constructor(snap: Snapshot, width = MINIMAP_W, height = MINIMAP_H) {
     this.canvas.width = width;
     this.canvas.height = height;
     this.layout = { width, height, mapW: snap.mapWidth, mapH: snap.mapHeight };

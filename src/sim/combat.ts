@@ -10,9 +10,6 @@ import { ELITE_REPAIR, MAX_RANK, maxHpOf, rankFor, unitDamage } from './units';
 type Entity = Unit | Building;
 const isBuilding = (e: Entity): e is Building => 'tx' in e;
 
-/** How long a dead unit's sight lingers where it fell (FOG-6), ticks (3 s). */
-export const LINGERING_SIGHT = 60;
-
 /** Ticks between launching a superweapon and its impact. */
 export const SUPERWEAPON_DELAY = 60;
 /** Ticks without damage before regeneration starts. */
@@ -316,8 +313,6 @@ export function tickCombat(s: State): void {
   if (deadUnits.length > 0) {
     for (const u of deadUnits) {
       s.events.push({ t: 'die', x: u.x, y: u.y, big: unitDef(u.kind).armor === 'heavy', owner: u.owner, id: u.id, kind: u.kind });
-      // Its owner keeps seeing the spot for a few seconds, so a lost scout still shows what killed it.
-      s.lingering.push({ owner: u.owner, tx: tileOf(u.x), ty: tileOf(u.y), r: unitDef(u.kind).vision, until: s.tick + LINGERING_SIGHT });
       const p = s.players[u.owner];
       if (p) p.stats.unitsLost++;
     }

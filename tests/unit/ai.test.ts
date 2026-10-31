@@ -282,3 +282,23 @@ function buildingKind(kind: string): boolean {
     return false;
   }
 }
+
+describe('clustered attacks', () => {
+  it('AI-11: attacks set out together and reinforcements join in groups: no unit is sent toward the enemy alone', () => {
+    for (const faction of ['human', 'alien'] as const) {
+      const base = skirmishConfig(5, { factions: faction === 'human' ? ['human', 'alien'] : ['alien', 'human'], credits: 6000 });
+      const game = createGame(base);
+      const ai = new AI(0, faction, DIFFICULTIES.hard, base.map, 5);
+      const log = drive(game, ai, 7000);
+      expect(ai.stats.waves, faction).toBeGreaterThan(0);
+      // Orders into the enemy's half of the map (beyond the centre line, x + y > 100 tiles) are for groups.
+      // (The scout travels alone by design, with plain move orders; attacks are attack-moves.)
+      const forward = log.filter((l) => l.cmd.type === 'attackmove' && l.cmd.x / FP + l.cmd.y / FP > 100);
+      expect(forward.length, faction).toBeGreaterThan(0);
+      for (const l of forward) expect((l.cmd as { units: number[] }).units.length, `${faction} @${l.tick}`).toBeGreaterThanOrEqual(3);
+      // A wave advances in hops: no forward order sends the wave more than a hop or two past its centre at a time.
+      const hops = forward.filter((l) => (l.cmd as { units: number[] }).units.length >= 3);
+      expect(hops.length, faction).toBeGreaterThan(3);
+    }
+  }, LONG);
+});

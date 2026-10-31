@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { BUILDING_DEFS, UNIT_DEFS, unitDef } from '../../src/data/defs';
@@ -14,7 +15,7 @@ import { demoMap, showcaseConfig, skirmishMap } from '../../src/data/maps';
 import type { MapDef } from '../../src/sim';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
 import { HIDE_FROM, HIDE_FULL, unexploredMask } from '../../src/render3d/unexplored';
-import { CRASH_MS, damageLook, GLOW, HIVE_GLOW } from '../../src/render3d/view3d';
+import { CRASH_MS, damageLook, GLOW, glowLevels, HIVE_GLOW } from '../../src/render3d/view3d';
 
 const STILL: RigPose = { turret: 0, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: 0, stride: 0, dist: 0, turnRate: 0, time: 0, reach: 0, walker: false };
 
@@ -336,10 +337,20 @@ describe('fog, damage, harvesters and deaths', () => {
     expect(fx.links.size).toBe(0); // stops a moment after the work stops
   });
 
-  it('R3D-12: aircraft dive out of the sky in about half a second, and Vrax buildings glow softer than other glows', () => {
+  it('R3D-12: aircraft dive out of the sky in about half a second, and Vrax buildings glow a touch brighter than other glows', () => {
     expect(CRASH_MS).toBeLessThanOrEqual(600);
-    expect(HIVE_GLOW).toBeLessThan(GLOW);
+    expect(glowLevels(true)).toEqual({ glow: GLOW, hive: HIVE_GLOW });
+    expect(HIVE_GLOW).toBeGreaterThan(GLOW);
+    expect(HIVE_GLOW).toBeLessThanOrEqual(1.2 * GLOW);
     expect(GLOW).toBeLessThanOrEqual(1.6);
+    // Without bloom, glows are plain bright colours, Vrax a little softer.
+    expect(glowLevels(false).glow).toBe(1);
+    expect(glowLevels(false).hive).toBeLessThan(1);
+    // The levels apply from the first frame on the default (bloom) preset, not only after the preset changes.
+    const src = readFileSync('src/render3d/view3d.ts', 'utf8');
+    expect(src).toContain('glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, color: new THREE.Color().setScalar(glowLevels(true).glow) })');
+    expect(src).toContain('hiveGlowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, color: new THREE.Color().setScalar(glowLevels(true).hive) })');
+    expect(src).toContain('private bloomOn = true;');
   });
 
   it('R3D-3: riflemen and rocketeers read apart: different cloth, visor, size and build', () => {
@@ -561,6 +572,36 @@ describe('living squads', () => {
       expect(Math.abs(angleDiff(m.yaw, Math.PI / 2))).toBeLessThan(0.2);
       if (kneels(seed, i)) expect(m.crouch).toBeGreaterThan(0.8);
     });
+  });
+
+  it('R3D-15: when a fast squad stops, members slow into their spots without overshooting and coming back', () => {
+    // A skitterer squad (the fastest) runs at full speed for two seconds and stops dead, its drawn position following
+    // the simulated one through the view's spring, as in the game.
+    const speed = (60 / 256) * 20;
+    for (const seed of [1, 2, 3, 5, 8, 13]) {
+      const sq = { x: 10, z: 10, vx: 0, vz: 0 };
+      const base = { heading: 0, aiming: false, aim: 0, alive: 3, dt: 1 / 60, seed, free: () => true };
+      const members = [0, 1, 2].map((i) => newMember({ ...base, x: 10, z: 10 }, i, 3));
+      const away = [0, 0, 0];
+      const spot = members.map(() => [0, 0]);
+      const gap = [0, 0, 0];
+      for (let k = 0; k < 60 * 5; k++) {
+        const tx = 10 + (speed * Math.min(k, 120)) / 60;
+        follow(sq, tx, 10, 1 / 60);
+        const fr: SquadFrame = { ...base, x: sq.x, z: sq.z, vx: sq.vx, vz: sq.vz, t: (k * 1000) / 60 };
+        stepSquad(members, fr);
+        members.forEach((m, i) => {
+          // The gap between a member and its spot (which moves with the squad).
+          const e = Math.hypot(sq.x + m.gx - m.x, sq.z + m.gz - m.z);
+          const same = Math.abs(spot[i]![0]! - m.gx) < 1e-9 && Math.abs(spot[i]![1]! - m.gz) < 1e-9;
+          spot[i] = [m.gx, m.gz];
+          // After the stop, a gap that grows while the spot is unchanged is the overshoot coming back.
+          if (k >= 121 && same && e > gap[i]!) away[i]! += e - gap[i]!;
+          gap[i] = e;
+        });
+      }
+      for (const a of away) expect(a, `seed ${seed}`).toBeLessThan(0.01);
+    }
   });
 
   it('R3D-15: members never pick a spot that is not free (cliff edges, water)', () => {

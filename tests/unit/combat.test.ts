@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { BUILDING_DEFS, DAMAGE_PCT, UNIT_DEFS, buildingDef, unitDef, type BuildingDef, type UnitDef } from '../../src/data/defs';
-import { createGame, damageAgainst, FP, hash, snapshot, submit, tick, VISIBLE, type Game, type GameConfig, type MapDef, type SimEvent } from '../../src/sim';
+import { FLYER } from './flyer';
+import { createGame, damageAgainst, EXPLORED, FP, hash, snapshot, submit, tick, VISIBLE, type Game, type GameConfig, type MapDef, type SimEvent } from '../../src/sim';
+import { SIGHT_LINGER } from '../../src/sim/fog';
 
 const W = 50;
 const open = (blockedTiles: [number, number][] = [], w = W, h = W): MapDef => {
@@ -41,13 +43,13 @@ describe('damage model', () => {
 
   it('CMB-2: ground-only weapons never hit air; anti-air weapons do', () => {
     // A Bulwark Tank (ground only) next to an enemy Wasp: the Wasp never loses hit points.
-    const g = createGame(cfg({ units: [sp(0, 'hum_tank', 20, 20), sp(1, 'ali_wasp', 22, 20)] }));
+    const g = createGame(cfg({ units: [sp(0, 'hum_tank', 20, 20), sp(1, FLYER, 22, 20)] }));
     run(g, 200);
-    expect(byKind(g, 'ali_wasp').hp).toBe(unitDef('ali_wasp').hp);
+    expect(byKind(g, FLYER).hp).toBe(unitDef(FLYER).hp);
     // A Rifleman (anti-air) does hurt it.
-    const g2 = createGame(cfg({ units: [sp(0, 'hum_rifleman', 20, 20), sp(1, 'ali_wasp', 22, 20)] }));
+    const g2 = createGame(cfg({ units: [sp(0, 'hum_rifleman', 20, 20), sp(1, FLYER, 22, 20)] }));
     run(g2, 200);
-    expect(units(g2).find((u) => u.kind === 'ali_wasp')?.hp ?? 0).toBeLessThan(unitDef('ali_wasp').hp);
+    expect(units(g2).find((u) => u.kind === FLYER)?.hp ?? 0).toBeLessThan(unitDef(FLYER).hp);
   });
 });
 
@@ -177,17 +179,17 @@ describe('deaths and structures', () => {
 describe('air units and the end of the game', () => {
   it('CMB-11: air units cross blocked terrain that stops ground units, and do not collide with them', () => {
     const wall: [number, number][] = Array.from({ length: 10 }, (_, y) => [15, y]);
-    const g = createGame(cfg({ map: open(wall, 30, 10), units: [sp(0, 'hum_gunship', 5, 5), sp(0, 'hum_rifleman', 5, 6)] }));
-    const [air, ground] = [byKind(g, 'hum_gunship').id, byKind(g, 'hum_rifleman').id];
+    const g = createGame(cfg({ map: open(wall, 30, 10), units: [sp(0, FLYER, 5, 5), sp(0, 'hum_rifleman', 5, 6)] }));
+    const [air, ground] = [byKind(g, FLYER).id, byKind(g, 'hum_rifleman').id];
     submit(g, { type: 'move', player: 0, units: [air, ground], x: 25 * FP + FP / 2, y: 5 * FP + FP / 2 });
     run(g, 600);
     expect(units(g).find((u) => u.id === air)!.x / FP).toBeGreaterThan(24);
     expect(units(g).find((u) => u.id === ground)!.x / FP).toBeLessThan(15);
 
-    const stack = createGame(cfg({ units: [sp(0, 'hum_gunship', 20, 20), sp(0, 'hum_rifleman', 20, 20)] }));
-    const before = units(stack).find((u) => u.kind === 'hum_gunship')!;
+    const stack = createGame(cfg({ units: [sp(0, FLYER, 20, 20), sp(0, 'hum_rifleman', 20, 20)] }));
+    const before = units(stack).find((u) => u.kind === FLYER)!;
     run(stack, 40);
-    const after = units(stack).find((u) => u.kind === 'hum_gunship')!;
+    const after = units(stack).find((u) => u.kind === FLYER)!;
     expect([after.x, after.y]).toEqual([before.x, before.y]);
   });
 
@@ -289,7 +291,6 @@ describe('rosters', () => {
       const defenceRange = Math.max(...b.filter(([, d]) => d.weapon).map(([, d]) => d.weapon!.range));
       const art = u.find(([, d]) => d.role === 'artillery')![1];
       expect(art.weapon!.range).toBeGreaterThanOrEqual(defenceRange + 3);
-      expect(u.some(([, d]) => d.air)).toBe(true);
     }
   });
 
@@ -305,7 +306,7 @@ describe('rosters', () => {
 });
 
 describe('lingering sight', () => {
-  it('FOG-6: a dead unit\'s sight lingers where it fell for 3 seconds, then fades', () => {
+  it('FOG-6: a dead unit\'s sight lingers where it fell for 4 seconds, then fades', () => {
     const g = createGame(cfg({
       buildings: [{ owner: 0, kind: 'hum_hq', tx: 2, ty: 2 }, { owner: 1, kind: 'ali_hq', tx: 44, ty: 44 }],
       units: [sp(0, 'hum_buggy', 30, 12)],
@@ -320,11 +321,35 @@ describe('lingering sight', () => {
     expect(g.state.units.some((u) => u.kind === 'hum_buggy')).toBe(false);
     expect(seen()).toBe(true); // still in sight just after it died
     expect(hash(g)).not.toBe(before);
-    run(g, 55);
+    run(g, SIGHT_LINGER - 6);
     expect(seen()).toBe(true);
     run(g, 6);
-    expect(seen()).toBe(false); // faded after 3 s (60 ticks)
-    expect(g.state.lingering).toHaveLength(0);
+    expect(seen()).toBe(false); // faded after 4 s (80 ticks)
+  });
+
+  it('FOG-7: when a unit moves away, the ground it saw stays in sight for 4 seconds before the fog closes in', () => {
+    const g = createGame(cfg({
+      buildings: [{ owner: 0, kind: 'hum_hq', tx: 2, ty: 2 }, { owner: 1, kind: 'ali_hq', tx: 44, ty: 44 }],
+      units: [sp(0, 'hum_buggy', 30, 12), sp(1, 'ali_skitter', 30, 15)],
+    }));
+    run(g, 2);
+    const at = 12 * g.state.grid.width + 30;
+    const seen = (): boolean => ((g.state.fog[0]![at] as number) & VISIBLE) !== 0;
+    const enemyShown = (): boolean => snapshot(g, 0).units.some((u) => u.owner === 1);
+    expect(seen()).toBe(true);
+    expect(enemyShown()).toBe(true);
+    // Move the buggy far away (as if it drove off): its old ground stays in sight, enemies there included...
+    const b = g.state.units.find((u) => u.kind === 'hum_buggy')!;
+    b.x = 8 * FP + FP / 2;
+    b.y = 40 * FP + FP / 2;
+    b.path = [];
+    run(g, SIGHT_LINGER - 4);
+    expect(seen()).toBe(true);
+    // ...then the fog closes in; the tile stays explored.
+    run(g, 6);
+    expect(seen()).toBe(false);
+    expect((g.state.fog[0]![at] as number) & EXPLORED).toBe(EXPLORED);
+    expect(SIGHT_LINGER).toBe(80);
   });
 });
 

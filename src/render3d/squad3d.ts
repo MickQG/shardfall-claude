@@ -29,6 +29,9 @@ export interface Member {
   look: number;
   /** 0 standing, 1 kneeling. */
   crouch: number;
+  /** The squad's velocity last frame, to feel it speed up or slow down. */
+  svx: number;
+  svz: number;
 }
 
 export interface SquadFrame {
@@ -80,7 +83,7 @@ const rotate = (x: number, z: number, yaw: number): [number, number] => [x * Mat
 /** A new member standing at its marching slot. */
 export function newMember(f: Pick<SquadFrame, 'x' | 'z' | 'heading' | 'seed'>, i: number, n: number): Member {
   const [sx, sz] = rotate(...slot('march', i, n), f.heading);
-  return { x: f.x + sx, z: f.z + sz, vx: 0, vz: 0, gx: sx, gz: sz, next: 0, picks: 0, mode: '', motion: restingMotion(f.heading), yaw: f.heading, look: f.heading, crouch: 0 };
+  return { x: f.x + sx, z: f.z + sz, vx: 0, vz: 0, gx: sx, gz: sz, next: 0, picks: 0, mode: '', motion: restingMotion(f.heading), yaw: f.heading, look: f.heading, crouch: 0, svx: 0, svz: 0 };
 }
 
 /** Whether member `i` of a squad kneels to fire (about half of them do). */
@@ -128,16 +131,25 @@ export function stepSquad(members: Member[], f: SquadFrame): void {
       m.vx = m.vz = 0;
     } else {
       const gain = mode === 'idle' ? 1.4 : 3;
-      let wx = f.vx + ex * gain;
-      let wz = f.vz + ez * gain;
+      const rate = 4 * gain;
+      // Keep pace with the squad (its velocity, and its speeding up or slowing down, which would otherwise carry the
+      // member past its spot when the squad stops) and close the gap to the spot.
+      const ax = f.dt > 0 ? (f.vx - m.svx) / f.dt : 0;
+      const az = f.dt > 0 ? (f.vz - m.svz) / f.dt : 0;
+      let wx = f.vx + ax / rate + ex * gain;
+      let wz = f.vz + az / rate + ez * gain;
       const top = Math.max(0.4, speed * 1.35);
       const w = Math.hypot(wx, wz);
       if (w > top) [wx, wz] = [(wx / w) * top, (wz / w) * top];
       if (err < 0.02 && speed < 0.05) [wx, wz] = [0, 0];
-      const k = 1 - Math.exp(-4.5 * f.dt);
+      // Velocity follows the steering four times faster than the steering closes the gap: critically damped, so a
+      // member slows into its spot and never sails past it and comes back.
+      const k = 1 - Math.exp(-rate * f.dt);
       m.vx += (wx - m.vx) * k;
       m.vz += (wz - m.vz) * k;
     }
+    m.svx = f.vx;
+    m.svz = f.vz;
     const dx = m.vx * f.dt;
     const dz = m.vz * f.dt;
     m.x += dx;

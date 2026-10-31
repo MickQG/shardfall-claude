@@ -52,11 +52,8 @@ export function drawUnit(kind: string, owner: number): UnitArt {
     turret = new Sprite();
     body.addChild(turret);
   }
-  let rotor: Graphics | null = null;
-  if (kind === 'hum_gunship') {
-    rotor = new Graphics();
-    body.addChild(rotor);
-  }
+  // No unit has a rotor since the Aegis Gunship became the Paladin (HERO-1); kept for future aircraft.
+  const rotor: Graphics | null = null;
   let load: Graphics | null = null;
   if (model.loadPivot) {
     load = new Graphics();
