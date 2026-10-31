@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Sprite } from 'pixi.js';
+import { Application, ColorMatrixFilter, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
 import { buildingDef, unitDef } from '../data/defs';
 import { maxHpOf, squadAlive, type BuildingSnap, type SimEvent, type Snapshot } from '../sim';
@@ -10,6 +10,8 @@ import { OWNER_COLORS } from './colors';
 import { crystalLevel, crystalModel, crystalTipPx, propAt, propModel, rockModel, rockVariant } from './voxel/props';
 import { sprites } from './voxel/spriteCache';
 import { FogView } from './fogView';
+import { LightPools } from './lightsNext';
+import { paintTerrain, terrainBounds, type TerrainInput } from './terrainNext';
 import type { RenderUnit } from './interp';
 import { TILE_H, TILE_W, tileToScreen } from './iso';
 import type { RallyLine } from '../ui/rally';
@@ -79,9 +81,25 @@ const tilePoly = (tx: number, ty: number, w: number, h: number): number[] => {
 
 const easeOut = (t: number): number => 1 - (1 - t) * (1 - t);
 
+/** Map data the next-style terrain needs beyond the snapshot (blocked tiles become water; shard fields tint the ground). */
+export interface MapLook {
+  blocked?: readonly number[];
+  shards?: readonly number[];
+}
+
+/** Largest terrain texture edge; bigger maps are painted in chunks. */
+const TERRAIN_CHUNK = 2048;
+
 export class GameView {
   readonly app = new Application();
   readonly effects = new Effects();
+  /** The next graphics style (`?gfx=next`, NXT-1): painted terrain, water, light pools, colour grading. Set before mount. */
+  next = false;
+  readonly lights = new LightPools();
+  private water: { x: number; y: number; p: number }[] = [];
+  private waterGfx = new Graphics();
+  private grade: ColorMatrixFilter | null = null;
+  private gradeOn = false;
   private world = new Container();
   private unitLayer = new Container();
   private shardGfx = new Graphics();
@@ -102,16 +120,27 @@ export class GameView {
   private dust = new Graphics();
   private motes = Array.from({ length: 46 }, (_, i) => ({ x: ((i * 97) % 100) / 100, y: ((i * 61) % 100) / 100, s: 0.4 + ((i * 29) % 10) / 14, p: i }));
 
-  async mount(host: HTMLElement, snap: Snapshot): Promise<void> {
-    await this.app.init({ resizeTo: host, background: 0x0b1015, antialias: true });
+  async mount(host: HTMLElement, snap: Snapshot, look: MapLook = {}): Promise<void> {
+    await this.app.init({ resizeTo: host, background: this.next ? 0x10131c : 0x0b1015, antialias: true });
     host.appendChild(this.app.canvas);
     this.unitLayer.sortableChildren = true;
-    this.world.addChild(this.drawTerrain(snap), this.decorLayer, this.shardGfx, this.overlay, this.unitLayer);
-    this.drawTerrainDecor(snap);
+    if (this.next) {
+      this.world.addChild(this.drawTerrainNext(snap, look), this.waterGfx, this.decorLayer, this.shardGfx, this.overlay, this.unitLayer, this.lights.layer);
+    } else {
+      this.world.addChild(this.drawTerrain(snap), this.decorLayer, this.shardGfx, this.overlay, this.unitLayer);
+      this.drawTerrainDecor(snap);
+    }
     this.buildProps(snap);
     if (snap.fog) {
-      this.fog = new FogView(snap.mapWidth, snap.mapHeight);
+      this.fog = this.next ? new FogView(snap.mapWidth, snap.mapHeight, [16, 20, 44], 105) : new FogView(snap.mapWidth, snap.mapHeight);
       this.world.addChild(this.fog.sprite);
+    }
+    if (this.next) {
+      // Late-afternoon grade: warmer highlights, a touch more contrast and saturation.
+      this.grade = new ColorMatrixFilter();
+      this.grade.matrix = [1.08, 0.02, 0, 0, 0.01, 0, 1.02, 0, 0, 0, 0, 0, 0.94, 0.02, 0.01, 0, 0, 0, 1, 0];
+      this.grade.saturate(0.12, true);
+      this.grade.contrast(0.08, true);
     }
     this.effects.layer.sortableChildren = true;
     this.world.addChild(this.effects.layer);
@@ -126,6 +155,13 @@ export class GameView {
       this.shardGfx.filters = fx.bloom ? [this.bloom] : [];
       this.effects.layer.filters = fx.bloom ? [this.bloom] : [];
     }
+    if (this.next && this.bloom) this.unitLayer.filters = fx.bloom ? [this.bloom] : [];
+    if (this.next && this.grade && fx.decor !== this.gradeOn) {
+      this.gradeOn = fx.decor;
+      this.world.filters = fx.decor ? [this.grade] : [];
+    }
+    this.lights.layer.visible = fx.decor;
+    this.waterGfx.visible = fx.decor;
     this.decorLayer.visible = fx.decor;
     if (fx.decor !== this.propsVisible) {
       this.propsVisible = fx.decor;
@@ -144,6 +180,55 @@ export class GameView {
 
   get viewport(): { width: number; height: number } {
     return { width: this.app.screen.width, height: this.app.screen.height };
+  }
+
+  /** Next-style terrain: the pure painter's pixels as one or more textures, plus the water tiles for animated glints. */
+  private drawTerrainNext(snap: Snapshot, look: MapLook): Container {
+    const W = snap.mapWidth;
+    const input: TerrainInput = {
+      width: W,
+      height: snap.mapHeight,
+      heights: snap.heights,
+      blocked: (x, y) => !!look.blocked?.[y * W + x],
+      shards: (x, y) => (look.shards?.[y * W + x] ?? 0) > 0,
+    };
+    const b = terrainBounds(input);
+    const root = new Container();
+    for (let y = b.y; y < b.y + b.h; y += TERRAIN_CHUNK) {
+      for (let x = b.x; x < b.x + b.w; x += TERRAIN_CHUNK) {
+        const w = Math.min(TERRAIN_CHUNK, Math.ceil(b.x + b.w - x));
+        const h = Math.min(TERRAIN_CHUNK, Math.ceil(b.y + b.h - y));
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext('2d') as CanvasRenderingContext2D;
+        ctx.putImageData(new ImageData(new Uint8ClampedArray(paintTerrain(input, Math.floor(x), Math.floor(y), w, h)), w, h), 0, 0);
+        const s = new Sprite(Texture.from(c));
+        s.position.set(Math.floor(x), Math.floor(y));
+        root.addChild(s);
+      }
+    }
+    for (let y = 0; y < snap.mapHeight; y++) {
+      for (let x = 0; x < W; x++) {
+        if ((snap.heights[y * W + x] ?? 0) === 0 && look.blocked?.[y * W + x]) {
+          const c = tileToScreen(x + 0.5, y + 0.5);
+          this.water.push({ x: c.x + (((x * 31 + y * 17) % 13) - 6), y: c.y + (((x * 11 + y * 29) % 7) - 3), p: ((x * 7 + y * 13) % 17) / 17 });
+        }
+      }
+    }
+    return root;
+  }
+
+  /** Sun glints drifting on the water tiles. */
+  private drawWater(t: number): void {
+    const g = this.waterGfx.clear();
+    for (const w of this.water) {
+      if (w.p > 0.55) continue; // only some tiles glint, so the pattern does not repeat per tile
+      const k = Math.sin(t / 900 + w.p * 6.28) * 0.5 + 0.5;
+      const dx = Math.sin(t / 1600 + w.p * 9) * 8;
+      g.moveTo(w.x - 7 + dx, w.y - 2).lineTo(w.x + 5 + dx, w.y - 2).stroke({ color: 0xfff1cf, width: 1.2, alpha: 0.15 + 0.35 * k });
+      g.moveTo(w.x - 2 - dx, w.y + 4).lineTo(w.x + 7 - dx, w.y + 4).stroke({ color: 0xbfe7ff, width: 1, alpha: 0.1 + 0.25 * (1 - k) });
+    }
   }
 
   private drawTerrain(snap: Snapshot): Graphics {
@@ -213,6 +298,7 @@ export class GameView {
       for (let x = 0; x < W; x++) {
         const lvl = snap.heights[y * W + x] ?? 0;
         const c = tileToScreen(x + 0.5, y + 0.5);
+        if (lvl > 0 && this.next) continue; // the next style paints plateaus and cliffs instead of rock piles
         if (lvl > 0) {
           const v = rockVariant(x, y);
           const b = sprites.prop(`rock${v}_${lvl}`, () => rockModel(v, lvl));
@@ -485,6 +571,10 @@ export class GameView {
     this.world.scale.set(cam.zoom);
     this.applyFx(vs.fx, vs.time);
     const sh = vs.fx.shake ? this.effects.update(vs.time) : (this.effects.update(vs.time), { x: 0, y: 0 });
+    if (this.next) {
+      this.lights.update(vs.time);
+      if (vs.fx.decor) this.drawWater(vs.time);
+    }
     this.world.position.set(v.width / 2 - cam.x * cam.zoom + sh.x, v.height / 2 - cam.y * cam.zoom + sh.y);
 
     if (snap) {

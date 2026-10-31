@@ -1,11 +1,12 @@
 import { DIFFICULTIES } from './ai/ai';
-import { duelConfig, rushConfig, skirmishConfig } from './data/maps';
+import { duelConfig, rushConfig, showcaseConfig, skirmishConfig } from './data/maps';
 import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
 import { soundFor } from './audio/plan';
 import { SimClient } from './host/client';
 import { centerOnTile, mapBounds, pan, screenToWorld, zoomAt, type Camera } from './render/camera';
 import { GameView, type PlacementPreview } from './render/gameView';
+import { renderStyle } from './render/voxel/style';
 import { interpolate } from './render/interp';
 import { screenToTile, tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
@@ -18,6 +19,7 @@ import { clampTile, Minimap, miniToTile } from './ui/minimap';
 import { rallyLine } from './ui/rally';
 import { effectsEnabled, loadSettings, saveSettings } from './ui/settings';
 import { placementLive } from './ui/production';
+import { FrameStats } from './ui/frameStats';
 import { Sidebar } from './ui/sidebar';
 import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
 import { boxSelect, Selection, selectKinds, selectSameKind, toScreenUnits } from './ui/selection';
@@ -32,12 +34,18 @@ const level = (['easy', 'medium', 'hard'] as const).find((d) => d === params.get
 const scenario = params.get('scenario');
 const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number] };
 const seed = Number(params.get('seed') ?? Date.now() % 100000);
-const cfg = scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
+const cfg = scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0)) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
+/** The next graphics style (NXT-1): chosen once here, never part of the simulation. */
+const gfxNext = params.get('gfx') === 'next';
+renderStyle.current = gfxNext ? 'next' : 'classic';
 const map = cfg.map;
 const bounds = mapBounds(map.width, map.height);
 // Scenarios are scripted fights without an AI opponent; a normal game has the AI play player 1.
 const sim = new SimClient(cfg, scenario ? [] : [{ player: 1, difficulty: level }]);
 const view = new GameView();
+view.next = gfxNext;
+const frameStats = new FrameStats();
+const showFrameTime = gfxNext || scenario === 'showcase';
 const selection = new Selection();
 const hud = createHud();
 const settings = loadSettings(safeStorage(), matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -187,6 +195,7 @@ function cursorState(): CursorState {
 
 function frame(prevTime: number): (t: number) => void {
   return (t) => {
+    if (showFrameTime) frameStats.push(t - prevTime);
     const dt = Math.min(0.05, (t - prevTime) / 1000);
     prevTime = t;
     const v = view.viewport;
@@ -201,6 +210,7 @@ function frame(prevTime: number): (t: number) => void {
     for (const ev of sim.events.splice(0)) {
       view.effects.spawn(ev, t);
       view.aim(ev, t);
+      if (gfxNext) view.lights.spawn(ev, t);
       const s = soundFor(ev, PLAYER);
       audio.play(s.name, s.gain);
     }
@@ -331,7 +341,20 @@ async function boot(): Promise<void> {
     const poll = (): void => (sim.curr ? resolve(sim.curr) : void setTimeout(poll, 10));
     poll();
   });
-  await view.mount(host as HTMLElement, first);
+  await view.mount(host as HTMLElement, first, { blocked: map.blocked, shards: map.shards });
+  if (scenario === 'showcase') {
+    // NXT-2: both armies march into each other so the fight and its effects can be seen.
+    const army = (p: number): number[] => first.units.filter((u) => u.owner === p).map((u) => u.id);
+    sim.send({ type: 'attackmove', player: 0, units: army(0), x: 30 * FP, y: 30 * FP });
+    sim.send({ type: 'attackmove', player: 1, units: army(1), x: 5 * FP, y: 5 * FP });
+  }
+  if (showFrameTime) {
+    const el = document.createElement('div');
+    el.id = 'frametime';
+    el.style.cssText = 'position:fixed;left:12px;top:52px;padding:4px 8px;border-radius:5px;background:rgba(8,12,17,.8);color:#9fe8ff;font:12px/1.3 ui-monospace,monospace;pointer-events:none;z-index:5';
+    document.body.appendChild(el);
+    setInterval(() => (el.textContent = `${gfxNext ? 'gfx next' : 'gfx classic'} · ${frameStats.label()}`), 500);
+  }
   const canvas = view.app.canvas;
   const hq = first.buildings.find((b) => b.owner === PLAYER && buildingDef(b.kind).hq);
   if (hq) centerOn(hq.tx + 1.5, hq.ty + 1.5);

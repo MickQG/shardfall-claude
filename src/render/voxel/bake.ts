@@ -13,6 +13,20 @@ const AMBIENT = 0.42;
 const SHADOW = 0.45;
 const SHADOW_ALPHA = 80;
 
+/**
+ * The "next" style (NXT-4): a warm late-afternoon key light from the same direction, cool blue-violet ambient,
+ * contact shading, a longer cool shadow, a warm rim on the sunward silhouette and a crisp dark outline.
+ */
+const NEXT = {
+  key: [1.0, 0.9, 0.74],
+  ambient: [0.5, 0.55, 0.78],
+  ambientShare: 0.36,
+  shadow: 0.62,
+  shadowRgba: [16, 20, 46, 110],
+} as const;
+
+export type BakeStyle = 'classic' | 'next';
+
 export interface BakeOptions {
   /** Team colour as 0xRRGGBB. */
   team: number;
@@ -21,6 +35,8 @@ export interface BakeOptions {
   facings: number;
   /** Layers at and above this height are left out (for build-up reveals). */
   clipZ?: number;
+  /** Lighting style; 'classic' when left out. */
+  style?: BakeStyle;
 }
 
 export interface Sprite {
@@ -50,6 +66,15 @@ export function faceIntensity(nx: number, ny: number, nz: number, theta: number)
   const ry = nx * s + ny * c;
   const d = Math.max(0, rx * LIGHT.x + ry * LIGHT.y + nz * LIGHT.z);
   return AMBIENT + ((1 - AMBIENT) * d) / LIGHT.z;
+}
+
+/** Direct sunlight 0..1 on a face with normal (nx, ny, nz) after turning by `theta` (no ambient). */
+export function faceDiffuse(nx: number, ny: number, nz: number, theta: number): number {
+  const c = Math.cos(theta);
+  const s = Math.sin(theta);
+  const rx = nx * c - ny * s;
+  const ry = nx * s + ny * c;
+  return Math.min(1, Math.max(0, rx * LIGHT.x + ry * LIGHT.y + nz * LIGHT.z) / LIGHT.z);
 }
 
 const hash3 = (x: number, y: number, z: number): number => {
@@ -108,6 +133,8 @@ const channel = (c: number, shift: number): number => (c >> shift) & 255;
 export function bakeModel(m: VoxelModel, o: BakeOptions): Sprite {
   const facing = ((o.facing % o.facings) + o.facings) % o.facings;
   const theta = (facing * Math.PI * 2) / o.facings;
+  const next = o.style === 'next';
+  const shadowLen = next ? NEXT.shadow : SHADOW;
   const cos = Math.cos(theta);
   const sin = Math.sin(theta);
   const clip = Math.min(o.clipZ ?? m.sz, m.sz);
@@ -118,11 +145,11 @@ export function bakeModel(m: VoxelModel, o: BakeOptions): Sprite {
   const pxY = PX_Y * m.scale;
   const pxZ = PX_Z * m.scale;
   const rad = Math.hypot(m.sx, m.sy) / 2;
-  const halfW = Math.ceil(rad * pxX * Math.SQRT2) + 4 + Math.ceil(m.sz * SHADOW * pxX);
+  const halfW = Math.ceil(rad * pxX * Math.SQRT2) + 4 + Math.ceil(m.sz * shadowLen * pxX);
   const width = halfW * 2;
   const anchorX = halfW;
   const anchorY = Math.ceil(m.sz * pxZ + rad * pxY * Math.SQRT2) + 4;
-  const height = anchorY + Math.ceil(rad * pxY * Math.SQRT2 + m.sz * SHADOW * pxY) + 6;
+  const height = anchorY + Math.ceil(rad * pxY * Math.SQRT2 + m.sz * shadowLen * pxY) + 6;
   const buf = new Buffer2D(width * SS, height * SS);
 
   /** World (turned) ground coordinates and height to supersampled screen pixels. */
@@ -147,15 +174,16 @@ export function bakeModel(m: VoxelModel, o: BakeOptions): Sprite {
       }
       if (h === 0) continue;
       // The shadow spans from the column's lowest to its highest voxel, so a hovering model casts a detached one.
-      const steps = Math.ceil((h - low) * SHADOW * 2) + 1;
+      const steps = Math.ceil((h - low) * shadowLen * 2) + 1;
       for (let s = 0; s <= steps; s++) {
-        const off = low * SHADOW + (s / steps) * (h - low) * SHADOW;
+        const off = low * shadowLen + (s / steps) * (h - low) * shadowLen;
         const quad: number[] = [];
         for (const [qx, qy] of [[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1]] as const) {
           const [rx, ry] = world(qx, qy);
           quad.push(...screen(rx + off, ry, 0));
         }
-        buf.fill(quad, 0, 0, 0, SHADOW_ALPHA);
+        if (next) buf.fill(quad, NEXT.shadowRgba[0], NEXT.shadowRgba[1], NEXT.shadowRgba[2], NEXT.shadowRgba[3]);
+        else buf.fill(quad, 0, 0, 0, SHADOW_ALPHA);
       }
     }
   }
@@ -180,11 +208,14 @@ export function bakeModel(m: VoxelModel, o: BakeOptions): Sprite {
     if (!mat) continue;
     const base = mat.team ? o.team : mat.color;
     const noise = mat.glow ? 1 : 1 + (hash3(v.x, v.y, v.z) - 0.5) * 0.08;
-    const paint = (intensity: number, top: boolean): [number, number, number] => {
-      const k = mat.glow ? 1 : intensity * noise;
+    // Next style: crevices under overhangs and the lowest layers are a little darker, which grounds the model.
+    const occluded = next ? [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => solid(v.x + (dx as number), v.y + (dy as number), v.z + 1) !== 0).length : 0;
+    const contact = next ? (1 - 0.07 * occluded) * (0.8 + 0.2 * Math.min(1, (v.z + 0.5) / Math.max(3, m.sz * 0.4))) : 1;
+    const paint = (intensity: number, top: boolean, diffuse: number): [number, number, number] => {
       const hi = mat.metal && top ? 0.28 : 0;
-      return [16, 8, 0].map((sh) => {
+      return [16, 8, 0].map((sh, ch) => {
         const c = channel(base, sh);
+        const k = mat.glow ? 1 : next ? (NEXT.ambientShare * (NEXT.ambient[ch] as number) + (1 - NEXT.ambientShare) * diffuse * (NEXT.key[ch] as number)) * noise * contact * 1.18 : intensity * noise;
         return Math.max(0, Math.min(255, Math.round((c + (255 - c) * hi) * k)));
       }) as [number, number, number];
     };
@@ -201,7 +232,7 @@ export function bakeModel(m: VoxelModel, o: BakeOptions): Sprite {
         const [rx, ry] = world(fx + (alongY ? 0 : t), fy + (alongY ? t : 0));
         quad.push(...screen(rx, ry, z));
       }
-      const [r, g, b] = paint(faceIntensity(nx, ny, 0, theta), false);
+      const [r, g, b] = paint(faceIntensity(nx, ny, 0, theta), false, faceDiffuse(nx, ny, 0, theta));
       buf.fill(quad, r, g, b, 255);
       faces++;
     }
@@ -211,7 +242,7 @@ export function bakeModel(m: VoxelModel, o: BakeOptions): Sprite {
         const [rx, ry] = world(qx, qy);
         quad.push(...screen(rx, ry, v.z + 1));
       }
-      const [r, g, b] = paint(faceIntensity(0, 0, 1, theta), true);
+      const [r, g, b] = paint(faceIntensity(0, 0, 1, theta), true, faceDiffuse(0, 0, 1, theta));
       buf.fill(quad, r, g, b, 255);
       faces++;
     }
@@ -244,5 +275,32 @@ export function bakeModel(m: VoxelModel, o: BakeOptions): Sprite {
       }
     }
   }
+  if (next) outlineAndRim(pixels, width, height);
   return { width, height, pixels, anchorX, anchorY, faces };
+}
+
+/**
+ * Next style finish: a dark outline on silhouette pixels next to empty space, and a warm rim on edges that face the sun
+ * (empty space up and to the left). Shadow pixels (semi-transparent) are left alone.
+ */
+function outlineAndRim(px: Uint8ClampedArray, w: number, h: number): void {
+  const alphaAt = (x: number, y: number): number => (x < 0 || y < 0 || x >= w || y >= h ? 0 : (px[(y * w + x) * 4 + 3] as number));
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (alphaAt(x, y) < 200) continue;
+      const empty = (dx: number, dy: number): boolean => alphaAt(x + dx, y + dy) < 40;
+      if (empty(-1, -1) || empty(0, -1)) out[y * w + x] = 2;
+      else if (empty(1, 0) || empty(-1, 0) || empty(0, 1)) out[y * w + x] = 1;
+    }
+  }
+  for (let i = 0; i < w * h; i++) {
+    const p = i * 4;
+    if (out[i] === 1) for (let c = 0; c < 3; c++) px[p + c] = Math.round((px[p + c] as number) * 0.62);
+    else if (out[i] === 2) {
+      px[p] = Math.min(255, Math.round((px[p] as number) * 1.25 + 30));
+      px[p + 1] = Math.min(255, Math.round((px[p + 1] as number) * 1.2 + 22));
+      px[p + 2] = Math.min(255, Math.round((px[p + 2] as number) * 1.08 + 8));
+    }
+  }
 }

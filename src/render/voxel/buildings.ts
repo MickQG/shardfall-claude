@@ -1,4 +1,6 @@
 import { box, createModel, cylinder, sphere, topLayer, type Material, type VoxelModel } from './model';
+import { NEXT_BUILDING_MODELS } from './nextModels';
+import { renderStyle } from './style';
 
 const mat = (color: number, o: Partial<Material> = {}): Material => ({ color, ...o });
 
@@ -336,14 +338,19 @@ export const BUILDING_MODELS: Readonly<Record<string, () => VoxelModel>> = {
 const heights = new Map<string, number>();
 
 /** Height in px of a building's roof above its footprint, from its model (for overlays, bars and picking). */
+/** The model maker for a building kind in the current art style (the next style overrides the showcase buildings). */
+export function buildingModel(kind: string): (() => VoxelModel) | undefined {
+  return (renderStyle.current === 'next' ? NEXT_BUILDING_MODELS[kind] : undefined) ?? BUILDING_MODELS[kind];
+}
+
 export function buildingHeightPx(kind: string): number {
-  let h = heights.get(kind);
+  let h = heights.get(`${renderStyle.current}|${kind}`);
   if (h === undefined) {
-    const make = BUILDING_MODELS[kind];
+    const make = buildingModel(kind);
     if (!make) return 28;
     const m = make();
     h = (topLayer(m) + 1) * 4 * m.scale;
-    heights.set(kind, h);
+    heights.set(`${renderStyle.current}|${kind}`, h);
   }
   return h;
 }

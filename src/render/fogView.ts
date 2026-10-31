@@ -16,6 +16,10 @@ export class FogView {
   constructor(
     private w: number,
     private h: number,
+    /** Fog colour; the next style uses a cool blue-violet that matches its shadows. */
+    private rgb: readonly [number, number, number] = [4, 7, 12],
+    /** Opacity of explored-but-not-visible tiles. */
+    private explored = 120,
   ) {
     this.canvas.width = w;
     this.canvas.height = h;
@@ -31,10 +35,10 @@ export class FogView {
     const d = this.image.data;
     for (let i = 0; i < this.w * this.h; i++) {
       const f = fog[i] as number;
-      d[i * 4] = 4;
-      d[i * 4 + 1] = 7;
-      d[i * 4 + 2] = 12;
-      d[i * 4 + 3] = f & VISIBLE ? 0 : f & EXPLORED ? 120 : 255;
+      d[i * 4] = this.rgb[0];
+      d[i * 4 + 1] = this.rgb[1];
+      d[i * 4 + 2] = this.rgb[2];
+      d[i * 4 + 3] = f & VISIBLE ? 0 : f & EXPLORED ? this.explored : 255;
     }
     this.ctx.putImageData(this.image, 0, 0);
     this.texture.source.update();

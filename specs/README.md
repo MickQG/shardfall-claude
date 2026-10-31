@@ -19,5 +19,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `013-unit-info.md` | Main-menu unit info panel | 13 |
 | `014-score.md` | Post-game score screen | 14 |
 | `015-squads-veterancy.md` | Light infantry squads and veterancy | 15 |
+| `016-gfx-next.md` | Graphics mockup: the next 2D style and the showcase scenario | 16 |
 
 Umbrella spec: GitHub issue #1.
