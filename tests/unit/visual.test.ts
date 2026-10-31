@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { barVisible, buildUp, damageState, edgeShade, groundTint, idleGlow, muzzleFor, octant, unitDepth, BUILD_MS } from '../../src/render/gfx';
+import { createGame, snapshot, submit, tick } from '../../src/sim';
+import { aimFacing, barVisible, buildUp, crystalDepth, damageState, edgeShade, groundTint, idleGlow, muzzleFor, octant, unitDepth, BUILD_MS } from '../../src/render/gfx';
 import { defaultSettings, effectsEnabled } from '../../src/ui/settings';
 
 describe('building visuals', () => {
@@ -92,5 +93,31 @@ describe('air draw order', () => {
     expect(unitDepth(4000, true)).toBeGreaterThan(rockInFront);
     expect(unitDepth(4000, false)).toBe(4000);
     expect(unitDepth(4100, true)).toBeGreaterThan(unitDepth(4000, true));
+  });
+});
+
+describe('turret tracking and crystal depth', () => {
+  it('GFX-10: a weapon keeps pointing at its target between shots; without one it uses the held shot aim, then the heading', () => {
+    const from = { x: 10, y: 10 };
+    expect(aimFacing(from, { x: 14, y: 10 }, 7, null, 16)).toBe(0); // target along +x
+    expect(aimFacing(from, { x: 10, y: 14 }, 7, 2, 16)).toBe(4); // target along +y wins over a held aim
+    expect(aimFacing(from, null, 7, 3, 16)).toBe(3);
+    expect(aimFacing(from, null, 7, null, 16)).toBe(7);
+  });
+
+  it('GFX-11: a unit standing on a shard tile draws over its crystal; a unit behind the tile draws under it', () => {
+    const tileCentreY = 400;
+    expect(unitDepth(tileCentreY, false)).toBeGreaterThan(crystalDepth(tileCentreY));
+    expect(unitDepth(tileCentreY - 16, false)).toBeLessThan(crystalDepth(tileCentreY));
+  });
+});
+
+describe('snapshot targets', () => {
+  it('GFX-10: own units report their attack target in the snapshot', () => {
+    const g = createGame({ seed: 1, map: { width: 20, height: 20, heights: new Array<number>(400).fill(0) }, units: [{ owner: 0, kind: 'hum_tank', tx: 5, ty: 5 }, { owner: 1, kind: 'ali_brute', tx: 8, ty: 5 }] });
+    const [tank, brute] = g.state.units;
+    submit(g, { type: 'attack', player: 0, units: [tank!.id], target: brute!.id });
+    tick(g);
+    expect(snapshot(g, 0).units.find((u) => u.id === tank!.id)?.target).toBe(brute!.id);
   });
 });

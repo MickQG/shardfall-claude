@@ -12,6 +12,8 @@ export interface RenderUnit {
   load: number;
   /** Veterancy rank 0..3. */
   rank: number;
+  /** Current attack target id, or -1. */
+  target: number;
 }
 
 const SCALE = 256;
@@ -32,6 +34,7 @@ export function interpolate(prev: readonly UnitSnap[], curr: readonly UnitSnap[]
       hp: u.hp,
       load: u.load,
       rank: u.rank,
+      target: u.target,
     };
   });
 }

@@ -241,7 +241,7 @@ export function snapshot(game: Game, viewer?: number): Snapshot {
     mapHeight: cfg.map.height,
     heights: cfg.map.heights,
     units: visibleUnits.map((u) => ({
-      id: u.id, owner: u.owner, kind: u.kind, x: u.x, y: u.y, hp: u.hp, load: u.load, rank: u.rank,
+      id: u.id, owner: u.owner, kind: u.kind, x: u.x, y: u.y, hp: u.hp, load: u.load, rank: u.rank, target: u.target,
       dest: u.goal >= 0 ? [u.goal % w, Math.floor(u.goal / w)] : null,
     })),
     buildings: visibleBuildings.map((b) => buildingSnap(b, god || b.owner === viewer)),

@@ -5,7 +5,7 @@ import { maxHpOf, squadAlive, type BuildingSnap, type SimEvent, type Snapshot } 
 import { buildingHeight, buildingOrigin, drawBuilding } from './buildingArt';
 import type { Camera } from './camera';
 import { Effects } from './effects';
-import { barVisible, buildUp, damageState, damageTint, edgeShade, groundTint, hpFraction, idleGlow, revealLine, unitDepth } from './gfx';
+import { aimFacing, barVisible, buildUp, crystalDepth, damageState, damageTint, edgeShade, groundTint, hpFraction, idleGlow, revealLine, unitDepth } from './gfx';
 import { OWNER_COLORS } from './colors';
 import { crystalLevel, crystalModel, crystalTipPx, propAt, propModel, rockModel, rockVariant } from './voxel/props';
 import { sprites } from './voxel/spriteCache';
@@ -254,7 +254,7 @@ export class GameView {
       if (!c) {
         c = { sprite: new Sprite(), level: 0 };
         c.sprite.position.set(p.x, p.y);
-        c.sprite.zIndex = p.y + 8;
+        c.sprite.zIndex = crystalDepth(p.y);
         this.unitLayer.addChild(c.sprite);
         this.crystals.set(i, c);
       }
@@ -501,6 +501,17 @@ export class GameView {
     this.drawOverlay(vs);
 
     const seen = new Set<number>();
+    // Where each unit's target is (tile space), so turrets keep tracking it between shots.
+    const unitAt = new Map(units.map((u) => [u.id, u]));
+    const targetAt = (id: number): { x: number; y: number } | null => {
+      if (id < 0) return null;
+      const t = unitAt.get(id);
+      if (t) return { x: t.tx, y: t.ty };
+      const b = snap?.buildings.find((q) => q.id === id);
+      if (!b) return null;
+      const d = buildingDef(b.kind);
+      return { x: b.tx + d.w / 2, y: b.ty + d.h / 2 };
+    };
     for (const u of units) {
       seen.add(u.id);
       let s = this.sprites.get(u.id);
@@ -517,7 +528,7 @@ export class GameView {
       s.moving = moved ? 6 : Math.max(0, s.moving - 1);
       if (moved) s.heading = facingOf(mdx, mdy, FACINGS);
       // The weapon points at its target while a shot holds it, else along the heading. Hulls without a turret turn with it.
-      const aimF = vs.time <= s.aimHold ? s.aim : s.heading;
+      const aimF = aimFacing({ x: u.tx, y: u.ty }, targetAt(u.target), s.heading, vs.time <= s.aimHold ? s.aim : null, FACINGS);
       setFacing(s.art, s.art.turret ? s.heading : aimF, aimF);
       s.lastTx = u.tx;
       s.lastTy = u.ty;
