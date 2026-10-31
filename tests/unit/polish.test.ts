@@ -55,7 +55,7 @@ describe('audio', () => {
     expect(soundFor({ t: 'die', x: 0, y: 0, big: true, owner: 1, id: 2, kind: 'hum_tank' }, 0).name).toBe('bigboom');
     expect(soundFor({ t: 'die', x: 0, y: 0, big: false, owner: 1, id: 3, kind: 'hum_rifleman' }, 0).name).toBe('pop');
     expect(soundFor({ t: 'boom', x: 0, y: 0, r: 1.5 }, 0).name).toBe('boom');
-    expect(soundFor({ t: 'launch', x: 0, y: 0, owner: 1, kind: 'x', delay: 60 }, 0).name).toBe('sw_launch');
+    expect(soundFor({ t: 'launch', x: 0, y: 0, tx: 0, ty: 0, owner: 1, kind: 'x', delay: 60 }, 0).name).toBe('sw_launch');
     expect(soundFor({ t: 'strike', x: 0, y: 0, owner: 1, kind: '', r: 4 }, 0).name).toBe('sw_strike');
   });
 

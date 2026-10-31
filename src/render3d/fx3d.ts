@@ -35,6 +35,12 @@ const BIO_CORE = 0xeaffb0;
 const BIO = 0xa8ff3c;
 const BIO_DEEP = 0x3f8a10;
 
+/** Superweapon palettes (R3D-16): the Aegis orbital lance burns blue-white, the Vrax rift green and violet. */
+const SW = {
+  aegis: { core: 0xeef8ff, glow: 0x7fd0ff, deep: 0x2a5aff, fire: 0xffa040 },
+  vrax: { core: 0xf0ffc0, glow: BIO, deep: 0x8a3cff, fire: 0x9dff3c },
+} as const;
+
 export const LOOKS: Record<WeaponLook, Look> = {
   rifle: { color: 0xffe2a0, intensity: 1.3, speed: 38, len: 0.26, width: 0.0065, arc: 0, flash: 0.09, flashColor: 0xffd27a, smokeTrail: false, hit: 'spark', shake: 0 },
   mg: { color: 0xffcf80, intensity: 1.35, speed: 42, len: 0.29, width: 0.008, arc: 0, flash: 0.11, flashColor: 0xffc070, smokeTrail: false, hit: 'spark', shake: 0 },
@@ -151,21 +157,17 @@ function puffTexture(lumpy: boolean): THREE.Texture {
  * A scorch mark: an uneven burnt blob that fades to nothing well inside its square (R3D-12). The value sits in every
  * channel because an alpha map reads green. `lobes` sets how uneven its edge is (acid puddles are rounder).
  */
-export function scorchTexture(lobes = 0.35): THREE.DataTexture {
+export function scorchTexture(lobes = 0.16): THREE.DataTexture {
   const N = 64;
   const data = new Uint8Array(N * N * 4);
-  const rng = new Rng(11);
-  const shape = Array.from({ length: 9 }, () => ({ a: rng.range(0, Math.PI * 2), k: rng.range(0.06, 0.13), f: Math.floor(rng.range(2, 6)) }));
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       const u = (x + 0.5) / N - 0.5;
       const v = (y + 0.5) / N - 0.5;
-      const ang = Math.atan2(v, u);
-      let edge = 0.3;
-      for (const l of shape) edge += l.k * lobes * Math.sin(ang * l.f + l.a);
-      edge = Math.min(0.46, edge);
-      const d = Math.hypot(u, v);
-      const a = Math.max(0, Math.min(1, (edge - d) / 0.16)) * (0.72 + 0.28 * valueNoise(u * 7 + 3, v * 7 + 11));
+      // The outline wanders with 2D noise, so the blob is irregular without the spokes of an angular wave.
+      const wobble = (valueNoise(u * 4.5 + 3, v * 4.5 + 7) - 0.5) * lobes * 1.6 + (valueNoise(u * 9 + 21, v * 9 + 5) - 0.5) * lobes * 0.5;
+      const d = Math.hypot(u, v) + wobble;
+      const a = Math.max(0, Math.min(1, (0.31 - d) / 0.17)) * (0.72 + 0.28 * valueNoise(u * 7 + 3, v * 7 + 11));
       const k = (y * N + x) * 4;
       const val = Math.round(Math.max(0, Math.min(1, a)) * 255);
       data[k] = data[k + 1] = data[k + 2] = data[k + 3] = val;
@@ -395,6 +397,8 @@ interface Flash {
   born: number;
   life: number;
   size: number;
+  /** Brightens over its life instead of fading (a superweapon's marked ground). */
+  grow?: boolean;
 }
 
 const LIGHT_POOL = 6;
@@ -418,6 +422,12 @@ export class CombatFx {
   private scorches: Flash[] = [];
   /** Glowing acid puddles, drawn additively over the ground. */
   puddles: Flash[] = [];
+  /** Long-lived columns of light (superweapon beams). */
+  private beams: { tail: Vec; head: Vec; born: number; life: number; width: number; color: number; intensity: number }[] = [];
+  /** Superweapon targets, marked from launch until the strike lands (R3D-16). */
+  warnings: { at: Vec; r: number; start: number; end: number; glow: number; core: number; lastRing: number; lastMote: number; lastLight: number }[] = [];
+  /** Effects scheduled for later. */
+  private later: { at: number; fn: (now: number) => void }[] = [];
   private rng = new Rng(12345);
   private v = new THREE.Vector3();
   private w = new THREE.Vector3();
@@ -438,7 +448,7 @@ export class CombatFx {
     }
     const ringGeo = new THREE.RingGeometry(0.8, 1, 40);
     ringGeo.rotateX(-Math.PI / 2);
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 12; i++) {
       const mesh = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffd8a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, opacity: 0 }));
       mesh.visible = false;
       mesh.renderOrder = 4;
@@ -707,23 +717,119 @@ export class CombatFx {
     }
   }
 
-  /** A glowing green acid puddle that fades over a few seconds (R3D-12). */
-  private puddle(at: Vec, size: number, now: number): void {
+  /** A glowing pool on the ground: acid that fades over a few seconds (R3D-12), or a superweapon's mark that grows. */
+  private puddle(at: Vec, size: number, now: number, color = BIO, life = 3800, grow = false): void {
     const f = this.puddles.reduce((a, b) => (b.born < a.born ? b : a));
     f.mesh.position.set(at.x, this.groundAt(at.x, at.z) + 0.025, at.z);
     f.mesh.rotation.y = this.rng.range(0, Math.PI * 2);
     f.mesh.scale.setScalar(size * 1.5);
+    (f.mesh.material as THREE.MeshBasicMaterial).color.setHex(color);
     f.born = now;
-    f.life = 3800;
+    f.life = life;
     f.size = size;
+    f.grow = grow;
     f.mesh.visible = true;
   }
 
-  private light(x: number, y: number, z: number, color: number, power: number, life: number, now: number): void {
+  /** A column of light drawn every frame for `life` ms, thinning and fading as it goes. */
+  private beam(tail: Vec, head: Vec, width: number, color: number, intensity: number, life: number, now: number): void {
+    this.beams.push({ tail: tail.clone(), head: head.clone(), born: now, life, width, color, intensity });
+  }
+
+  /** Run `fn` at time `at` (staggered shockwaves, lingering fires). */
+  private after(at: number, fn: (now: number) => void): void {
+    this.later.push({ at, fn });
+  }
+
+  /**
+   * A superweapon launch (R3D-16): a blinding flash and a beam of light into the sky from the weapon, motes streaming
+   * up it and a ring of dust, then, until the strike lands, the target marked for everyone: a glowing disc, a targeting
+   * beam from the sky that thickens, pulses of light and shockwave rings that quicken, and motes drawn in to its centre.
+   */
+  superweaponLaunch(from: Vec, top: number, to: Vec, radius: number, delayMs: number, aegis: boolean, now: number): void {
+    const P = aegis ? SW.aegis : SW.vrax;
+    const r = this.rng;
+    const base = from.clone().setY(from.y + top);
+    this.glow.emit({ x: base.x, y: base.y, z: base.z, life: 280, size0: 1.2, size1: 2.6, color0: 0xffffff, color1: P.glow, alpha: 2 }, now);
+    const sky = base.clone().setY(base.y + 40);
+    this.beam(base, sky, 0.24, P.glow, 3, 1100, now);
+    this.beam(base, sky, 0.08, P.core, 7, 800, now);
+    for (let i = 0; i < (this.quality.rich ? 20 : 8); i++) {
+      this.glow.emit({ x: base.x + r.range(-0.25, 0.25), y: base.y, z: base.z + r.range(-0.25, 0.25), vx: r.range(-0.3, 0.3), vy: r.range(4, 9), vz: r.range(-0.3, 0.3), life: r.range(700, 1100), size0: 0.09, size1: 0.02, color0: P.core, color1: P.glow, alpha: 1.4, drag: 0.4, delay: r.range(0, 300) }, now);
+    }
+    if (this.quality.rich) {
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        this.smoke.emit({ x: from.x, y: from.y + 0.1, z: from.z, vx: Math.cos(a) * 1.6, vy: 0.15, vz: Math.sin(a) * 1.6, life: r.range(1000, 1500), size0: 0.3, size1: 1.2, color0: 0x9a958c, color1: 0x5c5a56, alpha: 0.4, drag: 2 }, now);
+      }
+    }
+    this.light(base.x, base.y, base.z, P.glow, 30, 900, now, 14);
+    this.shake = Math.max(this.shake, 0.1);
+    this.warnings.push({ at: to.clone(), r: radius, start: now, end: now + delayMs, glow: P.glow, core: P.core, lastRing: -1e9, lastMote: -1e9, lastLight: -1e9 });
+    this.puddle(to, radius * 0.75, now, P.glow, delayMs + 300, true);
+  }
+
+  /**
+   * A superweapon strike (R3D-16): a blinding flash and a pillar of light from the sky, three shockwaves, fireballs
+   * across the whole blast, a rising mushroom of smoke, a storm of embers, a wide scorch, fires that keep burning and a
+   * long camera shake; the Vrax rift adds an acid eruption and pools.
+   */
+  superweaponStrike(at: Vec, radius: number, aegis: boolean, now: number): void {
+    const P = aegis ? SW.aegis : SW.vrax;
+    const r = this.rng;
+    const rich = this.quality.rich;
+    const R = Math.max(1.5, radius);
+    this.glow.emit({ x: at.x, y: at.y + 0.6, z: at.z, life: 320, size0: R * 2.5, size1: R * 4.5, color0: 0xffffff, color1: P.core, alpha: 2.4 }, now);
+    this.glow.emit({ x: at.x, y: at.y + 0.3, z: at.z, life: 950, size0: R * 3, size1: R * 5, color0: P.glow, color1: P.deep, alpha: 0.9 }, now);
+    const sky = at.clone().setY(at.y + 40);
+    this.beam(sky, at, R * 0.17, P.glow, 2.2, 1100, now);
+    this.beam(sky, at, R * 0.06, P.core, 6, 800, now);
+    this.light(at.x, at.y + 1.5, at.z, P.core, 90, 1600, now, 10 + R * 3);
+    [0, 140, 320].forEach((d, i) => this.after(now + d, (t) => this.ring(at, R * (1.6 + i * 0.9), 700 + i * 200, t, i === 0 ? 0xffffff : P.glow)));
+    this.explosion(at, 2.2, now, P.fire);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + r.range(-0.3, 0.3);
+      const d = R * r.range(0.35, 0.8);
+      const p = new THREE.Vector3(at.x + Math.cos(a) * d, at.y, at.z + Math.sin(a) * d);
+      this.after(now + 60 + i * 55, (t) => this.explosion(p, 0.9, t, P.fire));
+    }
+    // A mushroom of smoke: a column that rises, then a cap that spreads.
+    for (let i = 0; i < (rich ? 26 : 10); i++) {
+      this.smoke.emit({ x: at.x + r.range(-0.3, 0.3), y: at.y + 0.3, z: at.z + r.range(-0.3, 0.3), vx: r.range(-0.3, 0.3), vy: r.range(1.6, 3.2), vz: r.range(-0.3, 0.3), life: r.range(2600, 4200), size0: 0.5, size1: R * r.range(0.7, 1.1), color0: aegis ? 0x4a4440 : 0x3a4a30, color1: 0x6a6660, alpha: 0.55, drag: 0.9, gravity: -0.2, delay: r.range(0, 500) }, now);
+    }
+    for (let i = 0; i < (rich ? 14 : 6); i++) {
+      const a = r.range(0, Math.PI * 2);
+      this.smoke.emit({ x: at.x, y: at.y + 2.4, z: at.z, vx: Math.cos(a) * r.range(0.8, 1.4), vy: 0.35, vz: Math.sin(a) * r.range(0.8, 1.4), life: r.range(2400, 3600), size0: 0.8, size1: R * 1.1, color0: 0x5a5450, color1: 0x77736c, alpha: 0.5, drag: 1, delay: r.range(600, 1000) }, now);
+    }
+    for (let i = 0; i < (rich ? 36 : 14); i++) {
+      const a = r.range(0, Math.PI * 2);
+      const sp = r.range(2, 6);
+      this.glow.emit({ x: at.x, y: at.y + 0.3, z: at.z, vx: Math.cos(a) * sp, vy: r.range(3, 7), vz: Math.sin(a) * sp, life: r.range(900, 1600), size0: 0.08, size1: 0.02, color0: P.core, color1: aegis ? 0xff7020 : P.deep, alpha: 1.4, gravity: 7 }, now);
+    }
+    this.scorch(at, R * 2.4, now);
+    for (let i = 0; i < (rich ? 12 : 5); i++) {
+      const a = r.range(0, Math.PI * 2);
+      const d = R * r.range(0.1, 0.65);
+      const p = new THREE.Vector3(at.x + Math.cos(a) * d, at.y + 0.05, at.z + Math.sin(a) * d);
+      this.after(now + 300 + i * 320, (t) => this.burn(p, true, 0.6, t));
+    }
+    if (!aegis) {
+      this.acidBurst(at, 1, now);
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        const p = new THREE.Vector3(at.x + Math.cos(a) * R * 0.6, at.y, at.z + Math.sin(a) * R * 0.6);
+        this.after(now + 200 + i * 60, (t) => this.puddle(p, 0.5, t));
+      }
+    }
+    this.shake = Math.max(this.shake, 0.45);
+  }
+
+  private light(x: number, y: number, z: number, color: number, power: number, life: number, now: number, reach = 7): void {
     const slot = this.lights.reduce((a, b) => (b.until < a.until ? b : a));
     // Keep a brighter light that is still burning rather than replace it with a dimmer one.
     if (slot.until > now && slot.power > power) return;
     slot.light.position.set(x, y, z);
+    slot.light.distance = reach;
     slot.light.color.setHex(color);
     slot.power = power;
     slot.born = now;
@@ -752,7 +858,44 @@ export class CombatFx {
   }
 
   update(now: number, dt: number): void {
+    if (this.later.length) {
+      const due = this.later.filter((l) => l.at <= now);
+      this.later = this.later.filter((l) => l.at > now);
+      for (const l of due) l.fn(now);
+    }
     this.streaks.begin();
+    this.beams = this.beams.filter((b) => {
+      const k = (now - b.born) / b.life;
+      if (k >= 1) return false;
+      this.streaks.add(b.tail, b.head, b.width * (1 - k) ** 0.7, b.color, b.intensity * (1 - k) ** 1.5);
+      return true;
+    });
+    this.warnings = this.warnings.filter((w) => {
+      if (now >= w.end) return false;
+      const k = Math.max(0, (now - w.start) / Math.max(1, w.end - w.start));
+      // The targeting beam from the sky thickens and brightens as the strike nears.
+      this.w.copy(w.at).setY(w.at.y + 40);
+      this.streaks.add(this.w, w.at, 0.012 + 0.05 * k * k, w.glow, 1.5 + 4 * k);
+      if (now - w.lastRing > 520 - 380 * k) {
+        w.lastRing = now;
+        this.ring(w.at, w.r * 1.15, 420, now, w.glow);
+      }
+      if (now - w.lastMote > 35) {
+        w.lastMote = now;
+        const r = this.rng;
+        for (let i = 0; i < 2; i++) {
+          const a = r.range(0, Math.PI * 2);
+          const d = w.r * r.range(0.85, 1.1);
+          const sp = 2.5 + 3 * k;
+          this.glow.emit({ x: w.at.x + Math.cos(a) * d, y: w.at.y + 0.1, z: w.at.z + Math.sin(a) * d, vx: -Math.cos(a) * sp, vy: 0.3, vz: -Math.sin(a) * sp, life: (d / sp) * 900, size0: 0.05, size1: 0.1, color0: w.glow, color1: w.core, alpha: 1 }, now);
+        }
+      }
+      if (now - w.lastLight > 150) {
+        w.lastLight = now;
+        this.light(w.at.x, w.at.y + 0.6, w.at.z, w.glow, 4 + 14 * k, 220, now, 4 + w.r);
+      }
+      return true;
+    });
     const keep: Shot[] = [];
     for (const s of this.shots) {
       const k = (now - s.born) / s.dur;
@@ -819,8 +962,9 @@ export class CombatFx {
         f.mesh.visible = false;
         continue;
       }
-      // Glows brightest just after the splash, with a slow shimmer, then fades away.
-      (f.mesh.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - k) ** 1.5 * (0.85 + 0.15 * Math.sin(now / 90 + f.size * 7));
+      // Glows brightest just after the splash, with a slow shimmer, then fades away; a superweapon's mark grows instead.
+      const shimmer = 0.85 + 0.15 * Math.sin(now / 90 + f.size * 7);
+      (f.mesh.material as THREE.MeshBasicMaterial).opacity = (f.grow ? 0.15 + 0.5 * k * k : 0.8 * (1 - k) ** 1.5) * shimmer;
     }
     for (const f of this.scorches) {
       const k = (now - f.born) / f.life;

@@ -35,3 +35,4 @@ Bug and usability fixes found in a review of the player-facing controls and HUD.
 - **UI-7**: A unit's health bar measures hit points against that kind's maximum, including enemy units first seen already damaged.
 - **UI-8**: A drawn game shows a draw message, not a defeat message.
 - **ALR-2**: The "ready: place it" alert fires each time a structure becomes ready to place, not only the first time for that kind.
+- **UI-9**: While the player owns a superweapon, the right-hand console shows a superweapon panel near the top, outside the scrolling lists, with one row per weapon: its name, a charge bar, its state (charging with a percentage, low power, ready, or picking a target) and a fire button. The button is lit and pulses once the weapon is ready; pressing it arms targeting (the next click on the map fires), and pressing it again or right-clicking cancels. Pressing it before then shows why it cannot fire.

@@ -60,7 +60,8 @@ export type SimEvent =
   | { t: 'shot'; x: number; y: number; tx: number; ty: number; weapon: string; owner: number; air: boolean; flight: number; src: number }
   | { t: 'boom'; x: number; y: number; r: number }
   | { t: 'die'; x: number; y: number; big: boolean; owner: number; id: number; kind: string }
-  | { t: 'launch'; x: number; y: number; owner: number; kind: string; delay: number }
+  /** A superweapon launched from (x, y) at the target (tx, ty), landing after `delay` ticks. */
+  | { t: 'launch'; x: number; y: number; tx: number; ty: number; owner: number; kind: string; delay: number }
   | { t: 'strike'; x: number; y: number; owner: number; kind: string; r: number };
 
 export interface UnitSnap {

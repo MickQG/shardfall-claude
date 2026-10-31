@@ -535,6 +535,36 @@ describe('effects budget and batching', () => {
     expect(fx.puddles.some((p) => p.mesh.visible)).toBe(false);
   });
 
+  it('R3D-16: a superweapon marks its target until impact, then strikes with flash, pillar, shockwaves, smoke and fire', () => {
+    const fx = new CombatFx();
+    const from = new THREE.Vector3(2, 0, 2);
+    const to = new THREE.Vector3(14, 0, 9);
+    fx.superweaponLaunch(from, 1.4, to, 4, 3000, true, 0);
+    fx.update(16, 0.016);
+    expect(fx.particleCount).toBeGreaterThan(10); // the launch flash and motes
+    expect(fx.warnings).toHaveLength(1);
+    expect(fx.puddles.some((p) => p.mesh.visible && p.mesh.position.x === 14)).toBe(true); // the marked target
+    for (let t = 32; t < 2990; t += 16) fx.update(t, 0.016);
+    expect(fx.warnings).toHaveLength(1); // still marked until impact
+    fx.update(3010, 0.016);
+    expect(fx.warnings).toHaveLength(0);
+    const before = fx.particleCount;
+    fx.superweaponStrike(to, 4, true, 3010);
+    fx.update(3026, 0.016);
+    expect(fx.particleCount).toBeGreaterThan(before + 60);
+    expect(fx.shake).toBeGreaterThan(0.3);
+    // Shockwaves and fires keep coming after the first frame.
+    const early = fx.particleCount;
+    for (let t = 3042; t < 5000; t += 16) fx.update(t, 0.016);
+    expect(fx.particleCount).toBeGreaterThan(0);
+    expect(early).toBeGreaterThan(0);
+    // The Vrax rift adds acid pools.
+    const rift = new CombatFx();
+    rift.superweaponStrike(to, 5, false, 0);
+    for (let t = 16; t < 600; t += 16) rift.update(t, 0.016);
+    expect(rift.puddles.filter((p) => p.mesh.visible).length).toBeGreaterThanOrEqual(3);
+  });
+
   it('R3D-13: one draw call per model part and team, however many units; particles stay within budget', () => {
     const scene = new THREE.Scene();
     const inst = new Instancer(scene);

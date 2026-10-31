@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { fireState, queueRefusal, rallyHint, SellConfirm } from '../../src/ui/feedback';
+import { buildingDef } from '../../src/data/defs';
+import { fireState, queueRefusal, rallyHint, SellConfirm, superweaponRows } from '../../src/ui/feedback';
 
 const owned = ['hum_hq', 'hum_reactor', 'hum_refinery', 'hum_barracks', 'hum_factory'];
 
@@ -44,5 +45,22 @@ describe('sell and rally', () => {
     expect(rallyHint('ali_pit')).toBe(true);
     expect(rallyHint('hum_reactor')).toBe(false);
     expect(rallyHint('hum_hq')).toBe(false);
+  });
+});
+
+describe('superweapon panel', () => {
+  it('UI-9: one row per own superweapon with its charge, state and fire button, armed while targeting', () => {
+    const mine = [{ id: 1, kind: 'hum_hq', charge: 0 }, { id: 7, kind: 'hum_lance', charge: 45 }];
+    const [charging] = superweaponRows(mine, false, null);
+    expect(superweaponRows(mine, false, null)).toHaveLength(1); // only superweapons
+    expect(charging).toMatchObject({ id: 7, name: 'Orbital Lance', pct: 45, ready: false, armed: false, state: 'Charging 45%', button: '45%', why: 'Charging 45%' });
+    const ready = superweaponRows([{ id: 7, kind: 'hum_lance', charge: 100 }], false, null)[0]!;
+    expect(ready).toMatchObject({ ready: true, armed: false, state: 'Ready to fire', button: 'FIRE', why: '' });
+    expect(superweaponRows([{ id: 7, kind: 'hum_lance', charge: 100 }], true, null)[0]).toMatchObject({ ready: false, state: 'Low power', why: 'Low power' });
+    const armed = superweaponRows([{ id: 7, kind: 'hum_lance', charge: 100 }], false, 7)[0]!;
+    expect(armed).toMatchObject({ armed: true, button: 'CANCEL' });
+    expect(armed.state).toBe('Pick a target on the map');
+    expect(superweaponRows([{ id: 9, kind: 'ali_rift', charge: 100 }], false, null)[0]!.name).toBe(buildingDef('ali_rift').name);
+    expect(superweaponRows([], false, null)).toEqual([]);
   });
 });

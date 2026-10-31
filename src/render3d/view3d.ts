@@ -681,12 +681,20 @@ export class View3D {
       this.fx.splash(new THREE.Vector3(x, this.groundAt(x, z), z), e.r, now);
       return;
     }
+    if (e.t === 'launch') {
+      // The superweapon fires from its building, and its target is marked until the strike lands (R3D-16).
+      const [x, z] = P(e.x, e.y);
+      const [tx, tz] = P(e.tx, e.ty);
+      const b = [...this.buildings.values()].find((o) => o.kind === e.kind && Math.hypot(o.x - x, o.z - z) < 2);
+      const from = new THREE.Vector3(x, b ? b.y : this.groundAt(x, z), z);
+      const radius = buildingDef(e.kind).superweapon?.radius ?? 3;
+      if (b) b.lastFire = now;
+      this.fx.superweaponLaunch(from, b ? b.def.height : 1.2, new THREE.Vector3(tx, this.groundAt(tx, tz), tz), radius, e.delay * this.msPerTick, !e.kind.startsWith('ali_'), now);
+      return;
+    }
     if (e.t === 'strike') {
       const [x, z] = P(e.x, e.y);
-      const at = new THREE.Vector3(x, this.groundAt(x, z), z);
-      this.fx.explosion(at, 2.4, now);
-      for (let i = 0; i < 6; i++) this.fx.explosion(at.clone().add(new THREE.Vector3(Math.cos(i) * e.r * 0.5, 0, Math.sin(i) * e.r * 0.5)), 0.9, now + i * 90);
-      this.fx.shake = Math.max(this.fx.shake, 0.18);
+      this.fx.superweaponStrike(new THREE.Vector3(x, this.groundAt(x, z), z), e.r, !e.kind.startsWith('ali_'), now);
       return;
     }
     if (e.t === 'die') {

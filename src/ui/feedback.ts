@@ -18,6 +18,43 @@ export function fireState(charge: number, lowPower: boolean): { ready: boolean; 
   return { ready: true, label: 'Fire superweapon' };
 }
 
+/** One own superweapon as the console's superweapon panel shows it (UI-9). */
+export interface SuperweaponRow {
+  id: number;
+  name: string;
+  /** Charge, percent. */
+  pct: number;
+  ready: boolean;
+  /** Waiting for the player to pick a target. */
+  armed: boolean;
+  /** The state line under the name. */
+  state: string;
+  /** The button's label. */
+  button: string;
+  /** Why the button cannot be used, shown when it is clicked anyway. */
+  why: string;
+}
+
+/** The superweapon panel (UI-9): a row per own superweapon, with its charge, state and fire button. Pure. */
+export function superweaponRows(mine: readonly { id: number; kind: string; charge: number }[], lowPower: boolean, targeting: number | null): SuperweaponRow[] {
+  return mine
+    .filter((b) => buildingDef(b.kind).superweapon)
+    .map((b) => {
+      const fs = fireState(b.charge, lowPower);
+      const armed = targeting === b.id;
+      return {
+        id: b.id,
+        name: buildingDef(b.kind).name,
+        pct: b.charge,
+        ready: fs.ready,
+        armed,
+        state: armed ? 'Pick a target on the map' : fs.ready ? 'Ready to fire' : fs.label,
+        button: armed ? 'CANCEL' : fs.ready ? 'FIRE' : `${b.charge}%`,
+        why: fs.ready ? '' : fs.label,
+      };
+    });
+}
+
 /** Buildings that train units have a rally point worth setting. */
 export const rallyHint = (kind: string): boolean => trainableAt(kind).length > 0;
 

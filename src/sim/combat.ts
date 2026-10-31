@@ -235,8 +235,8 @@ export function fireSuperweapon(s: State, player: number, buildingId: number, x:
   if (!sw || b.charge < sw.charge || isLowPower(s, player)) return;
   b.charge = 0;
   const c = pos(b);
-  s.events.push({ t: 'launch', x: c.x, y: c.y, owner: player, kind: b.kind, delay: SUPERWEAPON_DELAY });
-  s.strikes.push({ hit: s.tick + SUPERWEAPON_DELAY, x, y, owner: player, damage: sw.damage, radius: Math.round(sw.radius * FP) });
+  s.events.push({ t: 'launch', x: c.x, y: c.y, tx: x, ty: y, owner: player, kind: b.kind, delay: SUPERWEAPON_DELAY });
+  s.strikes.push({ kind: b.kind, hit: s.tick + SUPERWEAPON_DELAY, x, y, owner: player, damage: sw.damage, radius: Math.round(sw.radius * FP) });
 }
 
 /** One tick of combat: targeting, firing, projectiles, superweapons, regeneration, deaths and the win check. */
@@ -257,7 +257,7 @@ export function tickCombat(s: State): void {
     const due = s.strikes.filter((k) => k.hit <= s.tick);
     s.strikes = s.strikes.filter((k) => k.hit > s.tick);
     for (const k of due) {
-      s.events.push({ t: 'strike', x: k.x, y: k.y, owner: k.owner, kind: '', r: k.radius / FP });
+      s.events.push({ t: 'strike', x: k.x, y: k.y, owner: k.owner, kind: k.kind, r: k.radius / FP });
       for (const e of byId.values()) {
         const d = distTo(k.x, k.y, e);
         if (d > k.radius) continue;
