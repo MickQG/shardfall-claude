@@ -10,7 +10,7 @@ test('INF-1 INF-2 INF-3 INF-4: the menu info button shows plain-language unit ca
   await expect(panel).toBeVisible();
   await expect(panel.locator('.u')).toHaveCount(7);
   await expect(panel).toContainText('Aegis Union units');
-  await expect(panel.locator('.u', { hasText: 'Rocketeer' })).toContainText('Strong against: Heavy (Gorger, Brute, Lobber); Air (Wasp)');
+  await expect(panel.locator('.u', { hasText: 'Rocketeer' })).toContainText('Strong against: Heavy (Gorger, Brute, Lobber, Dreadstrider)');
   await expect(panel.locator('.u', { hasText: 'Shard Hauler' })).toContainText('Cannot attack');
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();

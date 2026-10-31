@@ -2,7 +2,7 @@ import { buildingDef, unitDef } from '../data/defs';
 import { fireSuperweapon, tickCombat } from './combat';
 import { regrow, tickHaulers, updatePower } from './economy';
 import { centerOf, tileOf } from './fixed';
-import { recomputeVisible, VISIBLE, type VisionSource } from './fog';
+import { recomputeVisible, SIGHT_LINGER, VISIBLE, type VisionSource } from './fog';
 import { Hasher } from './hash';
 import { clearOrder, orderMove, ringTiles, separate, servePathQueue, stepUnit } from './movement';
 import { cancel, enqueue, place, sell, setRally, setRepair, tickProduction } from './production';
@@ -61,17 +61,15 @@ function buildingSnap(b: Building, detail: boolean): BuildingSnap {
 
 function updateFog(s: State): void {
   const { width, height } = s.grid;
-  if (s.lingering.length > 0) s.lingering = s.lingering.filter((l) => l.until > s.tick);
   s.fog.forEach((fog, player) => {
     const sources: VisionSource[] = [];
-    for (const l of s.lingering) if (l.owner === player) sources.push({ tx: l.tx, ty: l.ty, r: l.r });
     for (const u of s.units) if (u.owner === player) sources.push({ tx: tileOf(u.x), ty: tileOf(u.y), r: unitDef(u.kind).vision });
     for (const b of s.buildings) {
       if (b.owner !== player) continue;
       const d = buildingDef(b.kind);
       sources.push({ tx: b.tx + (d.w >> 1), ty: b.ty + (d.h >> 1), r: d.vision });
     }
-    recomputeVisible(fog, width, height, sources);
+    recomputeVisible(fog, width, height, sources, { until: s.sightUntil[player]!, tick: s.tick, linger: SIGHT_LINGER });
 
     // Remember enemy buildings that have been seen; forget ghosts whose tiles are in view and empty.
     const ghosts = s.players[player]?.ghosts;
@@ -278,7 +276,7 @@ export function hash(game: Game): number {
   for (const v of s.shards) h.int(v);
   for (const p of s.projectiles) h.int(p.hit).int(p.targetId).int(p.damage);
   for (const k of s.strikes) h.int(k.hit).int(k.x).int(k.y);
-  for (const l of s.lingering) h.int(l.owner).int(l.tx).int(l.ty).int(l.until);
+  for (const u of s.sightUntil) for (const v of u) h.int(v);
   h.int(s.over ? 1 : 0).int(s.winner ?? -1);
   return h.value;
 }

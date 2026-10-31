@@ -29,7 +29,6 @@ const CHITIN2 = 0x6e4062;
 const BELLY = 0x2c1a28;
 const BONE = 0xd9ccb2;
 const FLESH = 0x8c4460;
-const MEMBRANE = 0x7d6a96;
 const SAC = 0x7fb23a;
 const GREEN = 0x9dff3c;
 const ACID = 0xc8ff4a;
@@ -234,42 +233,61 @@ function tank(): RigDef {
   };
 }
 
+/**
+ * Hammer Artillery: a self-propelled gun, unmistakably not a tank. A big armoured crew cab sits up front; the gun stands
+ * on an open turntable deck at the back behind side shields, its long barrel raised steeply over the cab; recoil
+ * outriggers and ammunition racks flank the deck.
+ */
 function artillery(): RigDef {
   return {
     move: 'tracked',
     turn: 5,
-    radius: 0.74,
-    height: 0.6,
+    radius: 0.76,
+    height: 0.62,
     weapon: 'howitzer',
     shapes: {
-      track: () => trackShape(1.26, 0.14, 0.16),
+      track: () => trackShape(1.3, 0.14, 0.16),
       roadwheel: () => roadWheel(0.058, 0.04),
       hull: () => {
         const s = shape();
-        s.slab([[-0.62, 0.08], [0.5, 0.08], [0.64, 0.15], [0.52, 0.24], [-0.6, 0.25]], 0.58, STEEL, { bevel: 0.022 });
-        for (const z of [0.34, -0.34]) s.slab([[-0.6, 0.12], [0.52, 0.12], [0.58, 0.2], [-0.6, 0.22]], 0.03, 'team', { at: [0, 0, z], bevel: 0.01 });
-        s.box(0.16, 0.1, 0.4, STEEL2, { at: [0.42, 0.29, 0] }); // cab
-        s.box(0.012, 0.04, 0.32, CYAN, { at: [0.505, 0.3, 0], glow: true, bevel: 0 }); // cab visor
-        s.box(0.22, 0.05, 0.5, DARK, { at: [-0.66, 0.12, 0], rot: [0, 0, 0.5] }); // recoil spade
-        s.box(0.02, 0.03, 0.05, AMBER, { at: [0.6, 0.18, 0.18], glow: true, bevel: 0 });
-        s.box(0.02, 0.03, 0.05, AMBER, { at: [0.6, 0.18, -0.18], glow: true, bevel: 0 });
+        s.slab([[-0.64, 0.08], [0.52, 0.08], [0.66, 0.15], [0.56, 0.22], [-0.64, 0.22]], 0.6, STEEL, { bevel: 0.022 });
+        for (const z of [0.35, -0.35]) s.slab([[-0.62, 0.11], [0.54, 0.11], [0.6, 0.19], [-0.62, 0.2]], 0.03, 'team', { at: [0, 0, z], bevel: 0.01 });
+        // The crew cab: tall, armoured, with a wraparound visor and a team-coloured roof.
+        s.slab([[0.12, 0.22], [0.58, 0.22], [0.62, 0.3], [0.5, 0.44], [0.14, 0.44]], 0.56, STEEL2, { bevel: 0.02 });
+        s.box(0.012, 0.05, 0.46, CYAN, { at: [0.565, 0.36, 0], glow: true, bevel: 0 });
+        for (const z of [0.285, -0.285]) s.box(0.24, 0.04, 0.008, CYAN, { at: [0.36, 0.38, z], glow: true, bevel: 0 });
+        s.box(0.34, 0.02, 0.5, 'team', { at: [0.33, 0.45, 0], bevel: 0.3 });
+        s.cyl(0.006, 0.36, DARK, { at: [0.2, 0.62, 0.22], seg: 4 }); // antenna
+        s.box(0.02, 0.03, 0.05, AMBER, { at: [0.64, 0.18, 0.2], glow: true, bevel: 0 });
+        s.box(0.02, 0.03, 0.05, AMBER, { at: [0.64, 0.18, -0.2], glow: true, bevel: 0 });
+        // The open gun deck at the back: grated floor, ammunition racks along both sides.
+        s.box(0.7, 0.025, 0.62, DARK, { at: [-0.3, 0.235, 0], bevel: 0.1 });
+        for (const z of [0.27, -0.27]) for (let i = 0; i < 4; i++) s.cyl(0.028, 0.12, HAZARD, { at: [-0.56 + i * 0.07, 0.3, z], seg: 6 });
+        // Recoil outriggers folded down at the rear corners, and the spade between them.
+        for (const z of [0.3, -0.3]) {
+          s.box(0.3, 0.04, 0.05, GUN, { at: [-0.74, 0.14, z], rot: [0, z > 0 ? -0.45 : 0.45, 0.35] });
+          s.box(0.1, 0.02, 0.1, DARK, { at: [-0.87, 0.04, z * 1.3] });
+        }
+        s.box(0.2, 0.05, 0.42, DARK, { at: [-0.7, 0.1, 0], rot: [0, 0, 0.6] });
         return s;
       },
       turret: () => {
+        // The gun mount: a turntable with a low ring and shields on both sides of the breech.
         const s = shape();
-        s.hull([[0.22, -0.2], [0.26, 0], [0.22, 0.2], [-0.3, 0.22], [-0.34, 0], [-0.3, -0.22]], 0.22, STEEL, { bevel: 0.025 });
-        s.box(0.42, 0.025, 0.3, 'team', { at: [-0.04, 0.23, 0], bevel: 0.3 });
-        s.box(0.12, 0.06, 0.08, GUN, { at: [-0.16, 0.26, 0.12] }); // ammo hatch
-        s.cyl(0.006, 0.3, DARK, { at: [-0.26, 0.38, -0.15], seg: 4 });
-        s.box(0.012, 0.03, 0.05, AMBER, { at: [-0.345, 0.15, 0.12], glow: true, bevel: 0 });
+        s.cyl(0.24, 0.06, STEEL2, { at: [0, 0.03, 0], seg: 16 });
+        s.cyl(0.25, 0.02, 'team', { at: [0, 0.07, 0], seg: 16 });
+        for (const z of [0.15, -0.15]) s.slab([[-0.22, 0.06], [0.2, 0.06], [0.14, 0.28], [-0.16, 0.24]], 0.03, STEEL, { at: [0, 0, z], bevel: 0.01 });
+        s.box(0.14, 0.1, 0.12, GUN, { at: [-0.18, 0.12, 0] }); // breech and loader
+        s.box(0.012, 0.03, 0.05, AMBER, { at: [-0.25, 0.14, 0.1], glow: true, bevel: 0 });
         return s;
       },
       barrel: () => {
         const s = shape();
-        s.box(0.14, 0.13, 0.16, STEEL2, { at: [0.02, 0, 0] });
-        s.tube(0.034, 0.74, GUN, { at: [0.42, 0, 0], r2: 0.04, seg: 10 });
-        s.tube(0.022, 0.5, STEEL2, { at: [0.3, -0.05, 0], seg: 6 }); // recoil cylinder
-        s.box(0.09, 0.07, 0.09, DARK, { at: [0.8, 0, 0], bevel: 0.2 });
+        s.box(0.16, 0.14, 0.18, STEEL2, { at: [0.02, 0, 0] }); // cradle
+        s.tube(0.036, 0.9, GUN, { at: [0.5, 0, 0], r2: 0.042, seg: 10 });
+        s.tube(0.024, 0.55, STEEL2, { at: [0.32, -0.06, 0], seg: 6 }); // recoil cylinder
+        s.tube(0.05, 0.12, GUN, { at: [0.6, 0, 0], seg: 10 }); // fume extractor
+        s.box(0.1, 0.075, 0.1, DARK, { at: [0.96, 0, 0], bevel: 0.2 }); // muzzle brake
         return s;
       },
     },
@@ -278,13 +296,14 @@ function artillery(): RigDef {
         {
           anim: { k: 'body' },
           kids: [
-            ...runningGear(1.26, 0.28, 0.058, 6, 0.08),
+            ...runningGear(1.3, 0.29, 0.058, 6, 0.08),
             { geo: 'hull' },
             {
               anim: { k: 'turret' },
-              at: [-0.14, 0.25, 0],
+              at: [-0.34, 0.25, 0],
               geo: 'turret',
-              kids: [{ geo: 'barrel', at: [0.22, 0.13, 0], rot: [0, 0, 0.42], anim: { k: 'barrel', recoil: 0.16 }, kids: [{ muzzle: true, at: [0.86, 0, 0] }] }],
+              // Trunnions high on the mount; the barrel rises steeply over the cab.
+              kids: [{ geo: 'barrel', at: [0.02, 0.2, 0], rot: [0, 0, 0.62], anim: { k: 'barrel', recoil: 0.16 }, kids: [{ muzzle: true, at: [1.02, 0, 0] }] }],
             },
           ],
         },
@@ -447,63 +466,67 @@ function hauler(): RigDef {
   };
 }
 
-function gunship(): RigDef {
+/**
+ * Paladin, the Aegis hero (HERO-1): a heavy assault tank, bigger and broader than the Bulwark, with gold trim, a slab-armoured
+ * hull, twin cannons and a missile pod on each side of its turret for aircraft; it reads as the one special unit on the field.
+ */
+function paladin(): RigDef {
+  const GOLD = 0xd8b24a;
   return {
-    move: 'air',
-    turn: 4.5,
-    radius: 0.7,
-    height: 0.45,
-    weapon: 'chaingun',
+    move: 'tracked',
+    turn: 5,
+    radius: 0.86,
+    height: 0.62,
+    scale: 1.15,
+    weapon: 'cannon',
     shapes: {
-      body: () => {
+      track: () => trackShape(1.36, 0.17, 0.2),
+      roadwheel: () => roadWheel(0.07, 0.05),
+      hull: () => {
         const s = shape();
-        s.ball(0.2, STEEL, { at: [0.12, 0, 0], scale: [2.1, 0.85, 0.95], seg: 14 }); // fuselage
-        s.ball(0.15, 'team', { at: [0.08, 0.06, 0], scale: [2.2, 0.7, 1.05], seg: 12, cut: 0.5 }); // dorsal armour
-        s.ball(0.11, GLASS, { at: [0.36, 0.05, 0], scale: [1.4, 0.75, 0.85], seg: 12 }); // canopy
-        s.box(0.04, 0.012, 0.1, CYAN, { at: [0.42, 0.1, 0], glow: true, bevel: 0 }); // HUD glow
-        s.tube(0.06, 0.6, STEEL2, { at: [-0.45, 0.03, 0], r2: 0.11, seg: 10 }); // tail boom
-        s.slab([[-0.84, 0.0], [-0.7, 0.0], [-0.74, 0.22], [-0.84, 0.24]], 0.02, 'team', { at: [0, 0.03, 0], bevel: 0.006 }); // fin
-        s.box(0.1, 0.012, 0.36, STEEL2, { at: [-0.74, 0.04, 0], bevel: 0.2 }); // tailplane
-        s.box(0.16, 0.025, 0.72, STEEL2, { at: [0.0, -0.02, 0], bevel: 0.3 }); // stub wings
-        for (const z of [0.3, -0.3]) {
-          s.tube(0.045, 0.26, GUN, { at: [0.0, -0.06, z], seg: 10 }); // engine pods
-          s.cyl(0.032, 0.012, AMBER, { at: [-0.135, -0.06, z], rot: [0, 0, Math.PI / 2], seg: 10, glow: true }); // exhaust glow
-          s.tube(0.022, 0.18, DARK, { at: [0.04, -0.11, z * 0.8], seg: 6 }); // rocket pods
-          s.box(0.015, 0.012, 0.012, RED, { at: [0.08, -0.02, z * 1.2], glow: true, bevel: 0 }); // nav lights
+        s.slab([[-0.64, 0.1], [0.56, 0.1], [0.74, 0.2], [0.5, 0.33], [-0.58, 0.34], [-0.68, 0.24]], 0.72, STEEL, { bevel: 0.025 });
+        // Applique armour slabs on the glacis and along the sides, edged in gold.
+        s.slab([[0.36, 0.2], [0.7, 0.2], [0.5, 0.33], [0.32, 0.33]], 0.6, STEEL2, { at: [0, 0.012, 0], bevel: 0.02 });
+        s.box(0.02, 0.02, 0.62, GOLD, { at: [0.5, 0.345, 0], bevel: 0 });
+        for (const z of [0.42, -0.42]) {
+          s.slab([[-0.62, 0.13], [0.6, 0.13], [0.66, 0.25], [-0.62, 0.3]], 0.04, 'team', { at: [0, 0, z], bevel: 0.01 });
+          for (let i = 0; i < 4; i++) s.box(0.24, 0.12, 0.03, STEEL2, { at: [-0.45 + i * 0.3, 0.22, z * 1.05], bevel: 0.15 });
+          s.box(1.2, 0.015, 0.02, GOLD, { at: [0, 0.3, z * 1.06], bevel: 0 });
         }
-        // Skids.
-        for (const z of [0.12, -0.12]) {
-          s.tube(0.01, 0.5, DARK, { at: [0.1, -0.2, z], seg: 6 });
-          s.cyl(0.008, 0.08, DARK, { at: [0.25, -0.16, z], seg: 4 });
-          s.cyl(0.008, 0.08, DARK, { at: [-0.05, -0.16, z], seg: 4 });
-        }
-        s.cyl(0.04, 0.08, GUN, { at: [0.1, 0.17, 0], seg: 10 }); // rotor mast
-        return s;
-      },
-      rotor: () => {
-        const s = shape();
-        s.cyl(0.05, 0.03, STEEL2, { seg: 10 });
-        for (let i = 0; i < 4; i++) {
-          const a = (i * Math.PI) / 2;
-          s.box(0.6, 0.008, 0.05, DARK, { at: [Math.cos(a) * 0.31, 0.01, Math.sin(a) * 0.31], rot: [0.06, -a, 0], bevel: 0 });
-          s.box(0.04, 0.009, 0.051, HAZARD, { at: [Math.cos(a) * 0.59, 0.011, Math.sin(a) * 0.59], rot: [0, -a, 0], bevel: 0 });
-        }
-        return s;
-      },
-      tailrotor: () => {
-        const s = shape();
-        for (let i = 0; i < 3; i++) s.box(0.012, 0.16, 0.006, DARK, { rot: [0, 0, (i * Math.PI * 2) / 3], at: [0, 0, 0], bevel: 0 });
+        s.box(0.34, 0.03, 0.5, DARK, { at: [-0.4, 0.345, 0], bevel: 0.2 }); // engine deck
+        for (let i = 0; i < 5; i++) s.box(0.012, 0.012, 0.46, GUN, { at: [-0.54 + i * 0.07, 0.365, 0], bevel: 0 });
+        s.box(0.02, 0.03, 0.06, AMBER, { at: [0.66, 0.24, 0.24], glow: true, bevel: 0 });
+        s.box(0.02, 0.03, 0.06, AMBER, { at: [0.66, 0.24, -0.24], glow: true, bevel: 0 });
         return s;
       },
       turret: () => {
         const s = shape();
-        s.ball(0.05, GUN, { seg: 10 });
-        s.box(0.012, 0.02, 0.03, RED, { at: [0.045, 0.01, 0], glow: true, bevel: 0 });
+        s.hull([[0.32, -0.16], [0.36, 0], [0.32, 0.16], [-0.18, 0.26], [-0.36, 0.18], [-0.36, -0.18], [-0.18, -0.26]], 0.19, STEEL, { bevel: 0.03 });
+        s.hull([[0.22, -0.11], [0.25, 0], [0.22, 0.11], [-0.14, 0.18], [-0.28, 0.12], [-0.28, -0.12], [-0.14, -0.18]], 0.03, 'team', { at: [0, 0.19, 0], bevel: 0.008 });
+        s.box(0.5, 0.012, 0.012, GOLD, { at: [0, 0.18, 0.2], bevel: 0 });
+        s.box(0.5, 0.012, 0.012, GOLD, { at: [0, 0.18, -0.2], bevel: 0 });
+        // Missile pods for aircraft, one each side, with glowing tube mouths.
+        for (const z of [0.31, -0.31]) {
+          s.box(0.3, 0.13, 0.12, GUN, { at: [-0.02, 0.15, z] });
+          for (const dy of [0.03, -0.03]) for (const dz of [0.03, -0.03]) s.cyl(0.018, 0.012, RED, { at: [0.135, 0.15 + dy, z + dz], rot: [0, 0, Math.PI / 2], seg: 6, glow: true });
+        }
+        s.cyl(0.07, 0.06, STEEL2, { at: [-0.14, 0.24, 0.1], seg: 10 }); // commander's cupola
+        s.box(0.04, 0.015, 0.06, CYAN, { at: [-0.09, 0.265, 0.1], glow: true, bevel: 0 });
+        s.box(0.07, 0.06, 0.06, GUN, { at: [0.14, 0.23, -0.12] }); // sensor mast
+        s.box(0.015, 0.035, 0.04, CYAN, { at: [0.178, 0.23, -0.12], glow: true, bevel: 0 });
+        s.cyl(0.006, 0.42, DARK, { at: [-0.3, 0.42, -0.14], seg: 4 }); // antenna with a pennant tip
+        s.box(0.06, 0.035, 0.004, GOLD, { at: [-0.27, 0.6, -0.14], bevel: 0 });
+        s.box(0.14, 0.1, 0.36, STEEL2, { at: [-0.4, 0.1, 0] }); // bustle
         return s;
       },
       barrel: () => {
         const s = shape();
-        for (const z of [0.018, -0.018]) s.tube(0.008, 0.16, DARK, { at: [0.1, 0, z], seg: 6 });
+        s.box(0.12, 0.1, 0.24, STEEL2, { at: [0.02, 0, 0] }); // twin mantlet
+        for (const z of [0.06, -0.06]) {
+          s.tube(0.026, 0.56, GUN, { at: [0.34, 0, z], r2: 0.03, seg: 10 });
+          s.tube(0.036, 0.08, GUN, { at: [0.34, 0, z], seg: 10 });
+          s.box(0.06, 0.05, 0.06, DARK, { at: [0.64, 0, z], bevel: 0.2 });
+        }
         return s;
       },
     },
@@ -511,15 +534,24 @@ function gunship(): RigDef {
       kids: [
         {
           anim: { k: 'body' },
-          geo: 'body',
           kids: [
-            { geo: 'rotor', at: [0.1, 0.22, 0], anim: { k: 'spin', axis: 'y', rate: 26 } },
-            { geo: 'tailrotor', at: [-0.82, 0.12, 0.025], anim: { k: 'spin', axis: 'z', rate: 40 } },
+            ...runningGear(1.36, 0.35, 0.07, 6, 0.095),
+            { geo: 'hull' },
             {
-              geo: 'turret',
-              at: [0.42, -0.1, 0],
               anim: { k: 'turret' },
-              kids: [{ geo: 'barrel', anim: { k: 'barrel', recoil: 0.015 }, kids: [{ muzzle: true, at: [0.19, 0, 0.018] }, { muzzle: true, at: [0.19, 0, -0.018] }] }],
+              at: [-0.06, 0.34, 0],
+              geo: 'turret',
+              kids: [
+                {
+                  geo: 'barrel',
+                  at: [0.34, 0.09, 0],
+                  anim: { k: 'barrel', recoil: 0.1 },
+                  kids: [
+                    { muzzle: true, at: [0.68, 0, 0.06] },
+                    { muzzle: true, at: [0.68, 0, -0.06] },
+                  ],
+                },
+              ],
             },
           ],
         },
@@ -528,12 +560,6 @@ function gunship(): RigDef {
   };
 }
 
-// ---------------------------------------------------------------- Vrax creatures
-
-/**
- * An insect leg from the hip out to one side (`side` +1 right, -1 left): the femur rises to a high knee, the tibia
- * drops to a bone tip on the ground `drop` below the hip and `reach` out.
- */
 function insectLeg(side: number, reach: number, drop: number, rise: number, thick: number, color: number): Shape {
   const s = shape();
   const knee = [0, rise, side * reach * 0.48] as const;
@@ -855,28 +881,60 @@ function gorger(): RigDef {
   };
 }
 
-function wasp(): RigDef {
-  const wing = (z: number, x: number, ph: number): RigNode => ({ geo: z > 0 ? 'wingR' : 'wingL', at: [x, 0.07, z], anim: { k: 'flap', axis: 'x', amp: z > 0 ? 0.6 : -0.6, rate: 38, phase: ph } });
+/**
+ * Dreadstrider, the Vrax hero (HERO-2): a towering six-legged bio-walker. Its armoured carapace rides high on long,
+ * jointed legs that plant far out to the sides; bone plates and spines crown its back over glowing acid vents, and an
+ * underslung acid cannon on a swivelling mount sweeps beneath its head.
+ */
+function strider(): RigDef {
+  const LEG = (side: number): Shape => insectLeg(side, 0.95, 0.86, 0.38, 0.075, CHITIN);
   return {
-    move: 'air',
+    move: 'walker',
     organic: true,
-    turn: 5,
-    radius: 0.62,
-    height: 0.4,
-    weapon: 'sting',
+    stride: 1.1,
+    turn: 4,
+    radius: 0.95,
+    height: 1.25,
+    scale: 1.1,
+    weapon: 'acidBig',
     shapes: {
-      wingR: () => shape().ball(0.16, MEMBRANE, { at: [-0.03, 0, 0.17], scale: [0.45, 0.03, 1], seg: 10 }).strut([0.02, 0.004, 0.0], [-0.04, 0.004, 0.33], 0.007, CHITIN),
-      wingL: () => shape().ball(0.16, MEMBRANE, { at: [-0.03, 0, -0.17], scale: [0.45, 0.03, 1], seg: 10 }).strut([0.02, 0.004, 0.0], [-0.04, 0.004, -0.33], 0.007, CHITIN),
+      legR: () => LEG(1),
+      legL: () => LEG(-1),
       body: () => {
         const s = shape();
-        s.ball(0.1, CHITIN, { at: [0.08, 0, 0], scale: [1.2, 0.9, 0.9], seg: 12 }); // thorax
-        s.ball(0.07, CHITIN2, { at: [0.24, 0.0, 0], scale: [1.1, 0.9, 1], seg: 10 }); // head
-        for (const z of [0.045, -0.045]) s.ball(0.03, GREEN, { at: [0.27, 0.02, z], scale: [0.8, 1, 0.6], seg: 8, glow: true }); // compound eyes
-        s.ball(0.12, CHITIN, { at: [-0.18, -0.04, 0], scale: [1.6, 0.8, 0.85], seg: 12 }); // abdomen
-        for (let i = 0; i < 3; i++) s.ring(0.092 - i * 0.012, 0.02, 'team', { at: [-0.12 - i * 0.08, -0.04 - i * 0.004, 0], rot: [0, 0, Math.PI / 2 - 0.15], seg: 12 }); // team bands
-        s.cone(0.03, 0.16, BONE, { at: [-0.12, -0.16, 0], rot: [0, 0, -2.2], seg: 6 }); // stinger, curled forward under the body
-        s.ball(0.02, ACID, { at: [-0.02, -0.21, 0], seg: 6, glow: true });
-        for (const z of [0.05, -0.05]) for (let i = 0; i < 3; i++) s.cyl(0.008, 0.14, BELLY, { at: [0.12 - i * 0.06, -0.1, z], rot: [z > 0 ? -0.4 : 0.4, 0, 0.3], seg: 4 }); // dangling legs
+        // The carapace: a broad, layered shell with a pale belly and team-coloured blazes.
+        s.ball(0.42, CHITIN, { at: [0, 0, 0], scale: [1.45, 0.55, 1.05], seg: 16 });
+        s.ball(0.42, 'teamDark', { at: [0, 0.03, 0], scale: [1.38, 0.52, 0.98], seg: 16, cut: 0.4 });
+        s.ball(0.38, BELLY, { at: [0, -0.06, 0], scale: [1.35, 0.4, 0.9], seg: 14 });
+        for (const z of [0.3, -0.3]) s.ball(0.07, 'team', { at: [0.1, 0.16, z], scale: [3, 0.45, 0.8], seg: 8 });
+        // Overlapping bone plates down the spine, each with a spike, and glowing acid vents between them.
+        for (let i = 0; i < 4; i++) {
+          const x = 0.36 - i * 0.24;
+          s.ball(0.15, BONE, { at: [x, 0.2, 0], scale: [1.1, 0.35, 1.6], seg: 10 });
+          s.cone(0.05, 0.26, BONE, { at: [x - 0.03, 0.34, 0], rot: [0, 0, 0.35], seg: 6 });
+          if (i < 3) for (const z of [0.12, -0.12]) s.ball(0.035, ACID, { at: [x - 0.12, 0.2, z], seg: 6, glow: true });
+        }
+        // The head: low and armoured, with a ring of glowing eyes and mandibles.
+        s.ball(0.17, CHITIN2, { at: [0.62, -0.06, 0], scale: [1.2, 0.8, 1.1], seg: 12 });
+        for (const z of [0.07, 0.03, -0.03, -0.07]) s.ball(0.022, GREEN, { at: [0.78, -0.02 + Math.abs(z) * 0.4, z], seg: 6, glow: true });
+        for (const z of [0.08, -0.08]) s.cone(0.03, 0.16, BONE, { at: [0.8, -0.16, z], rot: [0, 0, -2.2], seg: 6 });
+        // A sac of acid under the tail.
+        s.ball(0.16, SAC, { at: [-0.6, -0.08, 0], scale: [1.2, 0.9, 1], seg: 12 });
+        s.ring(0.13, 0.012, ACID, { at: [-0.6, -0.04, 0], rot: [0, 0, Math.PI / 2], seg: 14, glow: true });
+        return s;
+      },
+      turret: () => {
+        // The cannon's mount: a fleshy swivel under the chest.
+        const s = shape();
+        s.ball(0.12, FLESH, { scale: [1.2, 0.8, 1.2], seg: 10 });
+        s.ring(0.12, 0.015, BONE, { seg: 14 });
+        return s;
+      },
+      barrel: () => {
+        const s = shape();
+        s.tube(0.07, 0.42, CHITIN2, { at: [0.2, 0, 0], r2: 0.09, seg: 10 });
+        for (let i = 0; i < 3; i++) s.ring(0.085 - i * 0.006, 0.014, BONE, { at: [0.08 + i * 0.12, 0, 0], rot: [0, 0, Math.PI / 2], seg: 12 });
+        s.cyl(0.06, 0.02, ACID, { at: [0.415, 0, 0], rot: [0, 0, Math.PI / 2], seg: 10, glow: true });
         return s;
       },
     },
@@ -885,7 +943,16 @@ function wasp(): RigDef {
         {
           anim: { k: 'body' },
           geo: 'body',
-          kids: [wing(0.05, 0.12, 0), wing(-0.05, 0.12, 0), wing(0.05, 0.02, 0.6), wing(-0.05, 0.02, 0.6), { muzzle: true, at: [0.0, -0.22, 0] }],
+          at: [0, 0.86, 0],
+          kids: [
+            ...sixLegs([0.42, 0.0, -0.42], -0.02, 0.3, 0.32, 0.12),
+            {
+              anim: { k: 'turret' },
+              at: [0.42, -0.22, 0],
+              geo: 'turret',
+              kids: [{ geo: 'barrel', at: [0.05, -0.02, 0], rot: [0, 0, -0.12], anim: { k: 'barrel', recoil: 0.08 }, kids: [{ muzzle: true, at: [0.44, 0, 0] }] }],
+            },
+          ],
         },
       ],
     },
@@ -899,12 +966,12 @@ export const UNIT_RIGS: Readonly<Record<string, () => RigDef>> = {
   hum_tank: tank,
   hum_artillery: artillery,
   hum_hauler: hauler,
-  hum_gunship: gunship,
+  hum_paladin: paladin,
   ali_skitter: skitterer,
   ali_spitter: spitter,
   ali_stalker: stalker,
   ali_brute: brute,
   ali_lobber: lobber,
   ali_gorger: gorger,
-  ali_wasp: wasp,
+  ali_strider: strider,
 };

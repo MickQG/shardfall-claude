@@ -11,4 +11,5 @@
 - **CTL-4**: Control groups: assign with a key, recall with the same key; recalling drops units that no longer exist.
 - **MAP-1**: Minimap projection maps tiles to minimap pixels and back without loss, and a minimap click resolves to the right tile.
 - **CTL-5**: In the browser, a click selects a unit, and a right-click sends a move order for the selection only.
-- **FOG-6**: When a unit dies, its owner keeps its sight where it fell (its vision radius, from that tile) for 3 seconds, then that sight fades; the lingering sight is part of the state, so it is deterministic and in the hash.
+- **FOG-6**: When a unit dies, its owner keeps its sight where it fell (its vision radius, from that tile) for 4 seconds, then that sight fades; the lingering sight is part of the state, so it is deterministic and in the hash.
+- **FOG-7**: Sight lingers for every unit and building: ground that drops out of all of a player's vision (its unit moved away or died) stays in sight, enemies on it included, for 4 seconds before the fog closes in; it stays explored. This applies to the AI as well.

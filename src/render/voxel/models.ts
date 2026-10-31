@@ -28,8 +28,6 @@ const HIVE_D = mat(0x3d2552);
 const HIVE_L = mat(0xb184dc);
 const SAC = mat(0xb6ff5c, { glow: true });
 const BONE = mat(0xe6dcc8);
-const WING = mat(0xd9c8f0);
-const STING = mat(0xffd34a);
 
 /** Unit models are authored at half-size voxels (16 per tile) for finer detail. */
 const unit = (sx: number, sy: number, sz: number, mats: readonly Material[]): VoxelModel => createModel(sx, sy, sz, mats, 0.5);
@@ -103,6 +101,32 @@ function tank(): UnitModel {
   return { hull: h, turret: { model: t, pivot: { x: -1, y: 0, z: 4 } } };
 }
 
+/** The Paladin hero (HERO-1): bigger than the tank, with twin barrels and a missile pod each side of its turret. */
+function paladin(): UnitModel {
+  const h = unit(24, 14, 6, [STEEL, STEEL_D, RUBBER, TEAM, WARM]);
+  for (const y of [0, 11]) {
+    box(h, 1, y, 0, 22, 3, 3, 3); // tracks
+    box(h, 0, y, 0, 1, 3, 2, 3);
+    box(h, 23, y, 0, 1, 3, 2, 3);
+    box(h, 1, y, 3, 22, 3, 1, 2); // track guards
+  }
+  box(h, 2, 3, 1, 20, 8, 4, 1); // hull
+  box(h, 18, 3, 5, 4, 8, 1, 2); // glacis armour
+  box(h, 2, 4, 5, 6, 6, 1, 2); // engine deck
+  box(h, 4, 3, 3, 14, 1, 1, 4); // team stripes
+  box(h, 4, 10, 3, 14, 1, 1, 4);
+  const t = unit(18, 14, 7, [STEEL, STEEL_D, TEAM, WARM]);
+  cylinder(t, 8, 7, 0, 5, 3, 1);
+  cylinder(t, 8, 7, 3, 3.6, 1, 3);
+  box(t, 3, 1, 0, 8, 2, 3, 2); // missile pods
+  box(t, 3, 11, 0, 8, 2, 3, 2);
+  box(t, 10, 5, 1, 2, 4, 3, 1); // twin mantlet
+  box(t, 12, 5, 1, 6, 1, 2, 2); // twin barrels
+  box(t, 12, 8, 1, 6, 1, 2, 2);
+  box(t, 17, 5, 1, 1, 4, 2, 4); // muzzles
+  return { hull: h, turret: { model: t, pivot: { x: -1, y: 0, z: 5 } } };
+}
+
 function artillery(): UnitModel {
   const h = unit(22, 12, 5, [STEEL, STEEL_D, RUBBER, TEAM, WARM]);
   for (const y of [0, 9]) {
@@ -139,23 +163,6 @@ function hauler(): UnitModel {
   box(m, 22, 3, 2, 1, 1, 1, 7); // headlights
   box(m, 22, 8, 2, 1, 1, 1, 7);
   return { hull: m, loadPivot: { x: -4, y: 0, z: 6 } };
-}
-
-function gunship(): UnitModel {
-  const m = unit(20, 16, 17, [STEEL, STEEL_D, TEAM, GLASS, WARM]);
-  box(m, 5, 5, 9, 11, 6, 3, 1); // fuselage
-  box(m, 16, 6, 9, 3, 4, 2, 1); // nose
-  box(m, 13, 5, 11, 4, 6, 2, 4); // canopy
-  box(m, 0, 7, 10, 6, 2, 2, 2); // tail boom
-  box(m, 0, 7, 12, 2, 2, 3, 3); // team fin
-  box(m, 7, 0, 10, 5, 16, 1, 2); // stub wings
-  box(m, 8, 0, 8, 4, 2, 2, 2); // weapon pods
-  box(m, 8, 14, 8, 4, 2, 2, 2);
-  box(m, 18, 0, 8, 1, 2, 2, 5);
-  box(m, 9, 7, 12, 2, 2, 2, 2); // rotor hub
-  box(m, 6, 4, 7, 9, 1, 1, 2); // skids
-  box(m, 6, 11, 7, 9, 1, 1, 2);
-  return { hull: m, overlayY: 27 };
 }
 
 function gorger(): UnitModel {
@@ -260,23 +267,25 @@ function lobber(): UnitModel {
   return { hull: m };
 }
 
-function wasp(): UnitModel {
-  const m = unit(18, 16, 19, [HIVE, HIVE_D, STING, TEAM, WING, HIVE_L]);
-  sphere(m, 4, 8, 12, 3.2, 1);
-  box(m, 3, 5, 10, 1, 6, 5, 3); // stripes
-  box(m, 6, 5, 10, 1, 6, 5, 3);
-  sphere(m, 9, 8, 12, 2.5, 6);
-  sphere(m, 13, 8, 12, 2, 1);
-  box(m, 6, 1, 15, 6, 5, 1, 5); // wings
-  box(m, 6, 10, 15, 6, 5, 1, 5);
-  box(m, 0, 8, 11, 3, 1, 1, 2); // stinger
-  box(m, 15, 7, 13, 1, 1, 1, 4);
-  box(m, 15, 9, 13, 1, 1, 1, 4);
-  for (const x of [8, 10]) {
-    box(m, x, 6, 8, 1, 1, 2, 2);
-    box(m, x, 10, 8, 1, 1, 2, 2);
+/** The Dreadstrider (HERO-2): a carapace raised high on six long, splayed legs, with bone plates and an acid sac. */
+function strider(): UnitModel {
+  const m = unit(26, 22, 24, [HIVE, HIVE_D, HIVE_L, TEAM, BONE, SAC]);
+  for (const x of [5, 13, 21]) {
+    for (const y of [1, 20]) box(m, x, y, 0, 1, 1, 12, 2); // legs to the ground
+    box(m, x, 2, 11, 1, 5, 1, 2); // upper legs out to the knees
+    box(m, x, 15, 11, 1, 5, 1, 2);
   }
-  return { hull: m, overlayY: 28 };
+  sphere(m, 13, 11, 15, 7, 1); // carapace
+  sphere(m, 13, 11, 13, 6, 2); // belly
+  sphere(m, 22, 11, 13, 3, 3); // head
+  box(m, 24, 9, 12, 1, 1, 1, 6); // eyes
+  box(m, 24, 12, 12, 1, 1, 1, 6);
+  for (const x of [8, 12, 16]) box(m, x, 10, 20, 2, 3, 2, 5); // bone plates
+  box(m, 10, 6, 17, 6, 1, 1, 4); // team blazes
+  box(m, 10, 15, 17, 6, 1, 1, 4);
+  sphere(m, 4, 11, 13, 2.5, 6); // acid sac
+  box(m, 19, 10, 8, 5, 2, 2, 3); // acid cannon
+  return { hull: m };
 }
 
 export const UNIT_MODELS: Readonly<Record<string, () => UnitModel>> = {
@@ -286,12 +295,12 @@ export const UNIT_MODELS: Readonly<Record<string, () => UnitModel>> = {
   hum_tank: tank,
   hum_artillery: artillery,
   hum_hauler: hauler,
-  hum_gunship: gunship,
+  hum_paladin: paladin,
   ali_gorger: gorger,
   ali_skitter: skitter,
   ali_spitter: spitter,
   ali_stalker: stalker,
   ali_brute: brute,
   ali_lobber: lobber,
-  ali_wasp: wasp,
+  ali_strider: strider,
 };

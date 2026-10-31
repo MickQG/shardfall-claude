@@ -300,7 +300,9 @@ export class Sidebar {
         const miss = missing(snap, [d.builtAt, ...d.requires]);
         const queued = producers.flatMap((b) => b.queue.map((q, i) => ({ b, q, i }))).filter((x) => x.q.kind === kind);
         const lead = queued.reduce<(typeof queued)[number] | undefined>((best, x) => (!best || x.q.pct > best.q.pct ? x : best), undefined);
-        const why = queueRefusal(kind, mine.map((b) => b.kind), credits, trainSource(mine, kind) !== null) ?? '';
+        // A hero is one at a time (HERO-1): none while one is alive or in production.
+        const heroTaken = !!d.hero && (queued.length > 0 || snap.units.some((u) => u.owner === snap.viewer && u.kind === kind));
+        const why = queueRefusal(kind, mine.map((b) => b.kind), credits, trainSource(mine, kind) !== null, heroTaken) ?? '';
         const off = why !== '';
         const title = miss.length ? `Requires ${miss.map((m) => buildingDef(m).name).join(', ')}` : `${d.name}: ${d.hp} HP`;
         this.item(this.trainEl, { act: 'train', kind, src: -1, idx: -1, name: d.name, cost: d.cost, off, ready: false, pct: lead ? lead.q.pct : 0, count: queued.length, title, why });

@@ -18,7 +18,13 @@ export function canQueue(s: State, owner: number, source: Building, kind: string
   }
   const d = unitDef(kind);
   if (d.faction !== faction || d.builtAt !== source.kind || !trainableAt(source.kind).includes(kind)) return false;
+  if (d.hero && heroTaken(s, owner, kind)) return false;
   return hasKinds(s, owner, d.requires) && (s.players[owner]?.credits ?? 0) >= d.cost;
+}
+
+/** Whether a player already has hero `kind`, alive or in a production queue (HERO-1). */
+export function heroTaken(s: State, owner: number, kind: string): boolean {
+  return s.units.some((u) => u.owner === owner && u.kind === kind) || s.buildings.some((b) => b.owner === owner && b.queue.some((q) => q.kind === kind));
 }
 
 export function enqueue(s: State, owner: number, sourceId: number, kind: string): void {

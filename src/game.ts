@@ -36,7 +36,7 @@ const level = (['easy', 'medium', 'hard'] as const).find((d) => d === params.get
 const scenario = params.get('scenario');
 const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number], map: mapIdOf(params.get('map')) };
 const seed = seedOf(params.get('seed'), Date.now() % 100000);
-const cfg = scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0)) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
+const cfg = scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0), myFaction) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
 /** What this browser's WebGL2 is: missing, software-rendered, or on a graphics chip. */
 function probeGpu(): GpuProbe {
   try {
@@ -351,10 +351,12 @@ async function boot(): Promise<void> {
   });
   await view.mount(host as HTMLElement, first, { blocked: map.blocked, shards: map.shards });
   if (scenario === 'showcase') {
-    // Both armies march into each other so the fight and its effects can be seen.
+    // Both armies march into each other's base so the fight and its effects can be seen, whichever side is watched.
     const army = (p: number): number[] => first.units.filter((u) => u.owner === p).map((u) => u.id);
-    sim.send({ type: 'attackmove', player: 0, units: army(0), x: 30 * FP, y: 30 * FP });
-    sim.send({ type: 'attackmove', player: 1, units: army(1), x: 5 * FP, y: 5 * FP });
+    for (const p of [0, 1]) {
+      const hq = first.buildings.find((b) => b.owner === 1 - p && buildingDef(b.kind).hq);
+      if (hq) sim.send({ type: 'attackmove', player: p, units: army(p), x: (hq.tx + 2) * FP, y: (hq.ty + 2) * FP });
+    }
   }
   if (showFrameTime) {
     const el = document.createElement('div');
@@ -591,6 +593,8 @@ async function boot(): Promise<void> {
   vig.style.cssText = 'position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 55%,rgba(2,6,10,.55) 100%)';
   document.body.insertBefore(vig, document.getElementById('hud'));
   document.body.dataset.ready = 'true';
+  // Open the audio device now, suspended, so the first click does not stall a frame doing it.
+  audio.prepare();
   requestAnimationFrame(frame(performance.now()));
 }
 

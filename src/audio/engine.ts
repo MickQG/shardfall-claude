@@ -18,28 +18,46 @@ export class AudioEngine {
   muted = false;
   volume = 0.6;
 
+  /**
+   * Set up audio ahead of time, suspended: opening the audio device takes the main thread a noticeable moment, so it
+   * happens while the game loads rather than on the player's first click.
+   */
+  prepare(): void {
+    try {
+      this.open();
+    } catch {
+      this.ctx = null;
+    }
+  }
+
   /** Call from a user gesture: browsers keep audio suspended until then. */
   unlock(): void {
     try {
-      if (typeof AudioContext === 'undefined') return;
-      if (!this.ctx) {
-        this.ctx = new AudioContext();
-        this.master = this.ctx.createGain();
-        this.master.connect(this.ctx.destination);
-        const len = this.ctx.sampleRate;
-        this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-        const d = this.noise.getChannelData(0);
-        let s = 1;
-        for (let i = 0; i < len; i++) {
-          s = (s * 16807) % 2147483647;
-          d[i] = (s / 2147483647) * 2 - 1;
-        }
-      }
-      void this.ctx.resume();
+      if (!this.open()) return;
+      void this.ctx!.resume();
       this.apply();
     } catch {
       this.ctx = null;
     }
+  }
+
+  /** Open the audio context (once), with its master gain and noise buffer; false where audio does not exist. */
+  private open(): boolean {
+    if (typeof AudioContext === 'undefined') return false;
+    if (!this.ctx) {
+      this.ctx = new AudioContext();
+      this.master = this.ctx.createGain();
+      this.master.connect(this.ctx.destination);
+      const len = this.ctx.sampleRate;
+      this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = this.noise.getChannelData(0);
+      let s = 1;
+      for (let i = 0; i < len; i++) {
+        s = (s * 16807) % 2147483647;
+        d[i] = (s / 2147483647) * 2 - 1;
+      }
+    }
+    return true;
   }
 
   setMuted(m: boolean): void {
@@ -58,7 +76,8 @@ export class AudioEngine {
 
   private tone(freq: number, t0: number, dur: number, type: OscillatorType, gain: number, slideTo?: number, dest?: AudioNode): void {
     const c = this.ctx;
-    if (!c || !this.master) return;
+    // Never queue sound on a context still waiting for the first click: it would all play at once when it resumes.
+    if (!c || !this.master || c.state !== 'running') return;
     const o = c.createOscillator();
     const g = c.createGain();
     o.type = type;
@@ -74,7 +93,7 @@ export class AudioEngine {
 
   private burst(t0: number, dur: number, gain: number, lo: number, hi: number): void {
     const c = this.ctx;
-    if (!c || !this.master || !this.noise) return;
+    if (!c || !this.master || !this.noise || c.state !== 'running') return;
     const src = c.createBufferSource();
     src.buffer = this.noise;
     const f = c.createBiquadFilter();

@@ -88,7 +88,20 @@ interface Wave {
   ty: number;
   startPower: number;
   lastOrder: number;
+  /** The units in the wave, and how many set out (AI-11). */
+  members: Set<number>;
+  size: number;
+  /** Whether the last order held the wave back to close up. */
+  held: boolean;
 }
+
+/** Wave pacing (AI-11): ticks between orders, tiles per hop, the spread at which it closes up, and gathering rules. */
+export const WAVE_STEP = 60;
+export const WAVE_HOP = 8;
+export const WAVE_SPREAD = 4;
+export const GATHER_R = 9;
+export const GATHER_SHARE = 0.75;
+export const GATHER_WAIT = 900;
 
 export interface AiStats {
   waves: number;
@@ -128,6 +141,8 @@ export class AI {
   private intel = new Map<number, Remembered>();
   private wave: Wave | null = null;
   private waveCooldown = 0;
+  /** When the army was first strong enough to attack but not yet gathered, or -1. */
+  private gatherSince = -1;
   private scoutId = -1;
   private lastScout = -100000;
   private defend = { tick: -1000, x: 0, y: 0 };
@@ -422,9 +437,12 @@ export class AI {
       if (b.queue.length >= depth || b.queue.length >= QUEUE_MAX) continue;
       const trainable = Object.keys(UNIT_DEFS).filter((k) => unitDef(k).builtAt === b.kind && unitDef(k).faction === this.faction);
       if (trainable.length === 0) continue;
-      const allowed = trainable.filter((k) => unitDef(k).requires.every((r) => c.buildings.some((x) => x.kind === r)));
+      // A hero only while the player has none, alive or queued (HERO-1).
+      const allowed = trainable.filter((k) => unitDef(k).requires.every((r) => c.buildings.some((x) => x.kind === r)) && !(unitDef(k).hero && (queued.has(k) || c.own.some((u) => u.kind === k))));
+      // Its hero takes the field whenever it is available and affordable with credits to spare (HERO-1).
+      const hero = allowed.find((k) => unitDef(k).hero && c.credits >= unitDef(k).cost + 400);
       const pick: string | null =
-        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) ? this.kit.hauler : chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler), counts, intel);
+        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) ? this.kit.hauler : (hero ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel));
       if (!pick) continue;
       const cost = unitDef(pick).cost;
       const reserve = pick === this.kit.hauler || urgent ? 0 : hold;
@@ -432,7 +450,7 @@ export class AI {
       c.credits -= cost;
       out.push({ type: 'produce', player: this.player, source: b.id, kind: pick });
       counts[roleOf(unitDef(pick))]++;
-      if (pick === this.kit.hauler) queued.set(pick, (queued.get(pick) ?? 0) + 1);
+      if (pick === this.kit.hauler || unitDef(pick).hero) queued.set(pick, (queued.get(pick) ?? 0) + 1);
     }
   }
 
@@ -530,23 +548,29 @@ export class AI {
       if (this.wave) this.wave = null;
       return;
     }
-    const p = this.armyPower(army);
-    const cx = army.reduce((s, u) => s + u.x, 0) / army.length / FP;
-    const cy = army.reduce((s, u) => s + u.y, 0) / army.length / FP;
     const threatened = c.tick - this.lastThreat < 200;
+    const order = (type: 'move' | 'attackmove', units: UnitSnap[], x: number, y: number): void => {
+      if (units.length > 0) out.push({ type, player: this.player, units: units.map((u) => u.id), x: Math.floor(x) * FP + FP / 2, y: Math.floor(y) * FP + FP / 2 });
+    };
+    const centre = (us: UnitSnap[]): { x: number; y: number } => ({ x: us.reduce((s, u) => s + u.x, 0) / us.length / FP, y: us.reduce((s, u) => s + u.y, 0) / us.length / FP });
 
     if (this.wave) {
       const w = this.wave;
+      // The wave is the units that set out together (AI-11); others are reinforcements.
+      const members = army.filter((u) => w.members.has(u.id));
+      const rest = army.filter((u) => !w.members.has(u.id));
+      const p = this.armyPower(members);
+      const { x: cx, y: cy } = members.length ? centre(members) : { x: stage.tx, y: stage.ty };
       const local = this.enemyPowerNear(c, Math.floor(cx), Math.floor(cy), 11);
-      if (p <= 0.45 * w.startPower || army.length <= 2 || local >= 1.5 * p) {
+      if (p <= 0.45 * w.startPower || members.length <= 2 || local >= 1.5 * p) {
         this.stats.retreats++;
-        out.push({ type: 'move', player: this.player, units: army.map((u) => u.id), x: stage.tx * FP + FP / 2, y: stage.ty * FP + FP / 2 });
+        order('move', members, stage.tx, stage.ty);
         this.wave = null;
         this.waveCooldown = c.tick + 1200;
         this.lastWaveEnd = c.tick;
         return;
       }
-      if (c.tick - w.lastOrder >= 100) {
+      if (c.tick - w.lastOrder >= WAVE_STEP) {
         // Retarget when the objective is gone or reached.
         const near = dist(cx, cy, w.tx, w.ty) < 6;
         const known = c.enemyBuildings.some((b) => dist(b.tx, b.ty, w.tx, w.ty) < 4);
@@ -557,11 +581,22 @@ export class AI {
           w.ty = t.ty;
         }
         w.lastOrder = c.tick;
-        // Stragglers (and reinforcements, once there are three) rejoin the push.
-        const idle = army.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), w.tx, w.ty) > 8);
-        const nearHome = idle.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) < 14);
-        const go = idle.filter((u) => !nearHome.includes(u)).concat(nearHome.length >= 3 ? nearHome : []);
-        if (go.length > 0) out.push({ type: 'attackmove', player: this.player, units: go.map((u) => u.id), x: w.tx * FP + FP / 2, y: w.ty * FP + FP / 2 });
+        // Advance as one body (AI-11): the whole wave attack-moves to a point a short hop ahead of its centre, so the
+        // fast wait there for the slow; strung out, it closes up on its centre first; close to the objective it goes in.
+        // Spread: how far most of the wave (four in five) is from its centre; a big wave is naturally wider.
+        const ds = members.map((u) => dist(u.x / FP, u.y / FP, cx, cy)).sort((a, b) => a - b);
+        const spread = ds[Math.floor(0.8 * (ds.length - 1))] ?? 0;
+        const strung = spread > WAVE_SPREAD + Math.sqrt(members.length) && !w.held;
+        w.held = strung; // never hold back two hops running
+        const d = dist(cx, cy, w.tx, w.ty);
+        const k = strung ? 0 : d <= WAVE_HOP + 2 ? 1 : WAVE_HOP / d;
+        order('attackmove', members, cx + (w.tx - cx) * k, cy + (w.ty - cy) * k);
+        // Reinforcements gather at the staging point and join in groups, never one at a time.
+        const home = rest.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) < 10);
+        if (home.length >= Math.max(3, Math.ceil(0.25 * w.size))) {
+          order('attackmove', home, cx, cy);
+          for (const u of home) w.members.add(u.id);
+        } else order('attackmove', rest.filter((u) => u.dest === null && !home.includes(u)), stage.tx, stage.ty);
       }
       return;
     }
@@ -569,10 +604,11 @@ export class AI {
     if (!threatened) {
       // Gather at the staging point.
       const away = army.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7);
-      if (away.length > 0 && c.tick % 3 === 0) out.push({ type: 'attackmove', player: this.player, units: away.map((u) => u.id), x: stage.tx * FP + FP / 2, y: stage.ty * FP + FP / 2 });
+      if (away.length > 0 && c.tick % 3 === 0) order('attackmove', away, stage.tx, stage.ty);
     }
 
     if (threatened || c.tick < this.waveCooldown) return;
+    const p = this.armyPower(army);
     const threshold = Math.min(4200, (1100 + 450 * this.stats.waves) * this.jitter.wave);
     const known = this.nearestEnemyBuilding(c, stage.tx, stage.ty);
     const target = known ? { tx: known.tx, ty: known.ty } : this.enemyStart();
@@ -584,13 +620,25 @@ export class AI {
     const blind = recent.length === 0;
     const stalemate = c.tick - this.lastWaveEnd > 7000;
     const est = blind ? (stalemate ? 1.1 * p : 3 * p) : 1.15 * seen + defences + 250;
-    if (!shouldAttack(p, est, army.length, threshold, this.jitter.ratio)) return;
+    if (!shouldAttack(p, est, army.length, threshold, this.jitter.ratio)) {
+      this.gatherSince = -1;
+      return;
+    }
+    // Strong enough: set out only once most of the army has gathered at the staging point (AI-11), or after a while.
+    const gathered = army.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) <= GATHER_R);
+    if (this.gatherSince < 0) this.gatherSince = c.tick;
+    if (gathered.length < GATHER_SHARE * army.length && c.tick - this.gatherSince < GATHER_WAIT) return;
+    this.gatherSince = -1;
+    const wave = gathered.length >= 3 ? gathered : army;
     this.stats.waves++;
     if (p < 0.8 * est) this.stats.suicides++;
-    if (army.length < 5) this.stats.lone++;
-    this.wave = { tx: target.tx, ty: target.ty, startPower: p, lastOrder: c.tick };
-    out.push({ type: 'attackmove', player: this.player, units: army.map((u) => u.id), x: target.tx * FP + FP / 2, y: target.ty * FP + FP / 2 });
+    if (wave.length < 5) this.stats.lone++;
+    this.wave = { tx: target.tx, ty: target.ty, startPower: this.armyPower(wave), lastOrder: c.tick, members: new Set(wave.map((u) => u.id)), size: wave.length, held: false };
+    const { x, y } = centre(wave);
+    const d = dist(x, y, target.tx, target.ty);
+    order('attackmove', wave, x + ((target.tx - x) * Math.min(d, WAVE_HOP)) / Math.max(1, d), y + ((target.ty - y) * Math.min(d, WAVE_HOP)) / Math.max(1, d));
   }
+
 
   // ---------------------------------------------------------------- scouting
 

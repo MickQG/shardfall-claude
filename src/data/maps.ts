@@ -325,7 +325,7 @@ export function duelConfig(seed = 1, o: SkirmishOptions = {}): GameConfig {
  * squads and brutes). The game client sends both armies into each other; there is no AI. `extra` adds that many more
  * units per side (alternating squads and tanks) for frame-time stress tests.
  */
-export function showcaseConfig(seed = 1, extra = 0): GameConfig {
+export function showcaseConfig(seed = 1, extra = 0, side: Faction = 'human'): GameConfig {
   const W = 36;
   const heights = new Array<number>(W * W).fill(0);
   const blocked = new Array<number>(W * W).fill(0);
@@ -371,7 +371,7 @@ export function showcaseConfig(seed = 1, extra = 0): GameConfig {
     ...free(12, 13, extra).map(([x, y], k) => u(0, k % 3 === 2 ? 'hum_tank' : 'hum_rifleman', x, y)),
     ...free(23, 21, extra).map(([x, y], k) => u(1, k % 3 === 2 ? 'ali_brute' : 'ali_skitter', x, y)),
   ];
-  return {
+  const cfg: GameConfig = {
     seed,
     map: { width: W, height: W, heights, blocked, shards },
     players: [
@@ -385,4 +385,8 @@ export function showcaseConfig(seed = 1, extra = 0): GameConfig {
       ...crowd,
     ],
   };
+  if (side === 'human') return cfg;
+  // Watching from the Vrax side (NXT-2): the same battlefield with the players swapped, so player 0 is the hive.
+  const swap = <T extends { owner: number }>(x: T): T => ({ ...x, owner: 1 - x.owner });
+  return { ...cfg, players: [cfg.players![1]!, cfg.players![0]!], buildings: cfg.buildings!.map(swap), units: cfg.units!.map(swap) };
 }

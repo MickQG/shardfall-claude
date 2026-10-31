@@ -69,7 +69,7 @@ describe('production routing', () => {
     const blds = [b(1, 'hum_factory', [tank(50), buggy(), tank()]), b(2, 'hum_factory', [tank(20)])];
     expect(newestQueued(blds, 'hum_tank')).toEqual({ source: 1, index: 2 });
     expect(newestQueued([b(1, 'hum_factory', [tank(50)]), b(2, 'hum_factory', [tank(20), tank()])], 'hum_tank')).toEqual({ source: 2, index: 1 });
-    expect(newestQueued(blds, 'hum_gunship')).toBeNull();
+    expect(newestQueued(blds, 'hum_paladin')).toBeNull();
   });
 
   it('PRD-12: with one copy per building, the one with the least progress goes first', () => {
