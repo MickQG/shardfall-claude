@@ -10,6 +10,8 @@ import { OWNER_COLORS } from './colors';
 import { crystalLevel, crystalModel, crystalTipPx, propAt, propModel, rockModel, rockVariant } from './voxel/props';
 import { sprites } from './voxel/spriteCache';
 import { FogView } from './fogView';
+import { isoProjector, type Projector } from './projector';
+import type { WorldRenderer } from './worldRenderer';
 import type { RenderUnit } from './interp';
 import { TILE_H, TILE_W, tileToScreen } from './iso';
 import type { RallyLine } from '../ui/rally';
@@ -79,7 +81,7 @@ const tilePoly = (tx: number, ty: number, w: number, h: number): number[] => {
 
 const easeOut = (t: number): number => 1 - (1 - t) * (1 - t);
 
-export class GameView {
+export class GameView implements WorldRenderer {
   readonly app = new Application();
   readonly effects = new Effects();
   private world = new Container();
@@ -140,6 +142,19 @@ export class GameView {
       const y = ((m.y - t * 0.000006 * m.s) % 1 + 1) % 1;
       this.dust.circle(x * v.width, y * v.height, 1.2 * m.s).fill({ color: 0xcdeee0, alpha: 0.12 + 0.12 * Math.sin(t / 700 + m.p) ** 2 });
     }
+  }
+
+  get canvas(): HTMLCanvasElement {
+    return this.app.canvas;
+  }
+
+  spawn(e: SimEvent, now: number): void {
+    this.effects.spawn(e, now);
+    this.aim(e, now);
+  }
+
+  projector(cam: Camera): Projector {
+    return isoProjector(cam, this.viewport);
   }
 
   get viewport(): { width: number; height: number } {

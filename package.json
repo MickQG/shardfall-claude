@@ -32,12 +32,14 @@
   "homepage": "https://github.com/MickQG/shardfall-claude#readme",
   "dependencies": {
     "pixi-filters": "^6.1.5",
-    "pixi.js": "^8.22.0"
+    "pixi.js": "^8.22.0",
+    "three": "0.186.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.1",
     "@types/node": "^26.6.5",
+    "@types/three": "0.186.0",
     "electron": "^45.1.0",
     "electron-builder": "^26.18.0",
     "eslint": "^10.13.0",

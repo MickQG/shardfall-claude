@@ -1,0 +1,24 @@
+# 0005 Real-time 3D renderer (three.js)
+
+Status: accepted (2026-10-31). Supersedes 0003 (procedural voxel sprites) for the world view.
+
+## Context
+
+The owner wants a premium look whose qualities are inspired by modern 3D RTS games: depth and light, terrain that reads as land, detailed readable models, rich effects and a cinematic finish, with original designs. A best-possible 2D mockup (issue #68, PR #69: warm/cool baked lighting, painted cliffs and water, light pools, colour grading) held 60 fps but did not pass the owner's eye-candy test. Its limits were structural: a fixed camera, lights that brighten areas instead of shading faces, and no real shadows or height. A Unity port (#41) was cancelled earlier over CI licensing.
+
+## Decision
+
+Render the world in real-time 3D with three.js (WebGL2), in the browser, behind `?renderer=3d` until it reaches parity, then as the default. The deterministic simulation, AI, HUD (DOM), minimap and input rules are unchanged; only the world view and the screen-to-world mapping change.
+
+- **Models stay generated in code.** The existing voxel models (and the higher-detail slice models from #68) are turned into lit, shadow-casting meshes, so all 14 units and 16 buildings work from day one and can later be replaced one by one with finer procedural meshes or files.
+- **Terrain** is a mesh built from the simulation's tile grid and three height levels, with vertical cliff walls, blended ground colours from tile coordinates, and water on blocked low ground. Water and cliffs stay decorative.
+- **Light**: one warm late-afternoon sun with a shadow map, cool hemisphere ambient, distance haze, and short-lived point lights from combat.
+- **Camera**: a perspective camera at a fixed pitch and the same 45-degree heading as the isometric view (so the map, minimap and controls keep their orientation), with pan and zoom. Rotation and tilt control can come later.
+- **Picking** goes through one projection seam (world to screen and screen to ground), used by selection, orders, cursors and the minimap, so input behaves the same in both renderers.
+
+## Consequences
+
+- A larger bundle (three.js, about 150 KB gzipped) and a different performance profile, measured with the frame-time readout against Constitution rule 8 (60 fps, about 200 units, integrated graphics).
+- The VOX sprite specs keep describing the classic renderer until it is removed; new R3D requirements describe the 3D view.
+- The software GPU used in CI (SwiftShader) must run the 3D view without errors; shadows and effects scale down on the low preset.
+- Hard to reverse once the classic renderer is removed, which is why both run side by side until the owner approves the 3D view.

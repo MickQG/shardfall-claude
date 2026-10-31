@@ -165,3 +165,67 @@ export function duelConfig(seed = 1, o: SkirmishOptions = {}): GameConfig {
       ];
   return { ...c, units: [...(c.units ?? []), ...raiders] };
 }
+
+/**
+ * Graphics showcase (NXT-2): a compact battlefield with two-level plateaus, a pond and stream (blocked, drawn as water),
+ * a shard field, an Aegis base and a Vrax base, and an army each (rifle squads and Bulwark tanks against skitterer
+ * squads and brutes). The game client sends both armies into each other; there is no AI. `extra` adds that many more
+ * units per side (alternating squads and tanks) for frame-time stress tests.
+ */
+export function showcaseConfig(seed = 1, extra = 0): GameConfig {
+  const W = 36;
+  const heights = new Array<number>(W * W).fill(0);
+  const blocked = new Array<number>(W * W).fill(0);
+  const shards = new Array<number>(W * W).fill(0);
+  const set = (x0: number, y0: number, x1: number, y1: number, f: (i: number) => void): void => {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) f(y * W + x);
+  };
+  const plateau = (x0: number, y0: number, x1: number, y1: number, lvl: number): void =>
+    set(x0, y0, x1, y1, (i) => {
+      heights[i] = Math.max(heights[i] as number, lvl);
+      blocked[i] = 1;
+    });
+  plateau(14, 2, 21, 6, 1);
+  plateau(16, 3, 19, 5, 2);
+  plateau(2, 16, 7, 22, 1);
+  plateau(3, 18, 5, 20, 2);
+  plateau(27, 12, 33, 17, 1);
+  set(10, 24, 15, 30, (i) => (blocked[i] = 1)); // pond
+  set(16, 27, 19, 29, (i) => (blocked[i] = 1)); // stream
+  set(22, 8, 25, 11, (i) => (shards[i] = 400));
+  const b = (owner: number, kind: string, tx: number, ty: number): BuildingSpawn => ({ owner, kind, tx, ty });
+  const u = (owner: number, kind: string, tx: number, ty: number): UnitSpawn => ({ owner, kind, tx, ty });
+  // Stress-test crowds fill free, unblocked tiles outward from each army, one unit per tile.
+  const taken = new Set<number>([[12, 11], [13, 12], [11, 13], [14, 13], [12, 14], [22, 20], [23, 21], [21, 22], [24, 20], [22, 22], [24, 22]].map(([x, y]) => (y as number) * W + (x as number)));
+  const free = (cx: number, cy: number, n: number): [number, number][] => {
+    const out: [number, number][] = [];
+    for (let r = 0; r < W && out.length < n; r++)
+      for (let y = cy - r; y <= cy + r && out.length < n; y++)
+        for (let x = cx - r; x <= cx + r && out.length < n; x++) {
+          if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== r || x < 1 || y < 1 || x >= W - 1 || y >= W - 1) continue;
+          const i = y * W + x;
+          if (blocked[i] || taken.has(i)) continue;
+          taken.add(i);
+          out.push([x, y]);
+        }
+    return out;
+  };
+  const crowd: UnitSpawn[] = [
+    ...free(12, 13, extra).map(([x, y], k) => u(0, k % 3 === 2 ? 'hum_tank' : 'hum_rifleman', x, y)),
+    ...free(23, 21, extra).map(([x, y], k) => u(1, k % 3 === 2 ? 'ali_brute' : 'ali_skitter', x, y)),
+  ];
+  return {
+    seed,
+    map: { width: W, height: W, heights, blocked, shards },
+    players: [
+      { faction: 'human', credits: 0 },
+      { faction: 'alien', credits: 0 },
+    ],
+    buildings: [b(0, 'hum_hq', 3, 3), b(0, 'hum_reactor', 3, 8), b(0, 'hum_factory', 8, 3), b(1, 'ali_hq', 28, 28), b(1, 'ali_generator', 32, 24), b(1, 'ali_pit', 23, 30)],
+    units: [
+      u(0, 'hum_rifleman', 12, 11), u(0, 'hum_rifleman', 13, 12), u(0, 'hum_rifleman', 11, 13), u(0, 'hum_tank', 14, 13), u(0, 'hum_tank', 12, 14),
+      u(1, 'ali_skitter', 22, 20), u(1, 'ali_skitter', 23, 21), u(1, 'ali_skitter', 21, 22), u(1, 'ali_skitter', 24, 20), u(1, 'ali_brute', 22, 22), u(1, 'ali_brute', 24, 22),
+      ...crowd,
+    ],
+  };
+}

@@ -1,7 +1,6 @@
-import type { Camera, Viewport } from '../render/camera';
-import { worldToScreen } from '../render/camera';
+import type { Viewport } from '../render/camera';
 import type { RenderUnit } from '../render/interp';
-import { tileToScreen } from '../render/iso';
+import type { Projector } from '../render/projector';
 import { combatUnitIds } from './controls';
 
 /** A unit projected to screen space. */
@@ -15,11 +14,10 @@ export interface ScreenUnit {
 
 export const PICK_RADIUS = 18;
 
-export function toScreenUnits(units: readonly RenderUnit[], cam: Camera, vp: Viewport): ScreenUnit[] {
+export function toScreenUnits(units: readonly RenderUnit[], proj: Projector): ScreenUnit[] {
   return units.map((u) => {
-    const w = tileToScreen(u.tx, u.ty);
     // Aim at the unit body (slightly above its ground point).
-    const s = worldToScreen(cam, vp, w.x, w.y - 6);
+    const s = proj.toScreen(u.tx, u.ty, 6);
     return { id: u.id, owner: u.owner, kind: u.kind, sx: s.x, sy: s.y };
   });
 }
