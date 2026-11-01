@@ -157,15 +157,15 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
     weapon: { damage: 8, range: 1.5, cooldown: 8, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_spitter: {
-    faction: 'alien', name: 'Spitter', speed: 40, hp: 82, radius: 76, vision: 7, cost: 220, buildTime: 180, builtAt: 'ali_nest', requires: ['ali_pit'], armor: 'light', regen: 1, squad: 3, role: 'antiarmor',
-    weapon: { damage: 31, range: 6.3, cooldown: 26, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
+    faction: 'alien', name: 'Spitter', speed: 40, hp: 82, radius: 76, vision: 7, cost: 220, buildTime: 200, builtAt: 'ali_nest', requires: ['ali_pit'], armor: 'light', regen: 1, squad: 3, role: 'antiarmor',
+    weapon: { damage: 31, range: 6, cooldown: 26, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
   },
   ali_stalker: {
     faction: 'alien', name: 'Stalker', speed: 92, hp: 110, radius: 76, vision: 11, cost: 220, buildTime: 200, builtAt: 'ali_pit', requires: [], armor: 'light', regen: 2, role: 'scout',
     weapon: { damage: 8, range: 1.6, cooldown: 7, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_brute: {
-    faction: 'alien', name: 'Brute', speed: 33, hp: 720, radius: 112, vision: 6, cost: 830, buildTime: 480, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 3, role: 'tank',
+    faction: 'alien', name: 'Brute', speed: 33, hp: 710, radius: 112, vision: 6, cost: 830, buildTime: 500, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 2, role: 'tank',
     weapon: { damage: 58, range: 1.9, cooldown: 20, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_lobber: {
