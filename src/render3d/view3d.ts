@@ -20,7 +20,7 @@ import { cameraPose, FOV, PX_PER_UNIT } from './camera3d';
 import { CombatFx } from './fx3d';
 import { Instancer } from './instancer';
 import type { Built, Shape } from './kit';
-import { bodyPose, flightAfterWait, follow, gaitPhase, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, type Follow, type MotionState } from './motion';
+import { bodyPose, heroHeave, flightAfterWait, follow, gaitPhase, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
@@ -1216,13 +1216,15 @@ export class View3D {
       }
       const phase = gaitPhase(mo.dist, def.stride ?? 1) + i * 1.7 + o.seed;
       const pose = bodyPose(def.move, mo, phase, t, o.seed + i);
+      // A hero's whole body heaves with each heavy shot (HERO-4).
+      const heave = heroHeave(def.weapon, t - (o.lastFire[i] ?? -1e9));
       poseRig(f, {
         turret: o.turretYaw - m.heading,
         kick: recoil(t - (o.lastFire[i] ?? -1e9)),
         lunge: t - o.lunge < 260 ? Math.sin(((t - o.lunge) / 260) * Math.PI) : 0,
-        pitch: pose.pitch,
+        pitch: pose.pitch + heave.pitch,
         roll: pose.roll,
-        bob: pose.bob,
+        bob: pose.bob + heave.bob,
         phase,
         stride: mo.stride,
         dist: mo.dist,

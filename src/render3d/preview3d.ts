@@ -3,7 +3,7 @@ import { UNIT_DEFS, type UnitDef } from '../data/defs';
 import { OWNER_COLORS } from '../render/colors';
 import { FP, TICKS_PER_SECOND } from '../sim';
 import { CombatFx } from './fx3d';
-import { bodyPose, follow, gaitPhase, readyToFire, restingMotion, stepMotion, turnToward, TURRET_RATE, type Follow, type MotionState } from './motion';
+import { bodyPose, follow, heroHeave, gaitPhase, readyToFire, restingMotion, stepMotion, turnToward, TURRET_RATE, type Follow, type MotionState } from './motion';
 import { poseRig, recoil, rigTree, type RigDef, type RigTree } from './rig';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { UNIT_RIGS } from './units3d';
@@ -60,6 +60,12 @@ export function previewBeat(t: number, harvester: boolean): { act: PreviewAct; i
 
 /** A unit's speed in a match, tiles per second (its definition's speed is fixed-point units per tick). */
 export const tilesPerSecond = (speed: number): number => (speed * TICKS_PER_SECOND) / FP;
+
+/**
+ * The preview's travel pace as a share of match speed (INF-6). The close-up camera makes match speed look hurried, so
+ * the unit strolls at under half of it; the gait, turning and body motion still come from the game's own code.
+ */
+export const PREVIEW_PACE = 0.42;
 
 /** Time between a unit's shots in a match, ms (its weapon cooldown), but at least 450 ms so each one reads. */
 export const shotEvery = (d: UnitDef): number => Math.max(450, ((d.weapon?.cooldown ?? 20) * 1000) / TICKS_PER_SECOND);
@@ -274,7 +280,7 @@ export class UnitPreview {
     }
     // Travel: the virtual position runs at the unit's match speed; the drawn one follows it as on the map (R3D-10).
     if (beat.act === 'move') {
-      const v = tilesPerSecond(d?.speed ?? 30) * dt;
+      const v = tilesPerSecond(d?.speed ?? 30) * PREVIEW_PACE * dt;
       s.tx += Math.cos(beat.steer) * v;
       s.tz += Math.sin(beat.steer) * v;
     }
@@ -331,13 +337,14 @@ export class UnitPreview {
       }
       const phase = gaitPhase(fm.dist, def.stride ?? 1) + i * 1.7 + SEED;
       const pose = bodyPose(def.move, fm, phase, now, SEED + i);
+      const heave = heroHeave(def.weapon, now - (s.lastFire[i] ?? -1e9));
       poseRig(tree, {
         turret: s.turretYaw - mo.heading,
         kick: recoil(now - (s.lastFire[i] ?? -1e9)),
         lunge: now - s.lunge < 260 ? Math.sin(((now - s.lunge) / 260) * Math.PI) : 0,
-        pitch: pose.pitch,
+        pitch: pose.pitch + heave.pitch,
         roll: pose.roll,
-        bob: pose.bob,
+        bob: pose.bob + heave.bob,
         phase,
         stride: fm.stride,
         dist: fm.dist,
@@ -370,8 +377,8 @@ export class UnitPreview {
       if (p.at > now) return true;
       const tree = m.trees[p.figure];
       if (!tree) return false;
-      // Shots land near the plinth's edge, so the whole flight stays in view; claws strike just ahead.
-      const to = this.ahead(s.aim, melee ? m.def.radius + 0.3 : m.radius * 1.15, 0.05, new THREE.Vector3());
+      // Shots fly out to the weapon's real range, off the plinth, as at a target in a match; claws strike just ahead.
+      const to = this.ahead(s.aim, melee ? m.def.radius + 0.3 : Math.max(m.radius * 2, w?.range ?? 5), 0.05, new THREE.Vector3());
       const muzzle = tree.muzzles.length ? tree.muzzles[s.muzzleTurn++ % tree.muzzles.length] : undefined;
       if (muzzle) {
         muzzle.getWorldPosition(this.v);

@@ -48,14 +48,18 @@ export const LOOKS: Record<WeaponLook, Look> = {
   chaingun: { color: 0xffc070, intensity: 1.5, speed: 46, len: 0.34, width: 0.009, arc: 0, flash: 0.12, flashColor: 0xffb060, smokeTrail: false, hit: 'spark', shake: 0 },
   pulse: { color: 0x80e8ff, intensity: 1.8, speed: 30, len: 0.4, width: 0.018, arc: 0, flash: 0.17, flashColor: 0x9ff0ff, smokeTrail: false, hit: 'spark', shake: 0 },
   cannon: { color: 0xffd090, intensity: 2.2, speed: 0, len: 0.26, width: 0.026, arc: 0.02, flash: 0.55, flashColor: 0xffc068, smokeTrail: false, hit: 'blast', shake: 0.04 },
-  // The Paladin's twin heavy cannons (HERO-1): a long, hot shell trace, a big flash with side jets from the muzzle brakes,
-  // a shock ring and a rolling cloud of gun smoke, and a heavier burst where the shell lands.
-  heroCannon: { color: 0xffe2a8, intensity: 2.6, speed: 0, len: 0.42, width: 0.04, arc: 0.025, flash: 0.85, flashColor: 0xffc068, smokeTrail: true, hit: 'blast', shake: 0.07 },
+  // The Paladin's twin heavy cannons (HERO-1, HERO-4): a slow, heavy shell lobbed on a visible arc with a smoke trail, a
+  // huge flash with side jets from the muzzle brakes, a shock ring and a rolling cloud of gun smoke, and a great burst
+  // with a shockwave and thrown earth where it lands.
+  heroCannon: { color: 0xffe2a8, intensity: 2.6, speed: 0, len: 0.55, width: 0.065, arc: 0.11, flash: 1.05, flashColor: 0xffc068, smokeTrail: true, hit: 'blast', shake: 0.1 },
   howitzer: { color: 0xffb060, intensity: 2.2, speed: 0, len: 0.22, width: 0.035, arc: 0.38, flash: 0.8, flashColor: 0xffb050, smokeTrail: true, hit: 'blast', shake: 0.08 },
   rocket: { color: 0xffa040, intensity: 2.6, speed: 0, len: 0.14, width: 0.03, arc: 0.12, flash: 0.22, flashColor: 0xffb060, smokeTrail: true, hit: 'blast', shake: 0.02 },
   claw: { color: 0xd8ffb0, intensity: 2.5, speed: 0, len: 0, width: 0.02, arc: 0, flash: 0, flashColor: 0, smokeTrail: false, hit: 'slash', shake: 0, bio: true },
   acid: { color: 0xb8ff40, intensity: 2, speed: 0, len: 0.1, width: 0.05, arc: 0.28, flash: 0.16, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0, bio: true },
   acidBig: { color: 0xb8ff40, intensity: 2.4, speed: 0, len: 0.16, width: 0.09, arc: 0.45, flash: 0.35, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0.05, bio: true },
+  // The Dreadstrider's acid cannon (HERO-2, HERO-4): a great glob of acid hurled on a high arc after a spray from the
+  // maw, landing in a wide splash with a green shock ring and a burning pool.
+  heroAcid: { color: 0xc8ff50, intensity: 2.6, speed: 0, len: 0.26, width: 0.15, arc: 0.4, flash: 0.75, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0.09, bio: true },
   sting: { color: 0xe8ff70, intensity: 1.35, speed: 26, len: 0.2, width: 0.013, arc: 0, flash: 0.07, flashColor: 0xe0ff80, smokeTrail: false, hit: 'spark', shake: 0, bio: true },
   spine: { color: 0xf0e6cc, intensity: 1.1, speed: 22, len: 0.26, width: 0.017, arc: 0.04, flash: 0.09, flashColor: 0xb6ff5c, smokeTrail: false, hit: 'bone', shake: 0, bio: true },
 };
@@ -511,6 +515,7 @@ export class CombatFx {
     const r = this.rng;
     if (L.bio) {
       this.spit(L, at, dir, now);
+      if (look === 'heroAcid') this.heroSpit(at, dir, now);
       return;
     }
     // Small arms get a dimmer, warmer core than guns and launchers.
@@ -546,12 +551,38 @@ export class CombatFx {
         this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: (sx * side + dir.x * 0.3) * sp, vy: r.range(0, 0.4), vz: (sz * side + dir.z * 0.3) * sp, life: 90 + i * 25, size0: 0.32, size1: 0.12, color0: 0xffffff, color1: 0xffa040, alpha: 1.1, drag: 6 }, now);
       }
     }
-    this.ring(at, 1.1, 260, now, 0xffe0b0);
-    const n = this.quality.rich && !this.busy ? 8 : 3;
+    this.ring(at, 1.5, 300, now, 0xffe0b0);
+    // Dust kicked up off the ground under the guns by the blast.
+    const g = this.groundAt(at.x, at.z);
+    for (let i = 0; i < (this.quality.rich && !this.busy ? 6 : 2); i++) {
+      const a = r.range(0, Math.PI * 2);
+      this.smoke.emit({ x: at.x + Math.cos(a) * 0.3, y: g + 0.05, z: at.z + Math.sin(a) * 0.3, vx: Math.cos(a) * r.range(0.8, 1.6), vy: r.range(0.1, 0.3), vz: Math.sin(a) * r.range(0.8, 1.6), life: r.range(900, 1500), size0: 0.2, size1: r.range(0.7, 1.1), color0: 0x9a8a70, color1: 0x6a5e4c, alpha: 0.35, drag: 2.4 }, now);
+    }
+    const n = this.quality.rich && !this.busy ? 10 : 3;
     for (let i = 0; i < n; i++) {
       const s = r.range(0.4, 1.2);
       this.smoke.emit({ x: at.x + dir.x * 0.2, y: at.y, z: at.z + dir.z * 0.2, vx: dir.x * s * 2.4 + r.range(-0.4, 0.4), vy: r.range(0.1, 0.5), vz: dir.z * s * 2.4 + r.range(-0.4, 0.4), life: r.range(1200, 2200), size0: 0.2, size1: r.range(0.9, 1.4), color0: 0xa8a298, color1: 0x5c5a56, alpha: 0.42, drag: 2.6, gravity: -0.12 }, now);
     }
+  }
+
+  /**
+   * The Dreadstrider's discharge (HERO-4): a cone of acid spray thrown far forward from the maw, a green ring of
+   * pressure and a cloud of hissing vapour that rolls out and lingers.
+   */
+  private heroSpit(at: Vec, dir: Vec, now: number): void {
+    const r = this.rng;
+    for (let i = 0; i < (this.quality.rich ? 14 : 6); i++) {
+      const sp = r.range(2.5, 5);
+      this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: (dir.x + r.range(-0.35, 0.35)) * sp, vy: (dir.y + r.range(0.1, 0.6)) * sp, vz: (dir.z + r.range(-0.35, 0.35)) * sp, life: r.range(300, 600), size0: 0.09, size1: 0.03, color0: BIO, color1: BIO_DEEP, alpha: 1, drag: 1.5, gravity: 7 }, now);
+    }
+    this.ring(at, 1.3, 320, now, BIO);
+    const n = this.quality.rich && !this.busy ? 8 : 3;
+    for (let i = 0; i < n; i++) {
+      const s = r.range(0.4, 1.2);
+      this.smoke.emit({ x: at.x + dir.x * 0.3, y: at.y, z: at.z + dir.z * 0.3, vx: dir.x * s * 2 + r.range(-0.4, 0.4), vy: r.range(0.1, 0.4), vz: dir.z * s * 2 + r.range(-0.4, 0.4), life: r.range(1100, 1900), size0: 0.2, size1: r.range(0.8, 1.2), color0: 0x8ab050, color1: 0x3a4a2a, alpha: 0.32, drag: 2.4, gravity: -0.1 }, now);
+    }
+    this.light(at.x, at.y + 0.2, at.z, BIO, 9, 260, now);
+    this.shake = Math.max(this.shake, LOOKS.heroAcid.shake);
   }
 
   /**
@@ -733,13 +764,20 @@ export class CombatFx {
   private impact(L: Look, at: Vec, now: number, splash: number): void {
     const r = this.rng;
     if (L.hit === 'blast' || splash > 0) {
-      if (L.hit === 'acid') this.acidBurst(at, 0.4 + splash * 0.35, now);
+      if (L === LOOKS.heroAcid) {
+        // A Dreadstrider glob lands in a wide splash with a green shock ring (HERO-4).
+        this.acidBurst(at, 0.55 + splash * 0.45, now);
+        this.ring(at, 1.6, 460, now, BIO);
+        this.light(at.x, at.y + 0.3, at.z, BIO, 10, 320, now);
+        this.shake = Math.max(this.shake, 0.06);
+      } else if (L.hit === 'acid') this.acidBurst(at, 0.4 + splash * 0.35, now);
       // Aegis shells and rockets burst dimmer than a death, so a firefight does not flood the screen with light.
       else if (L === LOOKS.heroCannon) {
-        // A Paladin shell lands hard: a bigger burst, a ring of dust and thrown dirt, still dimmer than a death.
-        this.explosion(at, 0.72, now, 0xffa040, SHOT_BLAST_DIM);
-        this.ring(at, 1.3, 420, now, 0xd8c0a0);
-        for (let i = 0; i < (this.quality.rich ? 8 : 3); i++) {
+        // A Paladin shell lands hard (HERO-4): a great burst, a shockwave and thrown earth, still dimmer than a death.
+        this.explosion(at, 0.95, now, 0xffa040, SHOT_BLAST_DIM);
+        this.ring(at, 1.9, 480, now, 0xd8c0a0);
+        this.shake = Math.max(this.shake, 0.07);
+        for (let i = 0; i < (this.quality.rich ? 12 : 4); i++) {
           const a = r.range(0, Math.PI * 2);
           const sp = r.range(1, 2.6);
           this.smoke.emit({ x: at.x, y: at.y + 0.05, z: at.z, vx: Math.cos(a) * sp, vy: r.range(2.2, 4), vz: Math.sin(a) * sp, life: r.range(600, 1000), size0: 0.07, size1: 0.05, color0: 0x3a3228, alpha: 0.9, gravity: 9 }, now);

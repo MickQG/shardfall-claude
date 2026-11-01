@@ -51,7 +51,7 @@ export interface RigNode {
 export type Locomotion = 'tracked' | 'wheeled' | 'walker' | 'air' | 'static';
 
 /** How a weapon looks when it fires (chosen by the shooter's kind). */
-export type WeaponLook = 'rifle' | 'mg' | 'cannon' | 'heroCannon' | 'rocket' | 'howitzer' | 'chaingun' | 'pulse' | 'claw' | 'acid' | 'acidBig' | 'sting' | 'spine';
+export type WeaponLook = 'rifle' | 'mg' | 'cannon' | 'heroCannon' | 'rocket' | 'howitzer' | 'chaingun' | 'pulse' | 'claw' | 'acid' | 'acidBig' | 'heroAcid' | 'sting' | 'spine';
 
 export interface RigDef {
   shapes: Record<string, () => Shape>;

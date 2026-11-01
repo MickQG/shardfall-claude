@@ -125,6 +125,20 @@ export function bodyPose(kind: 'tracked' | 'wheeled' | 'walker' | 'air' | 'stati
   return { pitch: 0, roll: 0, bob: 0 };
 }
 
+/** How long a hero's whole-body heave after a shot builds, then dies away, ms (HERO-4). */
+export const HEAVE_RISE_MS = 90;
+export const HEAVE_FALL_MS = 420;
+
+/**
+ * A hero's whole body answering its own shot (HERO-4), `sinceMs` after it fired: the Paladin rocks back on its legs
+ * (nose up, hull squatting), the Dreadstrider lunges into its spit (head down, body dropping). Other weapons: none.
+ */
+export function heroHeave(look: string | undefined, sinceMs: number): BodyPose {
+  if ((look !== 'heroCannon' && look !== 'heroAcid') || sinceMs < 0) return { pitch: 0, roll: 0, bob: 0 };
+  const e = sinceMs < HEAVE_RISE_MS ? sinceMs / HEAVE_RISE_MS : Math.exp(-(sinceMs - HEAVE_RISE_MS) / HEAVE_FALL_MS);
+  return look === 'heroCannon' ? { pitch: 0.16 * e, roll: 0, bob: -0.06 * e } : { pitch: -0.16 * e, roll: 0, bob: -0.07 * e };
+}
+
 /** Turret traverse, radians per second (R3D-9). */
 export const TURRET_RATE = 7;
 /** A turret fires once it points within this of its target, radians, or once it has waited this long, ms (R3D-9). */

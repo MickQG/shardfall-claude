@@ -291,4 +291,65 @@ describe('hero looks and deaths', () => {
     expect(SHOT_BLAST_DIM).toBeGreaterThan(0.4);
     expect(SHOT_BLAST_DIM).toBeLessThanOrEqual(0.7);
   });
+
+  it('HERO-4: heroes fire slow, heavy shots that burst over an area, with no less sustained firepower than before', () => {
+    const tank = unitDef('hum_tank').weapon!;
+    for (const kind of ['hum_paladin', 'ali_strider']) {
+      const w = unitDef(kind).weapon!;
+      expect(w.cooldown, kind).toBeGreaterThanOrEqual(30); // 1.5 s at 20 ticks a second
+      expect(w.damage, kind).toBeGreaterThanOrEqual(2 * tank.damage);
+      expect(w.splash ?? 0, kind).toBeGreaterThan(0);
+      expect(w.antiAir, kind).toBe(true);
+      // The old weapon: 46 damage every 16 ticks.
+      expect(w.damage / w.cooldown, kind).toBeGreaterThanOrEqual(46 / 16);
+    }
+  });
+
+  it('HERO-4: a hero shell hurts every enemy close to its target, and still hits an aircraft it is aimed at', () => {
+    const run = (enemy: string): number[] => {
+      const g = createGame(cfg([
+        { owner: 0, kind: 'hum_paladin', tx: 20, ty: 20 },
+        { owner: 1, kind: enemy, tx: 25, ty: 20 },
+        { owner: 1, kind: enemy, tx: 25, ty: 21 },
+      ]));
+      const start = g.state.units.filter((u) => u.owner === 1).map((u) => u.hp);
+      const hero = g.state.units.find((u) => u.kind === 'hum_paladin')!;
+      const first = g.state.units.find((u) => u.owner === 1)!;
+      submit(g, { type: 'attack', player: 0, units: [hero.id], target: first.id });
+      for (let t = 0; t < 30; t++) tick(g); // one shot lands (it flies 8 ticks; the next leaves after 36)
+      return g.state.units.filter((u) => u.owner === 1).map((u, i) => (start[i] as number) - u.hp);
+    };
+    const [hit, beside] = run('ali_brute');
+    expect(hit).toBeGreaterThan(0);
+    expect(beside).toBeGreaterThan(0); // never aimed at, hurt by the burst
+    const [air] = run(FLYER);
+    expect(air).toBeGreaterThan(0);
+  });
+
+  it('HERO-4: the hero shot has its own animation: the body heaves, and shells and acid globs are heavier than other weapons', async () => {
+    const { heroHeave, HEAVE_RISE_MS } = await import('../../src/render3d/motion');
+    const { UNIT_RIGS } = await import('../../src/render3d/units3d');
+    const { CombatFx, LOOKS } = await import('../../src/render3d/fx3d');
+    const THREE = await import('three');
+    // The Paladin rocks back (nose up, squatting); the Dreadstrider lunges (head down); both settle within two seconds.
+    expect(heroHeave('heroCannon', HEAVE_RISE_MS).pitch).toBeGreaterThan(0.08);
+    expect(heroHeave('heroCannon', HEAVE_RISE_MS).bob).toBeLessThan(0);
+    expect(heroHeave('heroAcid', HEAVE_RISE_MS).pitch).toBeLessThan(-0.08);
+    expect(Math.abs(heroHeave('heroCannon', 2000).pitch)).toBeLessThan(0.01);
+    expect(heroHeave('cannon', HEAVE_RISE_MS)).toEqual({ pitch: 0, roll: 0, bob: 0 });
+    expect(heroHeave('heroCannon', -5).pitch).toBe(0);
+    expect(UNIT_RIGS.ali_strider!().weapon).toBe('heroAcid');
+    // A lobbed shell with a smoke trail; a bigger acid glob than the Lobber's.
+    expect(LOOKS.heroCannon.arc).toBeGreaterThan(LOOKS.cannon.arc);
+    expect(LOOKS.heroCannon.smokeTrail).toBe(true);
+    expect(LOOKS.heroAcid.width).toBeGreaterThan(LOOKS.acidBig.width);
+    expect(LOOKS.heroAcid.flash).toBeGreaterThan(LOOKS.acidBig.flash);
+    const count = (look: 'acidBig' | 'heroAcid'): number => {
+      const fx = new CombatFx();
+      fx.muzzle(look, new THREE.Vector3(5, 1, 5), new THREE.Vector3(1, 0, 0), 0);
+      fx.update(10, 0.01);
+      return fx.particleCount;
+    };
+    expect(count('heroAcid')).toBeGreaterThan(count('acidBig') + 5);
+  });
 });
