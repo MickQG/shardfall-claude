@@ -1,4 +1,4 @@
-import { DAMAGE_PCT, UNIT_DEFS, type ArmorType, type Faction, type UnitDef, type WeaponDef } from '../data/defs';
+import { BUILDING_DEFS, DAMAGE_PCT, UNIT_DEFS, type ArmorType, type Faction, type UnitDef, type WeaponDef } from '../data/defs';
 
 /** Plain-language summary of one unit kind for the main-menu info panel. */
 export interface UnitCard {
@@ -16,7 +16,39 @@ export interface UnitCard {
   strong: { armour: string; units: string[] }[];
   /** Enemy kinds that can hit this unit for full damage or more. */
   weak: string[];
+  /** Building that trains it, and the other buildings the player must own (INF-6). */
+  trainedAt: string;
+  needs: string[];
+  /** Raw numbers behind the words, for the detail pane's bars (INF-7). */
+  stats: UnitStats;
 }
+
+/** Health, speed (speed units), range (tiles) and firepower (damage per second of the whole unit or squad). */
+export interface UnitStats {
+  health: number;
+  speed: number;
+  range: number;
+  firepower: number;
+}
+
+/** Damage per second of a unit kind: damage times squad figures, 20 ticks a second over the cooldown (INF-7). */
+export function firepower(d: UnitDef): number {
+  const w = d.weapon;
+  return w ? Math.round(((w.damage * (d.squad ?? 1) * 20) / w.cooldown) * 10) / 10 : 0;
+}
+
+export function unitStats(d: UnitDef): UnitStats {
+  return { health: d.hp, speed: d.speed, range: d.weapon?.range ?? 0, firepower: firepower(d) };
+}
+
+/** The largest value of each stat across both factions: the full length of a bar (INF-7). */
+export function statMax(): UnitStats {
+  const all = Object.values(UNIT_DEFS).filter((d) => d.faction === 'human' || d.faction === 'alien').map(unitStats);
+  return { health: Math.max(...all.map((x) => x.health)), speed: Math.max(...all.map((x) => x.speed)), range: Math.max(...all.map((x) => x.range)), firepower: Math.max(...all.map((x) => x.firepower)) };
+}
+
+/** How full a bar is, 0..1: the square root of the share of the largest, so small units still show (INF-7). */
+export const statFill = (value: number, max: number): number => (max > 0 ? Math.sqrt(Math.max(0, value) / max) : 0);
 
 const ROLE: Record<UnitDef['role'], string> = { harvester: 'Harvester', infantry: 'Infantry', antiarmor: 'Anti-armour', scout: 'Scout', tank: 'Tank', artillery: 'Artillery', air: 'Air', raider: 'Raider' };
 const ARMOUR: readonly [ArmorType, string][] = [
@@ -59,6 +91,9 @@ export function unitCards(faction: Faction): UnitCard[] {
               .filter((x) => x.structure || x.units.length > 0)
               .map(({ armour, units }) => ({ armour, units }))
           : [],
+        trainedAt: BUILDING_DEFS[d.builtAt]?.name ?? d.builtAt,
+        needs: d.requires.map((r) => BUILDING_DEFS[r]?.name ?? r),
+        stats: unitStats(d),
         weak: enemies.filter((e) => e.weapon && hurts(e.weapon, d.armor)).map((e) => e.name),
       };
     });

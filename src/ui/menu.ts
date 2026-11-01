@@ -1,7 +1,7 @@
 import { MAPS, skirmishMap, type MapId } from '../data/maps';
 import { thumbCanvas } from './mapThumb';
 import { loadSettings, safeStorage, saveSettings, type Settings } from './settings';
-import { unitCards } from './unitInfo';
+import { createUnitSheet, FACTION_INFO } from './unitSheet';
 
 /**
  * Main menu (MENU-1..3): a full-screen layout with a left rail (title, Single player, Multiplayer, Units, Settings) and
@@ -38,6 +38,11 @@ const CSS = `
 #menu .card p { margin: 0; color: #b6c7d6; font-size: 13.5px; }
 #menu .card .hero { margin-top: 10px; font-size: 12.5px; color: #b6c7d6; }
 #menu .card .hero b { color: var(--c); }
+#menu .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+#menu .row .seg { align-self: auto; }
+#menu #units-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; border: 1px solid #2b6b55; background: rgba(18,51,41,.55); color: #7ff5cd; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
+#menu #units-btn:hover, #menu #units-btn:focus-visible { background: #123329; border-color: #3f9a7a; outline: none; }
+#menu #units-btn svg { width: 18px; height: 18px; }
 #menu .seg { display: inline-flex; align-self: flex-start; border: 1px solid #22384c; border-radius: 10px; overflow: hidden; background: rgba(8,13,19,.85); }
 #menu .seg button { padding: 10px 22px; border: 0; background: transparent; color: #b6c7d6; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
 #menu .seg button + button { border-left: 1px solid #22384c; }
@@ -63,36 +68,7 @@ const CSS = `
 #menu input[type=range] { width: 200px; accent-color: #35e0a1; }
 #menu input[type=checkbox] { width: 20px; height: 20px; accent-color: #35e0a1; }
 @media (max-width: 860px) { #menu { display: block; overflow: auto; } #menu .rail { overflow: visible; border-right: 0; border-bottom: 1px solid #1c2e3e; padding: 24px 16px 12px; } #menu .rail .help { display: none; } #menu .main { overflow: visible; padding: 20px 16px 28px; } #menu .faction, #menu .maps { grid-template-columns: 1fr; } }
-#unit-info { position: fixed; inset: 0; display: none; align-items: flex-start; justify-content: center; background: rgba(4,8,12,.8); overflow: auto; padding: 24px 16px; box-sizing: border-box; color: #dfe8e2; font: 14px/1.4 system-ui, sans-serif; }
-#unit-info.open { display: flex; }
-#unit-info .sheet { width: min(980px, 100%); background: #0b1015; border: 1px solid #28405a; border-radius: 10px; padding: 18px; box-sizing: border-box; }
-#unit-info header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 12px; }
-#unit-info h2 { margin: 0; font-size: 20px; color: var(--c); }
-#unit-info .close { border: 1px solid #28405a; background: #101c27; color: inherit; border-radius: 6px; padding: 6px 14px; cursor: pointer; font: inherit; }
-#unit-info .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-#unit-info .u { background: rgba(10,18,26,.9); border: 1px solid #28405a; border-radius: 8px; padding: 12px; }
-#unit-info .u h3 { margin: 0; font-size: 15px; }
-#unit-info .u .role { color: var(--c); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin: 2px 0 8px; }
-#unit-info .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
-#unit-info .tags span { font-size: 11.5px; padding: 2px 7px; border-radius: 999px; background: #14202c; color: #b6c7d6; }
-#unit-info .u p { margin: 4px 0 0; font-size: 12.5px; color: #b6c7d6; }
-#unit-info .u b { color: #dfe8e2; font-weight: 600; }
 `;
-
-const FACTION_INFO = { human: { name: 'Aegis Union', color: '#6fd3ff' }, alien: { name: 'Vrax Hive', color: '#b6ff5c' } } as const;
-
-/** HTML for the unit info sheet of one faction (INF-1..4). */
-function infoSheet(faction: 'human' | 'alien'): string {
-  const f = FACTION_INFO[faction];
-  const cards = unitCards(faction)
-    .map((c) => {
-      const tags = [c.toughness, c.speed, c.range ? `${c.range} range` : 'Unarmed', c.canAttack ? (c.hitsAir ? 'Hits air' : 'Ground only') : '', c.regenerates ? 'Regenerates' : ''].filter(Boolean);
-      const strong = c.canAttack ? (c.strong.length ? c.strong.map((s) => (s.units.length ? `${s.armour} (${s.units.join(', ')})` : s.armour)).join('; ') : 'Nothing in particular') : 'Cannot attack';
-      return `<div class="u"><h3>${c.name}</h3><div class="role">${c.role} · ◈ ${c.cost}</div><div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div><p><b>Strong against:</b> ${strong}</p><p><b>Weak against:</b> ${c.weak.length ? c.weak.join(', ') : 'Nothing in particular'}</p></div>`;
-    })
-    .join('');
-  return `<div class="sheet" style="--c:${f.color}"><header><h2>${f.name} units</h2><button class="close" data-close>Close</button></header><div class="grid">${cards}</div></div>`;
-}
 
 /** Controls summary on the main menu; names the current bindings. */
 export const HELP_TEXT =
@@ -132,7 +108,7 @@ export function showMenu(): void {
         <h2>Choose your faction</h2>
         <div class="faction">${factionCards}</div>
         <h2>Opponent</h2>
-        <div class="seg" role="group" aria-label="Opponent"><button data-diff="easy">Easy</button><button data-diff="medium">Medium</button><button data-diff="hard">Hard</button></div>
+        <div class="row"><div class="seg" role="group" aria-label="Opponent"><button data-diff="easy">Easy</button><button data-diff="medium">Medium</button><button data-diff="hard">Hard</button></div><button id="units-btn" aria-label="View units"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7l9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>View units</button></div>
         <h2>Map</h2>
         <div class="maps">${MAPS.map((m) => `<button class="map" data-map="${m.id}"><div class="thumb"></div><b>${m.name}</b><span>${m.blurb}</span></button>`).join('')}</div>
         <div class="actions"><button id="go">START</button><span class="note">Enter to start</span></div>
@@ -155,9 +131,7 @@ export function showMenu(): void {
   document.body.appendChild(root);
   // Map thumbnails, drawn from the maps themselves.
   root.querySelectorAll<HTMLElement>('[data-map]').forEach((b) => b.querySelector('.thumb')?.appendChild(thumbCanvas(skirmishMap(b.dataset.map as MapId))));
-  const info = document.createElement('div');
-  info.id = 'unit-info';
-  document.body.appendChild(info);
+  const sheet = createUnitSheet();
   let settings: Settings = loadSettings(safeStorage());
   const save = (patch: Partial<Settings>): void => {
     settings = { ...loadSettings(safeStorage()), ...patch };
@@ -165,13 +139,6 @@ export function showMenu(): void {
   };
   const pick: Pick & { map: MapId } = { faction: 'human', difficulty: 'medium', map: settings.map };
   let mode: Mode = 'single';
-  const showInfo = (open: boolean): void => {
-    if (open) info.innerHTML = infoSheet(pick.faction);
-    info.classList.toggle('open', open);
-  };
-  info.addEventListener('click', (e) => {
-    if (e.target === info || (e.target as HTMLElement).closest('[data-close]')) showInfo(false);
-  });
   const volume = root.querySelector<HTMLInputElement>('#set-volume')!;
   const mute = root.querySelector<HTMLInputElement>('#set-mute')!;
   volume.value = String(Math.round(settings.volume * 100));
@@ -190,9 +157,9 @@ export function showMenu(): void {
     location.search = `?faction=${pick.faction}&difficulty=${pick.difficulty}&map=${pick.map}`;
   };
   root.addEventListener('click', (e) => {
-    const t = (e.target as HTMLElement).closest('[data-mode],[data-faction],[data-diff],[data-map],[data-quality],#go,#info-btn') as HTMLElement | null;
+    const t = (e.target as HTMLElement).closest('[data-mode],[data-faction],[data-diff],[data-map],[data-quality],#go,#info-btn,#units-btn') as HTMLElement | null;
     if (!t) return;
-    if (t.id === 'info-btn') return showInfo(true);
+    if (t.id === 'info-btn' || t.id === 'units-btn') return sheet.open(pick.faction);
     if (t.id === 'go') return start();
     if (t.dataset.mode) mode = t.dataset.mode as Mode;
     else if (t.dataset.faction) pick.faction = t.dataset.faction as Pick['faction'];
@@ -204,11 +171,10 @@ export function showMenu(): void {
     }
     sync();
   });
-  // Keyboard: Up and Down move through the rail, Enter starts a single-player game, Escape closes the unit sheet.
+  // Keyboard: Up and Down move through the rail and Enter starts a single-player game; the unit sheet has its own keys.
   const navs = [...root.querySelectorAll<HTMLButtonElement>('.rail .nav')];
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') return showInfo(false);
-    if (info.classList.contains('open')) return;
+    if (sheet.isOpen()) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       const i = navs.indexOf(document.activeElement as HTMLButtonElement);
       const next = navs[(i + (e.key === 'ArrowDown' ? 1 : navs.length - 1)) % navs.length] ?? navs[0]!;
