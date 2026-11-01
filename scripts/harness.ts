@@ -4,9 +4,16 @@ import { MAPS } from '../src/data/maps';
 
 /**
  * CI gate for the AI: plays full headless matches on every map (MAP-4) and fails on bad behaviour or a broken
- * difficulty ordering. Usage: tsx scripts/harness.ts [seeds=2]
+ * difficulty ordering. Usage: tsx scripts/harness.ts [seeds=2] [map]; with a map id, only that map is played (CI runs
+ * one job per map in parallel).
  */
 const seeds = Number(process.argv[2] ?? 2);
+const only = process.argv[3];
+const maps = MAPS.filter((m) => !only || m.id === only);
+if (maps.length === 0) {
+  console.error(`FAIL: unknown map ${only}`);
+  process.exit(1);
+}
 let failed = false;
 const fail = (msg: string): void => {
   failed = true;
@@ -17,7 +24,7 @@ let hardWins = 0;
 let easyWins = 0;
 let violations = 0;
 let matches = 0;
-for (const { id: map } of MAPS) {
+for (const { id: map } of maps) {
   let mapHard = 0;
   let mapEasy = 0;
   for (let seed = 1; seed <= seeds; seed++) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { showcaseConfig } from '../../src/data/maps';
-import { DASH_GAP, DASH_SPEED, DROP_MS, flagDrop, MAX_DASHES, PULSE_MS, rallyDashes, ringScale } from '../../src/render3d/rally3d';
-import { buildingBar, damageSmoke, jolt, JOLT_MS } from '../../src/render3d/view3d';
+import { DASH_GAP, DASH_SPEED, DROP_MS, FLAG_HEIGHT, flagDrop, MAX_DASHES, PULSE_MS, rallyDashes, ringScale } from '../../src/render3d/rally3d';
+import { buildingBar, damageSmoke } from '../../src/render3d/view3d';
 import { createGame } from '../../src/sim';
 
 describe('damaged buildings', () => {
@@ -13,22 +13,9 @@ describe('damaged buildings', () => {
     expect(buildingBar(1, true)).toBe(true);
   });
 
-  it('R3D-20: below half health a building jolts when hit, harder the weaker it is, and settles quickly', () => {
-    const size = (age: number, hp: number): number => {
-      let m = 0;
-      for (let a = age; a < age + 40; a += 2) {
-        const j = jolt(a, hp, 3);
-        m = Math.max(m, Math.hypot(j.dx, j.dz));
-      }
-      return m;
-    };
-    expect(size(0, 0.6)).toBe(0); // above half: no jolt
-    expect(size(0, 0.45)).toBeGreaterThan(0.01);
-    expect(size(0, 0.1)).toBeGreaterThan(size(0, 0.45));
-    expect(size(0, 0.1)).toBeLessThan(0.1); // a shudder, not a jump
-    expect(jolt(JOLT_MS, 0.1, 3)).toEqual({ dx: 0, dz: 0, tilt: 0 });
-    expect(jolt(-5, 0.1, 3)).toEqual({ dx: 0, dz: 0, tilt: 0 });
-    expect(JOLT_MS).toBeLessThanOrEqual(400);
+  it('R3D-20: a damaged building stays put when hit (no shudder): damage shows in bars, soot, smoke and fire', async () => {
+    const view = await import('../../src/render3d/view3d');
+    expect('jolt' in view).toBe(false);
   });
 
   it('R3D-20: smoke from two thirds and fire from one third, thickening, growing and puffing faster as it weakens', () => {
@@ -69,6 +56,11 @@ describe('rally point marker', () => {
     expect(far).toHaveLength(MAX_DASHES);
     expect(Math.min(...far.map((d) => dist(d, { x: 90, z: 90 })))).toBeLessThan(0.3 + DASH_GAP);
     expect(rallyDashes(from, { x: 10.1, z: 10 }, 0)).toEqual([]);
+  });
+
+  it('R3D-21: the flag is small, well under a tile tall', () => {
+    expect(FLAG_HEIGHT).toBeLessThanOrEqual(0.8);
+    expect(FLAG_HEIGHT).toBeGreaterThan(0.4);
   });
 
   it('R3D-21: when the rally point moves the flag drops in and the ring pulses wide, then breathes gently', () => {

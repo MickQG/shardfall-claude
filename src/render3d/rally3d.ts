@@ -11,6 +11,8 @@ export const DASH_GAP = 0.36;
 export const DASH_SPEED = 0.9;
 /** The most dashes drawn (a line across the whole map is cut short at the building end). */
 export const MAX_DASHES = 96;
+/** Height of the flag above the ground, tiles (pole and cap): small, so it marks the spot without hiding it. */
+export const FLAG_HEIGHT = 0.75;
 /** How long the flag takes to drop in, and the ring's wide pulse lasts, ms. */
 export const DROP_MS = 260;
 export const PULSE_MS = 520;
@@ -80,8 +82,8 @@ export class RallyMarker {
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffe9a0, toneMapped: false }));
     cap.position.y = 0.92;
     this.flag.add(pole, this.cloth, cap);
-    this.flag.scale.setScalar(1.6); // reads at the usual RTS zoom
-    this.ring = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.31, 40), ringMat);
+    this.flag.scale.setScalar(FLAG_HEIGHT / 0.95); // small: it marks the spot without covering what stands there
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(0.17, 0.22, 40), ringMat);
     this.ring.rotation.x = -Math.PI / 2;
     this.root.add(this.dashes, this.flag, this.ring);
     this.root.visible = false;

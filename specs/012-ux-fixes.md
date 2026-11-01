@@ -7,6 +7,7 @@ Bug and usability fixes found in a review of the player-facing controls and HUD.
 - **PRD-11**: Every unit ordered from the sidebar, including each of the five from a Ctrl-click, goes to the producer of that kind that would finish it soonest (the least build time queued), ties going to the shorter queue and then the earlier building, so all of a player's producers of a kind keep working, whatever the mix of unit kinds; which building is selected does not change where orders go.
 - **PRD-12**: A single right-click on a unit or structure in the sidebar cancels the newest queued copy of that kind across all of the player's buildings (furthest back in its queue, then least progressed), so the item in progress keeps its progress until it is the last one.
 - **PRD-13**: An item is shown as unavailable whenever it cannot be queued right now (not enough credits, full queue, missing prerequisite), including while other copies of it are already queued; a structure ready to place stays clickable.
+- **PRD-14**: Production buildings of the same kind keep each other busy: whenever one has an empty queue while a sibling has orders waiting that have not started, it takes over the newest of them, so a player with several Garrisons (or Motor Pools, Spawn Nests, Brood Pits) gets units from all of them at once, however quickly or in whatever order the orders were clicked. Orders already in progress stay where they are, and the move is deterministic.
 
 ## Selection
 

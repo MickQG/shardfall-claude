@@ -31,6 +31,8 @@ interface Look {
 }
 
 /** Vrax bioluminescence: body glow and the deep green it fades to. */
+/** Brightness of shell and rocket bursts from shots, against a death's full fireball (R3D-12). */
+export const SHOT_BLAST_DIM = 0.6;
 const BIO = 0xa8ff3c;
 const BIO_DEEP = 0x3f8a10;
 
@@ -575,21 +577,22 @@ export class CombatFx {
   private landed: { look: Look; to: Vec; at: number }[] = [];
 
   /** A fireball with smoke, sparks, debris, light, a shockwave and a scorch mark (`size` ~ radius in tiles). */
-  explosion(at: Vec, size: number, now: number, tint = 0xffa040): void {
+  /** A fireball with sparks and smoke; `dim` scales its brightness (shot impacts are dimmer than deaths, R3D-12). */
+  explosion(at: Vec, size: number, now: number, tint = 0xffa040, dim = 1): void {
     const r = this.rng;
     const rich = this.quality.rich;
-    this.glow.emit({ x: at.x, y: at.y + 0.1, z: at.z, life: 160, size0: size * 2.2, size1: size * 3, color0: 0xffffff, color1: 0xffe0a0, alpha: 1.8 }, now);
+    this.glow.emit({ x: at.x, y: at.y + 0.1, z: at.z, life: 160, size0: size * 2.2, size1: size * 3, color0: 0xffffff, color1: 0xffe0a0, alpha: 1.8 * dim }, now);
     const fire = rich ? 9 : 5;
     for (let i = 0; i < fire; i++) {
       const a = r.range(0, Math.PI * 2);
       const out = r.range(0.4, 1.6) * size;
-      this.glow.emit({ x: at.x + Math.cos(a) * size * 0.2, y: at.y + r.range(0.05, 0.3) * size, z: at.z + Math.sin(a) * size * 0.2, vx: Math.cos(a) * out, vy: r.range(0.4, 1.4) * size, vz: Math.sin(a) * out, life: r.range(380, 750) * (0.7 + size * 0.3), size0: size * r.range(0.6, 1.1), size1: size * r.range(1.2, 1.9), color0: 0xffe8b0, color1: tint === 0xffa040 ? 0xc02810 : tint, alpha: 1.3, drag: 3, gravity: -0.6, delay: r.range(0, 60) }, now);
+      this.glow.emit({ x: at.x + Math.cos(a) * size * 0.2, y: at.y + r.range(0.05, 0.3) * size, z: at.z + Math.sin(a) * size * 0.2, vx: Math.cos(a) * out, vy: r.range(0.4, 1.4) * size, vz: Math.sin(a) * out, life: r.range(380, 750) * (0.7 + size * 0.3), size0: size * r.range(0.6, 1.1), size1: size * r.range(1.2, 1.9), color0: 0xffe8b0, color1: tint === 0xffa040 ? 0xc02810 : tint, alpha: 1.3 * dim, drag: 3, gravity: -0.6, delay: r.range(0, 60) }, now);
     }
     const sparks = rich ? 12 : 5;
     for (let i = 0; i < sparks; i++) {
       const a = r.range(0, Math.PI * 2);
       const sp = r.range(1.5, 4) * Math.sqrt(size);
-      this.glow.emit({ x: at.x, y: at.y + 0.1, z: at.z, vx: Math.cos(a) * sp, vy: r.range(1.5, 4), vz: Math.sin(a) * sp, life: r.range(350, 800), size0: 0.05, size1: 0.02, color0: 0xffe0a0, color1: 0xff6020, alpha: 1.6, gravity: 7, drag: 0.6 }, now);
+      this.glow.emit({ x: at.x, y: at.y + 0.1, z: at.z, vx: Math.cos(a) * sp, vy: r.range(1.5, 4), vz: Math.sin(a) * sp, life: r.range(350, 800), size0: 0.05, size1: 0.02, color0: 0xffe0a0, color1: 0xff6020, alpha: 1.6 * dim, gravity: 7, drag: 0.6 }, now);
     }
     const smoke = rich ? 6 : 3;
     for (let i = 0; i < smoke; i++) {
@@ -603,7 +606,7 @@ export class CombatFx {
         this.smoke.emit({ x: at.x, y: at.y + 0.1, z: at.z, vx: Math.cos(a) * sp, vy: r.range(2, 4.5), vz: Math.sin(a) * sp, life: r.range(600, 1100), size0: 0.06, size1: 0.05, color0: 0x1c1a18, alpha: 0.95, gravity: 9 }, now);
       }
     }
-    this.light(at.x, at.y + 0.6, at.z, 0xff8a40, 10 * size, 420 + size * 300, now);
+    this.light(at.x, at.y + 0.6, at.z, 0xff8a40, 10 * size * dim * dim, 420 + size * 300, now);
     if (size >= 0.55) {
       this.ring(at, size * 2.4, 450, now);
       this.scorch(at, size * 1.6, now);
@@ -646,6 +649,44 @@ export class CombatFx {
     if (r.next() < 0.12) this.light(at.x, at.y + 0.3, at.z, 0xff8a40, 1.6 * scale, 260, now);
   }
 
+  /**
+   * A hero's death (HERO-3): internal blasts ripple through it for over a second, then a great final blast throws a
+   * shockwave and debris, and the wreck burns and smokes for several seconds while the ground shakes. Vrax heroes burst
+   * in acid and ichor instead of fire. `size` is the hero's drawn size in tiles.
+   */
+  heroDeath(at: Vec, organic: boolean, size: number, now: number): void {
+    const r = this.rng;
+    const tint = organic ? 0x80e020 : 0xffa040;
+    const pop = (p: Vec, s: number, t: number): void => {
+      if (organic) this.acidBurst(p, s, t);
+      this.explosion(p, s, t, tint);
+    };
+    pop(at.clone().setY(at.y + size * 0.5), 0.7, now);
+    for (let i = 0; i < 7; i++) {
+      const a = r.range(0, Math.PI * 2);
+      const p = new THREE.Vector3(at.x + Math.cos(a) * size * 0.35, at.y + r.range(0.2, 0.8) * size, at.z + Math.sin(a) * size * 0.35);
+      this.after(now + 120 + i * 170, (t) => {
+        pop(p, 0.55 + 0.1 * (i % 3), t);
+        if (organic) this.splatter(p, true, t);
+      });
+    }
+    this.after(now + 1350, (t) => {
+      pop(at.clone().setY(at.y + size * 0.3), 1.6, t);
+      this.ring(at, size * 2.6, 700, t, organic ? 0xc8ff70 : 0xffd8a0);
+      this.ring(at, size * 1.6, 500, t);
+      this.shake = Math.max(this.shake, 0.3);
+      // Debris thrown out and falling back.
+      for (let i = 0; i < (this.quality.rich ? 24 : 10); i++) {
+        const a = r.range(0, Math.PI * 2);
+        const sp = r.range(1.5, 4.5);
+        this.smoke.emit({ x: at.x, y: at.y + size * 0.4, z: at.z, vx: Math.cos(a) * sp, vy: r.range(3, 6), vz: Math.sin(a) * sp, life: r.range(900, 1500), size0: 0.1, size1: 0.08, color0: organic ? 0x3a2034 : 0x222020, alpha: 0.95, gravity: 9 }, t);
+      }
+      // The wreck keeps burning and smoking.
+      for (let k = 0; k < 14; k++) this.after(t + k * 450, (u) => this.buildingDamage(new THREE.Vector3(at.x + r.range(-0.3, 0.3) * size, at.y + 0.2, at.z + r.range(-0.3, 0.3) * size), !organic || k % 2 === 0, 1.4 + size * 0.3, u));
+    });
+    this.shake = Math.max(this.shake, 0.18);
+  }
+
   /** Light steam from vents and cooling towers. */
   steam(at: Vec, now: number): void {
     if (this.busy) return;
@@ -667,7 +708,8 @@ export class CombatFx {
     const r = this.rng;
     if (L.hit === 'blast' || splash > 0) {
       if (L.hit === 'acid') this.acidBurst(at, 0.4 + splash * 0.35, now);
-      else this.explosion(at, splash > 0 ? 0.4 + splash * 0.4 : L === LOOKS.cannon ? 0.45 : 0.32, now);
+      // Aegis shells and rockets burst dimmer than a death, so a firefight does not flood the screen with light.
+      else this.explosion(at, splash > 0 ? 0.4 + splash * 0.4 : L === LOOKS.cannon ? 0.45 : 0.32, now, 0xffa040, SHOT_BLAST_DIM);
       return;
     }
     if (L.hit === 'acid') {
@@ -695,7 +737,7 @@ export class CombatFx {
     const n = L.hit === 'slash' ? 6 : 4;
     for (let i = 0; i < n; i++) {
       const a = r.range(0, Math.PI * 2);
-      this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: Math.cos(a) * r.range(0.6, 1.8), vy: r.range(0.5, 1.8), vz: Math.sin(a) * r.range(0.6, 1.8), life: r.range(140, 300), size0: 0.04, size1: 0.015, color0: L.hit === 'bone' ? 0xb6ff5c : L.color, alpha: 1.5, gravity: 6 }, now);
+      this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: Math.cos(a) * r.range(0.6, 1.8), vy: r.range(0.5, 1.8), vz: Math.sin(a) * r.range(0.6, 1.8), life: r.range(140, 300), size0: 0.04, size1: 0.015, color0: L.hit === 'bone' ? 0xb6ff5c : L.color, alpha: L.bio ? 1.5 : 0.95, gravity: 6 }, now);
     }
     // Stings and spines burst in a small green puff with a glint of light.
     if (L.bio && L.hit !== 'slash') {

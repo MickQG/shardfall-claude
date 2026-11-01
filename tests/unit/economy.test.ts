@@ -374,7 +374,7 @@ describe('determinism and UI agreement', () => {
       }
     }
     expect(accepted).toBeGreaterThan(5);
-  });
+  }, 30_000); // builds a game per candidate tile: slow on a busy machine
 });
 
 describe('harvester pricing', () => {

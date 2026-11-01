@@ -145,3 +145,51 @@ describe('the Dreadstrider hero', () => {
     expect(g.state.units.find((u) => u.id === flyer.id)?.hp ?? 0).toBeLessThan(unitDef(FLYER).hp);
   });
 });
+
+describe('hero looks and deaths', () => {
+  it('HERO-1: the Paladin is a four-legged walker about twice the size of a tank, with 3000 hit points', async () => {
+    const { UNIT_RIGS } = await import('../../src/render3d/units3d');
+    const p = UNIT_RIGS.hum_paladin!();
+    const tank = UNIT_RIGS.hum_tank!();
+    expect(p.move).toBe('walker');
+    const legs = (p.root.kids ?? []).filter((k) => k.geo === 'leg');
+    expect(legs).toHaveLength(4);
+    // A diagonal trot: each front leg is in step with the hind leg on the other side.
+    const phase = (x: number, z: number): number => (legs.find((l) => Math.sign(l.at![0]) === x && Math.sign(l.at![2]) === z)!.anim as { phase: number }).phase;
+    expect(phase(1, 1)).toBe(phase(-1, -1));
+    expect(phase(1, -1)).toBe(phase(-1, 1));
+    expect(phase(1, 1)).not.toBe(phase(1, -1));
+    const size = (d: { height: number; scale?: number }): number => d.height * (d.scale ?? 1);
+    expect(size(p) / size(tank)).toBeGreaterThan(3.5); // much taller: a walker rather than a hull
+    expect((p.scale ?? 1) / (tank.scale ?? 1)).toBeGreaterThanOrEqual(2);
+    expect(unitDef('hum_paladin').hp).toBe(3000);
+    expect(unitDef('ali_strider').hp).toBe(3000);
+  });
+
+  it('HERO-3: a hero dies in a long chain of blasts, a final shockwave with debris, lasting fires and a hard shake', async () => {
+    const { CombatFx } = await import('../../src/render3d/fx3d');
+    const THREE = await import('three');
+    for (const organic of [false, true]) {
+      const fx = new CombatFx();
+      fx.heroDeath(new THREE.Vector3(10, 0, 10), organic, 2.4, 0);
+      fx.update(16, 0.016);
+      const first = fx.particleCount;
+      expect(first).toBeGreaterThan(10);
+      expect(fx.shake).toBeGreaterThan(0.1);
+      // Blasts keep coming for over a second; the final one shakes harder.
+      fx.update(700, 0.016);
+      expect(fx.particleCount).toBeGreaterThan(10);
+      fx.update(1400, 0.016);
+      expect(fx.shake).toBeGreaterThan(0.2); // the earlier shake has died away; this is the final blast's
+      // Several seconds later the wreck still burns and smokes.
+      for (let t = 1400; t <= 6000; t += 100) fx.update(t, 0.1);
+      expect(fx.particleCount).toBeGreaterThan(5);
+    }
+  });
+
+  it('R3D-12: Aegis shells and rockets burst dimmer than a death', async () => {
+    const { SHOT_BLAST_DIM } = await import('../../src/render3d/fx3d');
+    expect(SHOT_BLAST_DIM).toBeGreaterThan(0.4);
+    expect(SHOT_BLAST_DIM).toBeLessThanOrEqual(0.7);
+  });
+});
