@@ -7,7 +7,7 @@ import type { Command } from '../sim';
  */
 
 /** Bumped whenever the protocol or the simulation changes in a way that would desync older clients. */
-export const NET_VERSION = 1;
+export const NET_VERSION = 2;
 /** Ticks per lockstep turn (150 ms at 20 ticks a second), and how many turns ahead a turn is announced. */
 export const TURN_TICKS = 3;
 export const DELAY_TURNS = 2;

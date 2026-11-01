@@ -910,7 +910,7 @@ function strider(): RigDef {
     radius: 0.95,
     height: 1.25,
     scale: 1.1,
-    weapon: 'acidBig',
+    weapon: 'heroAcid',
     shapes: {
       legR: () => LEG(1),
       legL: () => LEG(-1),

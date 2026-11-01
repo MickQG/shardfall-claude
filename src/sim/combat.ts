@@ -108,6 +108,9 @@ function land(s: State, p: { x: number; y: number; targetId: number; owner: numb
       const fall = 100 - Math.floor((50 * d) / R);
       hurt(s, e, Math.max(1, Math.floor((damageAgainst(w, armorOf(e)) * fall) / 100)), -1, credit);
     }
+    // The blast spares aircraft, but a shot aimed at one still hits it (HERO-4: hero shots burst and stay anti-air).
+    const aimed = byId.get(p.targetId);
+    if (aimed && armorOf(aimed) === 'air') hurt(s, aimed, damageAgainst(w, 'air'), -1, credit);
     return;
   }
   const t = byId.get(p.targetId);

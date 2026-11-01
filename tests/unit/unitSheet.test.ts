@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { UNIT_DEFS } from '../../src/data/defs';
-import { CYCLE_MS, fitDistance, MINE_MS, MOVE_MS, previewBeat, SETTLE_MS, shotEvery, tilesPerSecond } from '../../src/render3d/preview3d';
+import { CYCLE_MS, fitDistance, MINE_MS, MOVE_MS, PREVIEW_PACE, previewBeat, SETTLE_MS, shotEvery, tilesPerSecond } from '../../src/render3d/preview3d';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
 import { firepower, statFill, statMax, unitCards, unitStats } from '../../src/ui/unitInfo';
 import { factsHtml } from '../../src/ui/unitSheet';
@@ -40,7 +40,12 @@ describe('unit sheet', () => {
     expect(tilesPerSecond(UNIT_DEFS.hum_tank!.speed)).toBeCloseTo((34 * 20) / 256);
     expect(shotEvery(UNIT_DEFS.hum_rifleman!)).toBe(500);
     expect(shotEvery(UNIT_DEFS.hum_artillery!)).toBe(3000);
+    // A calm pace: the close-up camera makes match speed look hurried.
+    expect(PREVIEW_PACE).toBeGreaterThan(0.25);
+    expect(PREVIEW_PACE).toBeLessThan(0.5);
     const src = readFileSync('src/render3d/preview3d.ts', 'utf8');
+    // Shots fly out to the weapon's range instead of landing beside the plinth.
+    expect(src).toContain('w?.range');
     for (const call of ['follow(', 'stepMotion(', 'bodyPose(', 'stepSquad(', 'readyToFire(', 'recoil(', 'fx.muzzle(', 'fx.shot(', 'fx.harvest(']) expect(src, call).toContain(call);
   });
 
@@ -54,7 +59,7 @@ describe('unit sheet', () => {
   it('INF-7: health, speed, range and firepower come from the definitions; firepower counts squad figures', () => {
     const rifle = UNIT_DEFS.hum_rifleman!;
     expect(firepower(rifle)).toBeCloseTo(((rifle.weapon!.damage * 3 * 20) / rifle.weapon!.cooldown), 1);
-    expect(unitStats(UNIT_DEFS.hum_paladin!)).toEqual({ health: 3000, speed: 32, range: 7, firepower: 57.5 });
+    expect(unitStats(UNIT_DEFS.hum_paladin!)).toEqual({ health: 3000, speed: 32, range: 7, firepower: 61.1 });
     expect(card('human', 'Shard Hauler').stats).toMatchObject({ range: 0, firepower: 0 });
   });
 
@@ -67,7 +72,7 @@ describe('unit sheet', () => {
     const html = factsHtml(card('human', 'Paladin'), max);
     expect(html).toContain('Paladin');
     expect(html).toContain('width:100.0%');
-    expect(html).toContain('57.5/s');
+    expect(html).toContain('61.1/s');
     expect(html).toContain('Trained at:</b> Motor Pool · needs Tech Lab');
     expect(factsHtml(card('human', 'Shard Hauler'), max)).toContain('Cannot attack');
   });
