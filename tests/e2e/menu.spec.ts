@@ -52,3 +52,22 @@ test('MENU-3: settings are saved at once and the next game uses them; Units open
   await page.locator('#info-btn').click();
   await expect(page.locator('#unit-info')).toHaveClass(/open/);
 });
+
+test('MENU-4: a View units button sits at the right-hand end of the opponent row and opens the sheet for the picked faction', async ({ page }) => {
+  await page.goto('/');
+  const btn = page.locator('#menu [data-panel="single"] #units-btn');
+  await expect(btn).toBeVisible();
+  await expect(btn).toContainText('View units');
+  const seg = await page.locator('#menu [data-panel="single"] .seg').boundingBox();
+  const b = await btn.boundingBox();
+  const row = await page.locator('#menu [data-panel="single"] .row').boundingBox();
+  if (!seg || !b || !row) throw new Error('missing layout');
+  // Same row: the button's vertical centre lies within the selector; right end: it ends where the row ends.
+  expect(Math.abs(b.y + b.height / 2 - (seg.y + seg.height / 2))).toBeLessThan(4);
+  expect(b.x).toBeGreaterThan(seg.x + seg.width);
+  expect(Math.abs(b.x + b.width - (row.x + row.width))).toBeLessThan(2);
+  await page.locator('#menu [data-faction="alien"]').click();
+  await btn.click();
+  await expect(page.locator('#unit-info')).toHaveClass(/open/);
+  await expect(page.locator('#unit-info [data-tab="alien"]')).toHaveClass(/sel/);
+});
