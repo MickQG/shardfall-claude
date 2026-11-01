@@ -26,7 +26,8 @@ jobs:
           action: upload
           app_location: dist
           skip_app_build: true
-          skip_api_build: true
+          # The room-ticket function for online matches (NET-1); built by the action from api/package-lock.json.
+          api_location: api
 
   close:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

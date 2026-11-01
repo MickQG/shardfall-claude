@@ -20,6 +20,11 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
   {
+    files: ['api/**/*.js'],
+    languageOptions: { sourceType: 'commonjs', globals: { require: 'readonly', module: 'writable', process: 'readonly', Buffer: 'readonly', URL: 'readonly' } },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
     files: ['src/sim/**/*.ts', 'src/ai/**/*.ts', 'src/data/**/*.ts'],
     rules: { 'no-restricted-syntax': ['error', ...nonDeterministic] },
   },

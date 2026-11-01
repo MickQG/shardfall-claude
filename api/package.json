@@ -1,0 +1,11 @@
+{
+  "name": "shardfall-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Room tickets for Shardfall online matches (Azure Static Web Apps managed functions).",
+  "main": "src/functions/*.js",
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@azure/functions": "4.16.5"
+  }
+}

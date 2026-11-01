@@ -1,5 +1,6 @@
 import { AI, DIFFICULTIES } from '../ai/ai';
-import { createGame, snapshot, submit, tick, TICKS_PER_SECOND, type Command, type GameConfig, type Snapshot } from '../sim';
+import { HASH_EVERY, TURN_TICKS } from '../net/protocol';
+import { createGame, hash, snapshot, submit, tick, TICKS_PER_SECOND, type Command, type GameConfig, type Snapshot } from '../sim';
 
 export const TICK_MS = 1000 / TICKS_PER_SECOND;
 
@@ -17,6 +18,10 @@ export class SimRunner {
   private game;
   private acc = 0;
   private ais: { ai: AI; phase: number }[];
+  /** Online play (NET-2): complete turns of both players' commands, by turn number; null when playing alone. */
+  private turns: Map<number, Command[]> | null = null;
+  /** Called with the state checksum every HASH_EVERY ticks in online play (NET-3). */
+  onHash: ((tick: number, h: number) => void) | null = null;
   speed = 1;
   paused = false;
 
@@ -33,7 +38,27 @@ export class SimRunner {
   }
 
   send(cmd: Command): void {
-    submit(this.game, cmd);
+    // Online, commands reach the simulation only inside complete turns (NET-2).
+    if (!this.turns) submit(this.game, cmd);
+  }
+
+  /**
+   * Switch to lockstep (NET-2): from now on a tick that starts a turn runs only once that turn's commands have been
+   * delivered with `turn`, and then applies exactly them; commands from `send` are no longer accepted.
+   */
+  lockstep(): void {
+    this.turns = new Map();
+  }
+
+  /** Both players' commands for lockstep turn `n` (NET-2). */
+  turn(n: number, cmds: readonly Command[]): void {
+    this.turns?.set(n, [...cmds]);
+  }
+
+  /** Whether the simulation is waiting for a turn that has not been delivered yet. */
+  get stalled(): boolean {
+    const t = this.game.state.tick;
+    return !!this.turns && t % TURN_TICKS === 0 && !this.turns.has(t / TURN_TICKS);
   }
 
   /** Advance by `dtMs` of wall time; returns the number of ticks executed. */
@@ -42,6 +67,19 @@ export class SimRunner {
     this.acc += dtMs * this.speed;
     let n = 0;
     while (this.acc >= TICK_MS && n < 10) {
+      if (this.turns) {
+        const t = this.game.state.tick;
+        if (t % TURN_TICKS === 0) {
+          const cmds = this.turns.get(t / TURN_TICKS);
+          if (!cmds) {
+            // Held up by the other player: keep a little time in hand to catch up, never a burst.
+            this.acc = Math.min(this.acc, TICK_MS * 6);
+            break;
+          }
+          this.turns.delete(t / TURN_TICKS);
+          for (const c of cmds) submit(this.game, c);
+        }
+      }
       for (const { ai, phase } of this.ais) {
         if ((this.game.state.tick + phase) % ai.diff.thinkEvery !== 0) continue;
         for (const c of ai.think(snapshot(this.game, ai.player))) submit(this.game, c);
@@ -50,6 +88,7 @@ export class SimRunner {
       this.acc -= TICK_MS;
       n++;
       this.onSnapshot(snapshot(this.game, this.viewer));
+      if (this.turns && this.game.state.tick % HASH_EVERY === 0) this.onHash?.(this.game.state.tick, hash(this.game));
     }
     if (this.acc > TICK_MS * 10) this.acc = 0;
     return n;

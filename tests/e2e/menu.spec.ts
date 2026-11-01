@@ -22,16 +22,16 @@ test('MENU-1: the menu has a rail of four modes, faction cards naming heroes, ma
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
 });
 
-test('MENU-2: multiplayer is marked in progress and cannot start or join a game', async ({ page }) => {
+test('MENU-2 NET-1: where the website has no game server, Multiplayer says online play is unavailable and offers no controls', async ({ page }) => {
   await page.goto('/');
   const mp = page.locator('#menu [data-mode="multi"]');
-  await expect(mp).toContainText('In progress');
+  await expect(mp.locator('.badge')).toHaveText('Unavailable');
   await mp.click();
   const panel = page.locator('#menu [data-panel="multi"]');
   await expect(panel).toBeVisible();
-  await expect(panel).toContainText('Work in progress');
-  await expect(panel).toContainText('room');
-  await expect(panel.locator('button, input, a')).toHaveCount(0);
+  await expect(panel.locator('.mp-off')).toContainText('not available');
+  await expect(panel.locator('#mp-host')).toBeHidden();
+  await expect(panel.locator('#mp-join')).toBeHidden();
   await expect(page.locator('#menu [data-panel="single"]')).toBeHidden();
 });
 

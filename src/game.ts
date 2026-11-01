@@ -4,6 +4,8 @@ import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
 import { soundFor } from './audio/plan';
 import { SimClient } from './host/client';
+import { activeMatch } from './net/lobby';
+import { OnlineWatch } from './net/watch';
 import { centerOnTile, clampCamera, mapBounds, pan, zoomAt, type Camera } from './render/camera';
 import { GameView, type PlacementPreview } from './render/gameView';
 import type { WorldRenderer } from './render/worldRenderer';
@@ -26,17 +28,27 @@ import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
 import { chooseRenderer, type GpuProbe } from './render/chooseRenderer';
 import { boxSelect, Selection, selectKinds, selectSameKind, toScreenUnits } from './ui/selection';
 
-const PLAYER = 0;
 const host = document.getElementById('app');
 if (!host) throw new Error('missing #app');
 
 const params = new URLSearchParams(location.search);
+// An online match (NET-1) is handed over by the menu in this page; a reloaded online page has lost its connection, so
+// it goes back to the menu.
+const match = activeMatch();
+if (params.has('online') && !match) {
+  location.replace(location.pathname);
+  await new Promise(() => undefined);
+}
+/** This browser's seat: player 0 alone or as host, player 1 as an online guest. */
+const PLAYER = match?.me ?? 0;
 const myFaction = params.get('faction') === 'alien' ? 'alien' : 'human';
 const level = (['easy', 'medium', 'hard'] as const).find((d) => d === params.get('difficulty')) ?? 'medium';
 const scenario = params.get('scenario');
 const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number], map: mapIdOf(params.get('map')) };
 const seed = seedOf(params.get('seed'), Date.now() % 100000);
-const cfg = scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0), myFaction) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
+const cfg = match
+  ? skirmishConfig(match.setup.seed, { factions: match.setup.factions, bonuses: [0, 0], map: match.setup.map })
+  : scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0), myFaction) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
 /** What this browser's WebGL2 is: missing, software-rendered, or on a graphics chip. */
 function probeGpu(): GpuProbe {
   try {
@@ -54,8 +66,11 @@ function probeGpu(): GpuProbe {
 const use3d = chooseRenderer(params.get('renderer'), probeGpu()) === '3d';
 const map = cfg.map;
 const bounds = mapBounds(map.width, map.height);
-// Scenarios are scripted fights without an AI opponent; a normal game has the AI play player 1.
-const sim = new SimClient(cfg, scenario ? [] : [{ player: 1, difficulty: level }]);
+// Scenarios are scripted fights without an AI opponent; a normal game has the AI play player 1; an online match has
+// the two players in lockstep (NET-2).
+const watch = match ? new OnlineWatch(match, { end: (why, tick) => endOnline(why, tick) }) : null;
+const sim = new SimClient(cfg, scenario || match ? [] : [{ player: 1, difficulty: level }], { viewer: PLAYER, net: watch?.link });
+watch?.attach(sim);
 // three.js loads only for the 3D view, so classic sessions do not download it.
 const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D() : new GameView();
 const frameStats = new FrameStats();
@@ -73,6 +88,10 @@ let speedIdx = 1;
 const SPEEDS = [0.5, 1, 2, 4];
 
 function topbar(): void {
+  if (match) {
+    hud.setTop(`Shardfall · online · room ${match.room} · Esc menu · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · E select same kind · F attack-move · F2 quality: ${settings.quality}`);
+    return;
+  }
   hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · E select same kind · F attack-move · F2 quality: ${settings.quality}`);
 }
 topbar();
@@ -84,6 +103,30 @@ function setPaused(p: boolean): void {
   paused = p;
   sim.setPaused(p);
   hud.showPause(p, { resume: () => setPaused(false), quit: () => (location.search = '') });
+  // An online match cannot be paused (NET-2): this is only a menu, and the game goes on behind it.
+  if (match) {
+    const box = document.getElementById('pause');
+    const h = box?.querySelector('h2');
+    if (h) h.textContent = 'GAME MENU · THE MATCH GOES ON';
+    const resume = box?.querySelector('#resume');
+    if (resume) resume.textContent = 'Back to the game (Esc)';
+  }
+}
+
+/** An online match ended outside the simulation (NET-3, NET-4): the opponent left, the link dropped, or a desync. */
+function endOnline(why: 'left' | 'timeout' | 'lost' | 'desync', tick = 0): void {
+  if (resultShown) return;
+  resultShown = true;
+  setPaused(false);
+  const r =
+    why === 'desync'
+      ? { title: 'OUT OF SYNC', sub: `The two games stopped matching (tick ${tick}), so this match cannot go on.`, color: '#ffcf6a' }
+      : why === 'lost'
+        ? { title: 'CONNECTION LOST', sub: 'You were cut off from the game server.', color: '#ffcf6a' }
+        : { title: 'VICTORY', sub: why === 'left' ? 'Your opponent left the match.' : 'Your opponent lost their connection.', color: '#7ff5cd' };
+  hud.showResult(r.title, r.sub, r.color);
+  const again = document.getElementById('again');
+  if (again) again.hidden = true;
 }
 
 let cam: Camera = { x: 0, y: 0, zoom: 1 };
@@ -228,6 +271,10 @@ function frame(prevTime: number): (t: number) => void {
       resultShown = true;
       const r = resultText(curr.winner, PLAYER);
       hud.showResult(r.title, r.sub, r.color, curr.stats ? scoreView(curr) : undefined);
+      // Online, "Play again" would need a new room: only the menu is offered.
+      const again = document.getElementById('again');
+      if (again && match) again.hidden = true;
+      watch?.finished();
     }
     if (curr && sim.prev) {
       selection.prune(aliveOwn(curr));
@@ -384,7 +431,10 @@ async function boot(): Promise<void> {
       } else setPaused(!paused);
     }
     if (k === 'f' && !e.ctrlKey && !e.repeat && !placing && !targeting && sim.curr && combatUnitIds(sim.curr.units.filter((u) => selection.has(u.id)), PLAYER).length > 0) amoveMode = true;
-    if (k === 'p') setPaused(!paused);
+    if (k === 'p') {
+      if (match) hud.toast('Online matches cannot be paused', 'info');
+      else setPaused(!paused);
+    }
     if (k === 'm') {
       settings.muted = !settings.muted;
       audio.setMuted(settings.muted);
@@ -413,7 +463,8 @@ async function boot(): Promise<void> {
       saveSettings(safeStorage(), settings);
       topbar();
     }
-    if (k === '+' || k === '=' || k === '-') {
+    if ((k === '+' || k === '=' || k === '-') && match) hud.toast('Online matches run at normal speed', 'info');
+    else if (k === '+' || k === '=' || k === '-') {
       speedIdx = Math.max(0, Math.min(SPEEDS.length - 1, speedIdx + (k === '-' ? -1 : 1)));
       sim.setSpeed(SPEEDS[speedIdx] as number);
       topbar();
