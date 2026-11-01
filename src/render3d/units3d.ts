@@ -467,64 +467,74 @@ function hauler(): RigDef {
 }
 
 /**
- * Paladin, the Aegis hero (HERO-1): a giant four-legged assault walker, twice the size of the old tank. Four heavy
- * reverse-jointed legs stride under a broad armoured hull that turns to face its target; a missile pod rides on each
+ * Paladin, the Aegis hero (HERO-1): a giant four-legged assault walker, twice the size of the old tank. Four thick
+ * reverse-jointed legs stride under a long, low armoured hull that turns to face its target; a missile pod rides on each
  * shoulder for aircraft and twin heavy cannons hang beneath; gold trim and a glowing visor mark it as the hero.
  */
 function paladin(): RigDef {
   const GOLD = 0xd8b24a;
   return {
     move: 'walker',
-    stride: 1.5,
+    // A long, unhurried stride: the legs swing less per step and the cycle is slower, so the walk reads heavy and smooth.
+    stride: 2.0,
     turn: 4,
-    radius: 0.66,
-    height: 1.1,
+    radius: 0.72,
+    height: 0.86,
     scale: 2.2,
-    weapon: 'cannon',
+    weapon: 'heroCannon',
     shapes: {
       leg: () => {
-        // Hip joint at the origin; thigh back and down to a reverse knee, shin forward and down to an armoured foot.
+        // Hip joint at the origin; a thick thigh back and down to a reverse knee, a stout shin forward and down to a broad
+        // armoured foot. Shorter than before, so the hull rides low.
         const s = shape();
-        s.cyl(0.075, 0.12, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 12 });
-        s.strut([0, 0, 0], [-0.16, -0.3, 0], 0.07, STEEL, { r2: 0.06 });
-        s.box(0.16, 0.2, 0.1, 'team', { at: [-0.08, -0.15, 0], rot: [0, 0, 0.5], bevel: 0.2 });
-        s.cyl(0.06, 0.11, GUN, { at: [-0.16, -0.3, 0], rot: [Math.PI / 2, 0, 0], seg: 10 });
-        s.strut([-0.16, -0.3, 0], [0.02, -0.58, 0], 0.055, STEEL, { r2: 0.045 });
-        s.tube(0.02, 0.24, GUN, { at: [-0.08, -0.44, 0.05], rot: [0, 0, 1.0] }); // piston
-        s.box(0.26, 0.05, 0.16, STEEL2, { at: [0.05, -0.6, 0], bevel: 0.2 }); // foot
-        s.box(0.08, 0.04, 0.17, GUN, { at: [0.2, -0.61, 0], bevel: 0.2 }); // toe
-        s.box(0.06, 0.04, 0.12, GUN, { at: [-0.08, -0.61, 0], bevel: 0.2 }); // heel spur
+        s.cyl(0.1, 0.15, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 14 });
+        s.strut([0, 0, 0], [-0.17, -0.24, 0], 0.095, STEEL, { r2: 0.082 });
+        s.box(0.2, 0.2, 0.13, 'team', { at: [-0.085, -0.12, 0], rot: [0, 0, 0.62], bevel: 0.2 });
+        s.cyl(0.082, 0.14, GUN, { at: [-0.17, -0.24, 0], rot: [Math.PI / 2, 0, 0], seg: 12 });
+        s.strut([-0.17, -0.24, 0], [0.03, -0.46, 0], 0.075, STEEL, { r2: 0.062 });
+        s.box(0.11, 0.16, 0.1, STEEL2, { at: [-0.07, -0.35, 0], rot: [0, 0, 0.83], bevel: 0.2 }); // shin guard
+        s.tube(0.026, 0.22, GUN, { at: [-0.09, -0.36, 0.07], rot: [0, 0, 0.9] }); // piston
+        s.box(0.32, 0.065, 0.21, STEEL2, { at: [0.06, -0.48, 0], bevel: 0.2 }); // foot
+        s.box(0.09, 0.05, 0.22, GUN, { at: [0.23, -0.495, 0], bevel: 0.2 }); // toe
+        s.box(0.08, 0.05, 0.15, GUN, { at: [-0.1, -0.495, 0], bevel: 0.2 }); // heel spur
         return s;
       },
       hull: () => {
         const s = shape();
-        // The armoured hull: sloped front, flat roof, team panels and gold trim.
-        s.slab([[-0.3, -0.12], [0.22, -0.12], [0.34, -0.02], [0.24, 0.16], [-0.26, 0.17], [-0.34, 0.04]], 0.5, STEEL, { bevel: 0.03 });
-        s.slab([[-0.2, 0.17], [0.16, 0.17], [0.12, 0.22], [-0.16, 0.22]], 0.36, 'team', { bevel: 0.02 });
-        for (const z of [0.255, -0.255]) s.box(0.5, 0.014, 0.012, GOLD, { at: [-0.02, 0.1, z], bevel: 0 });
-        s.box(0.012, 0.04, 0.3, CYAN, { at: [0.3, 0.07, 0], rot: [0, 0, -0.9], glow: true, bevel: 0 }); // visor
-        s.box(0.04, 0.03, 0.05, AMBER, { at: [0.33, -0.05, 0.16], glow: true, bevel: 0 }); // searchlights
-        s.box(0.04, 0.03, 0.05, AMBER, { at: [0.33, -0.05, -0.16], glow: true, bevel: 0 });
-        s.box(0.16, 0.14, 0.4, STEEL2, { at: [-0.34, 0.02, 0], bevel: 0.15 }); // engine block
-        for (let i = 0; i < 3; i++) s.box(0.012, 0.1, 0.36, GUN, { at: [-0.43, 0.02 + (i - 1) * 0.035, 0], bevel: 0 });
-        s.cyl(0.006, 0.4, DARK, { at: [-0.22, 0.4, 0.14], seg: 4 }); // antenna with a gold pennant
-        s.box(0.06, 0.035, 0.004, GOLD, { at: [-0.19, 0.58, 0.14], bevel: 0 });
-        // Shoulder missile pods for aircraft, with glowing tube mouths.
-        for (const z of [0.33, -0.33]) {
-          s.box(0.26, 0.15, 0.13, GUN, { at: [-0.04, 0.16, z], bevel: 0.15 });
-          s.box(0.26, 0.012, 0.135, GOLD, { at: [-0.04, 0.237, z], bevel: 0 });
-          for (const dy of [0.035, -0.035]) for (const dz of [0.032, -0.032]) s.cyl(0.02, 0.012, RED, { at: [0.095, 0.16 + dy, z + dz], rot: [0, 0, Math.PI / 2], seg: 6, glow: true });
-        }
+        // A long, low armoured hull: sloped glacis, flat roof, team panels and gold trim down its length.
+        s.slab([[-0.46, -0.11], [0.32, -0.11], [0.48, -0.02], [0.36, 0.13], [-0.4, 0.14], [-0.5, 0.03]], 0.54, STEEL, { bevel: 0.03 });
+        s.slab([[-0.32, 0.14], [0.24, 0.14], [0.19, 0.19], [-0.27, 0.19]], 0.38, 'team', { bevel: 0.02 });
+        s.box(0.22, 0.05, 0.3, STEEL2, { at: [-0.08, 0.215, 0], bevel: 0.2 }); // command cupola
+        s.box(0.012, 0.025, 0.2, CYAN, { at: [0.03, 0.225, 0], glow: true, bevel: 0 }); // cupola vision slit
+        for (const z of [0.275, -0.275]) s.box(0.78, 0.014, 0.012, GOLD, { at: [-0.04, 0.08, z], bevel: 0 });
+        for (const z of [0.275, -0.275]) for (const x of [-0.3, -0.1, 0.1]) s.box(0.16, 0.12, 0.015, 'team', { at: [x, -0.01, z], bevel: 0.2 }); // side skirts
+        s.box(0.012, 0.035, 0.34, CYAN, { at: [0.43, 0.06, 0], rot: [0, 0, -0.9], glow: true, bevel: 0 }); // visor
+        s.box(0.04, 0.03, 0.05, AMBER, { at: [0.47, -0.04, 0.18], glow: true, bevel: 0 }); // searchlights
+        s.box(0.04, 0.03, 0.05, AMBER, { at: [0.47, -0.04, -0.18], glow: true, bevel: 0 });
+        s.box(0.16, 0.13, 0.42, STEEL2, { at: [-0.5, 0.02, 0], bevel: 0.15 }); // engine block
+        for (let i = 0; i < 3; i++) s.box(0.012, 0.09, 0.38, GUN, { at: [-0.59, 0.02 + (i - 1) * 0.032, 0], bevel: 0 });
+        s.cyl(0.006, 0.34, DARK, { at: [-0.36, 0.33, 0.14], seg: 4 }); // antenna with a gold pennant
+        s.box(0.06, 0.035, 0.004, GOLD, { at: [-0.33, 0.48, 0.14], bevel: 0 });
+        return s;
+      },
+      pod: () => {
+        // A shoulder missile pod for aircraft, with glowing tube mouths; a part of its own, so it is blown off when the
+        // Paladin dies (HERO-3).
+        const s = shape();
+        s.box(0.3, 0.14, 0.13, GUN, { bevel: 0.15 });
+        s.box(0.3, 0.012, 0.135, GOLD, { at: [0, 0.075, 0], bevel: 0 });
+        for (const dy of [0.033, -0.033]) for (const dz of [0.032, -0.032]) s.cyl(0.02, 0.012, RED, { at: [0.155, dy, dz], rot: [0, 0, Math.PI / 2], seg: 6, glow: true });
         return s;
       },
       barrel: () => {
-        // Twin heavy cannons in a cradle under the hull.
+        // Twin heavy cannons with muzzle brakes, in a cradle under the hull's nose.
         const s = shape();
-        s.box(0.16, 0.1, 0.36, STEEL2, { at: [0, 0, 0], bevel: 0.15 });
-        for (const z of [0.12, -0.12]) {
-          s.tube(0.032, 0.5, GUN, { at: [0.3, 0, z], r2: 0.036, seg: 10 });
-          s.tube(0.045, 0.1, GUN, { at: [0.28, 0, z], seg: 10 });
-          s.box(0.07, 0.065, 0.075, DARK, { at: [0.56, 0, z], bevel: 0.2 });
+        s.box(0.18, 0.11, 0.38, STEEL2, { at: [0, 0, 0], bevel: 0.15 });
+        for (const z of [0.13, -0.13]) {
+          s.tube(0.036, 0.58, GUN, { at: [0.34, 0, z], r2: 0.04, seg: 12 });
+          s.tube(0.05, 0.12, GUN, { at: [0.3, 0, z], seg: 12 });
+          s.box(0.08, 0.075, 0.085, DARK, { at: [0.64, 0, z], bevel: 0.2 }); // muzzle brake
+          s.box(0.02, 0.08, 0.1, GUN, { at: [0.61, 0, z], bevel: 0 });
         }
         return s;
       },
@@ -533,30 +543,32 @@ function paladin(): RigDef {
       kids: [
         {
           anim: { k: 'body' },
-          at: [0, 0.66, 0],
+          at: [0, 0.52, 0],
           kids: [
             {
               anim: { k: 'turret' },
               geo: 'hull',
               kids: [
+                { geo: 'pod', at: [-0.12, 0.14, 0.35] },
+                { geo: 'pod', at: [-0.12, 0.14, -0.35] },
                 {
                   geo: 'barrel',
-                  at: [0.12, -0.17, 0],
-                  anim: { k: 'barrel', recoil: 0.08 },
+                  at: [0.24, -0.15, 0],
+                  anim: { k: 'barrel', recoil: 0.14 },
                   kids: [
-                    { muzzle: true, at: [0.6, 0, 0.12] },
-                    { muzzle: true, at: [0.6, 0, -0.12] },
+                    { muzzle: true, at: [0.69, 0, 0.13] },
+                    { muzzle: true, at: [0.69, 0, -0.13] },
                   ],
                 },
               ],
             },
           ],
         },
-        // Four legs at the hull's corners, splayed a little outward, stepping in a diagonal trot.
-        { geo: 'leg', at: [0.22, 0.62, 0.27], rot: [-0.18, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: 0, lift: 0.04 } },
-        { geo: 'leg', at: [0.22, 0.62, -0.27], rot: [0.18, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: Math.PI, lift: 0.04 } },
-        { geo: 'leg', at: [-0.26, 0.62, 0.27], rot: [-0.18, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: Math.PI, lift: 0.04 } },
-        { geo: 'leg', at: [-0.26, 0.62, -0.27], rot: [0.18, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: 0, lift: 0.04 } },
+        // Four legs at the long hull's corners, splayed a little outward, stepping in a smooth diagonal trot.
+        { geo: 'leg', at: [0.34, 0.48, 0.3], rot: [-0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: 0, lift: 0.045, ease: true } },
+        { geo: 'leg', at: [0.34, 0.48, -0.3], rot: [0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: Math.PI, lift: 0.045, ease: true } },
+        { geo: 'leg', at: [-0.38, 0.48, 0.3], rot: [-0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: Math.PI, lift: 0.045, ease: true } },
+        { geo: 'leg', at: [-0.38, 0.48, -0.3], rot: [0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: 0, lift: 0.045, ease: true } },
       ],
     },
   };

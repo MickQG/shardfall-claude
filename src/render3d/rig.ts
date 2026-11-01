@@ -22,7 +22,7 @@ export type Anim =
   | { k: 'steer' }
   /** Legs: swing about `axis` with the gait phase, lifting by `lift` on the forward stroke; kneeling turns the leg by
    * `kneel` and lowers its hip by `drop`. */
-  | { k: 'gait'; axis: Axis; amp: number; phase: number; lift?: number; kneel?: number; drop?: number }
+  | { k: 'gait'; axis: Axis; amp: number; phase: number; lift?: number; kneel?: number; drop?: number; ease?: boolean }
   /** Rotors, radar dishes: spin with time. */
   | { k: 'spin'; axis: Axis; rate: number }
   /** Wings: beat with time. */
@@ -51,7 +51,7 @@ export interface RigNode {
 export type Locomotion = 'tracked' | 'wheeled' | 'walker' | 'air' | 'static';
 
 /** How a weapon looks when it fires (chosen by the shooter's kind). */
-export type WeaponLook = 'rifle' | 'mg' | 'cannon' | 'rocket' | 'howitzer' | 'chaingun' | 'pulse' | 'claw' | 'acid' | 'acidBig' | 'sting' | 'spine';
+export type WeaponLook = 'rifle' | 'mg' | 'cannon' | 'heroCannon' | 'rocket' | 'howitzer' | 'chaingun' | 'pulse' | 'claw' | 'acid' | 'acidBig' | 'sting' | 'spine';
 
 export interface RigDef {
   shapes: Record<string, () => Shape>;
@@ -174,6 +174,15 @@ function turn(obj: THREE.Object3D, axis: 'x' | 'y' | 'z', v: number): void {
   if (obj.rotation[axis] !== v) obj.rotation[axis] = v;
 }
 
+/**
+ * How high a foot is lifted through its stride, 0..1: up on the forward swing, planted on the back stroke. Eased lifts
+ * rise and set down gently (the square of the plain curve), so a heavy walker never jerks at touch-down (HERO-1).
+ */
+export function footLift(phase: number, ease: boolean): number {
+  const up = Math.max(0, Math.cos(phase));
+  return ease ? up * up : up;
+}
+
 export function poseRig(tree: RigTree, p: RigPose): void {
   for (const a of tree.anims) {
     const an = a.anim;
@@ -204,7 +213,7 @@ export function poseRig(tree: RigTree, p: RigPose): void {
       case 'gait': {
         const c = p.crouch ?? 0;
         turn(obj, an.axis, a.rot[an.axis] + Math.sin(p.phase + an.phase) * an.amp * p.stride + c * (an.kneel ?? 0));
-        if (an.lift || an.drop) obj.position.y = a.pos.y + (an.lift ?? 0) * Math.max(0, Math.cos(p.phase + an.phase)) * p.stride - c * (an.drop ?? 0);
+        if (an.lift || an.drop) obj.position.y = a.pos.y + (an.lift ?? 0) * footLift(p.phase + an.phase, !!an.ease) * p.stride - c * (an.drop ?? 0);
         break;
       }
       case 'tip': {
