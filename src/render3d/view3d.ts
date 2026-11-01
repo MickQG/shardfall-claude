@@ -25,6 +25,7 @@ import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
+import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
 import { unexploredMask } from './unexplored';
 import { RallyMarker } from './rally3d';
 import { PR_MAX, ResolutionGovernor } from './resolution';
@@ -206,7 +207,7 @@ interface UnitObj {
   drum: number;
   alive: number;
   seed: number;
-  dying: { t0: number; mode: 'wreck' | 'fall' | 'crash'; side: number; boomed: boolean } | null;
+  dying: { t0: number; mode: 'wreck' | 'fall' | 'crash' | 'break'; side: number; boomed: boolean; pieces?: { pivot: THREE.Group; plan: Piece }[] } | null;
   lastDust: number;
   lastBurn: number;
 }
@@ -793,6 +794,8 @@ export class View3D {
         u.dying = { t0: now, mode, side: e.id % 2 ? 1 : -1, boomed: mode !== 'crash' };
         // A hero goes down in a long, violent death of its own (HERO-3).
         if (e.kind && UNIT_DEFS[e.kind]?.hero) {
+          u.dying.mode = 'break';
+          u.dying.pieces = this.breakApart(u, e.id);
           this.fx.heroDeath(at, !!u.def.organic, u.def.height * (u.def.scale ?? 1), now);
           return;
         }
@@ -1083,7 +1086,7 @@ export class View3D {
     for (const [id, o] of this.units) {
       if (seen.has(id)) continue;
       if (o.dying && this.animateDeath(o, t)) {
-        if (this.inView(o.x, 0, o.z, o.def.radius + 0.5)) this.drawUnit(o, this.tint, t);
+        if (this.inView(o.x, 0, o.z, o.def.radius + (o.dying.mode === 'break' ? 3 : 0.5))) this.drawUnit(o, this.tint, t);
         continue;
       }
       // Gone (dead and finished, or out of sight); model geometry stays cached.
@@ -1235,13 +1238,55 @@ export class View3D {
     });
   }
 
+  /**
+   * Split a dying hero into its parts (HERO-3): each drawn part moves under a pivot at its centre, directly under the
+   * unit's root (ground at y 0, Y up), so it can be thrown and spun on its own. Returns the pieces and their flights.
+   */
+  private breakApart(o: UnitObj, seed: number): { pivot: THREE.Group; plan: Piece }[] {
+    o.root.updateMatrixWorld(true);
+    const toRoot = new THREE.Matrix4().copy(o.root.matrixWorld).invert();
+    const pivots: THREE.Group[] = [];
+    const starts: PieceStart[] = [];
+    for (const f of o.figures) {
+      for (const part of f.parts) {
+        const geo = part.lit ?? part.glow;
+        if (!geo) continue;
+        if (!geo.boundingSphere) geo.computeBoundingSphere();
+        const sphere = geo.boundingSphere!;
+        const world = part.obj.matrixWorld;
+        const c = sphere.center.clone().applyMatrix4(world).applyMatrix4(toRoot);
+        const pivot = new THREE.Group();
+        pivot.position.copy(c);
+        o.root.add(pivot);
+        pivot.updateMatrixWorld(true);
+        // Keeps the part exactly where it is on screen; parts under an already-moved part are moved after it.
+        pivot.attach(part.obj);
+        pivots.push(pivot);
+        starts.push({ x: c.x, y: c.y, z: c.z, size: sphere.radius * world.getMaxScaleOnAxis() });
+      }
+    }
+    const plans = planBreakup(starts, seed);
+    return pivots.map((pivot, i) => ({ pivot, plan: plans[i]! }));
+  }
+
   /** Advance a death; false once it is over (R3D-12). Leaves the unit's tint in `this.tint`. */
   private animateDeath(o: UnitObj, t: number): boolean {
     const d = o.dying!;
     const age = t - d.t0;
     const rich = this.fx.quality.rich;
-    const life = d.mode === 'fall' ? 2600 : rich ? 9000 : 3500;
+    const life = d.mode === 'fall' ? 2600 : d.mode === 'break' ? (rich ? 9000 : 5000) : rich ? 9000 : 3500;
     if (age > life) return false;
+    if (d.mode === 'break') {
+      // A hero blown apart (HERO-3): parts thrown out with the blasts, landing, scorched, and sinking away at the end.
+      const sink = Math.max(0, (age - (life - 2500)) / 2500) * 0.6;
+      for (const b of d.pieces ?? []) {
+        const p = pieceAt(b.plan, age);
+        b.pivot.position.set(p.x, p.y - sink, p.z);
+        b.pivot.quaternion.setFromAxisAngle(this.v.set(b.plan.ax, b.plan.ay, b.plan.az), p.angle);
+      }
+      this.tint.setScalar(age < BREAK_FIRST_MS ? 1 : Math.max(0.22, 1 - ((age - BREAK_FIRST_MS) / 1500) * 0.78));
+      return true;
+    }
     if (d.mode === 'crash') {
       // Dive out of the sky nose first, spinning and trailing fire, carried on by its momentum (R3D-12).
       const k = Math.min(1, age / CRASH_MS);

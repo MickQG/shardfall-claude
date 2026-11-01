@@ -48,6 +48,9 @@ export const LOOKS: Record<WeaponLook, Look> = {
   chaingun: { color: 0xffc070, intensity: 1.5, speed: 46, len: 0.34, width: 0.009, arc: 0, flash: 0.12, flashColor: 0xffb060, smokeTrail: false, hit: 'spark', shake: 0 },
   pulse: { color: 0x80e8ff, intensity: 1.8, speed: 30, len: 0.4, width: 0.018, arc: 0, flash: 0.17, flashColor: 0x9ff0ff, smokeTrail: false, hit: 'spark', shake: 0 },
   cannon: { color: 0xffd090, intensity: 2.2, speed: 0, len: 0.26, width: 0.026, arc: 0.02, flash: 0.55, flashColor: 0xffc068, smokeTrail: false, hit: 'blast', shake: 0.04 },
+  // The Paladin's twin heavy cannons (HERO-1): a long, hot shell trace, a big flash with side jets from the muzzle brakes,
+  // a shock ring and a rolling cloud of gun smoke, and a heavier burst where the shell lands.
+  heroCannon: { color: 0xffe2a8, intensity: 2.6, speed: 0, len: 0.42, width: 0.04, arc: 0.025, flash: 0.85, flashColor: 0xffc068, smokeTrail: true, hit: 'blast', shake: 0.07 },
   howitzer: { color: 0xffb060, intensity: 2.2, speed: 0, len: 0.22, width: 0.035, arc: 0.38, flash: 0.8, flashColor: 0xffb050, smokeTrail: true, hit: 'blast', shake: 0.08 },
   rocket: { color: 0xffa040, intensity: 2.6, speed: 0, len: 0.14, width: 0.03, arc: 0.12, flash: 0.22, flashColor: 0xffb060, smokeTrail: true, hit: 'blast', shake: 0.02 },
   claw: { color: 0xd8ffb0, intensity: 2.5, speed: 0, len: 0, width: 0.02, arc: 0, flash: 0, flashColor: 0, smokeTrail: false, hit: 'slash', shake: 0, bio: true },
@@ -526,6 +529,29 @@ export class CombatFx {
       }
       this.shake = Math.max(this.shake, L.shake);
     }
+    if (look === 'heroCannon') this.heroMuzzle(at, dir, now);
+  }
+
+  /**
+   * Extra blast for the Paladin's cannons (HERO-1): jets of fire to both sides from the muzzle brake, a ring of
+   * pressure thrown out from the muzzle, and a thick cloud of gun smoke that rolls forward and lingers.
+   */
+  private heroMuzzle(at: Vec, dir: Vec, now: number): void {
+    const r = this.rng;
+    const sx = -dir.z;
+    const sz = dir.x;
+    for (const side of [1, -1]) {
+      for (let i = 0; i < 3; i++) {
+        const sp = r.range(1.6, 3);
+        this.glow.emit({ x: at.x, y: at.y, z: at.z, vx: (sx * side + dir.x * 0.3) * sp, vy: r.range(0, 0.4), vz: (sz * side + dir.z * 0.3) * sp, life: 90 + i * 25, size0: 0.32, size1: 0.12, color0: 0xffffff, color1: 0xffa040, alpha: 1.1, drag: 6 }, now);
+      }
+    }
+    this.ring(at, 1.1, 260, now, 0xffe0b0);
+    const n = this.quality.rich && !this.busy ? 8 : 3;
+    for (let i = 0; i < n; i++) {
+      const s = r.range(0.4, 1.2);
+      this.smoke.emit({ x: at.x + dir.x * 0.2, y: at.y, z: at.z + dir.z * 0.2, vx: dir.x * s * 2.4 + r.range(-0.4, 0.4), vy: r.range(0.1, 0.5), vz: dir.z * s * 2.4 + r.range(-0.4, 0.4), life: r.range(1200, 2200), size0: 0.2, size1: r.range(0.9, 1.4), color0: 0xa8a298, color1: 0x5c5a56, alpha: 0.42, drag: 2.6, gravity: -0.12 }, now);
+    }
   }
 
   /**
@@ -709,7 +735,16 @@ export class CombatFx {
     if (L.hit === 'blast' || splash > 0) {
       if (L.hit === 'acid') this.acidBurst(at, 0.4 + splash * 0.35, now);
       // Aegis shells and rockets burst dimmer than a death, so a firefight does not flood the screen with light.
-      else this.explosion(at, splash > 0 ? 0.4 + splash * 0.4 : L === LOOKS.cannon ? 0.45 : 0.32, now, 0xffa040, SHOT_BLAST_DIM);
+      else if (L === LOOKS.heroCannon) {
+        // A Paladin shell lands hard: a bigger burst, a ring of dust and thrown dirt, still dimmer than a death.
+        this.explosion(at, 0.72, now, 0xffa040, SHOT_BLAST_DIM);
+        this.ring(at, 1.3, 420, now, 0xd8c0a0);
+        for (let i = 0; i < (this.quality.rich ? 8 : 3); i++) {
+          const a = r.range(0, Math.PI * 2);
+          const sp = r.range(1, 2.6);
+          this.smoke.emit({ x: at.x, y: at.y + 0.05, z: at.z, vx: Math.cos(a) * sp, vy: r.range(2.2, 4), vz: Math.sin(a) * sp, life: r.range(600, 1000), size0: 0.07, size1: 0.05, color0: 0x3a3228, alpha: 0.9, gravity: 9 }, now);
+        }
+      } else this.explosion(at, splash > 0 ? 0.4 + splash * 0.4 : L === LOOKS.cannon ? 0.45 : 0.32, now, 0xffa040, SHOT_BLAST_DIM);
       return;
     }
     if (L.hit === 'acid') {

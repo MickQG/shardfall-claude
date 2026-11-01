@@ -1,22 +1,36 @@
 import * as THREE from 'three';
-import { UNIT_DEFS } from '../data/defs';
+import { UNIT_DEFS, type UnitDef } from '../data/defs';
 import { OWNER_COLORS } from '../render/colors';
-import { gaitPhase } from './motion';
-import { poseRig, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
+import { FP, TICKS_PER_SECOND } from '../sim';
+import { CombatFx } from './fx3d';
+import { bodyPose, follow, gaitPhase, readyToFire, restingMotion, stepMotion, turnToward, TURRET_RATE, type Follow, type MotionState } from './motion';
+import { poseRig, recoil, rigTree, type RigDef, type RigTree } from './rig';
+import { newMember, stepSquad, type Member } from './squad3d';
 import { UNIT_RIGS } from './units3d';
 
 /**
  * Unit previews for the unit sheet (INF-6, INF-8): one small three.js scene that shows a unit's in-game model on a
- * plinth, turning slowly and cycling between walking (or rolling) and firing, plus still pictures of every model for
- * the sheet's list. One WebGL context serves both. Render-only; nothing here touches the sim.
+ * plinth, turning slowly and cycling between moving and working, plus still pictures of every model for the sheet's
+ * list. One WebGL context serves both. Render-only; nothing here touches the sim.
+ *
+ * The unit moves the way it does in a match: a virtual position travels a weaving path at the unit's real speed and
+ * the game's own code turns that into motion (the follow spring, hull turning, squat, banking and gait from
+ * `motion.ts`, squad members from `squad3d.ts`), while the plinth keeps the unit in the middle like a treadmill.
+ * Armed units then fire with the game's muzzle flashes and shots (`fx3d.ts`); harvesters mine and unload instead.
  */
 
 /** Camera field of view, degrees, and its elevation above the plinth, radians. */
 export const PREVIEW_FOV = 30;
 export const PREVIEW_PITCH = 0.42;
-/** Turntable speed, radians per second, and the length of one walk-then-fire cycle, ms. */
+/** Turntable speed, radians per second. */
 export const SPIN = 0.45;
-export const CYCLE_MS = 5200;
+/** One cycle, ms: moving, coming to a stop, then working (firing, or mining and unloading). */
+export const MOVE_MS = 3400;
+export const SETTLE_MS = 500;
+export const MINE_MS = 2400;
+export const CYCLE_MS = 7600;
+/** How long a harvester tips out its load, ms (the rest of its unload beat the bed settles back). */
+export const UNLOAD_MS = 900;
 
 /**
  * Camera distance that fits a sphere of `radius` in view, `margin` times its size, through the narrower of the vertical
@@ -28,15 +42,27 @@ export function fitDistance(radius: number, aspect = 1, margin = 1.12, fovDeg = 
   return (radius * margin) / Math.sin(Math.min(v, h) / 2);
 }
 
+export type PreviewAct = 'move' | 'settle' | 'fire' | 'mine' | 'unload';
+
 /**
- * What a preview shows at time `t` (ms since it opened): the first half of each cycle the unit walks or rolls on the
- * spot, the second half it stands and fires every 700 ms, its turret sweeping a little (pure).
+ * What a preview shows at time `t` (ms since it opened), pure: it moves along a weaving course (`steer`, the
+ * direction of travel in radians), stops, then works. Armed units fire; harvesters, which have no weapon, mine and
+ * then unload. `into` is how long the current beat has run, ms.
  */
-export function previewAction(t: number): { moving: boolean; sinceShot: number } {
-  const c = t % CYCLE_MS;
-  if (c < CYCLE_MS / 2) return { moving: true, sinceShot: 1e9 };
-  return { moving: false, sinceShot: (c - CYCLE_MS / 2) % 700 };
+export function previewBeat(t: number, harvester: boolean): { act: PreviewAct; into: number; steer: number } {
+  const c = ((t % CYCLE_MS) + CYCLE_MS) % CYCLE_MS;
+  if (c < MOVE_MS) return { act: 'move', into: c, steer: 0.55 * Math.sin((2 * Math.PI * c) / MOVE_MS) };
+  if (c < MOVE_MS + SETTLE_MS) return { act: 'settle', into: c - MOVE_MS, steer: 0 };
+  const w = c - MOVE_MS - SETTLE_MS;
+  if (!harvester) return { act: 'fire', into: w, steer: 0 };
+  return w < MINE_MS ? { act: 'mine', into: w, steer: 0 } : { act: 'unload', into: w - MINE_MS, steer: 0 };
 }
+
+/** A unit's speed in a match, tiles per second (its definition's speed is fixed-point units per tick). */
+export const tilesPerSecond = (speed: number): number => (speed * TICKS_PER_SECOND) / FP;
+
+/** Time between a unit's shots in a match, ms (its weapon cooldown), but at least 450 ms so each one reads. */
+export const shotEvery = (d: UnitDef): number => Math.max(450, ((d.weapon?.cooldown ?? 20) * 1000) / TICKS_PER_SECOND);
 
 /** Formation of squad figures on the plinth (tiles), first figure in front. */
 const SQUAD_SLOTS: readonly (readonly [number, number])[] = [
@@ -47,12 +73,37 @@ const SQUAD_SLOTS: readonly (readonly [number, number])[] = [
 ];
 
 interface Model {
+  kind: string;
   group: THREE.Group;
   trees: RigTree[];
   def: RigDef;
   radius: number;
   centreY: number;
 }
+
+/** A playing preview's state: the same quantities the game keeps for a unit on the map (view3d's UnitObj). */
+interface Live {
+  /** The virtual position the unit travels to, and its drawn (spring-followed) position, tiles. */
+  tx: number;
+  tz: number;
+  follow: Follow;
+  motion: MotionState;
+  members: Member[];
+  figureYaw: number;
+  turretYaw: number;
+  aim: number;
+  lastFire: number[];
+  lunge: number;
+  nextShot: number;
+  muzzleTurn: number;
+  pending: { at: number; figure: number }[];
+  load: number;
+  tip: number;
+  drum: number;
+  act: PreviewAct | '';
+}
+
+const SEED = 11;
 
 export class UnitPreview {
   private renderer: THREE.WebGLRenderer;
@@ -69,9 +120,12 @@ export class UnitPreview {
   private raf = 0;
   private start = 0;
   private last = 0;
-  private dist = 0;
-  private modelSpeed = 30;
   private owner = 0;
+  private state: Live | null = null;
+  /** The game's combat and harvest effects (R3D-9, R3D-19), drawn in the preview's scene. */
+  private fx = new CombatFx();
+  private v = new THREE.Vector3();
+  private v2 = new THREE.Vector3();
 
   constructor() {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
@@ -102,6 +156,7 @@ export class UnitPreview {
     this.rim.rotation.x = -Math.PI / 2;
     this.rim.position.y = 0.002;
     this.scene.add(this.rim);
+    this.scene.add(this.fx.root);
   }
 
   /** Whether a WebGL context could be created (INF-8: the sheet works without pictures otherwise). */
@@ -153,8 +208,9 @@ export class UnitPreview {
     group.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(group);
     const size = box.getSize(new THREE.Vector3());
-    const radius = Math.max(0.35, Math.hypot(size.x, size.z) / 2, size.y * 0.6);
-    return { group, trees, def, radius, centreY: Math.max(0.15, size.y * 0.45) };
+    // Squad members wander up to SQUAD_SPREAD (0.45 tiles) from the squad's spot, so leave room for that.
+    const radius = Math.max(0.35, Math.hypot(size.x, size.z) / 2, size.y * 0.6, n > 1 ? 0.75 : 0);
+    return { kind, group, trees, def, radius, centreY: Math.max(0.15, size.y * 0.45) };
   }
 
   private show(m: Model, owner: number): void {
@@ -180,36 +236,152 @@ export class UnitPreview {
     this.camera.updateProjectionMatrix();
   }
 
-  private pose(t: number, dt: number): void {
+  /** A point `fwd` tiles ahead of the unit (along `angle`), `up` above the plinth, in the scene (into `out`). */
+  private ahead(angle: number, fwd: number, up: number, out: THREE.Vector3): THREE.Vector3 {
+    const m = this.model;
+    out.set(Math.cos(angle) * fwd, up, Math.sin(angle) * fwd);
+    return m ? m.group.localToWorld(out) : out;
+  }
+
+  /** A still pose for pictures and reduced motion: standing in formation, turret a little to the side, bed full. */
+  private poseStill(): void {
     const m = this.model;
     if (!m) return;
-    const act = previewAction(t);
-    // About as fast as the unit moves in a game, so a Skitterer scurries and a Brute plods.
-    if (act.moving) this.dist += (dt / 1000) * (this.modelSpeed / 28);
-    const walker = m.def.move === 'walker';
+    const n = m.trees.length;
     m.trees.forEach((tree, i) => {
-      const phase = gaitPhase(this.dist, m.def.stride ?? 1) + i * 1.7;
-      const kick = act.sinceShot < 1e8 ? Math.max(0, 1 - Math.abs(act.sinceShot - 30) / 150) : 0;
-      const p: RigPose = {
-        turret: act.moving ? 0 : 0.35 * Math.sin(t / 900),
-        kick,
-        lunge: !m.def.weapon || m.def.weapon === 'claw' || m.def.weapon === 'sting' ? kick * 0.6 : 0,
-        pitch: walker && act.moving ? 0.03 : 0,
-        roll: walker && act.moving ? 0.01 * Math.sin(phase) : 0,
-        bob: walker && act.moving ? 0.006 * Math.abs(Math.sin(phase)) : 0,
+      const slot = n > 1 ? (SQUAD_SLOTS[i] ?? [0, 0]) : [0, 0];
+      tree.root.position.set(slot[0]!, 0, slot[1]!);
+      tree.root.rotation.set(0, 0, 0);
+      poseRig(tree, { turret: 0.3, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: i * 1.7, stride: 0, dist: 0, turnRate: 0, time: 0, reach: m.def.radius * 0.25, walker: m.def.move === 'walker', crouch: n > 1 ? i % 2 : 0, load: 1 });
+    });
+  }
+
+  /**
+   * Advance a playing preview one frame (`now` ms on the page clock, `t` ms since it opened, `dt` s), as the game
+   * advances a unit on the map: travel, hull and turret, squad members, firing or harvesting, then the rig's pose.
+   */
+  private step(now: number, t: number, dt: number): void {
+    const m = this.model;
+    const s = this.state;
+    if (!m || !s) return;
+    const d = UNIT_DEFS[m.kind];
+    const def = m.def;
+    const harvester = (d?.capacity ?? 0) > 0;
+    const beat = previewBeat(t, harvester);
+    if (beat.act !== s.act) {
+      if (beat.act === 'fire') s.nextShot = now + 250;
+      s.act = beat.act;
+    }
+    // Travel: the virtual position runs at the unit's match speed; the drawn one follows it as on the map (R3D-10).
+    if (beat.act === 'move') {
+      const v = tilesPerSecond(d?.speed ?? 30) * dt;
+      s.tx += Math.cos(beat.steer) * v;
+      s.tz += Math.sin(beat.steer) * v;
+    }
+    const px = s.follow.x;
+    const pz = s.follow.z;
+    follow(s.follow, s.tx, s.tz, dt);
+    s.motion = stepMotion(s.motion, s.follow.x - px, s.follow.z - pz, dt, def.turn ?? 4);
+    const mo = s.motion;
+    // Working: the aim sweeps a little either side of the hull, as if picking targets.
+    const firing = beat.act === 'fire';
+    s.aim = mo.heading + 0.45 * Math.sin(now / 900);
+    s.turretYaw = turnToward(s.turretYaw, firing ? s.aim : mo.heading, TURRET_RATE * dt);
+    const squad = s.members.length > 0;
+    if (squad) {
+      stepSquad(s.members, { x: s.follow.x, z: s.follow.z, vx: s.follow.vx, vz: s.follow.vz, heading: mo.heading, aiming: firing, aim: s.aim, alive: s.members.length, t: now, dt, seed: SEED, free: () => true });
+    } else if (def.move === 'walker') s.figureYaw = turnToward(s.figureYaw, firing && mo.speed < 0.3 ? s.aim : mo.heading, 8 * dt);
+    // Shots, as the game fires them: once the turret is on target, every standing figure a beat apart (R3D-9).
+    if (firing && def.weapon && now >= s.nextShot) {
+      const turreted = m.trees[0]?.anims.some((x) => x.anim.k === 'turret') ?? false;
+      if (readyToFire(turreted, s.turretYaw, s.aim, now - s.nextShot)) {
+        for (let i = 0; i < m.trees.length; i++) s.pending.push({ at: now + i * 55, figure: i });
+        if (def.weapon === 'claw') s.lunge = now;
+        s.nextShot = now + (d ? shotEvery(d) : 1000);
+      }
+    }
+    // Harvesting (R3D-19): the cutter turns and the bed fills, then the bed tips and empties.
+    if (harvester) {
+      const organic = !!def.organic;
+      const mining = beat.act === 'mine';
+      const unloading = beat.act === 'unload' && beat.into < UNLOAD_MS;
+      s.tip += ((unloading ? 1 : 0) - s.tip) * Math.min(1, dt * (unloading ? 9 : 3));
+      const h = mo.heading;
+      if (mining) {
+        s.drum += dt * 14;
+        s.load = Math.min(1, s.load + (dt * 1000) / MINE_MS);
+        if (organic && now - s.lunge > 700) s.lunge = now; // a chomp
+        this.fx.harvest(1, organic ? this.ahead(h, 0.75, 0.06, this.v) : this.ahead(h, 0.85, 0.1, this.v), organic ? this.ahead(h, 0.55, 0.32, this.v2) : this.ahead(h, -0.2, 0.62, this.v2), organic, false, now);
+      } else if (unloading) {
+        s.load = Math.max(0, s.load - (dt * 1000) / UNLOAD_MS);
+        if (s.tip > 0.3) this.fx.harvest(1, organic ? this.ahead(h, 0.6, 0.3, this.v) : this.ahead(h, -0.95, 0.5, this.v), organic ? this.ahead(h, 0.95, 0.05, this.v2) : this.ahead(h, -1.35, 0.05, this.v2), organic, true, now);
+      }
+    }
+    // The rig, posed exactly as poseUnit poses it in a match.
+    const walker = def.move === 'walker';
+    m.trees.forEach((tree, i) => {
+      const mm = squad ? s.members[i]! : null;
+      const fm = mm ? mm.motion : mo;
+      if (mm) {
+        tree.root.position.set(mm.x - s.follow.x, 0, mm.z - s.follow.z);
+        tree.root.rotation.set(0, -mm.yaw, 0);
+      } else {
+        tree.root.position.set(0, 0, 0);
+        tree.root.rotation.set(0, -(walker ? s.figureYaw : mo.heading), 0);
+      }
+      const phase = gaitPhase(fm.dist, def.stride ?? 1) + i * 1.7 + SEED;
+      const pose = bodyPose(def.move, fm, phase, now, SEED + i);
+      poseRig(tree, {
+        turret: s.turretYaw - mo.heading,
+        kick: recoil(now - (s.lastFire[i] ?? -1e9)),
+        lunge: now - s.lunge < 260 ? Math.sin(((now - s.lunge) / 260) * Math.PI) : 0,
+        pitch: pose.pitch,
+        roll: pose.roll,
+        bob: pose.bob,
         phase,
-        stride: act.moving ? 1 : 0,
-        dist: this.dist,
-        turnRate: 0,
-        time: t,
-        reach: m.def.radius * 0.25,
+        stride: fm.stride,
+        dist: fm.dist,
+        turnRate: fm.turnRate,
+        time: now,
+        reach: def.radius * 0.25,
         walker,
-        crouch: act.moving ? 0 : i % 2,
-        load: 1,
-      };
-      poseRig(tree, p);
+        crouch: mm?.crouch ?? 0,
+        load: harvester ? s.load : 1,
+        tip: s.tip,
+        drum: s.drum,
+      });
     });
     m.group.rotation.y = -0.6 + (t / 1000) * SPIN;
+    m.group.updateMatrixWorld(true);
+    this.firePending(now);
+    this.fx.update(now, dt);
+  }
+
+  /** Fire the shots now due from their figures' muzzles, with the game's flash and shot (R3D-9). */
+  private firePending(now: number): void {
+    const m = this.model;
+    const s = this.state;
+    if (!m || !s || !m.def.weapon) return;
+    const look = m.def.weapon;
+    const w = UNIT_DEFS[m.kind]?.weapon;
+    const flight = ((w?.flight ?? 0) * 1000) / TICKS_PER_SECOND;
+    const melee = look === 'claw';
+    s.pending = s.pending.filter((p) => {
+      if (p.at > now) return true;
+      const tree = m.trees[p.figure];
+      if (!tree) return false;
+      // Shots land near the plinth's edge, so the whole flight stays in view; claws strike just ahead.
+      const to = this.ahead(s.aim, melee ? m.def.radius + 0.3 : m.radius * 1.15, 0.05, new THREE.Vector3());
+      const muzzle = tree.muzzles.length ? tree.muzzles[s.muzzleTurn++ % tree.muzzles.length] : undefined;
+      if (muzzle) {
+        muzzle.getWorldPosition(this.v);
+        this.v2.setFromMatrixColumn(muzzle.matrixWorld, 0).normalize();
+        this.fx.muzzle(look, this.v, this.v2, now);
+        this.fx.shot(look, this.v, to, flight, now);
+      } else this.fx.shot(look, tree.root.getWorldPosition(this.v).setY(0.3), to, flight, now);
+      s.lastFire[p.figure] = now;
+      return false;
+    });
   }
 
   private draw(canvas: HTMLCanvasElement, margin = 1.32): void {
@@ -218,6 +390,7 @@ export class UnitPreview {
     const pr = this.renderer.getPixelRatio();
     if (this.renderer.domElement.width !== Math.round(w * pr) || this.renderer.domElement.height !== Math.round(h * pr)) this.renderer.setSize(w, h, false);
     this.frame(w / h, margin);
+    this.fx.setScale((h * pr) / (2 * Math.tan((PREVIEW_FOV * Math.PI) / 360)));
     this.renderer.render(this.scene, this.camera);
     const g = canvas.getContext('2d');
     if (!g) return;
@@ -235,14 +408,16 @@ export class UnitPreview {
     const keepOwner = this.owner;
     const m = this.build(kind, owner);
     this.show(m, owner);
-    this.pose(CYCLE_MS * 0.75, 0);
+    this.poseStill();
     m.group.rotation.y = -0.35;
+    this.fx.root.visible = false;
     const c = document.createElement('canvas');
     c.width = w;
     c.height = h;
     this.renderer.setPixelRatio(1);
     this.draw(c, 0.86);
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    this.fx.root.visible = true;
     this.scene.remove(m.group);
     this.model = null;
     if (keep) this.show(keep, keepOwner);
@@ -253,16 +428,37 @@ export class UnitPreview {
   play(kind: string, owner: number, canvas: HTMLCanvasElement): void {
     this.stop();
     this.live = canvas;
-    this.dist = 0;
     this.owner = owner;
-    this.show(this.build(kind, owner), owner);
-    this.modelSpeed = UNIT_DEFS[kind]?.speed ?? 30;
+    const m = this.build(kind, owner);
+    this.show(m, owner);
+    const n = m.trees.length;
+    this.state = {
+      tx: 0,
+      tz: 0,
+      follow: { x: 0, z: 0, vx: 0, vz: 0 },
+      motion: restingMotion(0),
+      members: n > 1 ? m.trees.map((_, i) => newMember({ x: 0, z: 0, heading: 0, seed: SEED }, i, n)) : [],
+      figureYaw: 0,
+      turretYaw: 0,
+      aim: 0,
+      lastFire: [],
+      lunge: -1e9,
+      nextShot: Infinity,
+      muzzleTurn: 0,
+      pending: [],
+      load: 0,
+      tip: 0,
+      drum: 0,
+      act: '',
+    };
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     const frame = (now: number): void => {
       if (!this.live) return;
       if (!this.start) this.start = this.last = now;
-      const t = reduce ? CYCLE_MS * 0.6 : now - this.start;
-      this.pose(t, reduce ? 0 : Math.min(50, now - this.last));
+      if (reduce) {
+        this.poseStill();
+        m.group.rotation.y = -0.35;
+      } else this.step(now, now - this.start, Math.min(0.05, (now - this.last) / 1000));
       this.last = now;
       this.draw(this.live);
       this.raf = requestAnimationFrame(frame);

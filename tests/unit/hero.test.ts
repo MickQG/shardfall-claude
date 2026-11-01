@@ -159,9 +159,27 @@ describe('hero looks and deaths', () => {
     expect(phase(1, 1)).toBe(phase(-1, -1));
     expect(phase(1, -1)).toBe(phase(-1, 1));
     expect(phase(1, 1)).not.toBe(phase(1, -1));
-    const size = (d: { height: number; scale?: number }): number => d.height * (d.scale ?? 1);
-    expect(size(p) / size(tank)).toBeGreaterThan(3.5); // much taller: a walker rather than a hull
     expect((p.scale ?? 1) / (tank.scale ?? 1)).toBeGreaterThanOrEqual(2);
+    // Long and low on thick legs: measured from the built model.
+    const THREE = await import('three');
+    const { rigTree } = await import('../../src/render3d/rig');
+    const tree = rigTree(p);
+    tree.root.updateMatrixWorld(true);
+    const all = new THREE.Box3();
+    const sizeOf: Record<string, InstanceType<typeof THREE.Vector3>> = {};
+    for (const d of tree.drawn) {
+      const b = p.shapes[d.geo]!().build(0xffffff);
+      const geo = (b.lit ?? b.glow)!;
+      geo.computeBoundingBox();
+      const box = geo.boundingBox!.clone().applyMatrix4(d.obj.matrixWorld);
+      all.union(box);
+      sizeOf[d.geo] = box.getSize(new THREE.Vector3());
+    }
+    const whole = all.getSize(new THREE.Vector3());
+    expect(whole.x / whole.y).toBeGreaterThanOrEqual(1.4);
+    expect(sizeOf.leg!.y).toBeLessThan(sizeOf.hull!.x);
+    expect(Math.min(sizeOf.leg!.x, sizeOf.leg!.z)).toBeGreaterThanOrEqual(0.25);
+    expect(sizeOf.pod).toBeDefined(); // the missile pods are parts of their own (HERO-3)
     expect(unitDef('hum_paladin').hp).toBe(3000);
     expect(unitDef('ali_strider').hp).toBe(3000);
   });
@@ -185,6 +203,87 @@ describe('hero looks and deaths', () => {
       for (let t = 1400; t <= 6000; t += 100) fx.update(t, 0.1);
       expect(fx.particleCount).toBeGreaterThan(5);
     }
+  });
+
+  it('HERO-1: the Paladin walks smoothly with a long stride and gently eased feet', async () => {
+    const { UNIT_RIGS } = await import('../../src/render3d/units3d');
+    const { footLift } = await import('../../src/render3d/rig');
+    const p = UNIT_RIGS.hum_paladin!();
+    expect(p.stride ?? 1).toBeGreaterThanOrEqual(1.8);
+    const legs = (p.root.kids ?? []).filter((k) => k.geo === 'leg');
+    for (const l of legs) expect(l.anim).toMatchObject({ k: 'gait', ease: true });
+    // An eased foot sets down with no jerk: its height approaches the ground flat, unlike the plain curve.
+    const slope = (ease: boolean): number => (footLift(Math.PI / 2 - 1e-3, ease) - footLift(Math.PI / 2 - 2e-3, ease)) / 1e-3;
+    expect(Math.abs(slope(true))).toBeLessThan(0.01);
+    expect(Math.abs(slope(false))).toBeGreaterThan(0.9);
+    for (let ph = 0; ph < 7; ph += 0.1) {
+      expect(footLift(ph, true)).toBeGreaterThanOrEqual(0);
+      expect(footLift(ph, true)).toBeLessThanOrEqual(footLift(ph, false));
+    }
+  });
+
+  it('HERO-1: the Paladin cannons fire with a bigger flash, recoil, shake and side blasts than an ordinary cannon', async () => {
+    const { UNIT_RIGS } = await import('../../src/render3d/units3d');
+    const { CombatFx, LOOKS } = await import('../../src/render3d/fx3d');
+    const THREE = await import('three');
+    const p = UNIT_RIGS.hum_paladin!();
+    expect(p.weapon).toBe('heroCannon');
+    expect(LOOKS.heroCannon.flash).toBeGreaterThan(LOOKS.cannon.flash);
+    expect(LOOKS.heroCannon.shake).toBeGreaterThan(LOOKS.cannon.shake);
+    expect(LOOKS.heroCannon.len).toBeGreaterThan(LOOKS.cannon.len);
+    let recoil = 0;
+    const find = (n: { anim?: { k: string; recoil?: number }; kids?: unknown[] }): void => {
+      if (n.anim?.k === 'barrel') recoil = n.anim.recoil ?? 0;
+      for (const k of (n.kids ?? []) as never[]) find(k);
+    };
+    find(p.root as never);
+    expect(recoil).toBeGreaterThanOrEqual(0.12);
+    const count = (look: 'cannon' | 'heroCannon'): number => {
+      const fx = new CombatFx();
+      fx.muzzle(look, new THREE.Vector3(5, 1, 5), new THREE.Vector3(1, 0, 0), 0);
+      fx.update(10, 0.01);
+      return fx.particleCount;
+    };
+    expect(count('heroCannon')).toBeGreaterThan(count('cannon') + 5);
+  });
+
+  it('HERO-3: a hero is blown apart: parts thrown out one by one with the blasts, the hull last, each landing and coming to rest', async () => {
+    const { planBreakup, pieceAt, BREAK_FINAL_MS, BREAK_FIRST_MS } = await import('../../src/render3d/breakup');
+    const starts = [
+      { x: 0, y: 1.2, z: 0, size: 1.2 }, // hull
+      { x: 0.7, y: 0.6, z: 0.6, size: 0.6 },
+      { x: 0.7, y: 0.6, z: -0.6, size: 0.6 },
+      { x: -0.8, y: 0.6, z: 0.6, size: 0.6 },
+      { x: -0.8, y: 0.6, z: -0.6, size: 0.6 },
+      { x: 1.2, y: 0.9, z: 0, size: 0.8 },
+      { x: -0.2, y: 1.5, z: 0.7, size: 0.3 },
+    ];
+    const plan = planBreakup(starts, 7);
+    expect(planBreakup(starts, 7)).toEqual(plan); // deterministic
+    expect(plan[0]!.at).toBe(BREAK_FINAL_MS);
+    const others = plan.slice(1).map((p) => p.at);
+    expect(Math.min(...others)).toBeGreaterThanOrEqual(BREAK_FIRST_MS);
+    expect(Math.max(...others)).toBeLessThan(BREAK_FINAL_MS);
+    expect(new Set(others.map((a) => Math.floor(a / 170))).size).toBeGreaterThan(3); // one after another
+    plan.forEach((p, i) => {
+      const s = starts[i]!;
+      // Still in place (only shaking) before its blast.
+      const before = pieceAt(p, p.at - 1);
+      expect(Math.hypot(before.x - s.x, before.z - s.z)).toBeLessThan(0.02);
+      // Never below its resting height; flies outward from where it sat; ends at rest.
+      let maxY = 0;
+      for (let a = p.at; a < p.at + 4000; a += 10) {
+        const q = pieceAt(p, a);
+        expect(q.y).toBeGreaterThanOrEqual(p.floor - 1e-9);
+        maxY = Math.max(maxY, q.y);
+      }
+      expect(maxY).toBeGreaterThan(s.y);
+      const end = pieceAt(p, p.at + 4000);
+      expect(end.resting).toBe(true);
+      expect(end.y).toBeCloseTo(p.floor);
+      expect(pieceAt(p, p.at + 5000)).toEqual(end);
+      if (i > 0) expect(end.x * s.x + end.z * s.z).toBeGreaterThan(s.x * s.x + s.z * s.z);
+    });
   });
 
   it('R3D-12: Aegis shells and rockets burst dimmer than a death', async () => {
