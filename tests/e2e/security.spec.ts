@@ -9,6 +9,9 @@ for (const q of ['', '?faction=human&difficulty=easy&map=riverbed', '?faction=al
     page.on('console', (m) => {
       if (m.type() === 'error') bad.push(m.text());
     });
+    // The test server has no game API (the website does, NET-1): answer the menu's same-origin status check as unconfigured
+    // rather than with a 404 the browser would log.
+    await page.route('**/api/negotiate', (r) => r.fulfill({ json: { available: false } }));
     await page.addInitScript(() => document.addEventListener('securitypolicyviolation', (e) => console.error(`CSP violation: ${e.violatedDirective} ${e.blockedURI}`)));
     const res = await page.goto(`/${q}`);
     const h = res?.headers() ?? {};

@@ -34,8 +34,10 @@ function isInternalUrl(url) {
 /**
  * Content-Security-Policy for the game page (SEC-1), the same on the website and in the desktop app: code, workers and
  * data come only from the game's own origin; styles may be inline (the HUD sets them from code); images may be data or
- * blob URLs (cursors, generated textures); no plugins, and no other site may frame the page or receive its forms.
+ * blob URLs (cursors, generated textures); no plugins, and no other site may frame the page or receive its forms. The
+ * one outside connection is the WebSocket to the game's own Azure Web PubSub service for online matches (NET-5).
  */
+const PUBSUB_ORIGIN = 'wss://wps-shardfall.webpubsub.azure.com';
 const CSP = [
   "default-src 'self'",
   "script-src 'self'",
@@ -43,7 +45,7 @@ const CSP = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self'",
-  "connect-src 'self'",
+  `connect-src 'self' ${PUBSUB_ORIGIN}`,
   "media-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",
@@ -52,4 +54,4 @@ const CSP = [
   "frame-ancestors 'none'",
 ].join('; ');
 
-module.exports = { APP_ORIGIN, CSP, resolveAppPath, isInternalUrl };
+module.exports = { APP_ORIGIN, CSP, PUBSUB_ORIGIN, resolveAppPath, isInternalUrl };

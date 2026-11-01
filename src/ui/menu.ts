@@ -1,6 +1,8 @@
 import { MAPS, skirmishMap, type MapId } from '../data/maps';
 import { thumbCanvas } from './mapThumb';
 import { loadSettings, safeStorage, saveSettings, type Settings } from './settings';
+import { setActiveMatch, type Match } from '../net/lobby';
+import { mountOnlinePanel, ONLINE_CSS } from './onlinePanel';
 import { createUnitSheet, FACTION_INFO } from './unitSheet';
 
 /**
@@ -59,9 +61,6 @@ const CSS = `
 #menu #go { padding: 15px 56px; font: inherit; font-weight: 800; font-size: 18px; letter-spacing: .16em; border-radius: 10px; border: 0; cursor: pointer; background: linear-gradient(#35e0a1, #1fa57a); color: #04130d; box-shadow: 0 10px 28px -10px #35e0a1; }
 #menu #go:hover, #menu #go:focus-visible { filter: brightness(1.1); outline: none; }
 #menu .note { color: #6f8090; font-size: 12.5px; }
-#menu .wipcard { padding: 22px; border-radius: 12px; border: 1px dashed #6b5520; background: rgba(28,22,8,.55); max-width: 640px; }
-#menu .wipcard h3 { margin: 0 0 6px; color: #ffcf6a; font-size: 20px; }
-#menu .wipcard p, #menu .wipcard li { color: #c9bfa4; font-size: 14px; margin: 6px 0; }
 #menu .field { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-radius: 10px; border: 1px solid #22384c; background: rgba(8,13,19,.85); max-width: 640px; }
 #menu .field label { flex: 1; color: #dfe8e2; }
 #menu .field small { display: block; color: #7f93a6; font-size: 12px; }
@@ -84,7 +83,7 @@ const FACTIONS = [
 
 export function showMenu(): void {
   const style = document.createElement('style');
-  style.textContent = CSS;
+  style.textContent = CSS + ONLINE_CSS;
   document.head.appendChild(style);
   const root = document.createElement('div');
   root.id = 'menu';
@@ -98,7 +97,7 @@ export function showMenu(): void {
       <h1>SHARDFALL</h1>
       <div class="tag">Real-time strategy · Aegis vs Vrax</div>
       <button class="nav" data-mode="single">Single player</button>
-      <button class="nav wip" data-mode="multi">Multiplayer <span class="badge">In progress</span></button>
+      <button class="nav" data-mode="multi">Multiplayer <span class="badge" id="mp-badge" hidden>Unavailable</span></button>
       <button class="nav" id="info-btn" aria-label="Unit info">Units</button>
       <button class="nav" data-mode="settings">Settings</button>
       <div class="help">${HELP_TEXT}</div>
@@ -115,10 +114,7 @@ export function showMenu(): void {
       </section>
       <section data-panel="multi">
         <h2>Multiplayer</h2>
-        <div class="wipcard" id="mp-wip"><h3>Work in progress</h3>
-          <p>Head-to-head matches against a friend are on the way. You will be able to:</p>
-          <ul><li>Create a private room and share its code</li><li>Play one versus one, Aegis or Vrax, on any map</li><li>Command your army with no lag on your own orders, kept in step with your opponent</li></ul>
-          <p>Until then, play single player against the AI.</p></div>
+        <div id="mp"></div>
       </section>
       <section data-panel="settings">
         <h2>Settings</h2>
@@ -131,7 +127,9 @@ export function showMenu(): void {
   document.body.appendChild(root);
   // Map thumbnails, drawn from the maps themselves.
   root.querySelectorAll<HTMLElement>('[data-map]').forEach((b) => b.querySelector('.thumb')?.appendChild(thumbCanvas(skirmishMap(b.dataset.map as MapId))));
-  const sheet = createUnitSheet();
+  // Listeners on the window end with the menu, so none is left behind when an online match starts in this page.
+  const life = new AbortController();
+  const sheet = createUnitSheet(life.signal);
   let settings: Settings = loadSettings(safeStorage());
   const save = (patch: Partial<Settings>): void => {
     settings = { ...loadSettings(safeStorage()), ...patch };
@@ -153,6 +151,23 @@ export function showMenu(): void {
     root.querySelectorAll<HTMLElement>('[data-map]').forEach((e) => e.classList.toggle('sel', e.dataset.map === pick.map));
     root.querySelectorAll<HTMLElement>('[data-quality]').forEach((e) => e.classList.toggle('sel', e.dataset.quality === settings.quality));
   };
+  // An online match starts in this page, keeping its connection: the menu goes and the game loads (NET-1).
+  const startOnline = (m: Match): void => {
+    setActiveMatch(m);
+    life.abort();
+    sheet.close();
+    root.remove();
+    document.getElementById('unit-info')?.remove();
+    style.remove();
+    history.replaceState(null, '', `?faction=${m.setup.factions[m.me]}&map=${m.setup.map}&online=${m.room}`);
+    void import('../game');
+  };
+  const online = mountOnlinePanel(root.querySelector<HTMLElement>('#mp')!, root.querySelector<HTMLElement>('#mp-badge')!, {
+    pick: () => ({ faction: pick.faction, map: pick.map }),
+    seed: () => (crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000_000),
+    start: startOnline,
+  });
+
   const start = (): void => {
     location.search = `?faction=${pick.faction}&difficulty=${pick.difficulty}&map=${pick.map}`;
   };
@@ -162,31 +177,39 @@ export function showMenu(): void {
     if (t.id === 'info-btn' || t.id === 'units-btn') return sheet.open(pick.faction);
     if (t.id === 'go') return start();
     if (t.dataset.mode) mode = t.dataset.mode as Mode;
-    else if (t.dataset.faction) pick.faction = t.dataset.faction as Pick['faction'];
+    else if (t.dataset.faction) {
+      pick.faction = t.dataset.faction as Pick['faction'];
+      online.refresh();
+    }
     else if (t.dataset.diff) pick.difficulty = t.dataset.diff as Pick['difficulty'];
     else if (t.dataset.quality) save({ quality: t.dataset.quality === 'low' ? 'low' : 'high' });
     else if (t.dataset.map) {
       pick.map = MAPS.find((m) => m.id === t.dataset.map)?.id ?? pick.map;
       save({ map: pick.map });
+      online.refresh();
     }
     sync();
   });
   // Keyboard: Up and Down move through the rail and Enter starts a single-player game; the unit sheet has its own keys.
   const navs = [...root.querySelectorAll<HTMLButtonElement>('.rail .nav')];
-  window.addEventListener('keydown', (e) => {
-    if (sheet.isOpen()) return;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      const i = navs.indexOf(document.activeElement as HTMLButtonElement);
-      const next = navs[(i + (e.key === 'ArrowDown' ? 1 : navs.length - 1)) % navs.length] ?? navs[0]!;
-      next.focus();
-      if (next.dataset.mode) {
-        mode = next.dataset.mode as Mode;
-        sync();
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (sheet.isOpen() || e.target instanceof HTMLInputElement) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const i = navs.indexOf(document.activeElement as HTMLButtonElement);
+        const next = navs[(i + (e.key === 'ArrowDown' ? 1 : navs.length - 1)) % navs.length] ?? navs[0]!;
+        next.focus();
+        if (next.dataset.mode) {
+          mode = next.dataset.mode as Mode;
+          sync();
+        }
+        e.preventDefault();
+      } else if (e.key === 'Enter' && mode === 'single' && !(document.activeElement instanceof HTMLButtonElement && document.activeElement.closest('.rail'))) {
+        start();
       }
-      e.preventDefault();
-    } else if (e.key === 'Enter' && mode === 'single' && !(document.activeElement instanceof HTMLButtonElement && document.activeElement.closest('.rail'))) {
-      start();
-    }
-  });
+    },
+    { signal: life.signal },
+  );
   sync();
 }

@@ -12,7 +12,9 @@ self.addEventListener('activate', (e) =>
 );
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  // The API (online play, NET-1) is always live: never cached, never answered from the cache.
+  if (req.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
   e.respondWith(
     fetch(req)
       .then((r) => {

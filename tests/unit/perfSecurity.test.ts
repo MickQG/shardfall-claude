@@ -108,7 +108,7 @@ describe('performance', () => {
 describe('security', () => {
   const swa = JSON.parse(readFileSync('public/staticwebapp.config.json', 'utf8')) as { globalHeaders: Record<string, string> };
 
-  it('SEC-1: the website and the desktop app send the same strict Content-Security-Policy', () => {
+  it('SEC-1 NET-5: the website and the desktop app send the same strict Content-Security-Policy', () => {
     const h = swa.globalHeaders;
     expect(h['Content-Security-Policy']).toBe(CSP);
     const dir = new Map(CSP.split(';').map((d) => d.trim().split(/\s+/)).map(([k, ...v]) => [k!, v]));
@@ -116,6 +116,8 @@ describe('security', () => {
     expect(dir.get('script-src')).toEqual(["'self'"]); // no inline scripts, no eval
     expect(dir.get('object-src')).toEqual(["'none'"]);
     expect(dir.get('frame-ancestors')).toEqual(["'none'"]);
+    // NET-5: the only outside connection is the WebSocket to the game's own Web PubSub host.
+    expect(dir.get('connect-src')).toEqual(["'self'", 'wss://wps-shardfall.webpubsub.azure.com']);
     expect(CSP).not.toMatch(/unsafe-eval|\*|https?:/);
     expect(h['X-Content-Type-Options']).toBe('nosniff');
     expect(h['X-Frame-Options']).toBe('DENY');
@@ -132,7 +134,7 @@ describe('security', () => {
     expect(html).not.toMatch(/\bon[a-z]+\s*=/i); // no inline event handlers
   });
 
-  it('SEC-2: the offline cache keeps only successful responses from the game itself, and drops old caches', async () => {
+  it('SEC-2 NET-5: the offline cache keeps only successful responses from the game itself, and drops old caches', async () => {
     const put = vi.fn();
     const deleted: string[] = [];
     const handlers: Record<string, (e: unknown) => void> = {};
@@ -175,6 +177,10 @@ describe('security', () => {
     // Other sites and non-GET requests are left to the browser.
     expect(await go('https://elsewhere.example/x.js')).toBe(false);
     expect(await go('https://game.example/api', 'POST')).toBe(false);
+    // NET-5: the online-play API is never cached or answered from the cache.
+    net = Object.defineProperty(new Response('{}', { status: 200 }), 'type', { value: 'basic' });
+    expect(await go('https://game.example/api/negotiate')).toBe(false);
+    expect(put).toHaveBeenCalledTimes(1);
   });
 
   it('SEC-3: a seed in the address bar is used only when it is a whole number of up to nine digits', () => {

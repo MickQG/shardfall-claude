@@ -94,7 +94,7 @@ export interface UnitSheet {
   isOpen(): boolean;
 }
 
-export function createUnitSheet(): UnitSheet {
+export function createUnitSheet(signal?: AbortSignal): UnitSheet {
   const style = document.createElement('style');
   style.textContent = CSS;
   document.head.appendChild(style);
@@ -202,19 +202,23 @@ export function createUnitSheet(): UnitSheet {
     const u = t.closest<HTMLElement>('[data-unit]');
     if (u) select(Number(u.dataset.unit));
   });
-  window.addEventListener('keydown', (e) => {
-    if (!sheet.isOpen()) return;
-    if (e.key === 'Escape') sheet.close();
-    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      select(index + (e.key === 'ArrowDown' ? 1 : -1));
-      el.querySelector<HTMLElement>('.u.sel')?.focus();
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      faction = faction === 'human' ? 'alien' : 'human';
-      index = 0;
-      render();
-      el.querySelector<HTMLElement>('.u.sel')?.focus();
-    } else return;
-    e.preventDefault();
-  });
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (!sheet.isOpen()) return;
+      if (e.key === 'Escape') sheet.close();
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        select(index + (e.key === 'ArrowDown' ? 1 : -1));
+        el.querySelector<HTMLElement>('.u.sel')?.focus();
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        faction = faction === 'human' ? 'alien' : 'human';
+        index = 0;
+        render();
+        el.querySelector<HTMLElement>('.u.sel')?.focus();
+      } else return;
+      e.preventDefault();
+    },
+    { signal },
+  );
   return sheet;
 }
