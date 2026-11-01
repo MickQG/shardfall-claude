@@ -143,7 +143,27 @@ export function setRally(s: State, owner: number, id: number, x: number, y: numb
 }
 
 /** Advance production queues and repairs by one tick. */
+/**
+ * Keep every producer busy (PRD-14): a production building with an empty queue takes over the newest order that has
+ * not started yet from a sibling of the same kind with a backlog (the longest one), so orders never wait behind each
+ * other in one building while another stands idle, whatever order they were clicked in.
+ */
+function rebalance(s: State): void {
+  for (const idle of s.buildings) {
+    if (idle.queue.length > 0 || trainableAt(idle.kind).length === 0) continue;
+    let donor: Building | undefined;
+    for (const b of s.buildings) {
+      if (b === idle || b.owner !== idle.owner || b.kind !== idle.kind || b.queue.length < 2) continue;
+      const last = b.queue[b.queue.length - 1]!;
+      if (last.progress > 0 || isBuildingKind(last.kind)) continue;
+      if (!donor || b.queue.length > donor.queue.length) donor = b;
+    }
+    if (donor) idle.queue.push(donor.queue.pop()!);
+  }
+}
+
 export function tickProduction(s: State): void {
+  rebalance(s);
   for (const b of s.buildings) {
     const player = s.players[b.owner];
     if (!player) continue;

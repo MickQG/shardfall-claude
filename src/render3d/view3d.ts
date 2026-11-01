@@ -5,7 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { buildingDef, unitDef } from '../data/defs';
+import { buildingDef, UNIT_DEFS, unitDef } from '../data/defs';
 import { FP, maxHpOf, squadAlive, TICKS_PER_SECOND, type SimEvent, type Snapshot } from '../sim';
 import type { Camera, Viewport } from '../render/camera';
 import { OWNER_COLORS } from '../render/colors';
@@ -43,20 +43,6 @@ export function damageLook(hp: number, t: number, seed: number): { tint: number;
 
 /** Whether a building shows its health bar (R3D-20): while selected, and whenever it is below half health. */
 export const buildingBar = (hpFrac: number, selected: boolean): boolean => selected || hpFrac < 0.5;
-
-/** How long a badly damaged building jolts after a hit, ms (R3D-20). */
-export const JOLT_MS = 260;
-
-/**
- * A building's jolt `age` ms after a hit (R3D-20): below half health it shakes, harder the weaker it is, and settles
- * within JOLT_MS. Offsets in tiles, tilt in radians.
- */
-export function jolt(age: number, hpFrac: number, seed: number): { dx: number; dz: number; tilt: number } {
-  if (hpFrac >= 0.5 || age < 0 || age >= JOLT_MS) return { dx: 0, dz: 0, tilt: 0 };
-  const k = (1 - age / JOLT_MS) ** 2;
-  const a = 0.05 * k * (1.4 - hpFrac);
-  return { dx: a * Math.sin(age * 0.09 + seed), dz: 0.7 * a * Math.cos(age * 0.11 + seed), tilt: 0.035 * k * Math.sin(age * 0.07 + seed) };
-}
 
 /**
  * Smoke and fire on a damaged building (R3D-20): none above two thirds (GFX-2), then plumes that thicken, grow and
@@ -247,8 +233,6 @@ interface BuildingObj {
   lastSmoke: number;
   /** When the next spark or ichor spurt flies from a badly damaged building. */
   nextSpark: number;
-  /** When it last lost health, ms: a badly damaged building jolts (R3D-20). */
-  hitAt: number;
   drawn: number;
 }
 
@@ -807,6 +791,11 @@ export class View3D {
       if (u && !u.dying) {
         const mode = u.def.move === 'air' ? 'crash' : u.def.move === 'walker' ? 'fall' : 'wreck';
         u.dying = { t0: now, mode, side: e.id % 2 ? 1 : -1, boomed: mode !== 'crash' };
+        // A hero goes down in a long, violent death of its own (HERO-3).
+        if (e.kind && UNIT_DEFS[e.kind]?.hero) {
+          this.fx.heroDeath(at, !!u.def.organic, u.def.height * (u.def.scale ?? 1), now);
+          return;
+        }
         if (mode === 'fall') this.fx.splatter(at.setY(at.y + 0.15), !!u.def.organic, now);
         if (mode === 'wreck') this.fx.explosion(at.setY(at.y + 0.2), e.big ? 0.75 : 0.5, now);
         if (mode === 'fall' && e.big) this.fx.explosion(at, 0.45, now, 0x80e020);
@@ -1329,13 +1318,11 @@ export class View3D {
         // Only the viewer's own new buildings rise from the ground (GFX-1).
         const born = this.seeded && b.owner === vs.viewer && !this.known.has(b.id) ? vs.time : -Infinity;
         const yaw = b.owner === 0 ? Math.PI / 4 : (-3 * Math.PI) / 4;
-        o = { kind: b.kind, team: OWNER_COLORS[b.owner] ?? 0xffffff, def, rig, root, ring, born, x, z, y, hpFrac: 1, aim: yaw, aimHold: 0, turretYaw: yaw, turreted: rig.anims.some((a) => a.anim.k === 'turret'), lastFire: -1e9, muzzleTurn: 0, dying: null, lastSmoke: 0, nextSpark: 0, hitAt: -1e9, drawn: -1 };
+        o = { kind: b.kind, team: OWNER_COLORS[b.owner] ?? 0xffffff, def, rig, root, ring, born, x, z, y, hpFrac: 1, aim: yaw, aimHold: 0, turretYaw: yaw, turreted: rig.anims.some((a) => a.anim.k === 'turret'), lastFire: -1e9, muzzleTurn: 0, dying: null, lastSmoke: 0, nextSpark: 0, drawn: -1 };
         this.buildings.set(b.id, o);
         this.known.add(b.id);
       }
-      const hp = b.hp / Math.max(1, d.hp);
-      if (hp < o.hpFrac - 1e-6) o.hitAt = vs.time;
-      o.hpFrac = hp;
+      o.hpFrac = b.hp / Math.max(1, d.hp);
       o.ring.visible = vs.selectedBuilding === b.id;
     }
     this.seeded = true;
@@ -1371,10 +1358,7 @@ export class View3D {
       const look = damageLook(o.hpFrac, t, o.root.id);
       if (o.dying === null) {
         tint *= look.tint;
-        // A badly damaged building jolts when hit (R3D-20).
-        const j = jolt(t - o.hitAt, o.hpFrac, o.root.id);
-        o.root.position.set(o.x + j.dx, o.y, o.z + j.dz);
-        o.root.rotation.set(look.lean * (o.root.id % 2 ? 1 : -1) + j.tilt, 0, look.lean * (o.root.id % 3 ? 0.6 : -0.6) - j.tilt * 0.6);
+        o.root.rotation.set(look.lean * (o.root.id % 2 ? 1 : -1), 0, look.lean * (o.root.id % 3 ? 0.6 : -0.6));
       }
       if (t > o.aimHold) o.aim += 0.4 * dt; // idle turrets sweep slowly
       o.turretYaw = turnToward(o.turretYaw, o.aim, TURRET_RATE * dt);

@@ -143,10 +143,10 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
     faction: 'human', name: 'Hammer Artillery', speed: 24, hp: 250, radius: 100, vision: 8, cost: 900, buildTime: 520, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', role: 'artillery',
     weapon: { damage: 64, range: 11, cooldown: 60, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
   },
-  // The Aegis hero (HERO-1): a heavy assault tank whose cannon and missile pods engage ground and air alike; one at a
+  // The Aegis hero (HERO-1): a giant four-legged assault walker whose cannons and missile pods engage ground and air alike; one at a
   // time, and it slowly repairs itself.
   hum_paladin: {
-    faction: 'human', name: 'Paladin', speed: 32, hp: 1600, radius: 118, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, role: 'tank',
+    faction: 'human', name: 'Paladin', speed: 32, hp: 3000, radius: 180, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, role: 'tank',
     weapon: { damage: 46, range: 7, cooldown: 16, type: 'rocket', antiAir: true, antiGround: true, flight: 4 },
   },
 
@@ -175,7 +175,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // The Vrax hero (HERO-2): a towering six-legged bio-walker whose acid cannon hits ground and air; one at a time, and
   // it regenerates.
   ali_strider: {
-    faction: 'alien', name: 'Dreadstrider', speed: 32, hp: 1600, radius: 130, vision: 10, cost: 2000, buildTime: 900, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 3, hero: true, role: 'tank',
+    faction: 'alien', name: 'Dreadstrider', speed: 32, hp: 3000, radius: 150, vision: 10, cost: 2000, buildTime: 900, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 3, hero: true, role: 'tank',
     weapon: { damage: 46, range: 7, cooldown: 16, type: 'rocket', antiAir: true, antiGround: true, flight: 5 },
   },
 };
