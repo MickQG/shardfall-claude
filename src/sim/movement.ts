@@ -1,4 +1,5 @@
 import { unitDef } from '../data/defs';
+import { crushable, isCrusher } from './crush';
 import { centerOf, FP, isqrt, tileOf } from './fixed';
 import { findPath, isBlocked, type Grid } from './path';
 import type { State, Unit } from './state';
@@ -113,14 +114,21 @@ export function separate(s: State): void {
           const overlap = min - d;
           const px = Math.trunc((nxv * overlap) / (2 * len)) || (nxv > 0 ? 1 : nxv < 0 ? -1 : 0);
           const py = Math.trunc((nyv * overlap) / (2 * len)) || (nyv > 0 ? 1 : nyv < 0 ? -1 : 0);
-          const pu = push.get(u.id) ?? [0, 0];
-          pu[0] -= px;
-          pu[1] -= py;
-          push.set(u.id, pu);
-          const po = push.get(o.id) ?? [0, 0];
-          po[0] += px;
-          po[1] += py;
-          push.set(o.id, po);
+          // A crusher ploughs on through enemy infantry: they give way, it does not (BAL-1).
+          const uHolds = isCrusher(u) && crushable(u, o);
+          const oHolds = isCrusher(o) && crushable(o, u);
+          if (!uHolds) {
+            const pu = push.get(u.id) ?? [0, 0];
+            pu[0] -= px;
+            pu[1] -= py;
+            push.set(u.id, pu);
+          }
+          if (!oHolds) {
+            const po = push.get(o.id) ?? [0, 0];
+            po[0] += px;
+            po[1] += py;
+            push.set(o.id, po);
+          }
         }
       }
     }

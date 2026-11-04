@@ -1,11 +1,11 @@
 import { Rng, type SimEvent } from '../sim';
 
 export interface Sound {
-  name: 'zap' | 'rocket' | 'cannon' | 'slash' | 'laser' | 'boom' | 'pop' | 'bigboom' | 'sw_launch' | 'sw_strike';
+  name: 'zap' | 'rocket' | 'cannon' | 'slash' | 'laser' | 'boom' | 'pop' | 'bigboom' | 'crunch' | 'sw_launch' | 'sw_strike';
   gain: number;
 }
 
-const BY_WEAPON: Record<string, Sound['name']> = { pierce: 'zap', rocket: 'rocket', blast: 'cannon', claw: 'slash', beam: 'laser' };
+const BY_WEAPON: Record<string, Sound['name']> = { pierce: 'zap', rocket: 'rocket', blast: 'cannon', claw: 'slash', bite: 'slash', beam: 'laser' };
 
 /** The sound an event should make for this viewer. Own fire is a little louder than distant enemy fire. */
 export function soundFor(e: SimEvent, viewer: number): Sound {
@@ -15,6 +15,8 @@ export function soundFor(e: SimEvent, viewer: number): Sound {
     case 'boom':
       return { name: 'boom', gain: Math.min(1, 0.5 + e.r * 0.2) };
     case 'die':
+      // A squad run over by a heavy vehicle crunches (BAL-2).
+      if (e.crushed) return { name: 'crunch', gain: 0.6 };
       return { name: e.big ? 'bigboom' : 'pop', gain: e.big ? 0.9 : 0.5 };
     case 'launch':
       return { name: 'sw_launch', gain: 0.8 };

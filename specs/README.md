@@ -24,5 +24,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `018-performance-security.md` | Frame-rate headroom; web, desktop and CI security | 18 |
 | `019-main-menu.md` | Modern main menu: modes rail, map thumbnails, settings, multiplayer | 19 |
 | `020-multiplayer.md` | Online one-versus-one matches: rooms, lockstep, desync detection, disconnects, security | 20 |
+| `021-infantry-balance.md` | Crushing, infantry damage, slower heroes, straight shells, elite shots, AI crushing | 21 |
 
 Umbrella spec: GitHub issue #1.

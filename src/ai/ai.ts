@@ -29,6 +29,8 @@ export interface Intel {
   air: number;
   heavy: number;
   light: number;
+  /** Fraction that are infantry squads (BAL-6). */
+  squads?: number;
   total: number;
 }
 
@@ -47,6 +49,12 @@ export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record
     if (intel.light > 0.5) {
       w.tank += 0.15;
       w.inf += 0.1;
+    }
+    // An infantry-heavy enemy is met with crushers and rifles rather than more anti-armour (BAL-6).
+    if ((intel.squads ?? 0) > 0.45) {
+      w.tank += 0.25;
+      w.inf += 0.1;
+      w.at = Math.max(0.05, w.at - 0.1);
     }
   }
   let best: string | null = null;
@@ -69,6 +77,40 @@ export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record
 }
 
 /** Launch a wave only with a real army that clearly outclasses what we know of the target. */
+/** How far (tiles) an AI crusher looks for enemy infantry to run over, and how far past them it drives (BAL-5). */
+export const CRUSH_REACH = 7;
+export const CRUSH_OVERRUN = 1.5;
+
+/**
+ * Crush micro (BAL-5): each healthy crusher that sees an enemy infantry squad within reach drives through it (a plain
+ * move to a point just beyond the squad), so it runs the squad over instead of standing and trading shots. Pure: a
+ * function of what the player can see.
+ */
+export function crushOrders(player: number, own: readonly UnitSnap[], foes: readonly UnitSnap[], mapW: number, mapH: number): Command[] {
+  const out: Command[] = [];
+  const squads = foes.filter((f) => f.owner !== player && (unitDef(f.kind).squad ?? 1) > 1);
+  if (squads.length === 0) return out;
+  for (const u of own) {
+    const d = unitDef(u.kind);
+    if (u.owner !== player || !d.crusher || u.hp * 10 < d.hp * 3) continue;
+    let best: UnitSnap | null = null;
+    let bd = CRUSH_REACH * FP;
+    for (const f of squads) {
+      const fd = Math.hypot(f.x - u.x, f.y - u.y);
+      if (fd < bd || (fd === bd && best !== null && f.id < best.id)) {
+        bd = fd;
+        best = f;
+      }
+    }
+    if (!best) continue;
+    const len = Math.max(1, bd);
+    const x = Math.max(0, Math.min(mapW * FP - 1, Math.round(best.x + ((best.x - u.x) * CRUSH_OVERRUN * FP) / len)));
+    const y = Math.max(0, Math.min(mapH * FP - 1, Math.round(best.y + ((best.y - u.y) * CRUSH_OVERRUN * FP) / len)));
+    out.push({ type: 'move', player, units: [u.id], x, y });
+  }
+  return out;
+}
+
 export function shouldAttack(myPower: number, enemyEstimate: number, armyCount: number, threshold: number, ratio = 1.25): boolean {
   return armyCount >= 5 && myPower >= threshold && myPower >= ratio * enemyEstimate;
 }
@@ -200,7 +242,10 @@ export class AI {
     this.scout(c, out);
     this.maintain(c, out);
     this.superweapon(c, out);
-    return out.slice(0, this.diff.maxCommands);
+    // Crush orders go last so they override this tick's wave orders for the same units, and always get a share of the
+    // command budget (BAL-5).
+    const crush = crushOrders(me, c.army, c.foes, snap.mapWidth, snap.mapHeight).slice(0, Math.max(1, Math.ceil(this.diff.maxCommands / 2)));
+    return [...out.slice(0, this.diff.maxCommands - crush.length), ...crush];
   }
 
   // ---------------------------------------------------------------- knowledge
@@ -262,16 +307,18 @@ export class AI {
     let air = 0;
     let heavy = 0;
     let light = 0;
+    let squads = 0;
     let total = 0;
     for (const e of this.intel.values()) {
       const d = UNIT_DEFS[e.kind];
       if (!d || !d.weapon || c.tick - e.t > 2400) continue;
       total++;
+      if ((d.squad ?? 1) > 1) squads++;
       if (d.armor === 'air') air++;
       else if (d.armor === 'heavy') heavy++;
       else light++;
     }
-    return total === 0 ? { air: 0, heavy: 0, light: 0, total: 0 } : { air: air / total, heavy: heavy / total, light: light / total, total };
+    return total === 0 ? { air: 0, heavy: 0, light: 0, squads: 0, total: 0 } : { air: air / total, heavy: heavy / total, light: light / total, squads: squads / total, total };
   }
 
   /** Cost-weighted strength of the remembered enemy army and defences within `r` tiles of a tile. */

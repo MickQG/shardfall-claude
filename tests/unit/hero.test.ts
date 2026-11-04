@@ -339,8 +339,9 @@ describe('hero looks and deaths', () => {
     expect(heroHeave('cannon', HEAVE_RISE_MS)).toEqual({ pitch: 0, roll: 0, bob: 0 });
     expect(heroHeave('heroCannon', -5).pitch).toBe(0);
     expect(UNIT_RIGS.ali_strider!().weapon).toBe('heroAcid');
-    // A lobbed shell with a smoke trail; a bigger acid glob than the Lobber's.
-    expect(LOOKS.heroCannon.arc).toBeGreaterThan(LOOKS.cannon.arc);
+    // A flat, straight shell (BAL-4) with a smoke trail, longer than a tank's; a bigger acid bolt than the Lobber's glob.
+    expect(LOOKS.heroCannon.arc).toBe(0);
+    expect(LOOKS.heroCannon.len).toBeGreaterThan(LOOKS.cannon.len);
     expect(LOOKS.heroCannon.smokeTrail).toBe(true);
     expect(LOOKS.heroAcid.width).toBeGreaterThan(LOOKS.acidBig.width);
     expect(LOOKS.heroAcid.flash).toBeGreaterThan(LOOKS.acidBig.flash);

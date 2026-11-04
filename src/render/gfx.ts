@@ -74,6 +74,7 @@ const MUZZLES: Record<string, Muzzle> = {
   rocket: { len: 14, width: 5, color: 0xffb347 },
   blast: { len: 20, width: 8, color: 0xff8c42 },
   claw: { len: 6, width: 2, color: 0xff5a8a },
+  bite: { len: 5, width: 2, color: 0xff7a9a },
   beam: { len: 24, width: 3, color: 0x9ff0ff },
 };
 

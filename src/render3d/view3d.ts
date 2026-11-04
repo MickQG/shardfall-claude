@@ -207,7 +207,7 @@ interface UnitObj {
   drum: number;
   alive: number;
   seed: number;
-  dying: { t0: number; mode: 'wreck' | 'fall' | 'crash' | 'break'; side: number; boomed: boolean; pieces?: { pivot: THREE.Group; plan: Piece }[] } | null;
+  dying: { t0: number; mode: 'wreck' | 'fall' | 'crash' | 'break' | 'crush'; side: number; boomed: boolean; pieces?: { pivot: THREE.Group; plan: Piece }[] } | null;
   lastDust: number;
   lastBurn: number;
 }
@@ -756,7 +756,7 @@ export class View3D {
         src.aim = Math.atan2(tz - sz, tx - sx);
         src.aimHold = now + 900;
       }
-      const look = src?.def.weapon ?? (e.weapon === 'claw' ? 'claw' : e.weapon === 'rocket' ? 'rocket' : e.weapon === 'blast' ? 'howitzer' : 'rifle');
+      const look = src?.def.weapon ?? (e.weapon === 'claw' || e.weapon === 'bite' ? 'claw' : e.weapon === 'rocket' ? 'rocket' : e.weapon === 'blast' ? 'howitzer' : 'rifle');
       if (src && isUnit(src)) {
         // Every standing squad member fires from its own weapon, a beat apart.
         for (let i = 0; i < src.alive; i++) this.pending.push({ at: now + i * 55, src, figure: i, e, look, to: to.clone().add(new THREE.Vector3(((i * 37) % 7) / 40 - 0.08, 0, ((i * 53) % 5) / 30 - 0.07)) });
@@ -792,6 +792,12 @@ export class View3D {
       if (u && !u.dying) {
         const mode = u.def.move === 'air' ? 'crash' : u.def.move === 'walker' ? 'fall' : 'wreck';
         u.dying = { t0: now, mode, side: e.id % 2 ? 1 : -1, boomed: mode !== 'crash' };
+        // Run over by a heavy vehicle (BAL-2): flattened into the ground with dust or ichor.
+        if (e.crushed) {
+          u.dying.mode = 'crush';
+          this.fx.crushed(at, !!u.def.organic, now);
+          return;
+        }
         // A hero goes down in a long, violent death of its own (HERO-3).
         if (e.kind && UNIT_DEFS[e.kind]?.hero) {
           u.dying.mode = 'break';
@@ -854,11 +860,11 @@ export class View3D {
         muzzle.getWorldPosition(this.v);
         this.v2.setFromMatrixColumn(muzzle.matrixWorld, 0).normalize();
         this.fx.muzzle(look, this.v, this.v2, now);
-        this.fx.shot(look, this.v, p.to, flight, now);
+        this.fx.shot(look, this.v, p.to, flight, now, p.e.elite === true);
       } else {
         // The shooter is not drawn (out of sight): start at its position.
         const from = new THREE.Vector3(p.e.x / FP, this.groundAt(p.e.x / FP, p.e.y / FP) + 0.3, p.e.y / FP);
-        this.fx.shot(look, from, p.to, flight, now);
+        this.fx.shot(look, from, p.to, flight, now, p.e.elite === true);
       }
       if (p.src) {
         if (isUnit(p.src)) p.src.lastFire[p.figure] = now;
@@ -1276,7 +1282,7 @@ export class View3D {
     const d = o.dying!;
     const age = t - d.t0;
     const rich = this.fx.quality.rich;
-    const life = d.mode === 'fall' ? 2600 : d.mode === 'break' ? (rich ? 9000 : 5000) : rich ? 9000 : 3500;
+    const life = d.mode === 'fall' || d.mode === 'crush' ? 2600 : d.mode === 'break' ? (rich ? 9000 : 5000) : rich ? 9000 : 3500;
     if (age > life) return false;
     if (d.mode === 'break') {
       // A hero blown apart (HERO-3): parts thrown out with the blasts, landing, scorched, and sinking away at the end.
@@ -1316,6 +1322,17 @@ export class View3D {
         }
       }
       this.tint.setScalar(0.25);
+      return true;
+    }
+    if (d.mode === 'crush') {
+      // Flattened at once (BAL-2): the figures squash flat and spread a little, darken, then sink away.
+      const k = Math.min(1, age / 120);
+      o.figures.forEach((f, i) => {
+        if (i < o.alive) f.root.scale.set(1 + 0.3 * k, 1 - 0.88 * k, 1 + 0.3 * k);
+      });
+      const sink = Math.max(0, (age - 1600) / 1000);
+      o.root.position.y = o.groundY - sink * o.def.height * 0.3;
+      this.tint.setScalar(1 - 0.6 * k);
       return true;
     }
     if (d.mode === 'fall') {

@@ -42,16 +42,20 @@ const SW = {
   vrax: { core: 0xf0ffc0, glow: BIO, deep: 0x8a3cff, fire: 0x9dff3c },
 } as const;
 
+/** Shots fired by top-rank (elite) units glow in this colour instead of their weapon's own (BAL-7). */
+export const ELITE_SHOT = 0xd36bff;
+
 export const LOOKS: Record<WeaponLook, Look> = {
   rifle: { color: 0xffe2a0, intensity: 1.3, speed: 38, len: 0.26, width: 0.0065, arc: 0, flash: 0.09, flashColor: 0xffd27a, smokeTrail: false, hit: 'spark', shake: 0 },
   mg: { color: 0xffcf80, intensity: 1.35, speed: 42, len: 0.29, width: 0.008, arc: 0, flash: 0.11, flashColor: 0xffc070, smokeTrail: false, hit: 'spark', shake: 0 },
   chaingun: { color: 0xffc070, intensity: 1.5, speed: 46, len: 0.34, width: 0.009, arc: 0, flash: 0.12, flashColor: 0xffb060, smokeTrail: false, hit: 'spark', shake: 0 },
   pulse: { color: 0x80e8ff, intensity: 1.8, speed: 30, len: 0.4, width: 0.018, arc: 0, flash: 0.17, flashColor: 0x9ff0ff, smokeTrail: false, hit: 'spark', shake: 0 },
-  cannon: { color: 0xffd090, intensity: 2.2, speed: 0, len: 0.26, width: 0.026, arc: 0.02, flash: 0.55, flashColor: 0xffc068, smokeTrail: false, hit: 'blast', shake: 0.04 },
+  // Tank and hero shells fly flat and fast from the muzzle (BAL-4); only artillery lobs.
+  cannon: { color: 0xffd090, intensity: 2.2, speed: 0, len: 0.32, width: 0.026, arc: 0, flash: 0.55, flashColor: 0xffc068, smokeTrail: false, hit: 'blast', shake: 0.04 },
   // The Paladin's twin heavy cannons (HERO-1, HERO-4): a slow, heavy shell lobbed on a visible arc with a smoke trail, a
   // huge flash with side jets from the muzzle brakes, a shock ring and a rolling cloud of gun smoke, and a great burst
   // with a shockwave and thrown earth where it lands.
-  heroCannon: { color: 0xffe2a8, intensity: 2.6, speed: 0, len: 0.55, width: 0.065, arc: 0.11, flash: 1.05, flashColor: 0xffc068, smokeTrail: true, hit: 'blast', shake: 0.1 },
+  heroCannon: { color: 0xffe2a8, intensity: 2.6, speed: 0, len: 0.7, width: 0.065, arc: 0, flash: 1.05, flashColor: 0xffc068, smokeTrail: true, hit: 'blast', shake: 0.1 },
   howitzer: { color: 0xffb060, intensity: 2.2, speed: 0, len: 0.22, width: 0.035, arc: 0.38, flash: 0.8, flashColor: 0xffb050, smokeTrail: true, hit: 'blast', shake: 0.08 },
   rocket: { color: 0xffa040, intensity: 2.6, speed: 0, len: 0.14, width: 0.03, arc: 0.12, flash: 0.22, flashColor: 0xffb060, smokeTrail: true, hit: 'blast', shake: 0.02 },
   claw: { color: 0xd8ffb0, intensity: 2.5, speed: 0, len: 0, width: 0.02, arc: 0, flash: 0, flashColor: 0, smokeTrail: false, hit: 'slash', shake: 0, bio: true },
@@ -59,7 +63,7 @@ export const LOOKS: Record<WeaponLook, Look> = {
   acidBig: { color: 0xb8ff40, intensity: 2.4, speed: 0, len: 0.16, width: 0.09, arc: 0.45, flash: 0.35, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0.05, bio: true },
   // The Dreadstrider's acid cannon (HERO-2, HERO-4): a great glob of acid hurled on a high arc after a spray from the
   // maw, landing in a wide splash with a green shock ring and a burning pool.
-  heroAcid: { color: 0xc8ff50, intensity: 2.6, speed: 0, len: 0.26, width: 0.15, arc: 0.4, flash: 0.75, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0.09, bio: true },
+  heroAcid: { color: 0xc8ff50, intensity: 2.6, speed: 0, len: 0.5, width: 0.12, arc: 0, flash: 0.75, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0.09, bio: true },
   sting: { color: 0xe8ff70, intensity: 1.35, speed: 26, len: 0.2, width: 0.013, arc: 0, flash: 0.07, flashColor: 0xe0ff80, smokeTrail: false, hit: 'spark', shake: 0, bio: true },
   spine: { color: 0xf0e6cc, intensity: 1.1, speed: 22, len: 0.26, width: 0.017, arc: 0.04, flash: 0.09, flashColor: 0xb6ff5c, smokeTrail: false, hit: 'bone', shake: 0, bio: true },
 };
@@ -398,6 +402,8 @@ interface Shot {
   /** Set when the simulation's splash explosion is drawn by this projectile. */
   splash: number;
   lastTrail: number;
+  /** Colour of the bolt and its trail: the look's own, or the elite colour (BAL-7). */
+  color: number;
 }
 
 interface Flash {
@@ -606,14 +612,14 @@ export class CombatFx {
   }
 
   /** A shot from `from` to `to`: straight tracers fly at their look's speed; others take `flightMs` (from the sim). */
-  shot(look: WeaponLook, from: Vec, to: Vec, flightMs: number, now: number): void {
+  shot(look: WeaponLook, from: Vec, to: Vec, flightMs: number, now: number, elite = false): void {
     const L = LOOKS[look];
     if (look === 'claw') {
       this.impact(L, to, now, 0);
       return;
     }
     const straight = L.speed > 0;
-    this.shots.push({ look: L, from: from.clone(), to: to.clone(), born: now, dur: shotDuration(look, from.distanceTo(to), flightMs), straight, splash: 0, lastTrail: now });
+    this.shots.push({ look: L, from: from.clone(), to: to.clone(), born: now, dur: shotDuration(look, from.distanceTo(to), flightMs), straight, splash: 0, lastTrail: now, color: elite ? ELITE_SHOT : L.color });
   }
 
   /** The simulation's splash explosion at `at`: drawn by a projectile landing there, else on its own. */
@@ -749,6 +755,24 @@ export class CombatFx {
     if (this.busy) return;
     const r = this.rng;
     this.smoke.emit({ x: at.x + r.range(-0.05, 0.05), y: at.y, z: at.z + r.range(-0.05, 0.05), vx: 0.12, vy: r.range(0.35, 0.55), vz: 0.06, life: r.range(1800, 2600), size0: 0.15, size1: 0.6, color0: 0xd8dce0, color1: 0xb8bcc2, alpha: 0.28, drag: 0.4 }, now);
+  }
+
+  /**
+   * A squad run over by a heavy vehicle (BAL-2): a puff of dirt and dust and a scuffed track mark for Aegis infantry, a
+   * dark ichor splat and a fading pool for Vrax.
+   */
+  crushed(at: Vec, organic: boolean, now: number): void {
+    const r = this.rng;
+    const n = this.quality.rich ? 10 : 5;
+    for (let i = 0; i < n; i++) {
+      const a = r.range(0, Math.PI * 2);
+      const sp = r.range(0.3, 0.9);
+      this.smoke.emit({ x: at.x, y: at.y + 0.05, z: at.z, vx: Math.cos(a) * sp, vy: r.range(0.15, 0.5), vz: Math.sin(a) * sp, life: r.range(700, 1200), size0: 0.12, size1: 0.5, color0: organic ? 0x3a4a2a : 0x8a7a5e, color1: organic ? 0x2a3020 : 0x9a8c72, alpha: 0.5, drag: 2 }, now);
+    }
+    if (organic) {
+      this.splatter(at, true, now);
+      this.puddle(at, 0.45, now, 0x5f9a20, 3200);
+    } else this.scorch(at, 0.45, now);
   }
 
   /** Green ichor for dying aliens; dark oil and sparks for machines. */
@@ -1113,7 +1137,7 @@ export class CombatFx {
         // Tracer: a bright bolt whose tail never starts behind the muzzle.
         const back = Math.min(L.len, s.from.distanceTo(this.v));
         this.w.subVectors(s.to, s.from).normalize().multiplyScalar(-back).add(this.v);
-        this.streaks.add(this.w, this.v, L.width, L.color, L.intensity);
+        this.streaks.add(this.w, this.v, L.width, s.color, L.intensity);
         // Stings and spines leave a short glowing wake of motes that drift and fade (R3D-12).
         if (L.bio && now - s.lastTrail > 22) {
           s.lastTrail = now;
@@ -1123,11 +1147,11 @@ export class CombatFx {
         this.pathAt(s, Math.max(0, k - 0.04), this.w);
         const d = this.v.distanceTo(this.w);
         if (d > 1e-4) this.w.sub(this.v).multiplyScalar(L.len / d).add(this.v);
-        this.streaks.add(this.w, this.v, L.width, L.color, L.intensity);
+        this.streaks.add(this.w, this.v, L.width, s.color, L.intensity);
         if (now - s.lastTrail > 16) {
           s.lastTrail = now;
           if (L.smokeTrail) this.smoke.emit({ x: this.v.x, y: this.v.y, z: this.v.z, vy: 0.1, life: this.quality.rich ? 900 : 400, size0: 0.05, size1: 0.28, color0: 0xb8b2a8, color1: 0x77736c, alpha: 0.42, drag: 1 }, now);
-          this.glow.emit({ x: this.v.x, y: this.v.y, z: this.v.z, life: L.bio ? 220 : 90, size0: L.width * (L.bio ? 6 : 5), size1: L.width * 2, color0: L.color, color1: L.bio ? BIO_DEEP : L.color, alpha: 1.1 }, now);
+          this.glow.emit({ x: this.v.x, y: this.v.y, z: this.v.z, life: L.bio ? 220 : 90, size0: L.width * (L.bio ? 6 : 5), size1: L.width * 2, color0: s.color, color1: L.bio && s.color === L.color ? BIO_DEEP : s.color, alpha: 1.1 }, now);
           if (L.bio) {
             // An acid glob drips glowing droplets and trails a wisp of green vapour (R3D-12).
             const r = this.rng;

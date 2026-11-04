@@ -5,7 +5,7 @@
 
 export type Faction = 'human' | 'alien';
 export type ArmorType = 'light' | 'heavy' | 'structure' | 'air';
-export type DamageType = 'pierce' | 'rocket' | 'blast' | 'claw' | 'beam';
+export type DamageType = 'pierce' | 'rocket' | 'blast' | 'claw' | 'bite' | 'beam';
 
 export interface WeaponDef {
   damage: number;
@@ -50,6 +50,8 @@ export interface UnitDef {
   squad?: number;
   /** A hero (HERO-1): one at a time per player, alive or in production. */
   hero?: boolean;
+  /** A heavy vehicle that crushes enemy infantry squads it drives over (BAL-1). */
+  crusher?: boolean;
   /** Role hint used by the AI for composition. */
   role: 'harvester' | 'infantry' | 'antiarmor' | 'scout' | 'tank' | 'artillery' | 'air' | 'raider';
 }
@@ -80,9 +82,11 @@ export interface BuildingDef {
 
 export const DAMAGE_PCT: Readonly<Record<DamageType, Readonly<Record<ArmorType, number>>>> = {
   pierce: { light: 100, heavy: 40, structure: 30, air: 100 },
-  rocket: { light: 60, heavy: 150, structure: 80, air: 120 },
+  rocket: { light: 45, heavy: 150, structure: 80, air: 120 },
   blast: { light: 80, heavy: 90, structure: 150, air: 0 },
-  claw: { light: 110, heavy: 70, structure: 60, air: 0 },
+  claw: { light: 110, heavy: 80, structure: 60, air: 0 },
+  // Small raiders' bites and slashes: deadly to infantry, little more than a nuisance to armour (BAL-3).
+  bite: { light: 110, heavy: 40, structure: 50, air: 0 },
   beam: { light: 100, heavy: 100, structure: 100, air: 100 },
 };
 
@@ -125,19 +129,19 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   hum_hauler: { faction: 'human', name: 'Shard Hauler', speed: 30, hp: 400, radius: 96, vision: 6, cost: 400, buildTime: 450, builtAt: 'hum_factory', requires: ['hum_refinery'], armor: 'heavy', capacity: 200, role: 'harvester' },
   hum_rifleman: {
     faction: 'human', name: 'Rifleman', speed: 38, hp: 100, radius: 80, vision: 7, cost: 100, buildTime: 120, builtAt: 'hum_barracks', requires: [], armor: 'light', squad: 3, role: 'infantry',
-    weapon: { damage: 8, range: 5, cooldown: 10, type: 'pierce', antiAir: true, antiGround: true },
+    weapon: { damage: 7, range: 5, cooldown: 10, type: 'pierce', antiAir: true, antiGround: true },
   },
   hum_rocketeer: {
     faction: 'human', name: 'Rocketeer', speed: 34, hp: 100, radius: 80, vision: 7, cost: 250, buildTime: 200, builtAt: 'hum_barracks', requires: ['hum_factory'], armor: 'light', squad: 3, role: 'antiarmor',
-    weapon: { damage: 40, range: 6, cooldown: 30, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
+    weapon: { damage: 38, range: 6, cooldown: 30, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
   },
   hum_buggy: {
     faction: 'human', name: 'Scout Buggy', speed: 70, hp: 160, radius: 80, vision: 11, cost: 250, buildTime: 220, builtAt: 'hum_factory', requires: [], armor: 'light', role: 'scout',
     weapon: { damage: 7, range: 4.5, cooldown: 8, type: 'pierce', antiAir: false, antiGround: true },
   },
   hum_tank: {
-    faction: 'human', name: 'Bulwark Tank', speed: 34, hp: 550, radius: 104, vision: 7, cost: 800, buildTime: 450, builtAt: 'hum_factory', requires: [], armor: 'heavy', role: 'tank',
-    weapon: { damage: 38, range: 6, cooldown: 25, type: 'rocket', antiAir: false, antiGround: true, flight: 4 },
+    faction: 'human', name: 'Bulwark Tank', speed: 34, hp: 550, radius: 104, vision: 7, cost: 800, buildTime: 450, builtAt: 'hum_factory', requires: [], armor: 'heavy', crusher: true, role: 'tank',
+    weapon: { damage: 38, range: 6, cooldown: 25, type: 'rocket', antiAir: false, antiGround: true, flight: 3 },
   },
   hum_artillery: {
     faction: 'human', name: 'Hammer Artillery', speed: 24, hp: 250, radius: 100, vision: 8, cost: 900, buildTime: 520, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', role: 'artillery',
@@ -146,26 +150,26 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // The Aegis hero (HERO-1): a giant four-legged assault walker whose cannons and missile pods engage ground and air alike; one at a
   // time, and it slowly repairs itself. Heroes fire slow, heavy shots that burst over an area (HERO-4).
   hum_paladin: {
-    faction: 'human', name: 'Paladin', speed: 32, hp: 3000, radius: 180, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, role: 'tank',
-    weapon: { damage: 110, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 8, splash: 0.9 },
+    faction: 'human', name: 'Paladin', speed: 24, hp: 3000, radius: 180, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, crusher: true, role: 'tank',
+    weapon: { damage: 110, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 5, splash: 0.9 },
   },
 
   // ---- Aliens ----
   ali_gorger: { faction: 'alien', name: 'Gorger', speed: 34, hp: 350, radius: 96, vision: 6, cost: 350, buildTime: 420, builtAt: 'ali_pit', requires: ['ali_extractor'], armor: 'heavy', capacity: 200, regen: 2, role: 'harvester' },
   ali_skitter: {
     faction: 'alien', name: 'Skitterer', speed: 60, hp: 74, radius: 70, vision: 7, cost: 80, buildTime: 100, builtAt: 'ali_nest', requires: [], armor: 'light', regen: 1, squad: 3, role: 'raider',
-    weapon: { damage: 8, range: 1.5, cooldown: 8, type: 'claw', antiAir: false, antiGround: true },
+    weapon: { damage: 7, range: 1.5, cooldown: 8, type: 'bite', antiAir: false, antiGround: true },
   },
   ali_spitter: {
     faction: 'alien', name: 'Spitter', speed: 40, hp: 82, radius: 76, vision: 7, cost: 220, buildTime: 200, builtAt: 'ali_nest', requires: ['ali_pit'], armor: 'light', regen: 1, squad: 3, role: 'antiarmor',
-    weapon: { damage: 31, range: 6, cooldown: 26, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
+    weapon: { damage: 30, range: 6, cooldown: 26, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
   },
   ali_stalker: {
     faction: 'alien', name: 'Stalker', speed: 92, hp: 110, radius: 76, vision: 11, cost: 220, buildTime: 200, builtAt: 'ali_pit', requires: [], armor: 'light', regen: 2, role: 'scout',
-    weapon: { damage: 8, range: 1.6, cooldown: 7, type: 'claw', antiAir: false, antiGround: true },
+    weapon: { damage: 8, range: 1.6, cooldown: 7, type: 'bite', antiAir: false, antiGround: true },
   },
   ali_brute: {
-    faction: 'alien', name: 'Brute', speed: 33, hp: 710, radius: 112, vision: 6, cost: 830, buildTime: 500, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 2, role: 'tank',
+    faction: 'alien', name: 'Brute', speed: 33, hp: 620, radius: 112, vision: 6, cost: 830, buildTime: 500, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 2, crusher: true, role: 'tank',
     weapon: { damage: 58, range: 1.9, cooldown: 20, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_lobber: {
@@ -175,8 +179,8 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // The Vrax hero (HERO-2): a towering six-legged bio-walker whose acid cannon hits ground and air; one at a time, and
   // it regenerates.
   ali_strider: {
-    faction: 'alien', name: 'Dreadstrider', speed: 32, hp: 3000, radius: 150, vision: 10, cost: 2000, buildTime: 900, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 3, hero: true, role: 'tank',
-    weapon: { damage: 110, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 9, splash: 0.9 },
+    faction: 'alien', name: 'Dreadstrider', speed: 24, hp: 3000, radius: 150, vision: 10, cost: 2000, buildTime: 900, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 3, hero: true, crusher: true, role: 'tank',
+    weapon: { damage: 110, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 5, splash: 0.9 },
   },
 };
 

@@ -1,5 +1,6 @@
 import { buildingDef, unitDef } from '../data/defs';
 import { fireSuperweapon, tickCombat } from './combat';
+import { crush, isCrusher } from './crush';
 import { regrow, tickHaulers, updatePower } from './economy';
 import { centerOf, tileOf } from './fixed';
 import { recomputeVisible, SIGHT_LINGER, VISIBLE, type VisionSource } from './fog';
@@ -201,7 +202,14 @@ export function tick(game: Game): void {
   tickCombat(s);
   servePathQueue(s);
   tickHaulers(s);
-  for (const u of s.units) stepUnit(s, u);
+  const moved = new Set<number>();
+  for (const u of s.units) {
+    const x = u.x;
+    const y = u.y;
+    stepUnit(s, u);
+    if (isCrusher(u) && (u.x !== x || u.y !== y)) moved.add(u.id);
+  }
+  crush(s, moved);
   separate(s);
   regrow(s);
   updateFog(s);

@@ -15,8 +15,8 @@ describe('light infantry squads', () => {
   });
 
   it('SQD-1: squad damage scales with the figures left; other units always deal full damage', () => {
-    expect(unitDamage('hum_rifleman', 100, 0)).toBe(8);
-    expect(unitDamage('hum_rifleman', 60, 0)).toBe(5);
+    expect(unitDamage('hum_rifleman', 100, 0)).toBe(7);
+    expect(unitDamage('hum_rifleman', 60, 0)).toBe(4);
     expect(unitDamage('hum_rifleman', 20, 0)).toBe(2);
     expect(unitDamage('hum_tank', 550, 0)).toBe(38);
     expect(unitDamage('hum_tank', 20, 0)).toBe(38);
