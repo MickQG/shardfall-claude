@@ -1,4 +1,4 @@
-import { unitDef } from '../data/defs';
+import { canCrush, unitDef } from '../data/defs';
 import { isqrt } from './fixed';
 import type { State, Unit } from './state';
 import { gainXp } from './units';
@@ -6,12 +6,12 @@ import { gainXp } from './units';
 /** Whether `u` is a heavy vehicle that crushes infantry (BAL-1). */
 export const isCrusher = (u: Unit): boolean => unitDef(u.kind).crusher === true;
 
-/** Whether `v` is an infantry squad that a crusher of another owner flattens (BAL-1). */
-export const crushable = (crusher: Unit, v: Unit): boolean => v.owner !== crusher.owner && (unitDef(v.kind).squad ?? 1) > 1;
+/** Whether `v` is an enemy that `crusher` flattens: an infantry squad (BAL-1), or for a hero any ground unit but a hero (BAL-10). */
+export const crushable = (crusher: Unit, v: Unit): boolean => v.owner !== crusher.owner && canCrush(crusher.kind, v.kind);
 
 /**
- * Crushing (BAL-1): a crusher that moved this tick flattens every enemy infantry squad whose centre lies inside its body.
- * The whole squad dies at once, and the crusher earns its remaining hit points as veterancy experience. `moved` holds
+ * Crushing (BAL-1, BAL-10): a crusher that moved this tick flattens every enemy it can crush whose centre lies inside its
+ * body (infantry squads; for a hero, vehicles and walkers too). The whole unit dies at once, and the crusher earns its remaining hit points as veterancy experience. `moved` holds
  * the crushers that travelled this tick (standing still, firing or turning in place crushes nothing).
  */
 export function crush(s: State, moved: ReadonlySet<number>): void {
@@ -28,7 +28,7 @@ export function crush(s: State, moved: ReadonlySet<number>): void {
       gainXp(c, v.hp);
       v.hp = 0;
       dead.add(v.id);
-      s.events.push({ t: 'die', x: v.x, y: v.y, big: false, owner: v.owner, id: v.id, kind: v.kind, crushed: true });
+      s.events.push({ t: 'die', x: v.x, y: v.y, big: (unitDef(v.kind).squad ?? 1) <= 1 && unitDef(v.kind).armor === 'heavy', owner: v.owner, id: v.id, kind: v.kind, crushed: true });
       const p = s.players[v.owner];
       if (p) p.stats.unitsLost++;
     }

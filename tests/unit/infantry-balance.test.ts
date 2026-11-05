@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { chooseUnitKind, CRUSH_OVERRUN, CRUSH_REACH, crushOrders, type Role } from '../../src/ai/ai';
 import { soundFor } from '../../src/audio/plan';
-import { UNIT_DEFS, unitDef } from '../../src/data/defs';
+import { canCrush, UNIT_DEFS, unitDef } from '../../src/data/defs';
 import { createGame, damageAgainst, FP, MAX_RANK, RANK_XP, snapshot, submit, tick, type Game, type SimEvent, type UnitSnap, type UnitSpawn } from '../../src/sim';
 import { unitCards } from '../../src/ui/unitInfo';
 import { mean, open, rounds } from './battle';
@@ -150,6 +150,79 @@ describe('straight shells', () => {
     expect(unitDef('ali_strider').weapon!.flight).toBe(5);
     expect(unitDef('hum_artillery').weapon!.indirect).toBe(true);
     expect(unitDef('ali_lobber').weapon!.indirect).toBe(true);
+  });
+});
+
+describe('heroes crush vehicles', () => {
+  const crushes = (kind: string, victim: string): boolean => {
+    const g = game([
+      { owner: 0, kind, tx: 5, ty: 10 },
+      { owner: 1, kind: victim, tx: 9, ty: 10 },
+    ]);
+    moveTo(g, 0, kind, 14, 10);
+    let n = 0;
+    run(g, 240, (e) => {
+      if (e.t === 'die' && e.crushed && e.kind === victim) n++;
+    });
+    return n > 0;
+  };
+
+  it('BAL-10: a moving hero runs over any enemy ground unit (tanks, Brutes, artillery, harvesters, scouts) but never another hero', () => {
+    for (const hero of ['hum_paladin', 'ali_strider']) {
+      const foe = hero === 'hum_paladin' ? ['ali_brute', 'ali_lobber', 'ali_gorger', 'ali_stalker'] : ['hum_tank', 'hum_artillery', 'hum_hauler'];
+      for (const v of foe) expect(crushes(hero, v), `${hero} over ${v}`).toBe(true);
+      expect(crushes(hero, hero === 'hum_paladin' ? 'ali_strider' : 'hum_paladin'), `${hero} over a hero`).toBe(false);
+    }
+    // Tanks and Brutes still crush infantry only.
+    expect(crushes('hum_tank', 'ali_brute')).toBe(false);
+    expect(crushes('ali_brute', 'hum_artillery')).toBe(false);
+  });
+
+  it('BAL-10: other heroes (and any aircraft) are never crushable, and a crushed vehicle dies big, earning the hero its health as experience', () => {
+    for (const a of Object.keys(UNIT_DEFS).filter((k) => unitDef(k).air)) expect(canCrush('hum_paladin', a)).toBe(false);
+    expect(canCrush('hum_paladin', 'ali_strider')).toBe(false);
+    expect(canCrush('hum_paladin', 'ali_brute')).toBe(true);
+    expect(canCrush('hum_tank', 'ali_brute')).toBe(false);
+    const g = game([
+      { owner: 0, kind: 'hum_paladin', tx: 5, ty: 10 },
+      { owner: 1, kind: 'ali_lobber', tx: 9, ty: 10 },
+    ]);
+    const hp = unitAt(g, 'ali_lobber', 1).hp;
+    moveTo(g, 0, 'hum_paladin', 14, 10);
+    const dead: SimEvent[] = [];
+    run(g, 240, (e) => {
+      if (e.t === 'die' && e.crushed) dead.push(e);
+    });
+    expect(dead).toHaveLength(1);
+    expect(dead[0]).toMatchObject({ kind: 'ali_lobber', big: true });
+    expect(unitAt(g, 'hum_paladin').xp).toBeGreaterThanOrEqual(hp);
+  });
+
+  it('BAL-10: the AI drives its hero over a nearby enemy vehicle, but not over the enemy hero', () => {
+    const hero: UnitSnap = { rank: 0, target: -1, id: 1, owner: 0, kind: 'hum_paladin', x: 10 * FP, y: 10 * FP, hp: 3000, dest: null, load: 0 };
+    const brute: UnitSnap = { ...hero, id: 9, owner: 1, kind: 'ali_brute', x: 13 * FP, hp: 620 };
+    expect(crushOrders(0, [hero], [brute], 40, 40)).toHaveLength(1);
+    expect(crushOrders(0, [hero], [{ ...brute, kind: 'ali_strider', hp: 3000 }], 40, 40)).toEqual([]);
+  });
+
+  it('BAL-11: a crusher on a move order keeps firing at enemies in range without stopping; other units hold fire on the move', () => {
+    const fires = (kind: string): { shots: number; moved: boolean } => {
+      const g = game([
+        { owner: 0, kind, tx: 3, ty: 4 },
+        { owner: 1, kind: 'ali_skitter', tx: 8, ty: 9 },
+      ]);
+      const u = unitAt(g, kind);
+      const x0 = u.x;
+      moveTo(g, 0, kind, 20, 4);
+      let shots = 0;
+      run(g, 60, (e) => {
+        if (e.t === 'shot' && e.owner === 0) shots++;
+      });
+      return { shots, moved: unitAt(g, kind).x > x0 + 2 * FP };
+    };
+    expect(fires('hum_tank')).toMatchObject({ moved: true });
+    expect(fires('hum_tank').shots).toBeGreaterThan(0);
+    expect(fires('hum_rocketeer')).toEqual({ shots: 0, moved: true });
   });
 });
 

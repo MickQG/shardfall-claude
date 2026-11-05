@@ -80,6 +80,8 @@ export function stepUnit(s: State, u: Unit): void {
 const MAX_PUSH = FP / 24;
 
 /** Push overlapping ground units apart. Air units do not collide. */
+const isSquad = (u: Unit): boolean => (unitDef(u.kind).squad ?? 1) > 1;
+
 export function separate(s: State): void {
   const g = s.grid;
   const ground = s.units.filter((u) => !unitDef(u.kind).air);
@@ -117,6 +119,8 @@ export function separate(s: State): void {
           // A crusher ploughs on through enemy infantry: they give way, it does not (BAL-1).
           const uHolds = isCrusher(u) && crushable(u, o);
           const oHolds = isCrusher(o) && crushable(o, u);
+          // A hero walks straight over an enemy vehicle it can crush: neither is pushed, so the hero overruns it (BAL-10).
+          if ((uHolds && !isSquad(o)) || (oHolds && !isSquad(u))) continue;
           if (!uHolds) {
             const pu = push.get(u.id) ?? [0, 0];
             pu[0] -= px;

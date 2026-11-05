@@ -969,8 +969,15 @@ export class CombatFx {
    * up it and a ring of dust, then, until the strike lands, the target marked for everyone: a glowing disc, a targeting
    * beam from the sky that thickens, pulses of light and shockwave rings that quicken, and motes drawn in to its centre.
    */
-  superweaponLaunch(from: Vec, top: number, to: Vec, radius: number, delayMs: number, aegis: boolean, now: number): void {
+  superweaponLaunch(from: Vec | null, top: number, to: Vec, radius: number, delayMs: number, aegis: boolean, now: number): void {
     const P = aegis ? SW.aegis : SW.vrax;
+    // A launch site out of the viewer's sight (SW-2) shows nothing there: only the target is marked.
+    if (from) this.launchFlare(from, top, P, now);
+    this.mark(to, radius, delayMs, P, now);
+  }
+
+  /** The flash and beam into the sky at a superweapon as it launches (R3D-16). */
+  private launchFlare(from: Vec, top: number, P: (typeof SW)[keyof typeof SW], now: number): void {
     const r = this.rng;
     const base = from.clone().setY(from.y + top);
     this.glow.emit({ x: base.x, y: base.y, z: base.z, life: 280, size0: 1.2, size1: 2.6, color0: 0xffffff, color1: P.glow, alpha: 2 }, now);
@@ -988,6 +995,10 @@ export class CombatFx {
     }
     this.light(base.x, base.y, base.z, P.glow, 30, 900, now, 14);
     this.shake = Math.max(this.shake, 0.1);
+  }
+
+  /** A superweapon's target, marked until the strike lands (R3D-16). */
+  private mark(to: Vec, radius: number, delayMs: number, P: (typeof SW)[keyof typeof SW], now: number): void {
     this.warnings.push({ at: to.clone(), r: radius, start: now, end: now + delayMs, glow: P.glow, core: P.core, lastRing: -1e9, lastMote: -1e9, lastLight: -1e9 });
     this.puddle(to, radius * 0.75, now, P.glow, delayMs + 300, true);
   }

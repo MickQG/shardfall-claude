@@ -2,7 +2,7 @@ import { BUILDING_DEFS, buildingDef } from '../data/defs';
 import type { Snapshot } from '../sim';
 
 export interface Alert {
-  id: 'attack' | 'units' | 'structure' | 'unit' | 'power' | 'superweapon' | 'incoming';
+  id: 'attack' | 'units' | 'structure' | 'unit' | 'power' | 'superweapon' | 'incoming' | 'detected';
   text: string;
   level: 'info' | 'warn' | 'bad';
   /** Tile position for a minimap ping, if any. */
@@ -10,7 +10,7 @@ export interface Alert {
 }
 
 /** Cooldowns in ticks, so an alert does not repeat every tick. */
-const COOLDOWN: Record<Alert['id'], number> = { attack: 200, units: 300, structure: 40, unit: 100, power: 600, superweapon: 100, incoming: 200 };
+const COOLDOWN: Record<Alert['id'], number> = { attack: 200, units: 300, structure: 40, unit: 100, power: 600, superweapon: 100, incoming: 200, detected: 100 };
 
 /** Compares consecutive snapshots of one viewer and raises the alerts a player needs to hear about. */
 export class AlertTracker {
@@ -19,6 +19,9 @@ export class AlertTracker {
   /** Building id to the kind of ready structure already announced for it. */
   private ready = new Map<number, string>();
   private charged = new Set<number>();
+  /** Enemy superweapons and strikes already announced (SW-1, SW-2). */
+  private enemyWeapons = new Set<number>();
+  private strikes = new Set<string>();
   private unitCount = -1;
   private wasLow = false;
   private last = new Map<Alert['id'], number>();
@@ -72,7 +75,19 @@ export class AlertTracker {
     if (low && !this.wasLow) this.fire(out, t, { id: 'power', text: 'Low power: production slowed', level: 'warn' });
     this.wasLow = low;
 
-    for (const e of s.events) if (e.t === 'launch' && e.owner !== me) this.fire(out, t, { id: 'incoming', text: 'Enemy superweapon launched!', level: 'bad' });
+    // Every enemy superweapon is announced once, when it is finished, seen or not (SW-1).
+    for (const w of s.superweapons ?? []) {
+      if (w.owner === me || this.enemyWeapons.has(w.id)) continue;
+      this.enemyWeapons.add(w.id);
+      this.fire(out, t, { id: 'detected', text: `Enemy superweapon detected: ${buildingDef(w.kind).name}`, level: 'bad' });
+    }
+    // An enemy launch is announced whether or not its launch site is in view (SW-2).
+    for (const k of s.strikes ?? []) {
+      const key = `${k.owner}:${t + k.left}`;
+      if (k.owner === me || this.strikes.has(key)) continue;
+      this.strikes.add(key);
+      this.fire(out, t, { id: 'incoming', text: 'Enemy superweapon launched!', level: 'bad', at: { tx: Math.floor(k.x / 256), ty: Math.floor(k.y / 256) } });
+    }
     return out;
   }
 }

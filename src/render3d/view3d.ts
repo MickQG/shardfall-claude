@@ -777,9 +777,10 @@ export class View3D {
       const [x, z] = P(e.x, e.y);
       const [tx, tz] = P(e.tx, e.ty);
       const b = [...this.buildings.values()].find((o) => o.kind === e.kind && Math.hypot(o.x - x, o.z - z) < 2);
-      const from = new THREE.Vector3(x, b ? b.y : this.groundAt(x, z), z);
+      // A launch site out of sight (SW-2) is not shown: only the target is marked.
+      const from = e.unseen ? null : new THREE.Vector3(x, b ? b.y : this.groundAt(x, z), z);
       const radius = buildingDef(e.kind).superweapon?.radius ?? 3;
-      if (b) b.lastFire = now;
+      if (b && !e.unseen) b.lastFire = now;
       this.fx.superweaponLaunch(from, b ? b.def.height : 1.2, new THREE.Vector3(tx, this.groundAt(tx, tz), tz), radius, e.delay * this.msPerTick, !e.kind.startsWith('ali_'), now);
       return;
     }
@@ -795,10 +796,12 @@ export class View3D {
       if (u && !u.dying) {
         const mode = u.def.move === 'air' ? 'crash' : u.def.move === 'walker' ? 'fall' : 'wreck';
         u.dying = { t0: now, mode, side: e.id % 2 ? 1 : -1, boomed: mode !== 'crash' };
-        // Run over by a heavy vehicle (BAL-2): flattened into the ground with dust or ichor.
+        // Run over by a heavy vehicle or a hero (BAL-2, BAL-10): flattened into the ground with dust or ichor.
         if (e.crushed) {
           u.dying.mode = 'crush';
           this.fx.crushed(at, !!u.def.organic, now);
+          // A vehicle or walker flattened by a hero (BAL-10) also bursts.
+          if (e.big) this.fx.explosion(at.clone().setY(at.y + 0.15), 0.5, now);
           return;
         }
         // A hero goes down in a long, violent death of its own (HERO-3).

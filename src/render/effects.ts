@@ -164,10 +164,12 @@ export class Effects {
 
   private launch(e: Extract<SimEvent, { t: 'launch' }>, now: number): void {
     const p = toScreen(e.x, e.y);
-    this.add(e.delay * TICK_MS, now, (k, g) => {
-      g.clear().rect(p.x - 3, p.y - 400 * k - 40, 6, 400 * k).fill({ color: 0xffffff, alpha: 1 - k * 0.4 });
-      g.circle(p.x, p.y - 40, 14 * (1 - k) + 4).fill({ color: 0x9ff0ff, alpha: 0.7 });
-    }, p.y);
+    // A launch site out of sight (SW-2) is not shown: only the target is marked.
+    if (!e.unseen)
+      this.add(e.delay * TICK_MS, now, (k, g) => {
+        g.clear().rect(p.x - 3, p.y - 400 * k - 40, 6, 400 * k).fill({ color: 0xffffff, alpha: 1 - k * 0.4 });
+        g.circle(p.x, p.y - 40, 14 * (1 - k) + 4).fill({ color: 0x9ff0ff, alpha: 0.7 });
+      }, p.y);
     // The target is marked until the strike lands: a glowing disc and rings pulsing faster as it nears (R3D-16).
     const t = toScreen(e.tx, e.ty);
     const r = (buildingDef(e.kind).superweapon?.radius ?? 3) * 34;

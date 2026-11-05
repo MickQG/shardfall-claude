@@ -3,11 +3,8 @@ import type { BuildingSpawn, GameConfig, MapDef, PlayerSetup, UnitSpawn } from '
 
 export const MAP_SIZE = 96;
 
-/** Start positions: top-left corner for player 0, bottom-right for player 1. */
-export const STARTS = [
-  { tx: 10, ty: 10 },
-  { tx: 82, ty: 82 },
-] as const;
+/** Player 0's start (its HQ's top-left tile) unless a map says otherwise: the top corner in the isometric view. */
+const DEFAULT_START = { tx: 10, ty: 10 } as const;
 
 interface Blob {
   cx: number;
@@ -35,6 +32,31 @@ interface MapPlan {
   centre: { r: number; amount: number };
   /** Extra water. */
   water?: (x: number, y: number) => boolean;
+  /** Player 0's HQ tile, with the base laid out toward +x and +y from it; player 1 mirrors it. DEFAULT_START otherwise. */
+  start?: { tx: number; ty: number };
+  /**
+   * Turn the whole map, bases included, a quarter turn about its centre, (x, y) to (W - 1 - y, x): in the isometric view
+   * the top and bottom corners become the right and left ones (MAP-6).
+   */
+  turn?: boolean;
+}
+
+/** A tile turned a quarter about the map centre (MapPlan.turn). */
+const turnTile = (x: number, y: number): [number, number] => [MAP_SIZE - 1 - y, x];
+
+/** The same map turned a quarter about its centre (MapPlan.turn); still point-symmetric. */
+function turnMap(m: MapDef): MapDef {
+  const W = MAP_SIZE;
+  const out = (a: readonly number[]): number[] => {
+    const r = new Array<number>(W * W).fill(0);
+    for (let y = 0; y < W; y++)
+      for (let x = 0; x < W; x++) {
+        const [nx, ny] = turnTile(x, y);
+        r[ny * W + nx] = a[y * W + x] as number;
+      }
+    return r;
+  };
+  return { width: W, height: W, heights: out(m.heights), blocked: out(m.blocked ?? []), shards: out(m.shards ?? []) };
 }
 
 function buildMap(plan: MapPlan): MapDef {
@@ -113,7 +135,7 @@ function buildMap(plan: MapPlan): MapDef {
   return { width: W, height: W, heights, blocked, shards };
 }
 
-/** Shard fields beside each base, the same on every map, so every start has a working economy. */
+/** Shard fields beside a base at DEFAULT_START, so every start has a working economy (Riverbed has its own). */
 const HOME_FIELDS: Field[] = [
   { cx: 22, cy: 12, r: 2, amount: 3000 },
   { cx: 12, cy: 24, r: 2, amount: 2500 },
@@ -147,6 +169,8 @@ const CROSSROADS: MapPlan = {
  * at the centre over the richest field, and a ford toward each flank. Rich fields lie on both banks near the crossings.
  */
 const RIVERBED: MapPlan = {
+  // The bases sit at the middle of the north-east and south-west edges, either side of the river (MAP-5).
+  start: { tx: 45, ty: 9 },
   rocks: [
     { cx: 30, cy: 18, rx: 5, ry: 2 },
     { cx: 18, cy: 32, rx: 2, ry: 5 },
@@ -154,7 +178,13 @@ const RIVERBED: MapPlan = {
     { cx: 50, cy: 22, rx: 3, ry: 2 },
   ],
   lakes: [{ cx: 4, cy: 36, rx: 2, ry: 3 }],
-  fields: [...HOME_FIELDS, { cx: 31, cy: 54, r: 2, amount: 4000 }, { cx: 56, cy: 30, r: 2, amount: 3500 }],
+  // Home fields either side of the base; a field near each base's own ford on its bank, and one across the other ford.
+  fields: [
+    { cx: 58, cy: 11, r: 2, amount: 3000 },
+    { cx: 37, cy: 11, r: 2, amount: 2500 },
+    { cx: 31, cy: 54, r: 2, amount: 4000 },
+    { cx: 56, cy: 30, r: 2, amount: 3500 },
+  ],
   centre: { r: 3.6, amount: 6000 },
   water: (x, y) => {
     // Along the anti-diagonal x + y = 95, its own mirror image, meandering by an odd function of the position along it.
@@ -197,6 +227,8 @@ function ridgeRing(): Blob[] {
  * fields lie in the basin, beside the pool.
  */
 const HIGHLANDS: MapPlan = {
+  // Laid out with the bases top and bottom, then turned so they face each other east and west (MAP-6).
+  turn: true,
   rocks: [
     ...ridgeRing(),
     { cx: 34, cy: 13, rx: 5, ry: 2 },
@@ -226,24 +258,37 @@ export const mapIdOf = (v: unknown): MapId => MAPS.find((m) => m.id === v)?.id ?
 
 /** A 96x96 point-symmetric two-player skirmish map (MAP-2, MAP-4): Crossroads unless another is named. */
 export function skirmishMap(id: MapId = DEFAULT_MAP): MapDef {
-  return buildMap(MAPS.find((m) => m.id === id)!.plan);
+  const plan = planOf(id);
+  const m = buildMap(plan);
+  return plan.turn ? turnMap(m) : m;
 }
 
-function startingForce(owner: number, faction: Faction): { buildings: BuildingSpawn[]; units: UnitSpawn[] } {
+const planOf = (id: MapId): MapPlan => MAPS.find((m) => m.id === id)!.plan;
+
+/**
+ * Where a footprint `w` by `h` laid out at offset (dx, dy) from player 0's start ends up for `owner` on a map: turned with
+ * the map (keeping its centre; a building is never rotated, so an oblong one is re-centred on the nearest tile), and for
+ * player 1 mirrored through the map centre.
+ */
+function footprint(plan: MapPlan, owner: number, dx: number, dy: number, w: number, h: number): { tx: number; ty: number } {
+  const s = plan.start ?? DEFAULT_START;
+  let tx = s.tx + dx;
+  let ty = s.ty + dy;
+  if (plan.turn) [tx, ty] = [MAP_SIZE - 1 - (ty + h - 1) + Math.floor((h - w) / 2), tx + Math.floor((w - h) / 2)];
+  return owner === 0 ? { tx, ty } : { tx: MAP_SIZE - 1 - (tx + w - 1), ty: MAP_SIZE - 1 - (ty + h - 1) };
+}
+
+/** Each player's start on a map: the top-left tile of their HQ (MAP-5, MAP-6). */
+export function mapStarts(id: MapId = DEFAULT_MAP): [{ tx: number; ty: number }, { tx: number; ty: number }] {
+  const plan = planOf(id);
+  return [footprint(plan, 0, 0, 0, 3, 3), footprint(plan, 1, 0, 0, 3, 3)];
+}
+
+function startingForce(owner: number, faction: Faction, plan: MapPlan): { buildings: BuildingSpawn[]; units: UnitSpawn[] } {
   const human = faction === 'human';
   // Player 1 mirrors player 0 through the map centre, so footprints are reflected too.
-  const b = (kind: string, dx: number, dy: number, w: number, h: number): BuildingSpawn => ({
-    owner,
-    kind,
-    tx: owner === 0 ? STARTS[0].tx + dx : MAP_SIZE - 1 - (STARTS[0].tx + dx + w - 1),
-    ty: owner === 0 ? STARTS[0].ty + dy : MAP_SIZE - 1 - (STARTS[0].ty + dy + h - 1),
-  });
-  const u = (kind: string, dx: number, dy: number): UnitSpawn => ({
-    owner,
-    kind,
-    tx: owner === 0 ? STARTS[0].tx + dx : MAP_SIZE - 1 - (STARTS[0].tx + dx),
-    ty: owner === 0 ? STARTS[0].ty + dy : MAP_SIZE - 1 - (STARTS[0].ty + dy),
-  });
+  const b = (kind: string, dx: number, dy: number, w: number, h: number): BuildingSpawn => ({ owner, kind, ...footprint(plan, owner, dx, dy, w, h) });
+  const u = (kind: string, dx: number, dy: number): UnitSpawn => ({ owner, kind, ...footprint(plan, owner, dx, dy, 1, 1) });
   const hq = human ? 'hum_hq' : 'ali_hq';
   const power = human ? 'hum_reactor' : 'ali_generator';
   const ref = human ? 'hum_refinery' : 'ali_extractor';
@@ -266,8 +311,9 @@ export interface SkirmishOptions {
 
 export function skirmishConfig(seed = 1, o: SkirmishOptions = {}): GameConfig {
   const f = o.factions ?? ['human', 'alien'];
-  const a = startingForce(0, f[0]);
-  const b = startingForce(1, f[1]);
+  const plan = planOf(o.map ?? DEFAULT_MAP);
+  const a = startingForce(0, f[0], plan);
+  const b = startingForce(1, f[1], plan);
   const players: PlayerSetup[] = [
     { faction: f[0], credits: o.credits ?? 1800, bonus: o.bonuses?.[0] ?? 0 },
     { faction: f[1], credits: o.credits ?? 1800, bonus: o.bonuses?.[1] ?? 0 },

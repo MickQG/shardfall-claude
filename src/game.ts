@@ -13,6 +13,7 @@ import { interpolate } from './render/interp';
 import { tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
+import { countdownRows } from './ui/countdown';
 import { createHud, resultText, type ScoreView } from './ui/hud';
 import { armyPath, scoreRows } from './ui/score';
 import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, inputAllowed, KeyTap, minimapClick } from './ui/controls';
@@ -293,6 +294,7 @@ function frame(prevTime: number): (t: number) => void {
         }
       }
       sidebar.update(curr, selectedBuilding, t, targeting?.building ?? null);
+      hud.setCountdown(countdownRows(curr));
 
       const own = curr.units.filter((u) => selection.has(u.id));
       const kinds = new Map<string, number>();

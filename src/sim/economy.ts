@@ -30,11 +30,19 @@ export const isLowPower = (s: State, owner: number): boolean => {
 };
 
 /** Nearest tile index with shards that a ground unit can stand on, or -1. */
-function findField(s: State, tx: number, ty: number): number {
+/**
+ * Ties go to the first tile in scan order. Player 1 scans the map from the far end, so on a point-symmetric map (MAP-4)
+ * both players' harvesters break ties as mirror images instead of both leaning toward the same corner.
+ */
+const scanIndex = (owner: number, k: number, n: number): number => (owner % 2 === 1 ? n - 1 - k : k);
+
+function findField(s: State, tx: number, ty: number, owner: number): number {
   const W = s.grid.width;
   let best = -1;
   let bd = Infinity;
-  for (let i = 0; i < s.shards.length; i++) {
+  const n = s.shards.length;
+  for (let k = 0; k < n; k++) {
+    const i = scanIndex(owner, k, n);
     if ((s.shards[i] as number) === 0) continue;
     const x = i % W;
     const y = (i - x) / W;
@@ -67,15 +75,18 @@ function dockTile(s: State, b: Building, tx: number, ty: number): number | undef
   const d = buildingDef(b.kind);
   let best: number | undefined;
   let bd = Infinity;
-  for (let y = b.ty - 1; y <= b.ty + d.h; y++) {
-    for (let x = b.tx - 1; x <= b.tx + d.w; x++) {
-      const onRing = x === b.tx - 1 || x === b.tx + d.w || y === b.ty - 1 || y === b.ty + d.h;
-      if (!onRing || isBlocked(s.grid, x, y)) continue;
-      const dist = (x - tx) ** 2 + (y - ty) ** 2;
-      if (dist < bd) {
-        bd = dist;
-        best = y * s.grid.width + x;
-      }
+  const rows = d.h + 2;
+  const cols = d.w + 2;
+  for (let k = 0; k < rows * cols; k++) {
+    const j = scanIndex(b.owner, k, rows * cols);
+    const x = b.tx - 1 + (j % cols);
+    const y = b.ty - 1 + Math.floor(j / cols);
+    const onRing = x === b.tx - 1 || x === b.tx + d.w || y === b.ty - 1 || y === b.ty + d.h;
+    if (!onRing || isBlocked(s.grid, x, y)) continue;
+    const dist = (x - tx) ** 2 + (y - ty) ** 2;
+    if (dist < bd) {
+      bd = dist;
+      best = y * s.grid.width + x;
     }
   }
   return best;
@@ -97,7 +108,7 @@ function stepHauler(s: State, u: Unit): void {
         break;
       }
       if (!throttle || !stopped) break;
-      const f = findField(s, tx, ty);
+      const f = findField(s, tx, ty, u.owner);
       if (f < 0) {
         if (u.load > 0) u.hv = Hv.ToRefinery;
       } else if (f === ty * W + tx) u.hv = Hv.Gather;

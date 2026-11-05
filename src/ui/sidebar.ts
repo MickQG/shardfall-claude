@@ -2,7 +2,7 @@ import { buildingDef, hqOf, structuresOf, UNIT_DEFS, unitDef, type Faction } fro
 import { cancelPlan } from './cancelPlan';
 import { fireState, queueRefusal, rallyHint, SellConfirm, superweaponRows } from './feedback';
 import { newestQueued, trainSource } from './production';
-import { QUEUE_MAX, type BuildingSnap, type Snapshot } from '../sim';
+import { QUEUE_MAX, TICKS_PER_SECOND, type BuildingSnap, type Snapshot } from '../sim';
 
 const CSS = `
 #sidebar { position: fixed; right: 12px; top: 12px; bottom: 12px; width: 232px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; font: 12px/1.25 system-ui, sans-serif; color: #dfe8e2; }
@@ -105,6 +105,8 @@ export class Sidebar {
   private swRefs = new Map<number, { row: HTMLElement; name: HTMLElement; state: HTMLElement; bar: HTMLElement; btn: HTMLButtonElement }>();
   private queues = new Map<number, { kind: string }[]>();
   private mine: BuildingSnap[] = [];
+  /** Ticks left on each own superweapon (SW-1). */
+  private left = new Map<number, number>();
   private lastKey = '';
   private selKey = 'init';
   private lastAt = 0;
@@ -196,7 +198,10 @@ export class Sidebar {
     this.mine = mine;
     this.queues = new Map(mine.map((b) => [b.id, b.queue.map((q) => ({ kind: q.kind }))]));
     const armed = selectedBuilding !== null && this.sellConfirm.armed(selectedBuilding, now);
-    const key = JSON.stringify([player.credits, player.powerOut, player.powerIn, mine.map((b) => [b.id, b.kind, b.hp, b.repairing, b.charge, b.queue.map((q) => [q.kind, q.pct, q.ready])]), selectedBuilding, armed, targeting]);
+    // Seconds left on each own superweapon (SW-1), so the panel's countdown ticks over.
+    const left = (snap.superweapons ?? []).filter((w) => w.owner === me).map((w) => [w.id, Math.ceil(w.left / TICKS_PER_SECOND)]);
+    this.left = new Map((snap.superweapons ?? []).filter((w) => w.owner === me).map((w) => [w.id, w.left]));
+    const key = JSON.stringify([player.credits, player.powerOut, player.powerIn, mine.map((b) => [b.id, b.kind, b.hp, b.repairing, b.charge, b.queue.map((q) => [q.kind, q.pct, q.ready])]), selectedBuilding, armed, targeting, left]);
     if (key === this.lastKey || now - this.lastAt < 120) return;
     this.lastKey = key;
     this.lastAt = now;
@@ -213,7 +218,7 @@ export class Sidebar {
 
   /** The superweapon panel (UI-9): always in view while the player owns one, with a fire button once it is ready. */
   private renderSuperweapons(mine: BuildingSnap[], low: boolean, targeting: number | null, faction: Faction): void {
-    const rows = superweaponRows(mine, low, targeting);
+    const rows = superweaponRows(mine, low, targeting, this.left);
     this.swEl.style.display = rows.length ? 'block' : 'none';
     this.swEl.classList.toggle('alien', faction === 'alien');
     const seen = new Set<number>();

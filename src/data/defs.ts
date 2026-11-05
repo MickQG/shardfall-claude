@@ -190,6 +190,17 @@ export const unitDef = (kind: string): UnitDef => {
   return d;
 };
 
+/**
+ * Whether a unit of kind `crusher` runs over an enemy unit of kind `victim` (BAL-1, BAL-10): every crusher flattens
+ * infantry squads, and a hero flattens any ground unit but another hero. Aircraft are never crushed.
+ */
+export function canCrush(crusher: string, victim: string): boolean {
+  const c = unitDef(crusher);
+  const v = unitDef(victim);
+  if (!c.crusher || v.air || v.hero) return false;
+  return (v.squad ?? 1) > 1 || c.hero === true;
+}
+
 export const buildingDef = (kind: string): BuildingDef => {
   const d = BUILDING_DEFS[kind];
   if (!d) throw new Error(`unknown building kind: ${kind}`);

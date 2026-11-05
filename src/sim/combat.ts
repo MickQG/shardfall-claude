@@ -170,12 +170,32 @@ function chase(s: State, u: Unit, t: Entity): void {
   orderMove(s, u, ty * s.grid.width + tx);
 }
 
+/**
+ * A crusher on the move keeps shooting at whatever comes into range without stopping (BAL-11): it guns enemies down on
+ * its way in and runs over those that get close.
+ */
+function fireOnTheMove(s: State, u: Unit, w: WeaponDef, byId: Map<number, Entity>, occ: Int32Array): void {
+  let t = u.target >= 0 ? byId.get(u.target) : undefined;
+  const air = !!unitDef(u.kind).air;
+  if (t && (t.owner === u.owner || !canHit(w, t) || !visibleTo(s, u.owner, t) || distTo(u.x, u.y, t) > rangeFp(w))) t = undefined;
+  if (!t && (s.tick + u.id) % 5 === 0) {
+    const id = acquire(s, u.owner, u.x, u.y, w, rangeFp(w), (e) => lineOfFire(s, occ, u.x, u.y, e, w, air));
+    t = id >= 0 ? byId.get(id) : undefined;
+  }
+  u.target = t ? t.id : -1;
+  if (t && u.cooldown === 0 && lineOfFire(s, occ, u.x, u.y, t, w, air)) {
+    fire(s, { x: u.x, y: u.y, owner: u.owner, id: u.id }, w, t, u);
+    u.cooldown = w.cooldown;
+  }
+}
+
 function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array): void {
   const def = unitDef(u.kind);
   if (u.cooldown > 0) u.cooldown--;
   u.sinceHurt = Math.min(u.sinceHurt + 1, 100000);
   if (u.mode === 'move' && u.path.length === 0 && !u.waiting) u.mode = 'idle';
   const w = def.weapon;
+  if (w && u.mode === 'move' && def.crusher) return fireOnTheMove(s, u, w, byId, occ);
   if (!w || u.mode === 'move') {
     if (u.mode === 'move') u.target = -1;
     return;

@@ -15,7 +15,7 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `009-visual-upgrade.md` | Construction, damage, facing, terrain, effects, polish | 9 |
 | `010-voxel-art.md` | Procedural voxel sprite engine; unit and building models | 10 |
 | `011-desktop.md` | Desktop app (Electron shell around the same build) | 11 |
-| `012-ux-fixes.md` | Bug and UX fixes: production routing, selection, orders, camera, feedback | 12 |
+| `012-ux-fixes.md` | Bug and UX fixes: production routing, selection, orders, camera, feedback, superweapon countdown | 12 |
 | `013-unit-info.md` | Main-menu unit sheet with 3D models | 13 |
 | `014-score.md` | Post-game score screen | 14 |
 | `015-squads-veterancy.md` | Light infantry squads and veterancy | 15 |
@@ -24,7 +24,7 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `018-performance-security.md` | Frame-rate headroom; web, desktop and CI security | 18 |
 | `019-main-menu.md` | Modern main menu: modes rail, map thumbnails, settings, multiplayer | 19 |
 | `020-multiplayer.md` | Online one-versus-one matches: rooms, lockstep, desync detection, disconnects, security | 20 |
-| `021-infantry-balance.md` | Crushing, infantry damage, slower heroes, straight shells, elite shots, AI crushing | 21 |
+| `021-infantry-balance.md` | Crushing (heroes crush vehicles), infantry damage, slower heroes, straight shells, elite shots, AI crushing | 21 |
 | `022-aim-and-models.md` | Shots leave along the barrel; no clipping between moving parts or into the ground | 22 |
 
 Umbrella spec: GitHub issue #1.

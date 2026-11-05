@@ -16,7 +16,7 @@ export function soundFor(e: SimEvent, viewer: number): Sound {
       return { name: 'boom', gain: Math.min(1, 0.5 + e.r * 0.2) };
     case 'die':
       // A squad run over by a heavy vehicle crunches (BAL-2).
-      if (e.crushed) return { name: 'crunch', gain: 0.6 };
+      if (e.crushed) return { name: 'crunch', gain: e.big ? 0.9 : 0.6 };
       return { name: e.big ? 'bigboom' : 'pop', gain: e.big ? 0.9 : 0.5 };
     case 'launch':
       return { name: 'sw_launch', gain: 0.8 };

@@ -1,16 +1,16 @@
 import { buildingDef, unitDef } from '../data/defs';
 import { fireSuperweapon, tickCombat } from './combat';
 import { crush, isCrusher } from './crush';
-import { regrow, tickHaulers, updatePower } from './economy';
-import { centerOf, tileOf } from './fixed';
+import { isLowPower, regrow, tickHaulers, updatePower } from './economy';
+import { centerOf, FP, tileOf } from './fixed';
 import { recomputeVisible, SIGHT_LINGER, VISIBLE, type VisionSource } from './fog';
 import { Hasher } from './hash';
 import { clearOrder, orderMove, ringTiles, separate, servePathQueue, stepUnit } from './movement';
 import { cancel, enqueue, place, sell, setRally, setRepair, tickProduction } from './production';
 import { createState, Hv, STATS_EVERY, type Building, type State } from './state';
-import type { BuildingSnap, Command, GameConfig, Snapshot } from './types';
+import type { BuildingSnap, Command, GameConfig, SimEvent, Snapshot, SuperweaponTimer } from './types';
 
-export type { BuildingSnap, BuildingSpawn, Command, GameConfig, MapDef, PlayerSetup, PlayerSnap, PlayerStats, QueueSnap, SimEvent, Snapshot, UnitSnap, UnitSpawn } from './types';
+export type { BuildingSnap, BuildingSpawn, Command, GameConfig, MapDef, PlayerSetup, PlayerSnap, PlayerStats, QueueSnap, SimEvent, Snapshot, StrikeTimer, SuperweaponTimer, UnitSnap, UnitSpawn } from './types';
 export { damageAgainst } from './combat';
 export { Rng } from './rng';
 export { FP } from './fixed';
@@ -255,14 +255,45 @@ export function snapshot(game: Game, viewer?: number): Snapshot {
     buildings: visibleBuildings.map((b) => buildingSnap(b, god || b.owner === viewer)),
     ghosts: god ? [] : [...(s.players[viewer]?.ghosts.values() ?? [])].filter((g) => !shown.has(g.id)),
     shards,
-    events: s.events.filter((e) => vf === null || ((vf[Math.max(0, Math.min(cfg.map.height - 1, tileOf(e.y))) * w + Math.max(0, Math.min(w - 1, tileOf(e.x)))] as number) & VISIBLE) !== 0),
+    events: viewerEvents(s, vf),
     over: s.over,
     winner: s.winner,
     players: s.players.map((p, i) => (god || i === viewer ? { faction: p.faction, credits: p.credits, powerOut: p.powerOut, powerIn: p.powerIn } : { faction: p.faction, credits: 0, powerOut: 0, powerIn: 0 })),
     stats: god || s.over ? s.players.map((p) => ({ ...p.stats, army: [...p.stats.army] })) : null,
+    superweapons: superweaponTimers(s),
+    strikes: s.strikes.map((k) => ({ owner: k.owner, kind: k.kind, left: Math.max(0, k.hit - s.tick), x: k.x, y: k.y, r: k.radius / FP })),
     viewer: viewer ?? null,
     fog: vf ? vf.slice() : null,
   };
+}
+
+/**
+ * The events a viewer gets: those on tiles they can see. A superweapon launch also reaches whoever can see its target,
+ * marked `unseen` when its launch site is out of their sight (SW-2).
+ */
+function viewerEvents(s: State, vf: Uint8Array | null): SimEvent[] {
+  if (vf === null) return s.events;
+  const w = s.cfg.map.width;
+  const h = s.cfg.map.height;
+  const sees = (x: number, y: number): boolean => ((vf[Math.max(0, Math.min(h - 1, tileOf(y))) * w + Math.max(0, Math.min(w - 1, tileOf(x)))] as number) & VISIBLE) !== 0;
+  const out: SimEvent[] = [];
+  for (const e of s.events) {
+    if (sees(e.x, e.y)) out.push(e);
+    else if (e.t === 'launch' && sees(e.tx, e.ty)) out.push({ ...e, unseen: true });
+  }
+  return out;
+}
+
+/** Every finished superweapon's countdown (SW-1), in building order. */
+function superweaponTimers(s: State): SuperweaponTimer[] {
+  const out: SuperweaponTimer[] = [];
+  for (const b of s.buildings) {
+    const sw = buildingDef(b.kind).superweapon;
+    if (!sw) continue;
+    const left = Math.max(0, sw.charge - b.charge);
+    out.push({ id: b.id, owner: b.owner, kind: b.kind, left, paused: left > 0 && isLowPower(s, b.owner) });
+  }
+  return out;
 }
 
 export function hash(game: Game): number {

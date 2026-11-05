@@ -1,4 +1,4 @@
-import { MAPS, skirmishMap, type MapId } from '../data/maps';
+import { MAPS, mapStarts, skirmishMap, type MapId } from '../data/maps';
 import { thumbCanvas } from './mapThumb';
 import { loadSettings, safeStorage, saveSettings, type Settings } from './settings';
 import { setActiveMatch, type Match } from '../net/lobby';
@@ -126,7 +126,7 @@ export function showMenu(): void {
     </div>`;
   document.body.appendChild(root);
   // Map thumbnails, drawn from the maps themselves.
-  root.querySelectorAll<HTMLElement>('[data-map]').forEach((b) => b.querySelector('.thumb')?.appendChild(thumbCanvas(skirmishMap(b.dataset.map as MapId))));
+  root.querySelectorAll<HTMLElement>('[data-map]').forEach((b) => b.querySelector('.thumb')?.appendChild(thumbCanvas(skirmishMap(b.dataset.map as MapId), mapStarts(b.dataset.map as MapId))));
   // Listeners on the window end with the menu, so none is left behind when an online match starts in this page.
   const life = new AbortController();
   const sheet = createUnitSheet(life.signal);
