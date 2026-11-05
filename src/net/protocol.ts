@@ -7,10 +7,22 @@ import type { Command } from '../sim';
  */
 
 /** Bumped whenever the protocol or the simulation changes in a way that would desync older clients. */
-export const NET_VERSION = 2;
-/** Ticks per lockstep turn (150 ms at 20 ticks a second), and how many turns ahead a turn is announced. */
-export const TURN_TICKS = 3;
+export const NET_VERSION = 3;
+/** Ticks per lockstep turn (100 ms at 20 ticks a second). */
+export const TURN_TICKS = 2;
+export const TURN_MS = TURN_TICKS * 50;
+/**
+ * How many turns ahead a player announces its turns (its input delay): DELAY_TURNS until the connection has been
+ * measured, then fitted to it (NET-2), between MIN_DELAY_TURNS and MAX_DELAY_TURNS.
+ */
 export const DELAY_TURNS = 2;
+export const MIN_DELAY_TURNS = 1;
+export const MAX_DELAY_TURNS = 6;
+/** Slack added to the measured one-way latency for jitter when fitting the delay (NET-2). */
+export const JITTER_MS = 50;
+
+/** The input delay, in turns, for a connection whose one-way latency is `oneWayMs` (NET-2). Pure. */
+export const delayFor = (oneWayMs: number): number => Math.max(MIN_DELAY_TURNS, Math.min(MAX_DELAY_TURNS, Math.ceil((Math.max(0, oneWayMs) + JITTER_MS) / TURN_MS)));
 /** Ticks between state checksums compared by both players (3 s); a multiple of TURN_TICKS. */
 export const HASH_EVERY = 60;
 /** Caps on what one message may carry. */
@@ -41,8 +53,11 @@ export type NetMsg =
   | { t: 'turn'; n: number; c: Command[] }
   /** State checksum after `tick` ticks. */
   | { t: 'hash'; tick: number; h: number }
-  /** Leaving the match. */
-  | { t: 'bye' };
+  /** Round-trip probes (NET-2): `ping` is answered at once with a `pong` carrying the same id. */
+  | { t: 'ping'; id: number }
+  | { t: 'pong'; id: number }
+  /** Leaving the match; with `end`, because the game itself ended at that tick, so the other game plays on to it (NET-4). */
+  | { t: 'bye'; end?: number };
 
 const isInt = (x: unknown, lo = -2_147_483_648, hi = 2_147_483_647): x is number => typeof x === 'number' && Number.isInteger(x) && x >= lo && x <= hi;
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -121,8 +136,11 @@ export function parseMessage(data: unknown): NetMsg | null {
       return isInt(data.n, 0) && Array.isArray(data.c) && data.c.length <= MAX_CMDS_PER_TURN ? { t: 'turn', n: data.n, c: data.c as Command[] } : null;
     case 'hash':
       return isInt(data.tick, 0) && isInt(data.h, -4_294_967_296, 4_294_967_296) ? { t: 'hash', tick: data.tick, h: data.h } : null;
+    case 'ping':
+    case 'pong':
+      return isInt(data.id, 0) ? { t: data.t, id: data.id } : null;
     case 'bye':
-      return { t: 'bye' };
+      return isInt(data.end, 0) ? { t: 'bye', end: data.end } : { t: 'bye' };
     default:
       return null;
   }

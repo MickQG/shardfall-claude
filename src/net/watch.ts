@@ -1,4 +1,5 @@
 import type { NetLink, SimClient } from '../host/client';
+import { LatencyMeter, PING_EVERY_MS } from './latency';
 import { fromPeer, type Match } from './lobby';
 
 /** Why an online match ended outside the simulation (NET-3, NET-4). */
@@ -9,6 +10,11 @@ export const WAIT_NOTICE_MS = 1000;
 /** Nothing from the opponent for this long: they are gone, and the player who stayed wins (NET-4). Before their game has
  * sent anything at all (it may still be loading on a slow machine), twice as long. */
 export const GIVE_UP_MS = 30_000;
+/**
+ * After the opponent's game says it ended, ours plays on to the same end; if it has not got there in this long (it
+ * should within moments), the opponent is taken to have left (NET-4).
+ */
+export const END_GRACE_MS = 15_000;
 
 /** What the watch shows while the game waits for the opponent (pure, for tests). */
 export function waitText(silentMs: number, limitMs = GIVE_UP_MS): string {
@@ -30,6 +36,10 @@ export class OnlineWatch {
   private heard = false;
   private timer = 0;
   private banner: HTMLDivElement | null = null;
+  private latency = new LatencyMeter();
+  private lastPing = 0;
+  /** When the opponent's game said it had ended (NET-4), or null. */
+  private peerEndedAt: number | null = null;
 
   constructor(
     private match: Match,
@@ -46,8 +56,17 @@ export class OnlineWatch {
       if (!fromPeer(this.match, msg, from)) return;
       this.lastHeard = performance.now();
       this.heard = true;
-      if (msg.t === 'bye') this.stop('left');
-      else if (msg.t === 'turn' || msg.t === 'hash') sim.receive(msg);
+      if (msg.t === 'bye') {
+        // Their game ended (NET-4): ours, a few turns behind, plays on to the same end and shows its own result.
+        if (msg.end !== undefined) this.peerEndedAt ??= performance.now();
+        else this.stop('left');
+      } else if (msg.t === 'ping') t.send({ t: 'pong', id: msg.id });
+      else if (msg.t === 'pong') {
+        // Round trip measured against our own clock (the id is our send time): fit the input delay to it (NET-2).
+        this.latency.add(Math.round(performance.now()) - msg.id);
+        const oneWay = this.latency.oneWay();
+        if (oneWay !== null) sim.setLatency(oneWay);
+      } else if (msg.t === 'turn' || msg.t === 'hash') sim.receive(msg);
     });
     window.addEventListener('pagehide', () => {
       if (!this.done) t.send({ t: 'bye' });
@@ -60,18 +79,24 @@ export class OnlineWatch {
     this.timer = window.setInterval(() => this.check(), 250);
   }
 
-  /** The match ended in the game itself: nothing more to watch. */
-  finished(): void {
+  /** The match ended in the game itself, at `tick`: nothing more to watch; the opponent's game plays on to it (NET-4). */
+  finished(tick: number): void {
     if (this.done) return;
     this.done = true;
     window.clearInterval(this.timer);
     if (this.banner) this.banner.style.display = 'none';
-    this.match.transport.send({ t: 'bye' });
+    this.match.transport.send({ t: 'bye', end: tick });
   }
 
   private check(): void {
     if (this.done || !this.sim || !this.banner) return;
-    const silent = performance.now() - this.lastHeard;
+    const now = performance.now();
+    if (now - this.lastPing >= PING_EVERY_MS) {
+      this.lastPing = now;
+      this.match.transport.send({ t: 'ping', id: Math.round(now) });
+    }
+    if (this.peerEndedAt !== null && now - this.peerEndedAt > END_GRACE_MS) return this.stop('left');
+    const silent = now - this.lastHeard;
     const limit = this.heard ? GIVE_UP_MS : GIVE_UP_MS * 2;
     if (silent > limit) return this.stop('timeout');
     const show = this.sim.waiting && silent > WAIT_NOTICE_MS;

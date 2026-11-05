@@ -69,6 +69,16 @@ export class SimClient {
     this.lockstep = null;
   }
 
+  /** Online: the measured one-way latency to the other player, which sets the input delay (NET-2). */
+  setLatency(oneWayMs: number): void {
+    this.lockstep?.setLatency(oneWayMs);
+  }
+
+  /** Online: the input delay in turns (NET-2), or 0 when playing alone. */
+  get delay(): number {
+    return this.lockstep?.delay ?? 0;
+  }
+
   /** Online: whether the game is held up waiting for the other player's turn. */
   get waiting(): boolean {
     return this.lockstep?.waiting ?? false;
