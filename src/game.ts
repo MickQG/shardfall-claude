@@ -14,7 +14,7 @@ import { tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
 import { countdownRows } from './ui/countdown';
-import { framesDrawn, READY_FRAMES, showLoading } from './ui/loading';
+import { READY_FRAMES, READY_TIMEOUT_MS, readyToStart, showLoading } from './ui/loading';
 import { createHud, resultText, type ScoreView } from './ui/hud';
 import { armyPath, scoreRows } from './ui/score';
 import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, inputAllowed, KeyTap, minimapClick } from './ui/controls';
@@ -653,7 +653,8 @@ async function boot(): Promise<void> {
   audio.prepare();
   requestAnimationFrame(frame(performance.now()));
   // The game begins only once the battlefield has been drawn and the controls are wired up (UI-12).
-  await framesDrawn(READY_FRAMES);
+  // A background tab draws no frames: after a few seconds the game starts anyway (UI-12).
+  await readyToStart(READY_FRAMES, READY_TIMEOUT_MS);
   // The tick the game had reached when it was released: 0, as it waited (UI-12).
   document.body.dataset.startTick = String(sim.curr?.tick ?? -1);
   sim.start();

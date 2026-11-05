@@ -1,5 +1,10 @@
 /** Frames the game view draws before the game is released (UI-12): the first one may still be compiling shaders. */
 export const READY_FRAMES = 2;
+/**
+ * The longest the built game waits for those frames (UI-12): a background tab draws none, and the game (online, both
+ * players' game) must not wait for the player to come back to it.
+ */
+export const READY_TIMEOUT_MS = 3000;
 
 /**
  * The loading screen (UI-12): shown from the moment the game page opens until the battlefield is built and drawn, so the
@@ -31,9 +36,26 @@ export function showLoading(text = 'Preparing the battlefield…'): { done(): vo
   };
 }
 
-/** Resolves after the browser has drawn `n` more frames. */
-export const framesDrawn = (n: number): Promise<void> =>
-  new Promise((resolve) => {
-    const step = (k: number): void => void requestAnimationFrame(() => (k <= 1 ? resolve() : step(k - 1)));
-    step(n);
+/**
+ * Resolves once the browser has drawn `frames` more frames or `ms` have passed, whichever comes first (UI-12). `raf` and
+ * `wait` stand in for requestAnimationFrame and setTimeout in tests.
+ */
+export function readyToStart(
+  frames: number,
+  ms: number,
+  raf: (cb: () => void) => void = (cb) => void requestAnimationFrame(cb),
+  wait: (cb: () => void, ms: number) => void = (cb, t) => void setTimeout(cb, t),
+): Promise<'drawn' | 'timeout'> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (why: 'drawn' | 'timeout'): void => {
+      if (done) return;
+      done = true;
+      resolve(why);
+    };
+    const step = (k: number): void => raf(() => (k <= 1 ? finish('drawn') : step(k - 1)));
+    step(frames);
+    wait(() => finish('timeout'), ms);
   });
+}
+
