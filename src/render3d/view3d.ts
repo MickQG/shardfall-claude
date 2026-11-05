@@ -20,9 +20,9 @@ import { cameraPose, FOV, PX_PER_UNIT } from './camera3d';
 import { CombatFx } from './fx3d';
 import { Instancer } from './instancer';
 import type { Built, Shape } from './kit';
-import { bodyPose, heroHeave, flightAfterWait, follow, gaitPhase, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, type Follow, type MotionState } from './motion';
+import { bodyPose, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
-import { poseRig, recoil, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
+import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
@@ -190,8 +190,10 @@ interface UnitObj {
   aim: number;
   aimHold: number;
   turretYaw: number;
-  /** Has a turret that must face the target before it fires. */
+  /** Has a gun that must face the target before it fires: on a turret, or fixed to a lone walker's body (AIM-1). */
   turreted: boolean;
+  /** How far its turret swivels on the body either way, radians (Infinity: all round; 0: none). */
+  reach: number;
   figureYaw: number[];
   lastFire: number[];
   muzzleTurn: number;
@@ -713,7 +715,8 @@ export class View3D {
       aim: heading,
       aimHold: 0,
       turretYaw: heading,
-      turreted: figures[0]!.anims.some((a) => a.anim.k === 'turret'),
+      turreted: figures[0]!.anims.some((a) => a.anim.k === 'turret') || (size <= 1 && def.move === 'walker' && !!def.weapon),
+      reach: turretReach(def),
       figureYaw: figures.map(() => heading),
       lastFire: figures.map(() => -1e9),
       muzzleTurn: 0,
@@ -844,7 +847,7 @@ export class View3D {
       }
       // A turret fires once it is on target (R3D-9); the shell then flies that much faster, so it lands with the damage.
       const late = now - p.at;
-      if (p.src && !readyToFire(p.src.turreted, p.src.turretYaw, p.src.aim, late)) {
+      if (p.src && !readyToFire(p.src.turreted, this.gunYawOf(p.src, p.figure), p.src.aim, late)) {
         later.push(p);
         continue;
       }
@@ -872,6 +875,13 @@ export class View3D {
       }
     }
     this.pending = later;
+  }
+
+  /** The world yaw a shooter's gun points along (AIM-1): its turret on its body, or the body itself. */
+  private gunYawOf(src: UnitObj | BuildingObj, figure: number): number {
+    if (!isUnit(src)) return src.turretYaw;
+    const body = src.def.move === 'walker' && src.members.length === 0 ? (src.figureYaw[figure] ?? src.motion.heading) : src.motion.heading;
+    return gunYaw(body, src.turretYaw, src.reach);
   }
 
   private muzzleOf(src: UnitObj | BuildingObj | null, figure: number): THREE.Object3D | null {
@@ -1208,16 +1218,15 @@ export class View3D {
       const mm = squad ? o.members[i]! : null;
       const mo = mm ? mm.motion : m;
       if (!posed) {
-        if (!mm && def.move === 'walker') o.figureYaw[i] = turnToward(o.figureYaw[i] ?? m.heading, aiming && m.speed < 0.3 ? o.aim : m.heading, 8 * dt);
+        if (!mm && def.move === 'walker') o.figureYaw[i] = turnToward(o.figureYaw[i] ?? m.heading, walkerFacing(aiming, o.aim, m.heading), 8 * dt);
         return;
       }
       if (mm) {
         f.root.position.set(mm.x - o.x, 0, mm.z - o.z);
         f.root.rotation.set(0, -mm.yaw, 0);
       } else if (def.move === 'walker') {
-        // A lone walker faces its target when shooting; otherwise the way it walks.
-        const want = aiming && m.speed < 0.3 ? o.aim : m.heading;
-        o.figureYaw[i] = turnToward(o.figureYaw[i] ?? m.heading, want, 8 * dt);
+        // A lone walker faces its target when shooting, walking or not, so its guns point where the shots go (AIM-1).
+        o.figureYaw[i] = turnToward(o.figureYaw[i] ?? m.heading, walkerFacing(aiming, o.aim, m.heading), 8 * dt);
         f.root.rotation.y = -((o.figureYaw[i] as number) - m.heading);
       }
       const phase = gaitPhase(mo.dist, def.stride ?? 1) + i * 1.7 + o.seed;
@@ -1225,7 +1234,8 @@ export class View3D {
       // A hero's whole body heaves with each heavy shot (HERO-4).
       const heave = heroHeave(def.weapon, t - (o.lastFire[i] ?? -1e9));
       poseRig(f, {
-        turret: o.turretYaw - m.heading,
+        // The turret turns on the body it sits on: a lone walker's body already faces the aim (AIM-1).
+        turret: turretOnBody(o.turretYaw, !mm && def.move === 'walker' ? (o.figureYaw[i] ?? m.heading) : m.heading),
         kick: recoil(t - (o.lastFire[i] ?? -1e9)),
         lunge: t - o.lunge < 260 ? Math.sin(((t - o.lunge) / 260) * Math.PI) : 0,
         pitch: pose.pitch + heave.pitch,

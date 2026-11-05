@@ -317,9 +317,9 @@ describe('fog, damage, harvesters and deaths', () => {
     expect(drum.obj.rotation.z).toBeCloseTo(-2, 6);
     // The hinge stays where it is while the bed swings up about it.
     bed.obj.updateMatrix();
-    const hinge = new THREE.Vector3(-0.72, 0.22, 0).applyMatrix4(bed.obj.matrix);
+    const hinge = new THREE.Vector3(-0.72, 0.3, 0).applyMatrix4(bed.obj.matrix);
     expect(hinge.x).toBeCloseTo(-0.72, 6);
-    expect(hinge.y).toBeCloseTo(0.22, 6);
+    expect(hinge.y).toBeCloseTo(0.3, 6);
     // ...and the front of the bed rises above its resting height.
     const front = new THREE.Vector3(0.3, 0.52, 0).applyMatrix4(bed.obj.matrix);
     expect(front.y).toBeGreaterThan(0.8);

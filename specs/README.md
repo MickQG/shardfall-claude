@@ -25,5 +25,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `019-main-menu.md` | Modern main menu: modes rail, map thumbnails, settings, multiplayer | 19 |
 | `020-multiplayer.md` | Online one-versus-one matches: rooms, lockstep, desync detection, disconnects, security | 20 |
 | `021-infantry-balance.md` | Crushing, infantry damage, slower heroes, straight shells, elite shots, AI crushing | 21 |
+| `022-aim-and-models.md` | Shots leave along the barrel; no clipping between moving parts or into the ground | 22 |
 
 Umbrella spec: GitHub issue #1.

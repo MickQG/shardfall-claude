@@ -145,9 +145,28 @@ export const TURRET_RATE = 7;
 export const ON_TARGET = 0.1;
 export const MAX_AIM_WAIT = 300;
 
-/** Whether a shot due `waited` ms ago may leave the barrel: weapons without a turret fire at once (R3D-9). */
-export const readyToFire = (turreted: boolean, turretYaw: number, aim: number, waited: number): boolean =>
-  !turreted || Math.abs(angleDiff(turretYaw, aim)) <= ON_TARGET || waited >= MAX_AIM_WAIT;
+/** Whether a shot due `waited` ms ago may leave the barrel: once the gun points at the aim (`gunYaw`, see `gunYaw`), or
+ * after waiting too long; `turreted: false` fires at once (squad members, which face their own targets) (R3D-9, AIM-1). */
+export const readyToFire = (turreted: boolean, gunYaw: number, aim: number, waited: number): boolean =>
+  !turreted || Math.abs(angleDiff(gunYaw, aim)) <= ON_TARGET || waited >= MAX_AIM_WAIT;
+
+/**
+ * Which way a lone walker's body faces (AIM-1): its target whenever it is shooting, walking or not, so guns fixed to the
+ * body or on a short swivel point where the shots go; otherwise the way it walks.
+ */
+export const walkerFacing = (aiming: boolean, aim: number, heading: number): number => (aiming ? aim : heading);
+
+/** Turret yaw relative to the body it is mounted on, wrapped to [-pi, pi] (AIM-1). */
+export const turretOnBody = (turretYaw: number, bodyYaw: number): number => angleDiff(bodyYaw, turretYaw);
+
+/**
+ * The world yaw the gun actually points along (AIM-1): the body's yaw plus the turret's turn on it, limited to the
+ * turret's reach (`Infinity` for a full turret, 0 for a gun fixed to the body).
+ */
+export const gunYaw = (bodyYaw: number, turretYaw: number, reach: number): number => {
+  const rel = turretOnBody(turretYaw, bodyYaw);
+  return bodyYaw + Math.max(-reach, Math.min(reach, rel));
+};
 
 /** A shell's drawn flight after waiting for its turret, ms: shorter by the wait, so it still lands with the damage. */
 export const flightAfterWait = (flightMs: number, waited: number): number => Math.max(60, flightMs - waited);

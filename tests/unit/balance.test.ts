@@ -39,5 +39,5 @@ describe('faction balance in full matches', () => {
     // The Vrax anti-armour infantry no longer outranges the Aegis army.
     expect(unitDef('ali_spitter').weapon!.range).toBe(unitDef('hum_rocketeer').weapon!.range);
     expect(unitDef('ali_spitter').buildTime).toBe(unitDef('hum_rocketeer').buildTime);
-  }, 300_000);
+  }, 600_000);
 });

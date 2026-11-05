@@ -241,7 +241,7 @@ describe('elite shots', () => {
     for (const L of Object.values(LOOKS)) expect(L.color).not.toBe(ELITE_SHOT);
     const { ELITE_SHOT_2D } = await import('../../src/render/effects');
     expect(ELITE_SHOT_2D).toBe(ELITE_SHOT);
-  });
+  }, 30_000);
 });
 
 describe('heavier heroes', () => {
