@@ -397,9 +397,9 @@ function hauler(): RigDef {
       wheel: () => tire(0.12, 0.1, HAZARD),
       body: () => {
         const s = shape();
-        s.box(1.36, 0.08, 0.5, GUN, { at: [0, 0.15, 0], bevel: 0.2 }); // frame
-        s.slab([[0.36, 0.18], [0.66, 0.18], [0.7, 0.3], [0.6, 0.46], [0.36, 0.48]], 0.56, 'team', { bevel: 0.02 }); // cab
-        s.slab([[0.58, 0.32], [0.66, 0.32], [0.6, 0.44], [0.55, 0.44]], 0.48, GLASS, { at: [0.012, 0, 0], bevel: 0.005 }); // windscreen
+        s.box(1.36, 0.18, 0.4, GUN, { at: [0, 0.2, 0], bevel: 0.15 }); // frame, between the wheels and up to the cab and bed
+        s.slab([[0.36, 0.29], [0.66, 0.29], [0.7, 0.34], [0.6, 0.48], [0.36, 0.5]], 0.56, 'team', { bevel: 0.02 }); // cab, clear of the wheel tops
+        s.slab([[0.58, 0.36], [0.66, 0.36], [0.61, 0.46], [0.55, 0.46]], 0.48, GLASS, { at: [0.012, 0, 0], bevel: 0.005 }); // windscreen
         s.box(0.06, 0.03, 0.1, AMBER, { at: [0.5, 0.5, 0], glow: true, bevel: 0.3 }); // beacon
         s.box(0.02, 0.04, 0.08, AMBER, { at: [0.7, 0.22, 0.18], glow: true, bevel: 0 });
         s.box(0.02, 0.04, 0.08, AMBER, { at: [0.7, 0.22, -0.18], glow: true, bevel: 0 });
@@ -414,11 +414,11 @@ function hauler(): RigDef {
       bed: () => {
         // The ore bed: a sloped steel bin with team bands and hazard stripes, hinged at the back to tip.
         const s = shape();
-        s.slab([[-0.66, 0.2], [0.3, 0.2], [0.34, 0.52], [-0.7, 0.52]], 0.6, STEEL, { bevel: 0.025 });
-        s.box(1.0, 0.04, 0.62, 'team', { at: [-0.18, 0.5, 0], bevel: 0.25 });
-        for (let i = 0; i < 5; i++) s.box(0.06, 0.02, 0.625, i % 2 ? DARK : HAZARD, { at: [-0.6 + i * 0.07, 0.26, 0], bevel: 0 });
-        s.box(0.9, 0.02, 0.5, DARK, { at: [-0.18, 0.525, 0], bevel: 0 }); // hopper mouth
-        s.box(0.06, 0.26, 0.56, STEEL2, { at: [-0.72, 0.36, 0], bevel: 0.2 }); // tail gate
+        s.slab([[-0.66, 0.3], [0.3, 0.3], [0.34, 0.54], [-0.7, 0.54]], 0.6, STEEL, { bevel: 0.025 }); // floor clear of the wheel tops
+        s.box(1.0, 0.04, 0.62, 'team', { at: [-0.18, 0.52, 0], bevel: 0.25 });
+        for (let i = 0; i < 5; i++) s.box(0.06, 0.02, 0.625, i % 2 ? DARK : HAZARD, { at: [-0.6 + i * 0.07, 0.33, 0], bevel: 0 });
+        s.box(0.9, 0.02, 0.5, DARK, { at: [-0.18, 0.545, 0], bevel: 0 }); // hopper mouth
+        s.box(0.06, 0.24, 0.56, STEEL2, { at: [-0.72, 0.42, 0], bevel: 0.2 }); // tail gate
         return s;
       },
       drum: () => {
@@ -458,7 +458,7 @@ function hauler(): RigDef {
           kids: [
             { geo: 'drum', at: [0.8, 0.1, 0], anim: { k: 'drum' } },
             // The bed tips back about its rear hinge to unload; the crystal pile rides in it and rises as it fills.
-            { geo: 'bed', anim: { k: 'tip', pivot: [-0.72, 0.22, 0], max: 0.7 }, kids: [{ geo: 'cargo', anim: { k: 'cargo', pivot: [-0.25, 0.5, 0] } }] },
+            { geo: 'bed', anim: { k: 'tip', pivot: [-0.72, 0.3, 0], max: 0.7 }, kids: [{ geo: 'cargo', anim: { k: 'cargo', pivot: [-0.25, 0.52, 0] } }] },
           ],
         },
       ],
@@ -471,6 +471,11 @@ function hauler(): RigDef {
  * reverse-jointed legs stride under a long, low armoured hull that turns to face its target; a missile pod rides on each
  * shoulder for aircraft and twin heavy cannons hang beneath; gold trim and a glowing visor mark it as the hero.
  */
+/** How far the Paladin's cannon cradle swivels under its hull either way, radians: clear of the front legs (AIM-2). */
+export const PALADIN_SWIVEL = 0.2;
+/** How far out the Paladin's hips sit from the hull's centre line: beside the hull, not under it (AIM-2). */
+const PALADIN_HIP = 0.38;
+
 function paladin(): RigDef {
   const GOLD = 0xd8b24a;
   return {
@@ -526,10 +531,16 @@ function paladin(): RigDef {
         for (const dy of [0.033, -0.033]) for (const dz of [0.032, -0.032]) s.cyl(0.02, 0.012, RED, { at: [0.155, dy, dz], rot: [0, 0, Math.PI / 2], seg: 6, glow: true });
         return s;
       },
-      barrel: () => {
-        // Twin heavy cannons with muzzle brakes, in a cradle under the hull's nose.
+      cradle: () => {
+        // The cannons' cradle under the hull's nose: it swivels but does not recoil, so it never slides into the hull.
         const s = shape();
         s.box(0.18, 0.11, 0.38, STEEL2, { at: [0, 0, 0], bevel: 0.15 });
+        s.cyl(0.06, 0.05, GUN, { at: [0, 0.075, 0], seg: 14 }); // swivel pin up into the hull
+        return s;
+      },
+      barrel: () => {
+        // Twin heavy cannons with muzzle brakes: they recoil through the cradle.
+        const s = shape();
         for (const z of [0.13, -0.13]) {
           s.tube(0.036, 0.58, GUN, { at: [0.34, 0, z], r2: 0.04, seg: 12 });
           s.tube(0.05, 0.12, GUN, { at: [0.3, 0, z], seg: 12 });
@@ -543,32 +554,40 @@ function paladin(): RigDef {
       kids: [
         {
           anim: { k: 'body' },
-          at: [0, 0.52, 0],
+          at: [0, 0.57, 0], // high enough that the feet stand on the ground, not in it
           kids: [
             {
-              anim: { k: 'turret' },
+              // The hull rides rigidly on its legs and never twists over them (AIM-2): the whole walker turns to face its
+              // target, and only the cannon cradle under the nose swivels a little to finish the aim.
               geo: 'hull',
               kids: [
-                { geo: 'pod', at: [-0.12, 0.14, 0.35] },
-                { geo: 'pod', at: [-0.12, 0.14, -0.35] },
+                { geo: 'pod', at: [-0.04, 0.17, 0.35] },
+                { geo: 'pod', at: [-0.04, 0.17, -0.35] },
                 {
-                  geo: 'barrel',
-                  at: [0.24, -0.15, 0],
-                  anim: { k: 'barrel', recoil: 0.14 },
+                  geo: 'cradle',
+                  at: [0.24, -0.18, 0],
+                  anim: { k: 'turret', max: PALADIN_SWIVEL },
                   kids: [
-                    { muzzle: true, at: [0.69, 0, 0.13] },
-                    { muzzle: true, at: [0.69, 0, -0.13] },
+                    {
+                      geo: 'barrel',
+                      anim: { k: 'barrel', recoil: 0.12 },
+                      kids: [
+                        { muzzle: true, at: [0.69, 0, 0.13] },
+                        { muzzle: true, at: [0.69, 0, -0.13] },
+                      ],
+                    },
                   ],
                 },
               ],
             },
           ],
         },
-        // Four legs at the long hull's corners, splayed a little outward, stepping in a smooth diagonal trot.
-        { geo: 'leg', at: [0.34, 0.48, 0.3], rot: [-0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: 0, lift: 0.045, ease: true } },
-        { geo: 'leg', at: [0.34, 0.48, -0.3], rot: [0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: Math.PI, lift: 0.045, ease: true } },
-        { geo: 'leg', at: [-0.38, 0.48, 0.3], rot: [-0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: Math.PI, lift: 0.045, ease: true } },
-        { geo: 'leg', at: [-0.38, 0.48, -0.3], rot: [0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: 0, lift: 0.045, ease: true } },
+        // Four legs beside the long hull's corners, their thighs just clear of its sides, splayed a little outward, stepping in a smooth diagonal
+        // trot. They hang clear of the hull's sides, so the hull can rock with a shot without cutting into them (AIM-2).
+        { geo: 'leg', at: [0.34, 0.53, PALADIN_HIP], rot: [-0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: 0, lift: 0.045, ease: true } },
+        { geo: 'leg', at: [0.34, 0.53, -PALADIN_HIP], rot: [0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: Math.PI, lift: 0.045, ease: true } },
+        { geo: 'leg', at: [-0.38, 0.53, PALADIN_HIP], rot: [-0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: Math.PI, lift: 0.045, ease: true } },
+        { geo: 'leg', at: [-0.38, 0.53, -PALADIN_HIP], rot: [0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: 0, lift: 0.045, ease: true } },
       ],
     },
   };
@@ -603,11 +622,12 @@ function digitigrade(len: number, thick: number, color: number): Shape {
 }
 
 /** Six insect legs in a tripod gait (alternate legs share a phase). */
-function sixLegs(xs: readonly number[], y: number, z: number, amp: number, lift: number): RigNode[] {
+function sixLegs(xs: readonly number[], y: number, z: number | readonly number[], amp: number, lift: number): RigNode[] {
   const out: RigNode[] = [];
   xs.forEach((x, i) => {
-    out.push({ geo: 'legR', at: [x, y, z], anim: { k: 'gait', axis: 'y', amp, phase: i % 2 ? Math.PI : 0, lift } });
-    out.push({ geo: 'legL', at: [x, y, -z], anim: { k: 'gait', axis: 'y', amp: -amp, phase: i % 2 ? 0 : Math.PI, lift } });
+    const zi = typeof z === 'number' ? z : (z[i] as number);
+    out.push({ geo: 'legR', at: [x, y, zi], anim: { k: 'gait', axis: 'y', amp, phase: i % 2 ? Math.PI : 0, lift } });
+    out.push({ geo: 'legL', at: [x, y, -zi], anim: { k: 'gait', axis: 'y', amp: -amp, phase: i % 2 ? 0 : Math.PI, lift } });
   });
   return out;
 }
@@ -780,8 +800,9 @@ function brute(): RigDef {
           at: [0, 0.5, 0],
           kids: [
             { geo: 'body' },
-            { geo: 'arm', at: [0.2, 0.06, 0.3], anim: { k: 'gait', axis: 'z', amp: 0.45, phase: 0 } },
-            { geo: 'arm', at: [0.2, 0.06, -0.3], anim: { k: 'gait', axis: 'z', amp: 0.45, phase: Math.PI } },
+            // Knuckles that rest on the ground rather than in it, swinging clear of the legs (AIM-2).
+            { geo: 'arm', at: [0.2, 0.14, 0.36], anim: { k: 'gait', axis: 'z', amp: 0.45, phase: 0 } },
+            { geo: 'arm', at: [0.2, 0.14, -0.36], anim: { k: 'gait', axis: 'z', amp: 0.45, phase: Math.PI } },
             { muzzle: true, at: [0.5, -0.4, 0] },
           ],
         },
@@ -901,11 +922,11 @@ function gorger(): RigDef {
  * underslung acid cannon on a swivelling mount sweeps beneath its head.
  */
 function strider(): RigDef {
-  const LEG = (side: number): Shape => insectLeg(side, 0.95, 0.86, 0.38, 0.075, CHITIN);
+  const LEG = (side: number): Shape => insectLeg(side, 0.85, 0.86, 0.38, 0.075, CHITIN);
   return {
     move: 'walker',
     organic: true,
-    stride: 1.1,
+    stride: 0.85,
     turn: 4,
     radius: 0.95,
     height: 1.25,
@@ -957,11 +978,14 @@ function strider(): RigDef {
         {
           anim: { k: 'body' },
           geo: 'body',
-          at: [0, 0.86, 0],
+          at: [0, 0.885, 0], // feet on the ground, not in it
           kids: [
-            ...sixLegs([0.42, 0.0, -0.42], -0.02, 0.3, 0.32, 0.12),
+            // Hips at the shell's rim, spaced so neighbouring legs never cross; a short swing and a matching stride (AIM-2).
+            ...sixLegs([0.48, 0.0, -0.48], -0.02, [0.3, 0.46, 0.3], 0.22, 0.12),
             {
-              anim: { k: 'turret' },
+              // A swivel under the head: the Dreadstrider turns its whole body to its target, so the cannon only finishes
+              // the aim and never swings back through its own legs (AIM-2).
+              anim: { k: 'turret', max: 0.5 },
               at: [0.42, -0.22, 0],
               geo: 'turret',
               kids: [{ geo: 'barrel', at: [0.05, -0.02, 0], rot: [0, 0, -0.12], anim: { k: 'barrel', recoil: 0.08 }, kids: [{ muzzle: true, at: [0.44, 0, 0] }] }],

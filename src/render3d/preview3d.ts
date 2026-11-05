@@ -3,8 +3,8 @@ import { UNIT_DEFS, type UnitDef } from '../data/defs';
 import { OWNER_COLORS } from '../render/colors';
 import { FP, TICKS_PER_SECOND } from '../sim';
 import { CombatFx } from './fx3d';
-import { bodyPose, follow, heroHeave, gaitPhase, readyToFire, restingMotion, stepMotion, turnToward, TURRET_RATE, type Follow, type MotionState } from './motion';
-import { poseRig, recoil, rigTree, type RigDef, type RigTree } from './rig';
+import { bodyPose, follow, heroHeave, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, turnToward, turretOnBody, TURRET_RATE, walkerFacing, type Follow, type MotionState } from './motion';
+import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigTree } from './rig';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { UNIT_RIGS } from './units3d';
 
@@ -296,11 +296,14 @@ export class UnitPreview {
     const squad = s.members.length > 0;
     if (squad) {
       stepSquad(s.members, { x: s.follow.x, z: s.follow.z, vx: s.follow.vx, vz: s.follow.vz, heading: mo.heading, aiming: firing, aim: s.aim, alive: s.members.length, t: now, dt, seed: SEED, free: () => true });
-    } else if (def.move === 'walker') s.figureYaw = turnToward(s.figureYaw, firing && mo.speed < 0.3 ? s.aim : mo.heading, 8 * dt);
+    } else if (def.move === 'walker') s.figureYaw = turnToward(s.figureYaw, walkerFacing(firing, s.aim, mo.heading), 8 * dt);
     // Shots, as the game fires them: once the turret is on target, every standing figure a beat apart (R3D-9).
     if (firing && def.weapon && now >= s.nextShot) {
-      const turreted = m.trees[0]?.anims.some((x) => x.anim.k === 'turret') ?? false;
-      if (readyToFire(turreted, s.turretYaw, s.aim, now - s.nextShot)) {
+      // As in a match (AIM-1): a turret or a lone walker's body must point at the aim before the shot leaves.
+      const reach = turretReach(def);
+      const turreted = reach > 0 || (!squad && def.move === 'walker');
+      const body = !squad && def.move === 'walker' ? s.figureYaw : mo.heading;
+      if (readyToFire(turreted, gunYaw(body, s.turretYaw, reach), s.aim, now - s.nextShot)) {
         for (let i = 0; i < m.trees.length; i++) s.pending.push({ at: now + i * 55, figure: i });
         if (def.weapon === 'claw') s.lunge = now;
         s.nextShot = now + (d ? shotEvery(d) : 1000);
@@ -339,7 +342,7 @@ export class UnitPreview {
       const pose = bodyPose(def.move, fm, phase, now, SEED + i);
       const heave = heroHeave(def.weapon, now - (s.lastFire[i] ?? -1e9));
       poseRig(tree, {
-        turret: s.turretYaw - mo.heading,
+        turret: turretOnBody(s.turretYaw, !mm && walker ? s.figureYaw : mo.heading),
         kick: recoil(now - (s.lastFire[i] ?? -1e9)),
         lunge: now - s.lunge < 260 ? Math.sin(((now - s.lunge) / 260) * Math.PI) : 0,
         pitch: pose.pitch + heave.pitch,
@@ -378,11 +381,17 @@ export class UnitPreview {
       const tree = m.trees[p.figure];
       if (!tree) return false;
       // Shots fly out to the weapon's real range, off the plinth, as at a target in a match; claws strike just ahead.
-      const to = this.ahead(s.aim, melee ? m.def.radius + 0.3 : Math.max(m.radius * 2, w?.range ?? 5), 0.05, new THREE.Vector3());
+      const reach = melee ? m.def.radius + 0.3 : Math.max(m.radius * 2, w?.range ?? 5);
+      const to = this.ahead(s.aim, reach, 0.05, new THREE.Vector3());
       const muzzle = tree.muzzles.length ? tree.muzzles[s.muzzleTurn++ % tree.muzzles.length] : undefined;
       if (muzzle) {
         muzzle.getWorldPosition(this.v);
         this.v2.setFromMatrixColumn(muzzle.matrixWorld, 0).normalize();
+        // The shot goes where the barrel points (AIM-1): out along its line to the weapon's range, down to the ground.
+        if (!melee) {
+          const flat = Math.hypot(this.v2.x, this.v2.z) || 1;
+          to.set(this.v.x + (this.v2.x / flat) * reach, to.y, this.v.z + (this.v2.z / flat) * reach);
+        }
         this.fx.muzzle(look, this.v, this.v2, now);
         this.fx.shot(look, this.v, to, flight, now);
       } else this.fx.shot(look, tree.root.getWorldPosition(this.v).setY(0.3), to, flight, now);

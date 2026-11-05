@@ -1,4 +1,4 @@
-import { BUILDING_DEFS, buildingDef, UNIT_DEFS, unitDef, type Faction, type UnitDef } from '../data/defs';
+import { BUILDING_DEFS, buildingDef, canCrush, UNIT_DEFS, unitDef, type Faction, type UnitDef } from '../data/defs';
 import { BUILD_RANGE, canPlace, EXPLORED, FP, QUEUE_MAX, Rng, VISIBLE, type BuildingSnap, type Command, type MapDef, type Snapshot, type UnitSnap } from '../sim';
 import { kitOf, type Kit } from './kit';
 
@@ -29,6 +29,8 @@ export interface Intel {
   air: number;
   heavy: number;
   light: number;
+  /** Fraction that are infantry squads (BAL-6). */
+  squads?: number;
   total: number;
 }
 
@@ -47,6 +49,12 @@ export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record
     if (intel.light > 0.5) {
       w.tank += 0.15;
       w.inf += 0.1;
+    }
+    // An infantry-heavy enemy is met with crushers and rifles rather than more anti-armour (BAL-6).
+    if ((intel.squads ?? 0) > 0.45) {
+      w.tank += 0.25;
+      w.inf += 0.1;
+      w.at = Math.max(0.05, w.at - 0.1);
     }
   }
   let best: string | null = null;
@@ -69,6 +77,44 @@ export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record
 }
 
 /** Launch a wave only with a real army that clearly outclasses what we know of the target. */
+/**
+ * How close (tiles) an enemy it can crush must be before an AI crusher drives over it, and how far past it the crusher
+ * drives (BAL-5). Farther off it fights with its guns like any other unit, and it keeps firing on the way in (BAL-11).
+ */
+export const CRUSH_REACH = 6;
+export const CRUSH_OVERRUN = 1.5;
+
+/**
+ * Crush micro (BAL-5, BAL-10): each healthy crusher that sees an enemy it can crush close by (an infantry squad; for a
+ * hero, any ground unit but a hero) drives through it (a plain move to a point just beyond it), so it runs it over
+ * instead of standing and trading shots. Pure: a function of what the player can see.
+ */
+export function crushOrders(player: number, own: readonly UnitSnap[], foes: readonly UnitSnap[], mapW: number, mapH: number): Command[] {
+  const out: Command[] = [];
+  const enemies = foes.filter((f) => f.owner !== player);
+  if (enemies.length === 0) return out;
+  for (const u of own) {
+    const d = unitDef(u.kind);
+    if (u.owner !== player || !d.crusher || u.hp * 10 < d.hp * 3) continue;
+    let best: UnitSnap | null = null;
+    let bd = CRUSH_REACH * FP;
+    for (const f of enemies) {
+      if (!canCrush(u.kind, f.kind)) continue;
+      const fd = Math.hypot(f.x - u.x, f.y - u.y);
+      if (fd < bd || (fd === bd && best !== null && f.id < best.id)) {
+        bd = fd;
+        best = f;
+      }
+    }
+    if (!best) continue;
+    const len = Math.max(1, bd);
+    const x = Math.max(0, Math.min(mapW * FP - 1, Math.round(best.x + ((best.x - u.x) * CRUSH_OVERRUN * FP) / len)));
+    const y = Math.max(0, Math.min(mapH * FP - 1, Math.round(best.y + ((best.y - u.y) * CRUSH_OVERRUN * FP) / len)));
+    out.push({ type: 'move', player, units: [u.id], x, y });
+  }
+  return out;
+}
+
 export function shouldAttack(myPower: number, enemyEstimate: number, armyCount: number, threshold: number, ratio = 1.25): boolean {
   return armyCount >= 5 && myPower >= threshold && myPower >= ratio * enemyEstimate;
 }
@@ -150,6 +196,8 @@ export class AI {
   private idle = new Map<number, { x: number; y: number; n: number }>();
   private staging: { tx: number; ty: number } | null = null;
   private home: { tx: number; ty: number } | null = null;
+  /** The exact centre of our HQ, in tiles; on a point-symmetric map the two players' centres mirror exactly. */
+  private centre: { x: number; y: number } = { x: 0, y: 0 };
   private attacks = 0;
   private lastWaveEnd = 0;
   /** Seeded personality so repeated games differ a little: attack timing, staging distance. */
@@ -200,7 +248,10 @@ export class AI {
     this.scout(c, out);
     this.maintain(c, out);
     this.superweapon(c, out);
-    return out.slice(0, this.diff.maxCommands);
+    // Crush orders go last so they override this tick's wave orders for the same units, and always get a share of the
+    // command budget (BAL-5).
+    const crush = crushOrders(me, c.army, c.foes, snap.mapWidth, snap.mapHeight).slice(0, Math.max(1, Math.ceil(this.diff.maxCommands / 2)));
+    return [...out.slice(0, this.diff.maxCommands - crush.length), ...crush];
   }
 
   // ---------------------------------------------------------------- knowledge
@@ -228,6 +279,7 @@ export class AI {
     const hx = c.hq.tx + d.w / 2;
     const hy = c.hq.ty + d.h / 2;
     this.home = { tx: Math.floor(hx), ty: Math.floor(hy) };
+    this.centre = { x: hx, y: hy };
     // Symmetric map: the opponent starts opposite us. A human can read this off the map too.
     const ex = W - hx;
     const ey = H - hy;
@@ -262,16 +314,18 @@ export class AI {
     let air = 0;
     let heavy = 0;
     let light = 0;
+    let squads = 0;
     let total = 0;
     for (const e of this.intel.values()) {
       const d = UNIT_DEFS[e.kind];
       if (!d || !d.weapon || c.tick - e.t > 2400) continue;
       total++;
+      if ((d.squad ?? 1) > 1) squads++;
       if (d.armor === 'air') air++;
       else if (d.armor === 'heavy') heavy++;
       else light++;
     }
-    return total === 0 ? { air: 0, heavy: 0, light: 0, total: 0 } : { air: air / total, heavy: heavy / total, light: light / total, total };
+    return total === 0 ? { air: 0, heavy: 0, light: 0, squads: 0, total: 0 } : { air: air / total, heavy: heavy / total, light: light / total, squads: squads / total, total };
   }
 
   /** Cost-weighted strength of the remembered enemy army and defences within `r` tiles of a tile. */
@@ -365,20 +419,29 @@ export class AI {
       for (let y = b.ty; y < b.ty + bd.h; y++) for (let x = b.tx; x < b.tx + bd.w; x++) occ.add(y * W + x);
     }
     const home = this.home as { tx: number; ty: number };
-    const stage = this.staging as { tx: number; ty: number };
-    const dir = { x: stage.tx - home.tx, y: stage.ty - home.ty };
+    // Scored from the exact HQ centre toward the exact mirror of it (the enemy's start), so both players weigh mirror-image
+    // spots alike (MAP-4).
+    const hc = this.centre;
+    const dir = { x: W - 2 * hc.x, y: snap.mapHeight - 2 * hc.y };
     const dl = Math.hypot(dir.x, dir.y) || 1;
+    // Ties are broken by scan order; the player whose home is the later tile of the two mirrored starts scans from the far
+    // corner, so both sides resolve ties as mirror images on any point-symmetric map (MAP-4), not only corner starts.
+    const flip = home.ty * W + home.tx > (snap.mapHeight - 1 - home.ty) * W + (W - 1 - home.tx);
     // Nearest shard tile, for refineries.
     const fields: [number, number][] = [];
-    if (d.refinery) for (let i = 0; i < snap.shards.length; i += 3) if ((snap.shards[i] as number) > 0) fields.push([i % W, Math.floor(i / W)]);
+    // Every third tile counted from the player's own corner of the map, so both players sample mirror-image tiles.
+    const n = snap.shards.length;
+    if (d.refinery)
+      for (let k = 0; k < n; k += 3) {
+        const i = flip ? n - 1 - k : k;
+        if ((snap.shards[i] as number) > 0) fields.push([(i % W) + 0.5, Math.floor(i / W) + 0.5]); // tile centres mirror exactly
+      }
     let best: { tx: number; ty: number } | null = null;
     let bs = Infinity;
     const minX = Math.min(...c.buildings.map((b) => b.tx)) - BUILD_RANGE - d.w;
     const maxX = Math.max(...c.buildings.map((b) => b.tx)) + BUILD_RANGE + 4;
     const minY = Math.min(...c.buildings.map((b) => b.ty)) - BUILD_RANGE - d.h;
     const maxY = Math.max(...c.buildings.map((b) => b.ty)) + BUILD_RANGE + 4;
-    // Ties are broken by scan order; scan from the far corner for the bottom-right player so both sides resolve ties symmetrically.
-    const flip = home.tx > W / 2;
     const y0 = Math.max(0, minY);
     const y1 = Math.min(snap.mapHeight - d.h, maxY);
     const x0 = Math.max(0, minX);
@@ -390,7 +453,7 @@ export class AI {
         if (!canPlace(ctx, kind, tx, ty)) continue;
         // A compact base: nothing strays far from the headquarters (no creeping chains toward the enemy).
         const reach = d.refinery ? 24 : d.weapon ? 13 : 16;
-        if (dist(tx + d.w / 2, ty + d.h / 2, home.tx, home.ty) > reach) continue;
+        if (dist(tx + d.w / 2, ty + d.h / 2, hc.x, hc.y) > reach) continue;
         let score = 0;
         // Keep a one-tile gap so units are never walled in.
         let touching = 0;
@@ -400,13 +463,13 @@ export class AI {
         for (let y = ty; y < ty + d.h; y++) for (let x = tx; x < tx + d.w; x++) if ((snap.shards[y * W + x] as number) > 0) score += 80;
         const cx = tx + d.w / 2;
         const cy = ty + d.h / 2;
-        const toward = ((cx - home.tx) * dir.x + (cy - home.ty) * dir.y) / dl;
+        const toward = ((cx - hc.x) * dir.x + (cy - hc.y) * dir.y) / dl;
         if (d.weapon) score -= toward * 2.2; // defences face the enemy
         else if (d.refinery) {
           let nearest = 40;
           for (const [fx, fy] of fields) nearest = Math.min(nearest, dist(cx, cy, fx, fy));
           score += nearest * 3;
-        } else score += Math.max(0, toward) * 1.5 + dist(cx, cy, home.tx, home.ty) * 0.8; // soft buildings stay behind the lines
+        } else score += Math.max(0, toward) * 1.5 + dist(cx, cy, hc.x, hc.y) * 0.8; // soft buildings stay behind the lines
         if (score < bs) {
           bs = score;
           best = { tx, ty };

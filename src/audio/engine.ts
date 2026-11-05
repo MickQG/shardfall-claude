@@ -141,6 +141,11 @@ export class AudioEngine {
           this.burst(t, 0.45, 0.4 * gain, 80, 1800);
           this.tone(90, t, 0.4, 'sine', 0.3 * gain, 35);
           break;
+        case 'crunch':
+          // A short, low, gritty crunch: filtered noise over a dull thump.
+          this.burst(t, 0.16, 0.3 * gain, 120, 900);
+          this.tone(75, t, 0.12, 'triangle', 0.22 * gain, 40);
+          break;
         case 'pop':
           this.burst(t, 0.18, 0.25 * gain, 200, 2500);
           break;

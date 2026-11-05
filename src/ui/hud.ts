@@ -1,3 +1,4 @@
+import type { CountdownRow } from './countdown';
 const CSS = `
 #hud { position: fixed; inset: 0; pointer-events: none; font: 13px/1.3 system-ui, sans-serif; color: #dfe8e2; }
 #hud .panel { position: absolute; background: rgba(8,12,17,.82); border: 1px solid #28405a; border-radius: 6px; padding: 8px 10px; pointer-events: auto; }
@@ -16,7 +17,14 @@ const CSS = `
 #hud #result .len { color: #9fb4c6; font-size: 12px; margin-top: 6px; }
 #hud #result .actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
 #hud #result button { font: inherit; font-size: 16px; padding: 10px 22px; border-radius: 6px; border: 1px solid #7ff5cd; background: #11202c; color: #dfe8e2; cursor: pointer; }
-#hud #toasts { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+#hud #topmid { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; max-width: calc(100vw - 32px); }
+#hud #countdown { display: none; flex-direction: column; gap: 3px; padding: 6px 12px; border-radius: 6px; background: rgba(8,12,17,.86); border: 1px solid #28405a; font-weight: 600; font-variant-numeric: tabular-nums; text-align: center; }
+#hud #countdown.on { display: flex; }
+#hud #countdown .own { color: #bffbe6; }
+#hud #countdown .enemy { color: #ff9a8a; }
+#hud #countdown .danger { color: #ff5a4a; animation: swpulse 1s ease-in-out infinite; }
+@keyframes swpulse { 50% { opacity: .55; } }
+#hud #toasts { margin-top: 32px; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
 #hud .toast { padding: 6px 14px; border-radius: 6px; background: rgba(8,12,17,.9); border: 1px solid #28405a; font-weight: 600; animation: toastin .25s ease-out; }
 #hud .toast.warn { border-color: #ffd34a; color: #ffe08a; }
 #hud .toast.bad { border-color: #ff5a4a; color: #ff9a8a; }
@@ -60,6 +68,8 @@ export interface Hud {
   selbox(rect: { x0: number; y0: number; x1: number; y1: number } | null): void;
   showResult(title: string, sub: string, color: string, score?: ScoreView): void;
   toast(text: string, level: 'info' | 'warn' | 'bad'): void;
+  /** The superweapon countdown box at the top of the map view (SW-1); empty hides it. */
+  setCountdown(rows: readonly CountdownRow[]): void;
   showPause(show: boolean, actions?: { resume: () => void; quit: () => void }): void;
 }
 
@@ -69,12 +79,21 @@ export function createHud(): Hud {
   document.head.appendChild(style);
   const root = document.createElement('div');
   root.id = 'hud';
-  root.innerHTML = '<div id="topbar" class="panel">Shardfall</div><div id="minimap-box" class="panel"></div><div id="info" class="panel empty"></div><div id="selbox"></div><div id="toasts"></div><div id="pause"><h2>PAUSED</h2><button id="resume">Resume (P)</button><button id="quit">Quit to menu</button></div><div id="result"><h1></h1><div class="sub"></div><div class="actions"><button id="again">Play again</button><button id="menu-btn">Main menu</button></div></div>';
+  root.innerHTML = '<div id="topbar" class="panel">Shardfall</div><div id="minimap-box" class="panel"></div><div id="info" class="panel empty"></div><div id="selbox"></div><div id="topmid"><div id="countdown" role="status" aria-live="polite"></div><div id="toasts"></div></div><div id="pause"><h2>PAUSED</h2><button id="resume">Resume (P)</button><button id="quit">Quit to menu</button></div><div id="result"><h1></h1><div class="sub"></div><div class="actions"><button id="again">Play again</button><button id="menu-btn">Main menu</button></div></div>';
   document.body.appendChild(root);
   const q = (sel: string): HTMLElement => root.querySelector(sel) as HTMLElement;
   const info = q('#info');
   const box = q('#selbox');
+  const countdown = q('#countdown');
+  let countdownKey = '';
   return {
+    setCountdown(rows) {
+      const key = rows.map((r) => `${r.tone}|${r.text}`).join('/');
+      if (key === countdownKey) return;
+      countdownKey = key;
+      countdown.classList.toggle('on', rows.length > 0);
+      countdown.innerHTML = rows.map((r) => `<div class="${r.tone}">${esc(r.text)}</div>`).join('');
+    },
     minimapHost: q('#minimap-box'),
     setInfo(lines) {
       info.classList.toggle('empty', lines.length === 0);

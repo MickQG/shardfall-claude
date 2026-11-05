@@ -14,7 +14,9 @@ interface Fx {
 
 const TICK_MS = 50;
 const toScreen = (x: number, y: number): { x: number; y: number } => tileToScreen(x / 256, y / 256);
-const WEAPON_COLOR: Record<string, number> = { pierce: 0xfff1a8, rocket: 0xffb347, blast: 0xff8c42, claw: 0xff5a8a, beam: 0x9ff0ff };
+const WEAPON_COLOR: Record<string, number> = { pierce: 0xfff1a8, rocket: 0xffb347, blast: 0xff8c42, claw: 0xff5a8a, bite: 0xff7a9a, beam: 0x9ff0ff };
+/** Shots fired by top-rank (elite) units, in both renderers (BAL-7). */
+export const ELITE_SHOT_2D = 0xd36bff;
 
 /** Short-lived procedural effects driven by simulation events. Positions are iso screen pixels. */
 export class Effects {
@@ -51,7 +53,7 @@ export class Effects {
   private shot(e: Extract<SimEvent, { t: 'shot' }>, now: number): void {
     const a = toScreen(e.x, e.y);
     const b = toScreen(e.tx, e.ty);
-    const color = WEAPON_COLOR[e.weapon] ?? 0xffffff;
+    const color = e.elite ? ELITE_SHOT_2D : WEAPON_COLOR[e.weapon] ?? 0xffffff;
     const aY = a.y - (e.air ? 0 : 10);
     // Muzzle flash: a directional burst whose length, width and colour depend on the weapon.
     const mz = muzzleFor(e.weapon);
@@ -85,7 +87,7 @@ export class Effects {
         g.clear();
         if (t > 0) g.circle(b.x, b.y - 6, 6 + t * 10).fill({ color, alpha: (1 - t) * 0.8 });
       }, b.y);
-    } else if (e.weapon === 'claw') {
+    } else if (e.weapon === 'claw' || e.weapon === 'bite') {
       this.add(160, now, (k, g) => {
         g.clear();
         g.moveTo(b.x - 8, b.y - 18 + k * 10).lineTo(b.x + 8, b.y - 4 + k * 10).stroke({ color, width: 3 * (1 - k) + 1, alpha: 1 - k });
@@ -114,6 +116,7 @@ export class Effects {
 
   private die(e: Extract<SimEvent, { t: 'die' }>, now: number): void {
     const p = toScreen(e.x, e.y);
+    if (e.crushed) return this.crushed(p, e.kind.startsWith('ali_'), now);
     const n = e.big ? 16 : 7;
     const sc = e.big ? 1.8 : 1;
     // Fireball and shockwave.
@@ -151,12 +154,22 @@ export class Effects {
     this.shake = Math.max(this.shake, e.big ? 6 : 1.5);
   }
 
+  /** A squad run over by a heavy vehicle (BAL-2): a flat puff of dust (Aegis) or ichor (Vrax) and a lasting mark. */
+  private crushed(p: { x: number; y: number }, organic: boolean, now: number): void {
+    const dust = organic ? 0x4a6a2a : 0x9a8c72;
+    this.add(520, now, (k, g) => g.clear().ellipse(p.x, p.y - 2, 10 + 16 * k, 4 + 6 * k).fill({ color: dust, alpha: (1 - k) * 0.7 }), p.y);
+    this.add(this.decor ? 9000 : 3500, now, (k, g) => g.clear().ellipse(p.x, p.y + 2, 13, 5).fill({ color: organic ? 0x3f8a10 : 0x2a2420, alpha: 0.45 * (1 - k) }), -1e6);
+    this.shake = Math.max(this.shake, 1);
+  }
+
   private launch(e: Extract<SimEvent, { t: 'launch' }>, now: number): void {
     const p = toScreen(e.x, e.y);
-    this.add(e.delay * TICK_MS, now, (k, g) => {
-      g.clear().rect(p.x - 3, p.y - 400 * k - 40, 6, 400 * k).fill({ color: 0xffffff, alpha: 1 - k * 0.4 });
-      g.circle(p.x, p.y - 40, 14 * (1 - k) + 4).fill({ color: 0x9ff0ff, alpha: 0.7 });
-    }, p.y);
+    // A launch site out of sight (SW-2) is not shown: only the target is marked.
+    if (!e.unseen)
+      this.add(e.delay * TICK_MS, now, (k, g) => {
+        g.clear().rect(p.x - 3, p.y - 400 * k - 40, 6, 400 * k).fill({ color: 0xffffff, alpha: 1 - k * 0.4 });
+        g.circle(p.x, p.y - 40, 14 * (1 - k) + 4).fill({ color: 0x9ff0ff, alpha: 0.7 });
+      }, p.y);
     // The target is marked until the strike lands: a glowing disc and rings pulsing faster as it nears (R3D-16).
     const t = toScreen(e.tx, e.ty);
     const r = (buildingDef(e.kind).superweapon?.radius ?? 3) * 34;

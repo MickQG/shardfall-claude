@@ -165,3 +165,13 @@ test('AI-10 UI: the start screen picks faction and difficulty, and starts a game
   await page.waitForTimeout(4000);
   expect(errors).toEqual([]);
 });
+
+test('UI-12: a loading screen covers the start, and the game begins at its first tick once it can be seen and played', async ({ page }) => {
+  await page.goto('/?faction=human&difficulty=easy');
+  await expect(page.locator('#loading')).toBeAttached({ timeout: 10_000 });
+  await expect(page.locator('#loading')).toContainText('Preparing the battlefield');
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
+  // Released at its first tick, however long loading took.
+  expect(await page.evaluate(() => document.body.dataset.startTick)).toBe('0');
+  await expect(page.locator('#loading')).toHaveCount(0, { timeout: 5_000 });
+});

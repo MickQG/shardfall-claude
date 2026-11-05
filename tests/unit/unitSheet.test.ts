@@ -59,7 +59,7 @@ describe('unit sheet', () => {
   it('INF-7: health, speed, range and firepower come from the definitions; firepower counts squad figures', () => {
     const rifle = UNIT_DEFS.hum_rifleman!;
     expect(firepower(rifle)).toBeCloseTo(((rifle.weapon!.damage * 3 * 20) / rifle.weapon!.cooldown), 1);
-    expect(unitStats(UNIT_DEFS.hum_paladin!)).toEqual({ health: 3000, speed: 32, range: 7, firepower: 61.1 });
+    expect(unitStats(UNIT_DEFS.hum_paladin!)).toEqual({ health: 3000, speed: 20, range: 7, firepower: 61.1 });
     expect(card('human', 'Shard Hauler').stats).toMatchObject({ range: 0, firepower: 0 });
   });
 

@@ -23,7 +23,15 @@ export class SimClient {
   /** Effects from every received tick, drained by the renderer. */
   events: SimEvent[] = [];
 
-  constructor(cfg: GameConfig, ai: AiSetup[] = [], opts: { viewer?: number; net?: NetLink } = {}) {
+  /** Held at its first tick until `start` (UI-12). */
+  private held: boolean;
+
+  /**
+   * With `hold`, the game waits at tick 0 (its first snapshot is still sent, for the page to build the view from) and
+   * only begins, online included, when `start` is called: nothing happens before the player can see and control it.
+   */
+  constructor(cfg: GameConfig, ai: AiSetup[] = [], opts: { viewer?: number; net?: NetLink; hold?: boolean } = {}) {
+    this.held = !!opts.hold;
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
     const net = opts.net;
     if (net) this.lockstep = new Lockstep(net.me, { send: (m) => net.send(m), deliver: (n, cmds) => this.post({ type: 'turn', n, cmds }), desync: (t) => net.desync(t) });
@@ -39,12 +47,20 @@ export class SimClient {
       if (d.events.length > 0) this.events.push(...d.events);
       this.lockstep?.progress(d.tick);
     };
-    this.post({ type: 'init', cfg, ai, viewer: opts.viewer ?? 0, lockstep: !!net });
-    this.lockstep?.start();
+    this.post({ type: 'init', cfg, ai, viewer: opts.viewer ?? 0, lockstep: !!net, held: this.held });
+    if (!this.held) this.lockstep?.start();
   }
 
   private post(m: ToWorker): void {
     this.worker.postMessage(m);
+  }
+
+  /** Begin a game created with `hold` (UI-12); online, the first turns are announced only now. */
+  start(): void {
+    if (!this.held) return;
+    this.held = false;
+    this.post({ type: 'go' });
+    this.lockstep?.start();
   }
 
   /** Stop the simulation for good (an online match that ended outside the game, NET-3, NET-4). */

@@ -1,4 +1,5 @@
 import { buildingDef, isBuildingKind, trainableAt, unitDef } from '../data/defs';
+import { clock } from './countdown';
 
 /** Why `kind` cannot be queued right now, or null when it can: a missing building first, then credits, then room. */
 export function queueRefusal(kind: string, ownedKinds: readonly string[], credits: number, hasRoom: boolean, heroTaken = false): string | null {
@@ -37,7 +38,7 @@ export interface SuperweaponRow {
 }
 
 /** The superweapon panel (UI-9): a row per own superweapon, with its charge, state and fire button. Pure. */
-export function superweaponRows(mine: readonly { id: number; kind: string; charge: number }[], lowPower: boolean, targeting: number | null): SuperweaponRow[] {
+export function superweaponRows(mine: readonly { id: number; kind: string; charge: number }[], lowPower: boolean, targeting: number | null, left: ReadonlyMap<number, number> = new Map()): SuperweaponRow[] {
   return mine
     .filter((b) => buildingDef(b.kind).superweapon)
     .map((b) => {
@@ -49,7 +50,8 @@ export function superweaponRows(mine: readonly { id: number; kind: string; charg
         pct: b.charge,
         ready: fs.ready,
         armed,
-        state: armed ? 'Pick a target on the map' : fs.ready ? 'Ready to fire' : fs.label,
+        // While charging, the time left (SW-1).
+        state: armed ? 'Pick a target on the map' : fs.ready ? 'Ready to fire' : (left.get(b.id) ?? 0) > 0 ? `${fs.label} · ${clock(left.get(b.id) ?? 0)}` : fs.label,
         button: armed ? 'CANCEL' : fs.ready ? 'FIRE' : `${b.charge}%`,
         why: fs.ready ? '' : fs.label,
       };

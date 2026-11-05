@@ -3,9 +3,10 @@ import { FP, isqrt, tileOf } from './fixed';
 import { VISIBLE } from './fog';
 import { clearOrder, orderMove } from './movement';
 import { isLowPower } from './economy';
+import { faces } from './facing';
 import { removeBuilding } from './production';
 import type { Building, State, Unit } from './state';
-import { ELITE_REPAIR, MAX_RANK, maxHpOf, rankFor, unitDamage } from './units';
+import { ELITE_REPAIR, gainXp, MAX_RANK, maxHpOf, unitDamage } from './units';
 
 type Entity = Unit | Building;
 const isBuilding = (e: Entity): e is Building => 'tx' in e;
@@ -69,14 +70,7 @@ function hurt(s: State, e: Entity, amount: number, attackerId: number, credit?: 
   if (amount <= 0) return;
   const dealt = Math.min(amount, Math.max(0, e.hp));
   e.hp -= amount;
-  if (credit && !isBuilding(credit) && credit.owner !== e.owner && dealt > 0) {
-    credit.xp += dealt;
-    const r = rankFor(credit.kind, credit.xp);
-    if (r > credit.rank) {
-      credit.hp = Math.floor((credit.hp * maxHpOf(credit.kind, r)) / maxHpOf(credit.kind, credit.rank));
-      credit.rank = r;
-    }
-  }
+  if (credit && !isBuilding(credit) && credit.owner !== e.owner) gainXp(credit, dealt);
   if (isBuilding(e)) return;
   e.sinceHurt = 0;
   // Retaliate if idle.
@@ -87,7 +81,7 @@ function hurt(s: State, e: Entity, amount: number, attackerId: number, credit?: 
 function fire(s: State, shooter: { x: number; y: number; owner: number; id: number }, w: WeaponDef, t: Entity, unit?: Unit): void {
   const tp = pos(t);
   const damage = unit ? unitDamage(unit.kind, unit.hp, unit.rank) : w.damage;
-  s.events.push({ t: 'shot', x: shooter.x, y: shooter.y, tx: tp.x, ty: tp.y, weapon: w.type, owner: shooter.owner, air: armorOf(t) === 'air', flight: w.flight ?? 0, src: shooter.id });
+  s.events.push({ t: 'shot', x: shooter.x, y: shooter.y, tx: tp.x, ty: tp.y, weapon: w.type, owner: shooter.owner, air: armorOf(t) === 'air', flight: w.flight ?? 0, src: shooter.id, ...(unit && unit.rank >= MAX_RANK ? { elite: true } : {}) });
   if ((w.flight ?? 0) > 0) {
     s.projectiles.push({ hit: s.tick + (w.flight as number), x: tp.x, y: tp.y, targetId: t.id, owner: shooter.owner, damage, type: w.type, splash: w.splash ?? 0, air: armorOf(t) === 'air', shooter: unit ? unit.id : -1 });
   } else {
@@ -177,12 +171,32 @@ function chase(s: State, u: Unit, t: Entity): void {
   orderMove(s, u, ty * s.grid.width + tx);
 }
 
+/**
+ * A crusher on the move keeps shooting at whatever comes into range without stopping (BAL-11): it guns enemies down on
+ * its way in and runs over those that get close.
+ */
+function fireOnTheMove(s: State, u: Unit, w: WeaponDef, byId: Map<number, Entity>, occ: Int32Array): void {
+  let t = u.target >= 0 ? byId.get(u.target) : undefined;
+  const air = !!unitDef(u.kind).air;
+  if (t && (t.owner === u.owner || !canHit(w, t) || !visibleTo(s, u.owner, t) || distTo(u.x, u.y, t) > rangeFp(w))) t = undefined;
+  if (!t && (s.tick + u.id) % 5 === 0) {
+    const id = acquire(s, u.owner, u.x, u.y, w, rangeFp(w), (e) => lineOfFire(s, occ, u.x, u.y, e, w, air));
+    t = id >= 0 ? byId.get(id) : undefined;
+  }
+  u.target = t ? t.id : -1;
+  if (t && u.cooldown === 0 && faces(u, t) && lineOfFire(s, occ, u.x, u.y, t, w, air)) {
+    fire(s, { x: u.x, y: u.y, owner: u.owner, id: u.id }, w, t, u);
+    u.cooldown = w.cooldown;
+  }
+}
+
 function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array): void {
   const def = unitDef(u.kind);
   if (u.cooldown > 0) u.cooldown--;
   u.sinceHurt = Math.min(u.sinceHurt + 1, 100000);
   if (u.mode === 'move' && u.path.length === 0 && !u.waiting) u.mode = 'idle';
   const w = def.weapon;
+  if (w && u.mode === 'move' && def.crusher) return fireOnTheMove(s, u, w, byId, occ);
   if (!w || u.mode === 'move') {
     if (u.mode === 'move') u.target = -1;
     return;
@@ -233,7 +247,8 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
       u.path = [];
       u.waiting = false;
     }
-    if (u.cooldown === 0) {
+    // A slow turner fires only once it faces its target (HERO-5).
+    if (u.cooldown === 0 && faces(u, t)) {
       fire(s, { x: u.x, y: u.y, owner: u.owner, id: u.id }, w, t, u);
       u.cooldown = w.cooldown;
     }

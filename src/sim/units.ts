@@ -1,4 +1,5 @@
 import { unitDef } from '../data/defs';
+import type { Unit } from './state';
 
 /** Veterancy: experience (damage dealt) needed for each rank, as multiples of the unit's cost. */
 export const RANK_XP = [1, 3, 6] as const;
@@ -33,4 +34,15 @@ export function unitDamage(kind: string, hp: number, rank: number): number {
   const size = d.squad ?? 1;
   const alive = squadAlive(kind, hp, maxHpOf(kind, rank));
   return Math.max(1, Math.floor((base * alive * (100 + RANK_BONUS * rank)) / (size * 100)));
+}
+
+/** Credit `u` with `dealt` damage to an enemy as experience (VET-1), ranking it up with its hit points scaled to match. */
+export function gainXp(u: Unit, dealt: number): void {
+  if (dealt <= 0) return;
+  u.xp += dealt;
+  const r = rankFor(u.kind, u.xp);
+  if (r > u.rank) {
+    u.hp = Math.floor((u.hp * maxHpOf(u.kind, r)) / maxHpOf(u.kind, u.rank));
+    u.rank = r;
+  }
 }

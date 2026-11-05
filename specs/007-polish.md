@@ -6,6 +6,6 @@
 - **AUD-1**: Simulation events map to sounds (shots by weapon type, explosions, deaths, superweapon launch and strike); events outside the viewer's interest are not played, and muting silences everything.
 - **AUD-2**: The ambient music is generated deterministically from a seed (same seed, same score) and stays in key.
 - **AUD-3**: The audio engine is safe where no audio exists (tests, blocked autoplay): it never throws.
-- **ALR-1**: Alerts are raised for: base under attack, construction ready to place, production complete, low power, superweapon ready, and enemy superweapon launch; each has a cooldown so it does not repeat every tick.
+- **ALR-1**: Alerts are raised for: base under attack, construction ready to place, production complete, low power, superweapon ready, enemy superweapon detected (SW-1), and enemy superweapon launch (SW-2); each has a cooldown so it does not repeat every tick.
 - **UX-1**: The game can be paused and its speed changed; a paused game does not advance.
 - **UX-2**: The match ends with a victory or defeat screen with a play-again option and a button back to the main menu.

@@ -12,8 +12,8 @@ export type Axis = 'x' | 'y' | 'z';
 export type Anim =
   /** Takes the hull's pitch, roll, bob and lunge; sinks by `drop` when kneeling. */
   | { k: 'body'; drop?: number }
-  /** Turns toward the aim, relative to the hull. */
-  | { k: 'turret' }
+  /** Turns toward the aim, relative to the hull; a swivel mount turns at most `max` radians either way (AIM-2). */
+  | { k: 'turret'; max?: number }
   /** Recoils backwards along its own -X when firing. */
   | { k: 'barrel'; recoil: number }
   /** Rolls with the distance travelled (axle along Z). */
@@ -113,6 +113,15 @@ export interface RigTree {
   muzzles: THREE.Object3D[];
 }
 
+/** How far a rig's turret can swivel either way, radians: Infinity for a full turret, 0 for none (AIM-1). */
+export function turretReach(def: RigDef): number {
+  let reach = 0;
+  walk(def.root, (n) => {
+    if (n.anim?.k === 'turret') reach = Math.max(reach, n.anim.max ?? Infinity);
+  });
+  return reach;
+}
+
 export function rigTree(def: RigDef): RigTree {
   const drawn: DrawnNode[] = [];
   const anims: AnimatedNode[] = [];
@@ -183,6 +192,9 @@ export function footLift(phase: number, ease: boolean): number {
   return ease ? up * up : up;
 }
 
+/** How far front wheels steer either way, radians: clear of the body and mudguards (AIM-2). */
+export const MAX_STEER = 0.3;
+
 export function poseRig(tree: RigTree, p: RigPose): void {
   for (const a of tree.anims) {
     const an = a.anim;
@@ -198,7 +210,7 @@ export function poseRig(tree: RigTree, p: RigPose): void {
         }
         break;
       case 'turret':
-        turn(obj, 'y', a.rot.y - p.turret);
+        turn(obj, 'y', a.rot.y - (an.max === undefined ? p.turret : Math.max(-an.max, Math.min(an.max, p.turret))));
         break;
       case 'barrel':
         obj.position.x = a.pos.x - an.recoil * p.kick;
@@ -208,7 +220,7 @@ export function poseRig(tree: RigTree, p: RigPose): void {
         turn(obj, 'z', a.rot.z - (p.dist - (p.turned ?? 0) * a.pos.z) / an.r);
         break;
       case 'steer':
-        turn(obj, 'y', a.rot.y - Math.max(-0.45, Math.min(0.45, p.turnRate * 0.3)));
+        turn(obj, 'y', a.rot.y - Math.max(-MAX_STEER, Math.min(MAX_STEER, p.turnRate * 0.3)));
         break;
       case 'gait': {
         const c = p.crouch ?? 0;

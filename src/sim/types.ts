@@ -57,11 +57,16 @@ export type Command =
 
 /** One-tick effects for the renderer and audio. Positions are fixed-point world units. */
 export type SimEvent =
-  | { t: 'shot'; x: number; y: number; tx: number; ty: number; weapon: string; owner: number; air: boolean; flight: number; src: number }
+  /** A shot; `elite` when a top-rank unit fired it (BAL-7). */
+  | { t: 'shot'; x: number; y: number; tx: number; ty: number; weapon: string; owner: number; air: boolean; flight: number; src: number; elite?: boolean }
   | { t: 'boom'; x: number; y: number; r: number }
-  | { t: 'die'; x: number; y: number; big: boolean; owner: number; id: number; kind: string }
-  /** A superweapon launched from (x, y) at the target (tx, ty), landing after `delay` ticks. */
-  | { t: 'launch'; x: number; y: number; tx: number; ty: number; owner: number; kind: string; delay: number }
+  /** A death; `crushed` when a heavy vehicle ran the squad over (BAL-1). */
+  | { t: 'die'; x: number; y: number; big: boolean; owner: number; id: number; kind: string; crushed?: boolean }
+  /**
+   * A superweapon launched from (x, y) at the target (tx, ty), landing after `delay` ticks. A viewer who sees the target
+   * but not the launch site gets it with `unseen` set, so only the target is marked (SW-2).
+   */
+  | { t: 'launch'; x: number; y: number; tx: number; ty: number; owner: number; kind: string; delay: number; unseen?: boolean }
   | { t: 'strike'; x: number; y: number; owner: number; kind: string; r: number };
 
 export interface UnitSnap {
@@ -80,6 +85,8 @@ export interface UnitSnap {
   dest: [number, number] | null;
   /** Shards carried (haulers). */
   load: number;
+  /** Facing in steps of 256 a circle, for units that turn slowly (HERO-5): 0 along +x, increasing toward +y. */
+  facing?: number;
 }
 
 export interface QueueSnap {
@@ -126,6 +133,33 @@ export interface PlayerSnap {
   powerIn: number;
 }
 
+/**
+ * A finished superweapon's countdown (SW-1). Every player sees every superweapon's timer, the enemy's too, even under
+ * fog; where an enemy weapon stands is still only known once it is seen.
+ */
+export interface SuperweaponTimer {
+  id: number;
+  owner: number;
+  kind: string;
+  /** Ticks until it is charged; 0 when ready. */
+  left: number;
+  /** Not charging: its owner is low on power. */
+  paused: boolean;
+}
+
+/** A launched superweapon strike on its way (SW-2): where it lands and when. */
+export interface StrikeTimer {
+  owner: number;
+  kind: string;
+  /** Ticks until impact. */
+  left: number;
+  /** Target, fixed-point. */
+  x: number;
+  y: number;
+  /** Blast radius in tiles. */
+  r: number;
+}
+
 export interface Snapshot {
   tick: number;
   mapWidth: number;
@@ -147,6 +181,10 @@ export interface Snapshot {
   winner: number | null;
   /** Every player's statistics, once the game is over (always in the god view); null while a viewer's game runs. */
   stats: PlayerStats[] | null;
+  /** Every finished superweapon's countdown, every player's (SW-1). */
+  superweapons: SuperweaponTimer[];
+  /** Superweapon strikes on their way (SW-2). */
+  strikes: StrikeTimer[];
   /** Viewer this snapshot is limited to; null for the god view. */
   viewer: number | null;
   /** Viewer fog grid (bit 1 explored, bit 2 visible); null for the god view. */
