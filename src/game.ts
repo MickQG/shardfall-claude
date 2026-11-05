@@ -14,6 +14,7 @@ import { tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
 import { countdownRows } from './ui/countdown';
+import { framesDrawn, READY_FRAMES, showLoading } from './ui/loading';
 import { createHud, resultText, type ScoreView } from './ui/hud';
 import { armyPath, scoreRows } from './ui/score';
 import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, inputAllowed, KeyTap, minimapClick } from './ui/controls';
@@ -31,6 +32,8 @@ import { boxSelect, Selection, selectKinds, selectSameKind, toScreenUnits } from
 
 const host = document.getElementById('app');
 if (!host) throw new Error('missing #app');
+// Up at once, before three.js loads and the battlefield is built: never a black screen (UI-12).
+const loading = showLoading();
 
 const params = new URLSearchParams(location.search);
 // An online match (NET-1) is handed over by the menu in this page; a reloaded online page has lost its connection, so
@@ -70,7 +73,8 @@ const bounds = mapBounds(map.width, map.height);
 // Scenarios are scripted fights without an AI opponent; a normal game has the AI play player 1; an online match has
 // the two players in lockstep (NET-2).
 const watch = match ? new OnlineWatch(match, { end: (why, tick) => endOnline(why, tick) }) : null;
-const sim = new SimClient(cfg, scenario || match ? [] : [{ player: 1, difficulty: level }], { viewer: PLAYER, net: watch?.link });
+// Held at its first tick until the view is drawn and the controls are live (UI-12).
+const sim = new SimClient(cfg, scenario || match ? [] : [{ player: 1, difficulty: level }], { viewer: PLAYER, net: watch?.link, hold: true });
 watch?.attach(sim);
 // three.js loads only for the 3D view, so classic sessions do not download it.
 const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D() : new GameView();
@@ -645,10 +649,16 @@ async function boot(): Promise<void> {
   const vig = document.createElement('div');
   vig.style.cssText = 'position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 55%,rgba(2,6,10,.55) 100%)';
   document.body.insertBefore(vig, document.getElementById('hud'));
-  document.body.dataset.ready = 'true';
   // Open the audio device now, suspended, so the first click does not stall a frame doing it.
   audio.prepare();
   requestAnimationFrame(frame(performance.now()));
+  // The game begins only once the battlefield has been drawn and the controls are wired up (UI-12).
+  await framesDrawn(READY_FRAMES);
+  // The tick the game had reached when it was released: 0, as it waited (UI-12).
+  document.body.dataset.startTick = String(sim.curr?.tick ?? -1);
+  sim.start();
+  loading.done();
+  document.body.dataset.ready = 'true';
 }
 
 void boot();

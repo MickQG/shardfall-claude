@@ -85,6 +85,8 @@ export interface UnitSnap {
   dest: [number, number] | null;
   /** Shards carried (haulers). */
   load: number;
+  /** Facing in steps of 256 a circle, for units that turn slowly (HERO-5): 0 along +x, increasing toward +y. */
+  facing?: number;
 }
 
 export interface QueueSnap {

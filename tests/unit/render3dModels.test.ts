@@ -408,7 +408,7 @@ describe('organic contours', () => {
       for (let i = 0; i < p.length; i += 3) if (Math.abs(p[i]! * 4 - Math.round(p[i]! * 4)) > 0.12) off++;
       expect(off, name).toBeGreaterThan(50);
     }
-  }, 30_000); // builds the terrain of every map
+  }, 90_000); // builds the terrain of every map (slow when the whole suite runs in parallel)
 
   it('R3D-14: shard ground is a soft uneven patch: full at shard tiles, none at bare ones, blended between', () => {
     const t = terrainOf(showcaseConfig(1).map);

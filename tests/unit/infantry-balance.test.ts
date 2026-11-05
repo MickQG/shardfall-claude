@@ -318,10 +318,10 @@ describe('elite shots', () => {
 });
 
 describe('heavier heroes', () => {
-  it('BAL-8: both heroes move at 24, as slow as artillery, and read as Slow; their stride follows distance walked', async () => {
-    expect(unitDef('hum_paladin').speed).toBe(24);
-    expect(unitDef('ali_strider').speed).toBe(24);
-    expect(unitDef('hum_paladin').speed).toBe(unitDef('hum_artillery').speed);
+  it('BAL-8: both heroes move at 20, slower than artillery, and read as Slow; their stride follows distance walked', async () => {
+    expect(unitDef('hum_paladin').speed).toBe(20);
+    expect(unitDef('ali_strider').speed).toBe(20);
+    expect(unitDef('hum_paladin').speed).toBeLessThan(unitDef('hum_artillery').speed);
     expect(unitCards('human').find((c) => c.kind === 'hum_paladin')!.speed).toBe('Slow');
     expect(unitCards('alien').find((c) => c.kind === 'ali_strider')!.speed).toBe('Slow');
     const { gaitPhase } = await import('../../src/render3d/motion');

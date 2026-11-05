@@ -52,6 +52,11 @@ export interface UnitDef {
   hero?: boolean;
   /** A heavy vehicle that crushes enemy infantry squads it drives over (BAL-1). */
   crusher?: boolean;
+  /**
+   * Turns slowly (HERO-5): facing steps (of 256 a circle) a tick. Such a unit turns in place before it walks a new way,
+   * fires only at what it faces, and is never shoved by smaller units.
+   */
+  turnRate?: number;
   /** Role hint used by the AI for composition. */
   role: 'harvester' | 'infantry' | 'antiarmor' | 'scout' | 'tank' | 'artillery' | 'air' | 'raider';
 }
@@ -150,7 +155,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // The Aegis hero (HERO-1): a giant four-legged assault walker whose cannons and missile pods engage ground and air alike; one at a
   // time, and it slowly repairs itself. Heroes fire slow, heavy shots that burst over an area (HERO-4).
   hum_paladin: {
-    faction: 'human', name: 'Paladin', speed: 24, hp: 3000, radius: 180, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, crusher: true, role: 'tank',
+    faction: 'human', name: 'Paladin', speed: 20, hp: 3000, radius: 180, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, crusher: true, turnRate: 2, role: 'tank',
     weapon: { damage: 110, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 5, splash: 0.9 },
   },
 
@@ -179,7 +184,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // The Vrax hero (HERO-2): a towering six-legged bio-walker whose acid cannon hits ground and air; one at a time, and
   // it regenerates.
   ali_strider: {
-    faction: 'alien', name: 'Dreadstrider', speed: 24, hp: 3000, radius: 150, vision: 10, cost: 2000, buildTime: 900, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 3, hero: true, crusher: true, role: 'tank',
+    faction: 'alien', name: 'Dreadstrider', speed: 20, hp: 3000, radius: 150, vision: 10, cost: 2000, buildTime: 900, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 3, hero: true, crusher: true, turnRate: 2, role: 'tank',
     weapon: { damage: 110, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 5, splash: 0.9 },
   },
 };

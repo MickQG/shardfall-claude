@@ -1,5 +1,6 @@
 import { buildingDef, unitDef, type Faction } from '../data/defs';
-import { centerOf } from './fixed';
+import { dirOf } from './facing';
+import { centerOf, FP } from './fixed';
 import { createFog } from './fog';
 import type { Grid } from './path';
 import { Rng } from './rng';
@@ -42,6 +43,8 @@ export interface Unit {
   /** Veterancy: damage dealt to enemies so far, and the rank it has earned (VET-1). */
   xp: number;
   rank: number;
+  /** Facing, in steps of 256 a circle; turned slowly by units with a turn rate (HERO-5), else unused. */
+  facing: number;
 }
 
 export type Mode = 'idle' | 'move' | 'amove' | 'attack';
@@ -184,6 +187,8 @@ export function addUnit(s: State, owner: number, kind: string, x: number, y: num
   const u: Unit = {
     id: s.nextId++, owner, kind, x, y, hp: d.hp, path: [], goal: -1, waiting: false,
     auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, sinceHurt: 1000, target: -1, cooldown: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
+    // A slow turner starts facing the middle of the map, where the fight is (HERO-5).
+    facing: d.turnRate ? Math.max(0, dirOf(((s.grid.width * FP) >> 1) - x, ((s.grid.height * FP) >> 1) - y)) : 0,
   };
   s.units.push(u);
   return u;

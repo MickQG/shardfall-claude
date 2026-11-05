@@ -3,6 +3,7 @@ import { FP, isqrt, tileOf } from './fixed';
 import { VISIBLE } from './fog';
 import { clearOrder, orderMove } from './movement';
 import { isLowPower } from './economy';
+import { faces } from './facing';
 import { removeBuilding } from './production';
 import type { Building, State, Unit } from './state';
 import { ELITE_REPAIR, gainXp, MAX_RANK, maxHpOf, unitDamage } from './units';
@@ -183,7 +184,7 @@ function fireOnTheMove(s: State, u: Unit, w: WeaponDef, byId: Map<number, Entity
     t = id >= 0 ? byId.get(id) : undefined;
   }
   u.target = t ? t.id : -1;
-  if (t && u.cooldown === 0 && lineOfFire(s, occ, u.x, u.y, t, w, air)) {
+  if (t && u.cooldown === 0 && faces(u, t) && lineOfFire(s, occ, u.x, u.y, t, w, air)) {
     fire(s, { x: u.x, y: u.y, owner: u.owner, id: u.id }, w, t, u);
     u.cooldown = w.cooldown;
   }
@@ -246,7 +247,8 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
       u.path = [];
       u.waiting = false;
     }
-    if (u.cooldown === 0) {
+    // A slow turner fires only once it faces its target (HERO-5).
+    if (u.cooldown === 0 && faces(u, t)) {
       fire(s, { x: u.x, y: u.y, owner: u.owner, id: u.id }, w, t, u);
       u.cooldown = w.cooldown;
     }

@@ -1,6 +1,7 @@
 import { buildingDef, unitDef } from '../data/defs';
 import { fireSuperweapon, tickCombat } from './combat';
 import { crush, isCrusher } from './crush';
+import { mayWalk, turnUnit } from './facing';
 import { isLowPower, regrow, tickHaulers, updatePower } from './economy';
 import { centerOf, FP, tileOf } from './fixed';
 import { recomputeVisible, SIGHT_LINGER, VISIBLE, type VisionSource } from './fog';
@@ -206,7 +207,9 @@ export function tick(game: Game): void {
   for (const u of s.units) {
     const x = u.x;
     const y = u.y;
-    stepUnit(s, u);
+    // Slow turners turn first and walk only once they face their way (HERO-5).
+    turnUnit(s, u);
+    if (mayWalk(s, u)) stepUnit(s, u);
     if (isCrusher(u) && (u.x !== x || u.y !== y)) moved.add(u.id);
   }
   crush(s, moved);
@@ -251,6 +254,7 @@ export function snapshot(game: Game, viewer?: number): Snapshot {
     units: visibleUnits.map((u) => ({
       id: u.id, owner: u.owner, kind: u.kind, x: u.x, y: u.y, hp: u.hp, load: u.load, rank: u.rank, target: u.target,
       dest: u.goal >= 0 ? [u.goal % w, Math.floor(u.goal / w)] : null,
+      ...(unitDef(u.kind).turnRate ? { facing: u.facing } : {}),
     })),
     buildings: visibleBuildings.map((b) => buildingSnap(b, god || b.owner === viewer)),
     ghosts: god ? [] : [...(s.players[viewer]?.ghosts.values() ?? [])].filter((g) => !shown.has(g.id)),
@@ -301,7 +305,7 @@ export function hash(game: Game): number {
   const h = new Hasher().int(s.tick).int(s.rng.state).int(s.cfg.map.width).int(s.cfg.map.height);
   for (const v of s.cfg.map.heights) h.int(v);
   for (const v of s.grid.blocked) h.int(v);
-  for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0).int(u.load).int(u.hv).int(u.auto ? 1 : 0).int(u.target).int(u.cooldown).int(u.amove).int(u.sinceHurt > 100 ? 100 : u.sinceHurt).int(u.mode.length).int(u.xp).int(u.rank);
+  for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0).int(u.load).int(u.hv).int(u.auto ? 1 : 0).int(u.target).int(u.cooldown).int(u.amove).int(u.sinceHurt > 100 ? 100 : u.sinceHurt).int(u.mode.length).int(u.xp).int(u.rank).int(u.facing);
   for (const b of s.buildings) {
     h.int(b.id).int(b.owner).int(b.tx).int(b.ty).int(b.hp).int(b.queue.length).int(b.charge).int(b.cooldown).int(b.target);
     for (const q of b.queue) h.int(q.progress).int(q.ready ? 1 : 0);

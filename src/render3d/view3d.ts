@@ -195,6 +195,8 @@ interface UnitObj {
   /** How far its turret swivels on the body either way, radians (Infinity: all round; 0: none). */
   reach: number;
   figureYaw: number[];
+  /** Faced by the simulation (HERO-5) rather than by the renderer's own turning. */
+  simFacing?: boolean;
   lastFire: number[];
   muzzleTurn: number;
   lunge: number;
@@ -1069,6 +1071,9 @@ export class View3D {
       // The drawn position rides a spring toward the simulation's, so uneven snapshots never show as jitter (R3D-10).
       follow(o.follow, u.tx, u.ty, dt);
       o.motion = stepMotion(o.motion, o.follow.x - o.x, o.follow.z - o.z, dt, def.turn ?? 4);
+      // A unit the simulation turns (a hero, HERO-5) faces exactly where the simulation says, however it is moving.
+      o.simFacing = u.yaw !== undefined;
+      if (u.yaw !== undefined) o.motion = { ...o.motion, heading: u.yaw };
       o.x = o.follow.x;
       o.z = o.follow.z;
       // Harvesters (R3D-19): a rising load means mining, a falling one unloading.
@@ -1221,7 +1226,7 @@ export class View3D {
       const mm = squad ? o.members[i]! : null;
       const mo = mm ? mm.motion : m;
       if (!posed) {
-        if (!mm && def.move === 'walker') o.figureYaw[i] = turnToward(o.figureYaw[i] ?? m.heading, walkerFacing(aiming, o.aim, m.heading), 8 * dt);
+        if (!mm && def.move === 'walker') o.figureYaw[i] = o.simFacing ? m.heading : turnToward(o.figureYaw[i] ?? m.heading, walkerFacing(aiming, o.aim, m.heading), 8 * dt);
         return;
       }
       if (mm) {
@@ -1229,7 +1234,8 @@ export class View3D {
         f.root.rotation.set(0, -mm.yaw, 0);
       } else if (def.move === 'walker') {
         // A lone walker faces its target when shooting, walking or not, so its guns point where the shots go (AIM-1).
-        o.figureYaw[i] = turnToward(o.figureYaw[i] ?? m.heading, walkerFacing(aiming, o.aim, m.heading), 8 * dt);
+        // A hero's body turns only as the simulation turns it (HERO-5).
+        o.figureYaw[i] = o.simFacing ? m.heading : turnToward(o.figureYaw[i] ?? m.heading, walkerFacing(aiming, o.aim, m.heading), 8 * dt);
         f.root.rotation.y = -((o.figureYaw[i] as number) - m.heading);
       }
       const phase = gaitPhase(mo.dist, def.stride ?? 1) + i * 1.7 + o.seed;

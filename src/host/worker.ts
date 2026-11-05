@@ -3,11 +3,13 @@ import type { Command, GameConfig } from '../sim';
 import { SimRunner, TICK_MS, type AiSetup } from './runner';
 
 export type ToWorker =
-  | { type: 'init'; cfg: GameConfig; ai: AiSetup[]; viewer?: number; lockstep?: boolean }
+  | { type: 'init'; cfg: GameConfig; ai: AiSetup[]; viewer?: number; lockstep?: boolean; held?: boolean }
   | { type: 'cmd'; cmd: Command }
   | { type: 'turn'; n: number; cmds: Command[] }
   | { type: 'speed'; value: number }
-  | { type: 'pause'; value: boolean };
+  | { type: 'pause'; value: boolean }
+  /** Release a game held at its start (UI-12); unlike `pause`, it also applies online. */
+  | { type: 'go' };
 
 /** A state checksum from the worker in online play (NET-3); every other message from it is a Snapshot. */
 export interface HashReport {
@@ -23,6 +25,8 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
   const m = e.data;
   if (m.type === 'init') {
     runner = new SimRunner(m.cfg, (s) => self.postMessage(s), m.viewer ?? 0, m.ai);
+    // Held at tick 0 until the page is ready to show and control the game (UI-12).
+    runner.paused = !!m.held;
     if (m.lockstep) {
       runner.lockstep();
       runner.onHash = (tick, h) => self.postMessage({ hashReport: true, tick, h } satisfies HashReport);
@@ -37,4 +41,5 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
   else if (m.type === 'turn') runner?.turn(m.n, m.cmds);
   else if (m.type === 'speed' && runner) runner.speed = m.value;
   else if (m.type === 'pause' && runner) runner.paused = m.value;
+  else if (m.type === 'go' && runner) runner.paused = false;
 };
