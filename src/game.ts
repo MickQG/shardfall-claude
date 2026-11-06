@@ -9,7 +9,7 @@ import { OnlineWatch } from './net/watch';
 import { centerOnTile, clampCamera, mapBounds, pan, zoomAt, type Camera } from './render/camera';
 import { GameView, type PlacementPreview } from './render/gameView';
 import type { WorldRenderer } from './render/worldRenderer';
-import { interpolate } from './render/interp';
+import { interpolate, type RenderUnit } from './render/interp';
 import { tileToScreen } from './render/iso';
 import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
 import { AlertTracker } from './ui/alerts';
@@ -21,6 +21,9 @@ import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, inputAll
 import { cursorCss, cursorFor, type CursorState } from './ui/cursor';
 import { clampTile, Minimap, miniToTile } from './ui/minimap';
 import { rallyLine } from './ui/rally';
+import { acknowledge, Acks, type Acknowledgement } from './ui/acknowledge';
+import { OWNER_COLORS } from './render/colors';
+import type { Command } from './sim';
 import { seedOf } from './ui/params';
 import { effectsEnabled, loadSettings, safeStorage, saveSettings } from './ui/settings';
 import { placementLive } from './ui/production';
@@ -154,6 +157,15 @@ const PAN_SPEED = 900;
 const tileFromScreen = (sx: number, sy: number): { x: number; y: number } => view.projector(cam).toGround(sx, sy);
 
 const aliveOwn = (snap: Snapshot): Set<number> => new Set(snap.units.filter((u) => u.owner === PLAYER).map((u) => u.id));
+/** Where an attacked unit or building is drawn now (tiles), so its acknowledgement ring follows it (UI-13). */
+function locate(id: number, units: readonly RenderUnit[], snap: Snapshot): { x: number; y: number } | null {
+  const u = units.find((x) => x.id === id);
+  if (u) return { x: u.tx, y: u.ty };
+  const b = snap.buildings.find((x) => x.id === id);
+  if (!b) return null;
+  const d = buildingDef(b.kind);
+  return { x: b.tx + d.w / 2, y: b.ty + d.h / 2 };
+}
 
 function centerOn(tx: number, ty: number): void {
   cam = centerOnTile(cam, tx, ty, bounds);
@@ -288,7 +300,7 @@ function frame(prevTime: number): (t: number) => void {
       if (targeting && !curr.buildings.some((b) => b.id === targeting?.building && b.owner === PLAYER)) targeting = null;
       const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
       const ru = interpolate(sim.prev.units, curr.units, alpha);
-      view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings) }, curr);
+      view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings), acks: acks.markers(performance.now(), (id) => locate(id, ru, curr)), flash: acks.flashing(performance.now()) }, curr);
       if (curr.tick !== lastAlertTick) {
         lastAlertTick = curr.tick;
         for (const a of alerts.update(curr)) {
@@ -346,15 +358,15 @@ function wireMinimap(mm: Minimap): void {
         centerOn(t.x, t.y);
         return;
       case 'attackmove':
-        if (sim.curr) sendAttackMove(sim.curr, x, y);
+        if (sim.curr) sendAttackMove(sim.curr, x, y, true);
         amoveMode = false;
         return;
       case 'superweapon':
-        if (targeting) sim.send({ type: 'superweapon', player: PLAYER, building: targeting.building, x, y });
+        if (targeting) give({ type: 'superweapon', player: PLAYER, building: targeting.building, x, y }, true);
         targeting = null;
         return;
       case 'order':
-        order(t.x, t.y);
+        order(t.x, t.y, true);
         return;
       case 'camera':
         dragging = true;
@@ -370,19 +382,40 @@ function wireMinimap(mm: Minimap): void {
   window.addEventListener('pointerup', () => (dragging = false));
 }
 
+/** The live order acknowledgements (UI-13..15): markers, ring flashes and their sounds, on this player's screen only. */
+const acks = new Acks();
+
+/**
+ * Acknowledge a command the moment it is given (UI-13..15): marker, sound and ring flash, long before an online turn
+ * plays it. `mini` marks an order given on the minimap, which pings there too.
+ */
+function acknowledgeCmd(cmd: Command, mini = false, foot?: { w: number; h: number }): void {
+  const a: Acknowledgement | null = acknowledge(cmd, performance.now(), OWNER_COLORS[PLAYER] ?? 0x7ff5cd, foot);
+  if (!a) return;
+  acks.add(a);
+  audio.play(a.sound === 'attack' ? 'ackAttack' : 'ack');
+  if (mini && a.at && a.color !== null && minimap) minimap.ping(a.at.x, a.at.y, a.born, `#${a.color.toString(16).padStart(6, '0')}`);
+}
+
+/** Send a command and acknowledge it at once. */
+function give(cmd: Command, mini = false, foot?: { w: number; h: number }): void {
+  sim.send(cmd);
+  acknowledgeCmd(cmd, mini, foot);
+}
+
 /** Attack-move the combat units in the selection to a fixed-point position (CTL-13); nothing is sent without any. */
-function sendAttackMove(snap: Snapshot, x: number, y: number): void {
+function sendAttackMove(snap: Snapshot, x: number, y: number, mini = false): void {
   const units = attackMoveIds(snap.units, selection.selected, PLAYER);
-  if (units.length > 0) sim.send({ type: 'attackmove', player: PLAYER, units, x, y });
+  if (units.length > 0) give({ type: 'attackmove', player: PLAYER, units, x, y }, mini);
 }
 
 /** Context order for the selection at tile (tx, ty): rally for a building, harvest/move for units. */
-function order(tx: number, ty: number): void {
+function order(tx: number, ty: number, mini = false): void {
   const snap = sim.curr;
   if (!snap) return;
   const ids = selection.selected;
   if (ids.length === 0) {
-    if (selectedBuilding !== null) sim.send({ type: 'rally', player: PLAYER, building: selectedBuilding, x: Math.round(tx * FP), y: Math.round(ty * FP) });
+    if (selectedBuilding !== null) give({ type: 'rally', player: PLAYER, building: selectedBuilding, x: Math.round(tx * FP), y: Math.round(ty * FP) }, mini);
     return;
   }
   const x = Math.round(tx * FP);
@@ -395,6 +428,8 @@ function order(tx: number, ty: number): void {
     else sim.send({ type: 'move', player: PLAYER, units: haulers, x, y });
   }
   if (rest.length) sim.send({ type: 'move', player: PLAYER, units: rest, x, y });
+  // One acknowledgement for the whole selection: a harvest marker when haulers were sent to shards.
+  acknowledgeCmd({ type: haulers.length && onShards ? 'harvest' : 'move', player: PLAYER, units: ids, x, y }, mini);
 }
 
 async function boot(): Promise<void> {
@@ -486,7 +521,7 @@ async function boot(): Promise<void> {
         if (!e.repeat && groupTap.press(k, performance.now())) centerOnUnits(sim.curr.units.filter((u) => ids.includes(u.id)));
       }
     } else if (k === 'x') {
-      sim.send({ type: 'stop', player: PLAYER, units: selection.selected });
+      if (selection.selected.length > 0) give({ type: 'stop', player: PLAYER, units: selection.selected });
     } else if (k === ' ' && sim.curr) {
       centerOnUnits(sim.curr.units.filter((u) => selection.has(u.id)));
       e.preventDefault();
@@ -545,7 +580,7 @@ async function boot(): Promise<void> {
         const combat = combatUnitIds(snap.units.filter((u) => selection.has(u.id)), PLAYER).length > 0;
         const o = rightClickOrder(hitTest(hitContext(snap), e.offsetX, e.offsetY), combat);
         if (o.kind === 'attack') {
-          sim.send({ type: 'attack', player: PLAYER, units: selection.selected, target: o.target });
+          give({ type: 'attack', player: PLAYER, units: selection.selected, target: o.target });
           return;
         }
       }
@@ -554,14 +589,15 @@ async function boot(): Promise<void> {
     } else if (e.button === 0) {
       if (targeting) {
         const t = tileFromScreen(e.offsetX, e.offsetY);
-        sim.send({ type: 'superweapon', player: PLAYER, building: targeting.building, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
+        give({ type: 'superweapon', player: PLAYER, building: targeting.building, x: Math.round(t.x * FP), y: Math.round(t.y * FP) });
         targeting = null;
         return;
       }
       if (placing && sim.curr) {
         const p = placementPreview(sim.curr);
         if (p?.ok) {
-          sim.send({ type: 'place', player: PLAYER, source: placing.source, tx: p.tx, ty: p.ty });
+          const d = buildingDef(p.kind);
+          give({ type: 'place', player: PLAYER, source: placing.source, tx: p.tx, ty: p.ty }, false, { w: d.w, h: d.h });
           if (!e.shiftKey) placing = null;
         } else refuse('Cannot build there');
         return;
@@ -632,6 +668,13 @@ async function boot(): Promise<void> {
     modes: () => ({ placing: placing !== null, targeting: targeting !== null, amove: amoveMode }),
     placing: () => placing,
     send: (c: Parameters<SimClient['send']>[0]) => sim.send(c),
+    /** Live order acknowledgements (UI-13, UI-15): markers on the ground and the units whose rings flash. */
+    acks: () => {
+      const now = performance.now();
+      const snap = sim.curr;
+      const units = snap ? interpolate(snap.units, snap.units, 1) : [];
+      return { markers: snap ? acks.markers(now, (id) => locate(id, units, snap)) : [], flashing: [...acks.flashing(now).keys()], last: acks.last, now };
+    },
     setSpeed: (v: number) => sim.setSpeed(v),
     tileScreen: (tx: number, ty: number) => view.projector(cam).toScreen(tx, ty),
     screenPos: (id: number) => {

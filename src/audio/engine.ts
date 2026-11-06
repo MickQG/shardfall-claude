@@ -1,6 +1,6 @@
 import { musicPlan, type Sound } from './plan';
 
-type Name = Sound['name'] | 'alert' | 'ready' | 'click' | 'deny';
+type Name = Sound['name'] | 'alert' | 'ready' | 'click' | 'deny' | 'ack' | 'ackAttack';
 
 /**
  * Procedural audio: every sound is synthesised from oscillators and filtered noise, so there are no audio assets.
@@ -170,6 +170,15 @@ export class AudioEngine {
           break;
         case 'click':
           this.tone(520, t, 0.04, 'triangle', 0.08 * gain);
+          break;
+        // Order acknowledgements (UI-14): a soft rising chirp; a sharper, lower double for orders to fight.
+        case 'ack':
+          this.tone(740, t, 0.05, 'triangle', 0.09 * gain);
+          this.tone(1110, t + 0.045, 0.07, 'triangle', 0.08 * gain);
+          break;
+        case 'ackAttack':
+          this.tone(440, t, 0.05, 'square', 0.06 * gain, 330);
+          this.tone(660, t + 0.05, 0.08, 'square', 0.06 * gain);
           break;
         case 'deny':
           this.tone(220, t, 0.09, 'square', 0.08 * gain, 180);

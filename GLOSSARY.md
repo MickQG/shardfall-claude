@@ -5,6 +5,7 @@
 - **Tick** – one fixed simulation step (20 per second).
 - **Snapshot** – an immutable, per-player, fog-limited view of the game at a tick.
 - **Command** – a player or AI instruction submitted to the simulation (move, build, attack…).
+- **Acknowledgement** – the immediate sight and sound shown to the player who gives a command, before the command takes effect; seen only by that player, never part of the simulation.
 - **Seam** – the public simulation API through which everything else interacts with it.
 - **State hash** – a deterministic hash of the full game state, used to prove determinism.
 - **Faction** – Humans or Aliens.

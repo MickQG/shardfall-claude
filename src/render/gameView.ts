@@ -17,6 +17,7 @@ import type { WorldRenderer } from './worldRenderer';
 import type { RenderUnit } from './interp';
 import { TILE_H, TILE_W, tileToScreen } from './iso';
 import type { RallyLine } from '../ui/rally';
+import type { AckMarker } from '../ui/acknowledge';
 import { animateUnit, drawRankPips, drawUnit, setFacing, setSquad, type UnitArt } from './unitArt';
 import { facingOf } from './voxel/bake';
 import { FACINGS } from './voxel/spriteCache';
@@ -71,6 +72,10 @@ export interface ViewState {
   time: number;
   /** Decorative effects allowed by the quality / reduced-motion settings. */
   fx: { bloom: boolean; particles: boolean; shake: boolean; decor: boolean };
+  /** Order acknowledgement markers on the ground (UI-13). */
+  acks?: readonly AckMarker[];
+  /** Units whose selection rings flash after an order, with the flash strength 0..1 (UI-15). */
+  flash?: ReadonlyMap<number, number>;
 }
 
 const tilePoly = (tx: number, ty: number, w: number, h: number): number[] => {
@@ -487,6 +492,15 @@ export class GameView implements WorldRenderer {
       g.circle(b.x, b.y, 6).stroke({ color: 0x7ff5cd, width: 2 }).circle(b.x, b.y, 2).fill(0x7ff5cd);
       g.poly(tilePoly(r.to.tx, r.to.ty, 1, 1)).fill({ color: 0x7ff5cd, alpha: 0.18 });
     }
+    // Order acknowledgements (UI-13): a ring on the ground, an isometric ellipse here, shrinking and fading.
+    for (const m of vs.acks ?? []) {
+      const c = tileToScreen(m.x, m.y);
+      const rx = (m.r * Math.SQRT2 * TILE_W) / 2;
+      const ry = (m.r * Math.SQRT2 * TILE_H) / 2;
+      const alpha = 1 - m.k;
+      g.ellipse(c.x, c.y, rx, ry).stroke({ color: 0x04130d, width: 4, alpha: alpha * 0.6 }).ellipse(c.x, c.y, rx, ry).stroke({ color: m.color, width: 2, alpha });
+      g.ellipse(c.x, c.y, rx * 0.3, ry * 0.3).fill({ color: m.color, alpha: alpha * 0.7 });
+    }
     const p = vs.placement;
     if (!p) return;
     const d = buildingDef(p.kind);
@@ -558,6 +572,10 @@ export class GameView implements WorldRenderer {
       }
       const sel = vs.selectedUnits.has(u.id);
       s.ring.visible = sel;
+      // The ordered units' brackets flash outward (UI-15).
+      const fl = vs.flash?.get(u.id) ?? 0;
+      s.ring.scale.set(1 + 0.35 * fl);
+      s.ring.alpha = 1 - 0.3 * fl;
       s.bar.visible = barVisible(u.hp, max, sel);
       if (s.bar.visible) {
         const frac = hpFraction(u.hp, u.kind, u.rank);

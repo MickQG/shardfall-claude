@@ -15,7 +15,7 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `009-visual-upgrade.md` | Construction, damage, facing, terrain, effects, polish | 9 |
 | `010-voxel-art.md` | Procedural voxel sprite engine; unit and building models | 10 |
 | `011-desktop.md` | Desktop app (Electron shell around the same build) | 11 |
-| `012-ux-fixes.md` | Bug and UX fixes: production routing, selection, orders, camera, feedback, superweapon countdown | 12 |
+| `012-ux-fixes.md` | Bug and UX fixes: production routing, selection, orders, camera, feedback, superweapon countdown, order acknowledgement | 12 |
 | `013-unit-info.md` | Main-menu unit sheet with 3D models | 13 |
 | `014-score.md` | Post-game score screen | 14 |
 | `015-squads-veterancy.md` | Light infantry squads and veterancy | 15 |
