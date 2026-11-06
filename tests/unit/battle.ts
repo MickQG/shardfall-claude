@@ -1,4 +1,4 @@
-import { unitDef } from '../../src/data/defs';
+import { BUILDING_DEFS, unitDef } from '../../src/data/defs';
 import { crushOrders } from '../../src/ai/ai';
 import { createGame, FP, snapshot, submit, tick, type MapDef, type UnitSpawn } from '../../src/sim';
 
@@ -55,3 +55,24 @@ export function battle(a: Army, b: Army, seat: 0 | 1, micro = false): Result {
 export const rounds = (a: Army, b: Army, micro = false): Result[] => [1600, 3200].flatMap((budget) => [0, 1].map((seat) => battle(scale(a, budget), scale(b, budget), seat as 0 | 1, micro)));
 
 export const mean = (rs: Result[], k: keyof Result): number => rs.reduce((s, r) => s + r[k], 0) / rs.length;
+
+/**
+ * A lone powered defence (with its headquarters behind it) against `budget` credits of one attacker kind that attack-moves
+ * into the base on open ground (BAL-13). Returns whether the defence still stands and the attackers' value it destroyed.
+ */
+export function siege(defence: string, attacker: string, budget: number): { stands: boolean; killed: number } {
+  const owner = defence.startsWith('hum') ? 0 : 1;
+  const enemy = 1 - owner;
+  const n = Math.max(1, Math.round(budget / unitDef(attacker).cost));
+  const units: UnitSpawn[] = [];
+  for (let i = 0; i < n; i++) units.push({ owner: enemy, kind: attacker, tx: 6 + (i % 3), ty: 22 + Math.floor(i / 3) });
+  const hq = owner === 0 ? 'hum_hq' : 'ali_hq';
+  const g = createGame({ seed: 1, map: open(40, 48), units, buildings: [{ owner, kind: hq, tx: 30, ty: 22 }, { owner, kind: defence, tx: 20, ty: 23 }] });
+  submit(g, { type: 'attackmove', player: enemy, units: g.state.units.map((u) => u.id), x: 31 * FP, y: 23 * FP });
+  const stands = (): boolean => g.state.buildings.some((b) => b.kind === defence);
+  for (let t = 0; t < 20 * 120 && stands() && g.state.units.some((u) => u.owner === enemy); t++) tick(g);
+  const left = g.state.units.filter((u) => u.owner === enemy).reduce((s, u) => s + (unitDef(u.kind).cost * u.hp) / unitDef(u.kind).hp, 0);
+  return { stands: stands(), killed: n * unitDef(attacker).cost - left };
+}
+
+export const defenceCost = (kind: string): number => BUILDING_DEFS[kind]!.cost;
