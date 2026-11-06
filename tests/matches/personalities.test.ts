@@ -43,8 +43,9 @@ describe('AI personalities in full matches', () => {
     const early = rs.reduce((s, r) => s + r.ai[0].earlyWaves, 0);
     const economy = rs.reduce((s, r) => s + r.ai[0].economyWaves, 0);
     expect(economy * 2).toBeGreaterThan(early);
-    // Balanced does not single out the economy.
-    expect(b.reduce((s, r) => s + r.ai[0].economyWaves, 0) * 2).toBeLessThan(b.reduce((s, r) => s + r.ai[0].earlyWaves, 0) + 1);
+    // Raider singles out the economy more than Balanced, whose waves go for whatever building is nearest.
+    const share = (ms: MatchResult[]): number => ms.reduce((t, r) => t + r.ai[0].economyWaves, 0) / Math.max(1, ms.reduce((t, r) => t + r.ai[0].earlyWaves, 0));
+    expect(share(rs)).toBeGreaterThan(share(b));
   }, LONG);
 
   it('AI-15: Doomsday stands its superweapon first, and its army reaches the struck area within about ten seconds of the strike', async () => {

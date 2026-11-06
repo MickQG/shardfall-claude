@@ -2,7 +2,11 @@
 
 - **Shard** – the single harvestable crystal resource; spent as credits.
 - **Credits** – a player's banked shards.
-- **Tick** – one fixed simulation step (20 per second).
+- **Hauler** – the unit that carries shards from a shard field to a refinery (Shard Hauler, Gorger). _Avoid_: harvester.
+- **Home field** – a shard field beside a player's start; every start has two.
+- **Dock pad** – the one place at a refinery where a hauler unloads; other haulers wait their turn beside it.
+- **Tick** – one fixed simulation step; game time is counted in ticks (20 to a game second).
+- **Game speed** – how fast game time passes in real time (×0.8 by default); it never changes what happens in the game.
 - **Snapshot** – an immutable, per-player, fog-limited view of the game at a tick.
 - **Command** – a player or AI instruction submitted to the simulation (move, build, attack…).
 - **Acknowledgement** – the immediate sight and sound shown to the player who gives a command, before the command takes effect; seen only by that player, never part of the simulation.
@@ -20,6 +24,7 @@
 - **Attack-move** – an order to travel to a point and engage any enemy met on the way.
 - **Rally point** – where a production building sends newly built units.
 - **Combat unit** – any unit that can attack; haulers are not combat units.
+- **Hero** – a faction's one giant unit (the Paladin or the Dreadstrider): a durable meat-shield tank, at most one per player at a time. _Avoid_: epic unit.
 - **Unit kind** – what a unit is (Rifleman, Bulwark Tank, Brute…). "Type" is reserved for damage types and armour types.
 - **Difficulty** – how well the AI plays (Easy, Medium, Hard): its reaction time, actions per minute and resource bonus; never its vision or the rules.
 - **Personality** – the strategy an AI opponent commits to for a match (Raider, Balanced or Doomsday); chosen independently of Difficulty, and changes only what the AI chooses to do.

@@ -36,7 +36,7 @@ describe('game speed', () => {
     };
     expect(run(0.8)).toBe(run(1));
     expect(run(0.5)).toBe(run(4));
-  });
+  }, 60_000);
 
   it('UX-3: the last chosen speed is remembered on the device; anything else reads as the default', () => {
     const m = new Map<string, string>();

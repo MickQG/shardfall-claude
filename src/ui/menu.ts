@@ -1,4 +1,4 @@
-import { MAPS, mapStarts, skirmishMap, type MapId } from '../data/maps';
+import { MAP_SEED_MAX, MAPS, mapSeedOf, mapStarts, resolveMapSeed, skirmishMap, type MapId } from '../data/maps';
 import { thumbCanvas } from './mapThumb';
 import { loadSettings, personalityChoiceOf, safeStorage, saveSettings, type PersonalityChoice, type Settings } from './settings';
 import { setActiveMatch, type Match } from '../net/lobby';
@@ -50,7 +50,7 @@ const CSS = `
 #menu .seg button { padding: 10px 22px; border: 0; background: transparent; color: #b6c7d6; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
 #menu .seg button + button { border-left: 1px solid #22384c; }
 #menu .seg button.sel { background: #123329; color: #7ff5cd; }
-#menu .maps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+#menu .maps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 #menu .map { display: flex; flex-direction: column; justify-content: flex-start; text-align: left; color: inherit; font: inherit; cursor: pointer; padding: 12px; border-radius: 12px; border: 1px solid #22384c; background: rgba(8,13,19,.88); transition: border-color .14s, transform .14s; }
 #menu .map:hover { transform: translateY(-2px); border-color: #35506a; }
 #menu .map.sel { border-color: #7ff5cd; box-shadow: 0 0 0 1px #7ff5cd; }
@@ -58,6 +58,9 @@ const CSS = `
 #menu .map canvas { width: 62px; height: 62px; image-rendering: pixelated; transform: rotate(45deg); border-radius: 3px; box-shadow: 0 0 0 1px #2a4052; }
 #menu .map b { display: block; font-size: 15px; }
 #menu .map span { font-size: 12.5px; color: #8aa0b4; }
+#menu .map .gen { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+#menu .map .gen input { width: 0; flex: 1; min-width: 0; padding: 5px 7px; border-radius: 6px; border: 1px solid #22384c; background: #0b141c; color: #dfe8e2; font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; }
+#menu .map .gen button { padding: 5px 9px; border-radius: 6px; border: 1px solid #2b6b55; background: rgba(18,51,41,.55); color: #7ff5cd; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 #menu .actions { display: flex; align-items: center; gap: 14px; margin-top: 6px; }
 #menu #go { padding: 15px 56px; font: inherit; font-weight: 800; font-size: 18px; letter-spacing: .16em; border-radius: 10px; border: 0; cursor: pointer; background: linear-gradient(#35e0a1, #1fa57a); color: #04130d; box-shadow: 0 10px 28px -10px #35e0a1; }
 #menu #go:hover, #menu #go:focus-visible { filter: brightness(1.1); outline: none; }
@@ -67,6 +70,7 @@ const CSS = `
 #menu .field small { display: block; color: #7f93a6; font-size: 12px; }
 #menu input[type=range] { width: 200px; accent-color: #35e0a1; }
 #menu input[type=checkbox] { width: 20px; height: 20px; accent-color: #35e0a1; }
+@media (max-width: 1100px) { #menu .maps { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 860px) { #menu { display: block; overflow: auto; } #menu .rail { overflow: visible; border-right: 0; border-bottom: 1px solid #1c2e3e; padding: 24px 16px 12px; } #menu .rail .help { display: none; } #menu .main { overflow: visible; padding: 20px 16px 28px; } #menu .faction, #menu .maps { grid-template-columns: 1fr; } }
 `;
 
@@ -110,7 +114,7 @@ export function showMenu(): void {
         <h2>Opponent</h2>
         <div class="row"><div class="seg" role="group" aria-label="Opponent"><button data-diff="easy">Easy</button><button data-diff="medium">Medium</button><button data-diff="hard">Hard</button></div><div class="seg" role="group" aria-label="Personality" title="How the opponent plays: revealed when the game ends"><button data-pers="random">Random</button><button data-pers="raider">Raider</button><button data-pers="balanced">Balanced</button><button data-pers="doomsday">Doomsday</button></div><button id="units-btn" aria-label="View units"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7l9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>View units</button></div>
         <h2>Map</h2>
-        <div class="maps">${MAPS.map((m) => `<button class="map" data-map="${m.id}"><div class="thumb"></div><b>${m.name}</b><span>${m.blurb}</span></button>`).join('')}</div>
+        <div class="maps">${MAPS.map((m) => `<button class="map" data-map="${m.id}"><div class="thumb"></div><b>${m.name}</b><span>${m.blurb}</span></button>`).join('')}<div class="map" data-map="generated" role="button" tabindex="0"><div class="thumb"></div><b>Generated</b><span>A new fair map from a seed: reroll it or enter a seed to replay one.</span><div class="gen"><input id="map-seed" inputmode="numeric" aria-label="Map seed" maxlength="6"><button id="reroll" title="A new random map">Reroll</button></div></div></div>
         <div class="actions"><button id="go">START</button><span class="note">Enter to start</span></div>
       </section>
       <section data-panel="multi">
@@ -127,7 +131,7 @@ export function showMenu(): void {
     </div>`;
   document.body.appendChild(root);
   // Map thumbnails, drawn from the maps themselves.
-  root.querySelectorAll<HTMLElement>('[data-map]').forEach((b) => b.querySelector('.thumb')?.appendChild(thumbCanvas(skirmishMap(b.dataset.map as MapId), mapStarts(b.dataset.map as MapId))));
+  root.querySelectorAll<HTMLElement>('[data-map]:not([data-map="generated"])').forEach((b) => b.querySelector('.thumb')?.appendChild(thumbCanvas(skirmishMap(b.dataset.map as MapId), mapStarts(b.dataset.map as MapId))));
   // Listeners on the window end with the menu, so none is left behind when an online match starts in this page.
   const life = new AbortController();
   const sheet = createUnitSheet(life.signal);
@@ -136,7 +140,25 @@ export function showMenu(): void {
     settings = { ...loadSettings(safeStorage()), ...patch };
     saveSettings(safeStorage(), settings);
   };
-  const pick: Pick & { map: MapId } = { faction: 'human', difficulty: 'medium', personality: settings.personality, map: settings.map };
+  const pick: Pick & { map: MapId; mapSeed: number } = { faction: 'human', difficulty: 'medium', personality: settings.personality, map: settings.map, mapSeed: resolveMapSeed(settings.mapSeed) };
+  // The Generated card (MENU-6): its thumbnail and seed box follow the current map seed, which is always one that
+  // produces a map (MAP-9).
+  const seedBox = root.querySelector<HTMLInputElement>('#map-seed')!;
+  const genThumb = root.querySelector<HTMLElement>('[data-map="generated"] .thumb')!;
+  const showSeed = (): void => {
+    seedBox.value = String(pick.mapSeed);
+    genThumb.replaceChildren(thumbCanvas(skirmishMap('generated', pick.mapSeed), mapStarts('generated', pick.mapSeed)));
+  };
+  const useSeed = (raw: number): void => {
+    pick.mapSeed = resolveMapSeed(raw);
+    pick.map = 'generated';
+    save({ map: pick.map, mapSeed: pick.mapSeed });
+    showSeed();
+    online.refresh();
+    sync();
+  };
+  showSeed();
+  seedBox.addEventListener('change', () => useSeed(mapSeedOf(seedBox.value, pick.mapSeed)));
   let mode: Mode = 'single';
   const volume = root.querySelector<HTMLInputElement>('#set-volume')!;
   const mute = root.querySelector<HTMLInputElement>('#set-mute')!;
@@ -161,23 +183,24 @@ export function showMenu(): void {
     root.remove();
     document.getElementById('unit-info')?.remove();
     style.remove();
-    history.replaceState(null, '', `?faction=${m.setup.factions[m.me]}&map=${m.setup.map}&online=${m.room}`);
+    history.replaceState(null, '', `?faction=${m.setup.factions[m.me]}&map=${m.setup.map}${m.setup.mapSeed !== undefined ? `&mapseed=${m.setup.mapSeed}` : ''}&online=${m.room}`);
     void import('../game');
   };
   const online = mountOnlinePanel(root.querySelector<HTMLElement>('#mp')!, root.querySelector<HTMLElement>('#mp-badge')!, {
-    pick: () => ({ faction: pick.faction, map: pick.map }),
+    pick: () => ({ faction: pick.faction, map: pick.map, mapSeed: pick.mapSeed }),
     seed: () => (crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000_000),
     start: startOnline,
   });
 
   const start = (): void => {
-    location.search = `?faction=${pick.faction}&difficulty=${pick.difficulty}&personality=${pick.personality}&map=${pick.map}`;
+    location.search = `?faction=${pick.faction}&difficulty=${pick.difficulty}&personality=${pick.personality}&map=${pick.map}${pick.map === 'generated' ? `&mapseed=${pick.mapSeed}` : ''}`;
   };
   root.addEventListener('click', (e) => {
-    const t = (e.target as HTMLElement).closest('[data-mode],[data-faction],[data-diff],[data-pers],[data-map],[data-quality],#go,#info-btn,#units-btn') as HTMLElement | null;
+    const t = (e.target as HTMLElement).closest('[data-mode],[data-faction],[data-diff],[data-pers],[data-map],[data-quality],#go,#info-btn,#units-btn,#reroll') as HTMLElement | null;
     if (!t) return;
     if (t.id === 'info-btn' || t.id === 'units-btn') return sheet.open(pick.faction);
     if (t.id === 'go') return start();
+    if (t.id === 'reroll') return useSeed(crypto.getRandomValues(new Uint32Array(1))[0]! % MAP_SEED_MAX);
     if (t.dataset.mode) mode = t.dataset.mode as Mode;
     else if (t.dataset.faction) {
       pick.faction = t.dataset.faction as Pick['faction'];
@@ -190,7 +213,7 @@ export function showMenu(): void {
     }
     else if (t.dataset.quality) save({ quality: t.dataset.quality === 'low' ? 'low' : 'high' });
     else if (t.dataset.map) {
-      pick.map = MAPS.find((m) => m.id === t.dataset.map)?.id ?? pick.map;
+      pick.map = t.dataset.map === 'generated' ? 'generated' : (MAPS.find((m) => m.id === t.dataset.map)?.id ?? pick.map);
       save({ map: pick.map });
       online.refresh();
     }

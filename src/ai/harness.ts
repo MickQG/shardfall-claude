@@ -28,6 +28,8 @@ export interface MatchOptions {
   maxTicks: number;
   /** The skirmish map (MAP-4); Crossroads by default. */
   map?: MapId;
+  /** The map seed when `map` is 'generated' (MAP-7). */
+  mapSeed?: number;
   /** Each AI's personality (AI-12); Balanced by default. */
   personalities?: [Personality, Personality];
 }
@@ -57,7 +59,7 @@ const material = (g: Game, p: number): number => {
 
 /** Plays one complete AI-vs-AI match headlessly and reports the result plus any bad behaviour observed. */
 export function playMatch(o: MatchOptions): MatchResult {
-  const cfg = skirmishConfig(o.seed, { factions: o.factions, bonuses: [o.difficulties[0].bonus, o.difficulties[1].bonus], map: o.map });
+  const cfg = skirmishConfig(o.seed, { factions: o.factions, bonuses: [o.difficulties[0].bonus, o.difficulties[1].bonus], map: o.map, mapSeed: o.mapSeed });
   const game = createGame(cfg);
   const ais = [0, 1].map((p) => new AI(p, o.factions[p] as Faction, o.difficulties[p] as Difficulty, cfg.map, o.seed, o.personalities?.[p] ?? 'balanced')) as [AI, AI];
   // Random think phases per match: when mirrored armies meet, a few ticks of timing decide the fight, so a fixed offset would hand one side every game.

@@ -18,7 +18,7 @@ for (const q of ['', '?faction=human&difficulty=easy&map=riverbed', '?faction=al
     expect(h['content-security-policy']).toContain("script-src 'self'");
     expect(h['x-frame-options']).toBe('DENY');
     if (q) await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
-    else await expect(page.locator('#menu [data-map]')).toHaveCount(3);
+    else await expect(page.locator('#menu [data-map]')).toHaveCount(4);
     await page.waitForTimeout(1500);
     expect(bad).toEqual([]);
   });
