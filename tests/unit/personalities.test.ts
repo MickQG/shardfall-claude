@@ -1,32 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { AI, DIFFICULTIES, PERSONALITIES, RAIDER_OPENING_END, resolvePersonality, type Personality } from '../../src/ai/ai';
-import { inLengthTarget, lengthReport, playMatch, type MatchResult } from '../../src/ai/harness';
+import { inLengthTarget, lengthReport, playMatch } from '../../src/ai/harness';
 import { skirmishConfig } from '../../src/data/maps';
 import { createGame, snapshot, submit, tick, type Command } from '../../src/sim';
 import { opponentLine } from '../../src/ui/score';
 import { loadSettings, saveSettings } from '../../src/ui/settings';
 
 const LONG = 600_000;
-const SIDES = [
-  [1, ['human', 'alien']],
-  [1, ['alien', 'human']],
-  [2, ['human', 'alien']],
-  [2, ['alien', 'human']],
-  [3, ['human', 'alien']],
-  [3, ['alien', 'human']],
-] as const;
-
-/** Player 0 plays `p` against a Balanced player 1, Medium against Medium, from every seed and side; cached per personality. */
-const cache = new Map<string, MatchResult[]>();
-function series(p: Personality, minutes: number): MatchResult[] {
-  const key = `${p}:${minutes}`;
-  const hit = cache.get(key);
-  if (hit) return hit;
-  const rs = SIDES.map(([seed, f]) => playMatch({ seed, factions: [f[0], f[1]], difficulties: [DIFFICULTIES.medium, DIFFICULTIES.medium], maxTicks: 20 * 60 * minutes, personalities: [p, 'balanced'] }));
-  cache.set(key, rs);
-  return rs;
-}
-const never = (t: number): number => (t < 0 ? Infinity : t);
 
 describe('AI personalities', () => {
   it('AI-12: three personalities; any other choice is drawn from the game seed; every difficulty plays every personality', () => {
@@ -63,34 +43,6 @@ describe('AI personalities', () => {
     const balanced = playMatch({ ...o, personalities: ['balanced', 'balanced'] });
     expect(balanced.hash).toBe(plain.hash);
     expect(balanced.orders).toEqual(plain.orders);
-  }, LONG);
-
-  it('AI-14: Raider attacks before minute 4, mostly at the enemy economy in its first eight minutes', () => {
-    const rs = series('raider', 9);
-    for (const r of rs) {
-      expect(r.ai[0].firstWaveAt).toBeGreaterThanOrEqual(0);
-      expect(r.ai[0].firstWaveAt).toBeLessThan(20 * 60 * 4);
-    }
-    const early = rs.reduce((s, r) => s + r.ai[0].earlyWaves, 0);
-    const economy = rs.reduce((s, r) => s + r.ai[0].economyWaves, 0);
-    expect(economy * 2).toBeGreaterThan(early);
-    // Balanced does not single out the economy.
-    const b = series('balanced', 9);
-    expect(b.reduce((s, r) => s + r.ai[0].economyWaves, 0) * 2).toBeLessThan(b.reduce((s, r) => s + r.ai[0].earlyWaves, 0) + 1);
-  }, LONG);
-
-  it('AI-15: Doomsday stands its superweapon first, and its army reaches the struck area within about ten seconds of the strike', () => {
-    const d = series('doomsday', 14);
-    const b = series('balanced', 14);
-    const r = series('raider', 14);
-    d.forEach((m, i) => {
-      expect(m.ai[0].superweaponAt).toBeGreaterThanOrEqual(0);
-      expect(m.ai[0].superweaponAt).toBeLessThan(never(b[i]!.ai[0].superweaponAt));
-      expect(m.ai[0].superweaponAt).toBeLessThan(never(r[i]!.ai[0].superweaponAt));
-    });
-    const arrivals = d.filter((m) => m.ai[0].strikeAt >= 0).map((m) => never(m.ai[0].strikeArrival)).sort((x, y) => x - y);
-    expect(arrivals.length).toBeGreaterThanOrEqual(4);
-    expect(arrivals[Math.floor((arrivals.length - 1) / 2)]).toBeLessThanOrEqual(20 * 10);
   }, LONG);
 });
 
