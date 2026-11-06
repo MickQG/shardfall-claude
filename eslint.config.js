@@ -11,7 +11,7 @@ const nonDeterministic = [
 ];
 
 export default tseslint.config(
-  { ignores: ['public', 'dist', 'node_modules', 'coverage', 'playwright-report', 'test-results', 'release', 'tmp'] },
+  { ignores: ['.claude', 'public', 'dist', 'node_modules', 'coverage', 'playwright-report', 'test-results', 'release', 'tmp'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

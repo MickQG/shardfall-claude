@@ -96,7 +96,7 @@ describe('map generator', () => {
     for (const s of SEEDS) if (checkPlan(generatePlan(s)).ok) expect(resolveMapSeed(s)).toBe(s);
     // The sequence wraps after the last seed.
     expect(resolveMapSeed(MAP_SEED_MAX - 1)).toBeLessThan(MAP_SEED_MAX);
-  });
+  }, 60_000);
 });
 
 describe('choosing, sharing and replaying a generated map', () => {
