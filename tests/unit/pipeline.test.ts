@@ -10,8 +10,8 @@ describe('pipeline', () => {
     // The slow parts run in parallel jobs: full matches one job per map or test file, the browser tests in shards; a
     // newer push cancels a superseded run, and one aggregate job is the required check.
     for (const map of ['crossroads', 'riverbed', 'highlands']) expect(ci).toContain(`npm run harness -- 2 ${map}`);
-    expect(ci).toContain('shard: [1, 2, 3]');
-    expect(ci).toContain('npm run e2e -- --shard=${{ matrix.shard }}/3');
+    expect(ci).toContain('shard: [1, 2, 3, 4]');
+    expect(ci).toContain('npm run e2e -- --shard=${{ matrix.shard }}/4');
     expect(ci).toContain('cancel-in-progress: true');
     expect(ci).toContain('needs: [checks, changes, matches, e2e]');
     // Full matches run on main, and on a pull request only when it changes what they test (#107).
