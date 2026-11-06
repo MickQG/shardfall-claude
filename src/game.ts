@@ -279,7 +279,7 @@ function frame(prevTime: number): (t: number) => void {
       // Online, "Play again" would need a new room: only the menu is offered.
       const again = document.getElementById('again');
       if (again && match) again.hidden = true;
-      watch?.finished();
+      watch?.finished(curr.tick);
     }
     if (curr && sim.prev) {
       selection.prune(aliveOwn(curr));

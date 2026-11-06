@@ -323,3 +323,27 @@ describe('online rooms', () => {
     await expect(late.match).rejects.toThrow(/already has two players/);
   });
 });
+
+describe('fitted input delay', () => {
+  it('NET-2: two games with different input delays, changing mid-match, still apply the same turns and stay identical', () => {
+    const m = match({ jitter: 60 });
+    let lastOrder = -1;
+    while (Math.min(...m.sides.map((s) => s.snap?.tick ?? 0)) < 800) {
+      const t = m.sides[0]!.snap?.tick ?? 0;
+      if (t === 100) m.sides[0]!.ls.setLatency(10); // one turn
+      if (t === 300) m.sides[1]!.ls.setLatency(250); // four turns
+      if (t === 500) m.sides[1]!.ls.setLatency(0);
+      if (t !== lastOrder) {
+        lastOrder = t;
+        m.sides.forEach((s, me) => orders(s, me, t));
+      }
+      m.step(10);
+      expect(m.now()).toBeLessThan(400_000);
+    }
+    const [a, b] = m.sides as [Side, Side];
+    const n = Math.min(a.delivered.length, b.delivered.length);
+    expect(n).toBeGreaterThan(350);
+    expect(a.delivered.slice(0, n)).toEqual(b.delivered.slice(0, n));
+    expect(a.desyncs.concat(b.desyncs)).toEqual([]);
+  }, 60_000);
+});

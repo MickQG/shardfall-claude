@@ -1,5 +1,5 @@
 import type { Command } from '../sim';
-import { DELAY_TURNS, MAX_CMDS_PER_TURN, sanitizeCommand, TURN_TICKS, type NetMsg } from './protocol';
+import { DELAY_TURNS, delayFor, MAX_CMDS_PER_TURN, sanitizeCommand, TURN_TICKS, type NetMsg } from './protocol';
 
 /** What lockstep needs from its surroundings: a way to send, and where complete turns and desyncs go. */
 export interface LockstepHooks {
@@ -15,9 +15,10 @@ const MAX_AHEAD = 64;
 
 /**
  * Deterministic lockstep for two players (NET-2, NET-3). Time is split into turns of TURN_TICKS ticks. Each player
- * announces its commands for turn `k` once its own simulation has reached turn `k - DELAY_TURNS`, sending a turn
- * message even when it is empty, so the other side knows it may go on. A turn is handed to the simulation only when
- * both players' messages for it have arrived, so both simulations apply exactly the same commands on the same tick.
+ * announces its commands for turn `k` once its own simulation has reached turn `k - delay` (its input delay, fitted to
+ * the connection: NET-2), sending a turn message even when it is empty, so the other side knows it may go on. A
+ * turn is handed to the simulation only when both players' messages for it have arrived, so both simulations apply
+ * exactly the same commands on the same tick.
  * Pure: no timers, sockets or DOM; the caller feeds it messages and progress.
  */
 export class Lockstep {
@@ -30,6 +31,8 @@ export class Lockstep {
   private myHashes = new Map<number, number>();
   private theirHashes = new Map<number, number>();
   private desynced = false;
+  /** Turns ahead that our turns are announced: our input delay, fitted to the connection (NET-2). */
+  delay = DELAY_TURNS;
   readonly peer: 0 | 1;
 
   constructor(
@@ -37,6 +40,14 @@ export class Lockstep {
     private hooks: LockstepHooks,
   ) {
     this.peer = me === 0 ? 1 : 0;
+  }
+
+  /**
+   * The measured one-way latency to the peer (NET-2): from now on our turns are announced just far enough ahead to
+   * reach the peer in time. A shorter delay simply waits until the game catches up with turns already announced.
+   */
+  setLatency(oneWayMs: number): void {
+    this.delay = delayFor(oneWayMs);
   }
 
   /** Announce the first turns, so both sides can start at once. */
@@ -57,7 +68,7 @@ export class Lockstep {
   /** The local simulation has run `tick` ticks: announce every turn up to DELAY_TURNS ahead of the current one. */
   progress(tick: number): void {
     const current = Math.floor(tick / TURN_TICKS);
-    while (this.sent < current + DELAY_TURNS) {
+    while (this.sent < current + this.delay) {
       const n = ++this.sent;
       const c = this.queued.splice(0, MAX_CMDS_PER_TURN);
       this.mine.set(n, c);
