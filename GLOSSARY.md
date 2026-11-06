@@ -9,7 +9,9 @@
 - **Seam** – the public simulation API through which everything else interacts with it.
 - **State hash** – a deterministic hash of the full game state, used to prove determinism.
 - **Faction** – Humans or Aliens.
-- **Map** – the battlefield a skirmish is played on (Crossroads, Riverbed or Highlands), chosen before the game; every map is the same for both players, turned half a turn.
+- **Map** – the battlefield a skirmish is played on, chosen before the game: a hand-made map (Crossroads, Riverbed or Highlands) or a generated map; every map is the same for both players, turned half a turn.
+- **Generated map** – a map produced from a map seed; the same seed always gives the same map.
+- **Map seed** – the number that identifies a generated map; shown so a map can be replayed or shared.
 - **Tier** – depth in the tech tree (1–3).
 - **Power grid** – total power produced versus consumed; a deficit slows production and disables power-hungry buildings.
 - **Fog of war** – per-player visibility: hidden, explored (remembered), visible.
@@ -19,3 +21,5 @@
 - **Rally point** – where a production building sends newly built units.
 - **Combat unit** – any unit that can attack; haulers are not combat units.
 - **Unit kind** – what a unit is (Rifleman, Bulwark Tank, Brute…). "Type" is reserved for damage types and armour types.
+- **Difficulty** – how well the AI plays (Easy, Medium, Hard): its reaction time, actions per minute and resource bonus; never its vision or the rules.
+- **Personality** – the strategy an AI opponent commits to for a match (Raider, Balanced or Doomsday); chosen independently of Difficulty, and changes only what the AI chooses to do.
