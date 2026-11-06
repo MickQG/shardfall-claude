@@ -334,6 +334,11 @@ export class View3D {
   private camRight = new THREE.Vector3();
   private ringGeo = new THREE.RingGeometry(0.86, 1, 40).rotateX(-Math.PI / 2);
   private ringMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false });
+  /** Order acknowledgement rings (UI-13); its opacity fades with the newest marker (they rarely overlap in time). */
+  private ackMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
+  private ackEdge = new THREE.RingGeometry(0.8, 1.06, 40).rotateX(-Math.PI / 2);
+  private ackDot = new THREE.CircleGeometry(1, 24).rotateX(-Math.PI / 2);
+  private white = new THREE.Color(1, 1, 1);
   private barGeo = new THREE.PlaneGeometry(1, 1);
   private barFgGeo = new THREE.PlaneGeometry(1, 1).translate(0.5, 0, 0);
   private barMat = new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false });
@@ -458,7 +463,7 @@ export class View3D {
     const warm = this.warmGroup;
     const geo = new THREE.BoxGeometry(0.001, 0.001, 0.001);
     geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(geo.attributes.position!.count * 3).fill(1), 3));
-    for (const [mat, shadow] of [[this.metalMat, true], [this.organicMat, true], [this.propMat, true], [this.crystalMat, true], [this.glowMat, false], [this.hiveGlowMat, false], [this.ringMat, false], [this.barMat, false]] as const) {
+    for (const [mat, shadow] of [[this.metalMat, true], [this.organicMat, true], [this.propMat, true], [this.crystalMat, true], [this.glowMat, false], [this.hiveGlowMat, false], [this.ringMat, false], [this.ackMat, false], [this.barMat, false]] as const) {
       const m = new THREE.InstancedMesh(geo, mat, 1);
       m.setColorAt(0, new THREE.Color(1, 1, 1));
       m.castShadow = m.receiveShadow = shadow;
@@ -983,6 +988,7 @@ export class View3D {
     this.animateBuildings(vs, t, dt);
     this.firePending(t);
     this.drawStatics();
+    this.drawAcks(vs);
     this.inst.end();
     // Placement ghost and rally line.
     if (vs.placement) {
@@ -1031,9 +1037,28 @@ export class View3D {
     if (changed) this.compileAll();
   }
 
-  private ringAt(x: number, y: number, z: number, r: number, team: number): void {
+  private ringAt(x: number, y: number, z: number, r: number, team: number, flash = 0): void {
     this.uiM.compose(this.uiP.set(x, y, z), this.uiQ, this.uiS.set(r, 1, r));
-    this.inst.push('ui/ring', this.ringGeo, this.ringMat, false, this.uiM, this.uiC.setHex(team), 3);
+    this.inst.push('ui/ring', this.ringGeo, this.ringMat, false, this.uiM, this.uiC.setHex(team).lerp(this.white, flash * 0.8), 3);
+  }
+
+  /** Order acknowledgement markers (UI-13): a ring and a centre dot on the ground, shrinking and fading. */
+  private drawAcks(vs: ViewState): void {
+    let fade = 0;
+    for (const m of vs.acks ?? []) {
+      fade = Math.max(fade, 1 - m.k);
+      if (!this.inView(m.x, 0, m.y, m.r)) continue;
+      const y = this.groundAt(m.x, m.y) + 0.06;
+      // A dark edge under a bright ring, so it reads on light ground as well as dark.
+      this.uiM.compose(this.uiP.set(m.x, y, m.y), this.uiQ, this.uiS.set(m.r, 1, m.r));
+      this.inst.push('ui/ackEdge', this.ackEdge, this.ackMat, false, this.uiM, this.uiC.setRGB(0.012, 0.05, 0.035), 4);
+      this.uiP.y += 0.005;
+      this.uiM.compose(this.uiP, this.uiQ, this.uiS.set(m.r, 1, m.r));
+      this.inst.push('ui/ack', this.ringGeo, this.ackMat, false, this.uiM, this.uiC.setHex(m.color), 5);
+      this.uiM.compose(this.uiP, this.uiQ, this.uiS.set(m.r * 0.22, 1, m.r * 0.22));
+      this.inst.push('ui/ackDot', this.ackDot, this.ackMat, false, this.uiM, this.uiC.setHex(m.color), 5);
+    }
+    this.ackMat.opacity = 0.95 * fade;
   }
 
   /** A health bar facing the camera: a dark back and a coloured fill from the left. */
@@ -1095,7 +1120,9 @@ export class View3D {
       const sel = vs.selectedUnits.has(u.id);
       const frac = hpFraction(u.hp, u.kind, u.rank);
       if ((sel || frac < 1) && this.inView(o.x, o.groundY, o.z, 0.5)) {
-        if (sel) this.ringAt(o.x, o.groundY + 0.03, o.z, o.ringR, o.team);
+        // The ordered units' rings flash white and wide for a moment (UI-15).
+        const fl = vs.flash?.get(u.id) ?? 0;
+        if (sel) this.ringAt(o.x, o.groundY + 0.03, o.z, o.ringR * (1 + 0.35 * fl), o.team, fl);
         this.barAt(o.x, o.groundY + def.height * (def.scale ?? 1) + (air ? AIR_Y : 0) + 0.22, o.z, frac);
       }
       // Dust behind moving vehicles (R3D-12).
