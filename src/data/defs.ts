@@ -103,8 +103,9 @@ export const BUILDING_DEFS: Readonly<Record<string, BuildingDef>> = {
   hum_barracks: { faction: 'human', name: 'Garrison', w: 2, h: 2, hp: 700, cost: 400, buildTime: 400, requires: ['hum_reactor'], power: -10, vision: 6, tier: 1 },
   hum_factory: { faction: 'human', name: 'Motor Pool', w: 3, h: 3, hp: 1100, cost: 900, buildTime: 700, requires: ['hum_refinery', 'hum_barracks'], power: -25, vision: 6, tier: 2 },
   hum_turret: {
-    faction: 'human', name: 'Pulse Turret', w: 1, h: 1, hp: 500, cost: 450, buildTime: 350, requires: ['hum_barracks'], power: -15, vision: 8, needsPower: true, tier: 1,
-    weapon: { damage: 22, range: 7, cooldown: 14, type: 'pierce', antiAir: true, antiGround: true },
+    faction: 'human', name: 'Pulse Turret', w: 1, h: 1, hp: 900, cost: 450, buildTime: 350, requires: ['hum_barracks'], power: -15, vision: 8, needsPower: true, tier: 1,
+    // A pulse beam: full damage to every armour, so armour cannot simply walk through the line (BAL-13).
+    weapon: { damage: 26, range: 7, cooldown: 14, type: 'beam', antiAir: true, antiGround: true },
   },
   hum_lab: { faction: 'human', name: 'Tech Lab', w: 2, h: 2, hp: 700, cost: 1100, buildTime: 800, requires: ['hum_factory'], power: -40, vision: 6, tier: 3 },
   hum_lance: {
@@ -119,7 +120,7 @@ export const BUILDING_DEFS: Readonly<Record<string, BuildingDef>> = {
   ali_nest: { faction: 'alien', name: 'Spawn Nest', w: 2, h: 2, hp: 600, cost: 350, buildTime: 350, requires: ['ali_generator'], power: -8, vision: 6, tier: 1 },
   ali_pit: { faction: 'alien', name: 'Brood Pit', w: 3, h: 3, hp: 1000, cost: 850, buildTime: 650, requires: ['ali_extractor', 'ali_nest'], power: -22, vision: 6, tier: 2 },
   ali_spire: {
-    faction: 'alien', name: 'Spine Spire', w: 1, h: 1, hp: 450, cost: 400, buildTime: 320, requires: ['ali_nest'], power: -12, vision: 8, needsPower: true, tier: 1,
+    faction: 'alien', name: 'Spine Spire', w: 1, h: 1, hp: 700, cost: 400, buildTime: 320, requires: ['ali_nest'], power: -12, vision: 8, needsPower: true, tier: 1,
     weapon: { damage: 32, range: 6.8, cooldown: 18, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_evolver: { faction: 'alien', name: 'Evolution Chamber', w: 2, h: 2, hp: 650, cost: 1000, buildTime: 750, requires: ['ali_pit'], power: -35, vision: 6, tier: 3 },

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { chooseUnitKind, CRUSH_OVERRUN, CRUSH_REACH, crushOrders, type Role } from '../../src/ai/ai';
 import { soundFor } from '../../src/audio/plan';
-import { canCrush, UNIT_DEFS, unitDef } from '../../src/data/defs';
+import { BUILDING_DEFS, canCrush, DAMAGE_PCT, UNIT_DEFS, unitDef } from '../../src/data/defs';
 import { createGame, damageAgainst, FP, MAX_RANK, RANK_XP, snapshot, submit, tick, type Game, type SimEvent, type UnitSnap, type UnitSpawn } from '../../src/sim';
 import { unitCards } from '../../src/ui/unitInfo';
-import { mean, open, rounds } from './battle';
+import { defenceCost, mean, open, rounds, siege } from './battle';
 
 const game = (units: UnitSpawn[]): Game => createGame({ seed: 1, map: open(30, 30), units });
 const run = (g: Game, n: number, each?: (e: SimEvent) => void): void => {
@@ -374,4 +374,20 @@ describe('unit speeds', () => {
     const squads = Object.keys(UNIT_DEFS).filter((k) => (UNIT_DEFS[k]!.squad ?? 1) > 1 && k !== 'ali_skitter');
     for (const q of squads) for (const t of tanks) expect(s(q)).toBeLessThan(s(t));
   });
+});
+
+describe('defences', () => {
+  it('BAL-13: a lone powered defence holds against twice its cost of any one early attacker, and falls to four times its cost', () => {
+    for (const [defence, attackers] of [
+      ['hum_turret', ['ali_skitter', 'ali_spitter', 'ali_brute']],
+      ['ali_spire', ['hum_rifleman', 'hum_rocketeer', 'hum_tank']],
+    ] as const) {
+      for (const a of attackers) {
+        expect(siege(defence, a, 2 * defenceCost(defence)).stands, `${defence} vs 2x ${a}`).toBe(true);
+        expect(siege(defence, a, 4 * defenceCost(defence)).stands, `${defence} vs 4x ${a}`).toBe(false);
+      }
+    }
+    expect(BUILDING_DEFS.hum_turret!.weapon!.type).toBe('beam');
+    expect(DAMAGE_PCT.beam.heavy).toBe(100);
+  }, 120_000);
 });
