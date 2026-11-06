@@ -1,4 +1,4 @@
-import { AI, DIFFICULTIES } from '../ai/ai';
+import { AI, DIFFICULTIES, type Personality } from '../ai/ai';
 import { HASH_EVERY, TURN_TICKS } from '../net/protocol';
 import { createGame, hash, snapshot, submit, tick, TICKS_PER_SECOND, type Command, type GameConfig, type Snapshot } from '../sim';
 
@@ -8,6 +8,8 @@ export const TICK_MS = 1000 / TICKS_PER_SECOND;
 export interface AiSetup {
   player: number;
   difficulty: keyof typeof DIFFICULTIES;
+  /** How it plays (AI-12); Balanced by default. */
+  personality?: Personality;
 }
 
 /**
@@ -33,7 +35,7 @@ export class SimRunner {
     aiSetups: readonly AiSetup[] = [],
   ) {
     this.game = createGame(cfg);
-    this.ais = aiSetups.map((a) => ({ ai: new AI(a.player, (cfg.players?.[a.player]?.faction ?? 'alien'), DIFFICULTIES[a.difficulty], cfg.map, cfg.seed), phase: a.player * 7 }));
+    this.ais = aiSetups.map((a) => ({ ai: new AI(a.player, (cfg.players?.[a.player]?.faction ?? 'alien'), DIFFICULTIES[a.difficulty], cfg.map, cfg.seed, a.personality ?? 'balanced'), phase: a.player * 7 }));
     this.onSnapshot(snapshot(this.game, this.viewer));
   }
 

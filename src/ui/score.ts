@@ -24,3 +24,12 @@ export function armyPath(samples: readonly number[], max: number, w: number, h: 
   if (samples.length < 2 || max <= 0) return `0,${h} ${w},${h}`;
   return samples.map((v, i) => `${Math.round((i * w) / (samples.length - 1))},${Math.round(h - (v * h) / max)}`).join(' ');
 }
+
+/**
+ * The result-screen line naming the AI opponent (SCR-4): its personality and difficulty. Only the result screen shows
+ * it, so a random personality stays a surprise until the game ends.
+ */
+export function opponentLine(personality: string, difficulty: string): string {
+  const cap = (w: string): string => w.charAt(0).toUpperCase() + w.slice(1);
+  return `Your opponent played ${cap(personality)} on ${cap(difficulty)}.`;
+}

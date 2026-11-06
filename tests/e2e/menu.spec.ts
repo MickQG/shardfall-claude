@@ -58,7 +58,7 @@ test('MENU-4: a View units button sits at the right-hand end of the opponent row
   const btn = page.locator('#menu [data-panel="single"] #units-btn');
   await expect(btn).toBeVisible();
   await expect(btn).toContainText('View units');
-  const seg = await page.locator('#menu [data-panel="single"] .seg').boundingBox();
+  const seg = await page.locator('#menu [data-panel="single"] .seg[aria-label="Personality"]').boundingBox();
   const b = await btn.boundingBox();
   const row = await page.locator('#menu [data-panel="single"] .row').boundingBox();
   if (!seg || !b || !row) throw new Error('missing layout');
@@ -70,4 +70,16 @@ test('MENU-4: a View units button sits at the right-hand end of the opponent row
   await btn.click();
   await expect(page.locator('#unit-info')).toHaveClass(/open/);
   await expect(page.locator('#unit-info [data-tab="alien"]')).toHaveClass(/sel/);
+});
+
+test('MENU-5: a Personality control beside the opponent difficulty, Random by default, remembered, and passed to the game', async ({ page }) => {
+  await page.goto('/');
+  const pers = page.locator('#menu [data-panel="single"] .row .seg[aria-label="Personality"] [data-pers]');
+  await expect(pers).toHaveText(['Random', 'Raider', 'Balanced', 'Doomsday']);
+  await expect(page.locator('#menu [data-pers="random"]')).toHaveClass(/sel/);
+  await page.locator('#menu [data-pers="doomsday"]').click();
+  await page.reload();
+  await expect(page.locator('#menu [data-pers="doomsday"]')).toHaveClass(/sel/);
+  await page.locator('#menu #go').click();
+  await page.waitForURL(/personality=doomsday/);
 });

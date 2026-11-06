@@ -26,5 +26,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `020-multiplayer.md` | Online one-versus-one matches: rooms, lockstep, desync detection, disconnects, security | 20 |
 | `021-infantry-balance.md` | Crushing (heroes crush vehicles), infantry damage, slower heroes, straight shells, elite shots, AI crushing | 21 |
 | `022-aim-and-models.md` | Shots leave along the barrel; no clipping between moving parts or into the ground | 22 |
+| `023-ai-personalities.md` | AI personalities (Raider, Balanced, Doomsday); match-length script | 23 |
 
 Umbrella spec: GitHub issue #1.
