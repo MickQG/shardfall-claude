@@ -16,6 +16,7 @@
     "bench": "tsx scripts/bench.ts",
     "e2e": "playwright test",
     "harness": "tsx scripts/harness.ts",
+    "ai:length": "tsx scripts/match-length.ts",
     "sprites": "tsx scripts/sprites.ts",
     "icon": "tsx scripts/icon.ts",
     "desktop": "npm run build && electron .",

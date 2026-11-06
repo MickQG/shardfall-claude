@@ -1,3 +1,4 @@
+import { PERSONALITIES, type Personality } from '../ai/ai';
 import { DEFAULT_MAP, mapIdOf, type MapId } from '../data/maps';
 
 export interface Settings {
@@ -8,7 +9,12 @@ export interface Settings {
   reducedMotion: boolean;
   /** The skirmish map last picked in the menu (MAP-4). */
   map: MapId;
+  /** The AI personality last picked in the menu, or random (MENU-5). */
+  personality: PersonalityChoice;
 }
+
+export type PersonalityChoice = Personality | 'random';
+export const personalityChoiceOf = (v: unknown): PersonalityChoice => ((PERSONALITIES as readonly unknown[]).includes(v) ? (v as Personality) : 'random');
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
 /** v2 starts everyone on the high preset again (VIS-2); sound settings carry over from v1. */
@@ -16,7 +22,7 @@ const KEY = 'shardfall.settings.v2';
 const OLD_KEY = 'shardfall.settings.v1';
 
 /** High quality by default for everyone; the reduced-motion preference only stops camera shake (VIS-2). */
-export const defaultSettings = (reducedMotion = false): Settings => ({ quality: 'high', muted: false, volume: 0.6, reducedMotion, map: DEFAULT_MAP });
+export const defaultSettings = (reducedMotion = false): Settings => ({ quality: 'high', muted: false, volume: 0.6, reducedMotion, map: DEFAULT_MAP, personality: 'random' });
 
 /** Loads saved settings. Storage can be missing, blocked or corrupt (private windows, tests): every failure falls back to defaults. */
 export function loadSettings(store: Store | null | undefined, prefersReducedMotion = false): Settings {
@@ -34,6 +40,7 @@ export function loadSettings(store: Store | null | undefined, prefersReducedMoti
       // The system preference always wins over a saved value.
       reducedMotion: prefersReducedMotion || d.reducedMotion,
       map: mapIdOf(p.map),
+      personality: personalityChoiceOf(p.personality),
     };
   } catch {
     return d;

@@ -19,6 +19,30 @@ export const DIFFICULTIES: Readonly<Record<'easy' | 'medium' | 'hard', Difficult
   hard: { name: 'hard', thinkEvery: 10, maxCommands: 10, bonus: 30 },
 };
 
+/**
+ * The strategy an AI opponent commits to for a match (AI-12). Separate from Difficulty: a personality changes only what
+ * the AI chooses to do, never what it sees or the rules (AI-2, AI-10).
+ */
+export type Personality = 'raider' | 'balanced' | 'doomsday';
+export const PERSONALITIES: readonly Personality[] = ['raider', 'balanced', 'doomsday'];
+
+/** A named personality, or a draw from the game seed for anything else ("random"), so the choice is deterministic (MENU-5). */
+export function resolvePersonality(choice: string | null | undefined, seed: number): Personality {
+  if ((PERSONALITIES as readonly string[]).includes(choice ?? '')) return choice as Personality;
+  return PERSONALITIES[new Rng((seed >>> 0) * 31 + 977).int(PERSONALITIES.length)] as Personality;
+}
+
+/** Raider's opening lasts at most eight minutes of game time, or until this many of its raids are beaten back (AI-16). */
+export const RAIDER_OPENING_END = 20 * 60 * 8;
+export const RAIDER_RAIDS_LOST = 3;
+/** Raider sets out once it has this many armed units, from this tick (AI-14). */
+export const RAID_MIN_ARMY = 5;
+export const RAID_FROM = 20 * 75;
+/** Doomsday fires when its wave is this close (tiles) to the strike, so the wave arrives just after it lands (AI-15). */
+export const STRIKE_LEAD = 16;
+/** Doomsday holds a charged superweapon at most this long (ticks) for its wave before it fires anyway. */
+export const STRIKE_HOLD = 20 * 90;
+
 export type Role = 'inf' | 'at' | 'tank' | 'art' | 'air' | 'scout';
 
 export const roleOf = (d: UnitDef): Role =>
@@ -35,12 +59,16 @@ export interface Intel {
 }
 
 const BASE_WEIGHTS: Record<Role, number> = { inf: 0.28, at: 0.2, tank: 0.32, art: 0.08, air: 0.08, scout: 0.04 };
+/** The Raider mix (AI-14): fast, cheap raiders and rifles over tanks and artillery. */
+const RAIDER_TILT: Partial<Record<Role, number>> = { inf: 0.12, scout: 0.06, tank: -0.04, art: -0.04 };
 
 /** Pick the next unit to train: fill the biggest gap between desired and actual composition, adapting to what the enemy fields. */
-export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record<Role, number>>, intel: Intel): string | null {
+export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record<Role, number>>, intel: Intel, tilt?: Partial<Record<Role, number>>): string | null {
   if (cands.length === 0) return null;
   const army = Object.values(counts).reduce((a, b) => a + b, 0);
   const w = { ...BASE_WEIGHTS };
+  // A personality tilts the base mix (AI-14): Raider fields fast, cheap units.
+  if (tilt) for (const [r, v] of Object.entries(tilt) as [Role, number][]) w[r] = Math.max(0.02, w[r] + v);
   if (intel.total >= 3) {
     if (intel.heavy > 0.4) {
       w.at += 0.25;
@@ -159,6 +187,16 @@ export interface AiStats {
   scoutedAt: number;
   defends: number;
   superweaponShots: number;
+  /** Tick the first wave set out, or -1 (AI-14). */
+  firstWaveAt: number;
+  /** Waves launched in the first eight minutes, and how many of those were aimed at the enemy economy (AI-14). */
+  earlyWaves: number;
+  economyWaves: number;
+  /** Tick its first superweapon building stood, or -1 (AI-15). */
+  superweaponAt: number;
+  /** Tick of its first superweapon strike, and ticks until its wave reached the struck area afterwards, or -1 (AI-15). */
+  strikeAt: number;
+  strikeArrival: number;
 }
 
 type Ctx = {
@@ -183,7 +221,16 @@ type Ctx = {
  */
 export class AI {
   readonly kit: Kit;
-  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0 };
+  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1 };
+  /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
+  private adapted = false;
+  private raidsLost = 0;
+  /** Doomsday: when the superweapon was first seen charged, and where it struck. */
+  private chargedAt = -1;
+  private strike: { tx: number; ty: number } | null = null;
+  private lastStrike = -1;
+  /** Orders that must not be cut by the command budget this tick. */
+  private first: Command[] = [];
   private intel = new Map<number, Remembered>();
   private wave: Wave | null = null;
   private waveCooldown = 0;
@@ -209,6 +256,7 @@ export class AI {
     readonly diff: Difficulty,
     private map: MapDef,
     seed = 0,
+    readonly personality: Personality = 'balanced',
   ) {
     this.kit = kitOf(faction);
     const r = new Rng(seed * 7919 + player * 104729 + 13);
@@ -237,21 +285,41 @@ export class AI {
     };
     this.updateIntel(c);
     this.setupPoints(c);
+    this.updatePlan(c);
 
     const out: Command[] = [];
     this.placeReady(c, out);
     this.defendBase(c, out);
+    // Raider finds the enemy economy first (AI-14): its scout order goes ahead of production in the command budget.
+    const raider = this.plan === 'raider';
+    if (raider) this.scout(c, out);
     this.structures(c, out);
     this.production(c, out);
     this.economy(c, out);
     this.attackLogic(c, out);
-    this.scout(c, out);
+    if (!raider) this.scout(c, out);
     this.maintain(c, out);
     this.superweapon(c, out);
     // Crush orders go last so they override this tick's wave orders for the same units, and always get a share of the
     // command budget (BAL-5).
     const crush = crushOrders(me, c.army, c.foes, snap.mapWidth, snap.mapHeight).slice(0, Math.max(1, Math.ceil(this.diff.maxCommands / 2)));
-    return [...out.slice(0, this.diff.maxCommands - crush.length), ...crush];
+    // Doomsday's strike and the order sending its wave into it go first, ahead of everything else (AI-15).
+    const first = this.first.splice(0);
+    return [...first, ...out.slice(0, Math.max(0, this.diff.maxCommands - crush.length - first.length)), ...crush];
+  }
+
+  /** What the AI is playing now: its personality, or Balanced once it has adapted (AI-16). */
+  get plan(): Personality {
+    return this.adapted ? 'balanced' : this.personality;
+  }
+
+  private updatePlan(c: Ctx): void {
+    const sw = c.buildings.some((b) => buildingDef(b.kind).superweapon);
+    if (sw && this.stats.superweaponAt < 0) this.stats.superweaponAt = c.tick;
+    if (this.adapted) return;
+    if (this.personality === 'raider' && (c.tick >= RAIDER_OPENING_END || this.raidsLost >= RAIDER_RAIDS_LOST)) this.adapted = true;
+    // Doomsday without the superweapon it built falls back to Balanced, still rebuilding it first (wantedStructure).
+    if (this.personality === 'doomsday' && this.stats.superweaponAt >= 0 && !sw) this.adapted = true;
   }
 
   // ---------------------------------------------------------------- knowledge
@@ -367,20 +435,38 @@ export class AI {
     const margin = c.powerOut - c.powerIn - queuedDrain;
     const haulers = c.haulers.length;
     const refineries = n(k.refinery);
-    const turretsWanted = Math.min(6, (c.tick < 3000 ? 0 : c.tick < 6500 ? 1 : c.tick < 11000 ? 2 : 3) + Math.min(3, this.attacks));
+    const plain = Math.min(6, (c.tick < 3000 ? 0 : c.tick < 6500 ? 1 : c.tick < 11000 ? 2 : 3) + Math.min(3, this.attacks));
+    // Raider defends with its army in the opening; Doomsday holds with defences while it climbs to its superweapon.
+    const rushing = this.personality === 'doomsday' && n(k.superweapon) === 0;
+    const turretsWanted = this.plan === 'raider' ? 0 : plain;
 
     if (c.powerIn > c.powerOut || margin < 15) return k.power;
     if (n(k.barracks) === 0) return k.barracks;
     if (refineries < 2) return k.refinery;
     if (margin < 35) return k.power;
     if (n(k.factory) === 0) return k.factory;
+    if (rushing) {
+      // Two defences hold the base while it climbs; more wait until the superweapon stands.
+      if (n(k.turret) < Math.min(turretsWanted, 2)) return k.turret;
+      // Doomsday (AI-15): straight up the tech tree to the superweapon, rebuilt first if it is lost (AI-16); spare money
+      // still goes into a second barracks and factory, so the army keeps growing while the superweapon is built.
+      const rebuilding = this.stats.superweaponAt >= 0;
+      if (!rebuilding && n(k.barracks) < 2 && c.credits > 1500) return k.barracks;
+      if (!rebuilding && n(k.factory) < 2 && c.credits > 2000) return k.factory;
+      if (n(k.lab) === 0) return k.lab;
+      const sw = buildingDef(k.superweapon);
+      if (margin < -sw.power + 10) return k.power;
+      return k.superweapon;
+    }
     if (n(k.turret) < turretsWanted) return k.turret;
     const rich = c.credits > 3000 ? 2 : c.credits > 1400 ? 1 : 0;
     if (n(k.barracks) < 1 + rich + (c.tick > 5000 ? 1 : 0) && n(k.barracks) < 4) return k.barracks;
-    if (n(k.lab) === 0 && c.credits > 1100) return k.lab;
+    // Raider spends on its army, not on tech, until its opening is over (AI-14).
+    const teching = this.plan !== 'raider';
+    if (teching && n(k.lab) === 0 && c.credits > 1100) return k.lab;
     if (n(k.factory) < 1 + rich && n(k.factory) < 3) return k.factory;
     if (refineries < 3 && haulers >= 4 && c.credits > 1100) return k.refinery;
-    if (n(k.superweapon) === 0 && n(k.lab) > 0) {
+    if (teching && n(k.superweapon) === 0 && n(k.lab) > 0) {
       const sw = buildingDef(k.superweapon);
       if (margin < -sw.power + 10) return k.power;
       return k.superweapon;
@@ -491,8 +577,11 @@ export class AI {
     for (const [kind, n] of queued) counts[roleOf(unitDef(kind))] += n;
 
     const next = this.wantedStructure(c);
-    const hold = next && c.hq.queue.length === 0 ? Math.min(buildingDef(next).cost, 750) : 0;
+    // Doomsday saves the full price of its superweapon and up to 1500 for other steps; others hold back at most 750.
+    const saving = this.personality === 'doomsday' && !c.buildings.some((b) => buildingDef(b.kind).superweapon);
+    const hold = next && c.hq.queue.length === 0 ? Math.min(buildingDef(next).cost, saving && next === this.kit.superweapon ? Infinity : saving ? 1500 : 750) : 0;
     const urgent = c.army.length < 4 || c.tick - this.lastThreat < 600;
+    const tilt = this.plan === 'raider' ? RAIDER_TILT : undefined;
     const haulerWanted = this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0);
 
     for (const b of c.buildings) {
@@ -505,7 +594,7 @@ export class AI {
       // Its hero takes the field whenever it is available and affordable with credits to spare (HERO-1).
       const hero = allowed.find((k) => unitDef(k).hero && c.credits >= unitDef(k).cost + 400);
       const pick: string | null =
-        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) ? this.kit.hauler : (hero ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel));
+        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) ? this.kit.hauler : (hero ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt));
       if (!pick) continue;
       const cost = unitDef(pick).cost;
       const reserve = pick === this.kit.hauler || urgent ? 0 : hold;
@@ -625,12 +714,18 @@ export class AI {
       const p = this.armyPower(members);
       const { x: cx, y: cy } = members.length ? centre(members) : { x: stage.tx, y: stage.ty };
       const local = this.enemyPowerNear(c, Math.floor(cx), Math.floor(cy), 11);
-      if (p <= 0.45 * w.startPower || members.length <= 2 || local >= 1.5 * p) {
+      // Doomsday commits while its strike is charged or has just landed: the strike, not a retreat, answers resistance (AI-15).
+      const committed = this.plan === 'doomsday' && (c.buildings.some((b) => buildingDef(b.kind).superweapon && b.charge >= 100) || (this.lastStrike >= 0 && c.tick - this.lastStrike < 400));
+      if (members.length <= 2 || (!committed && (p <= 0.45 * w.startPower || local >= 1.5 * p))) {
         this.stats.retreats++;
         order('move', members, stage.tx, stage.ty);
         this.wave = null;
         this.waveCooldown = c.tick + 1200;
         this.lastWaveEnd = c.tick;
+        if (this.plan === 'raider') {
+          this.raidsLost++;
+          this.waveCooldown = c.tick + 600;
+        }
         return;
       }
       if (c.tick - w.lastOrder >= WAVE_STEP) {
@@ -639,7 +734,8 @@ export class AI {
         const known = c.enemyBuildings.some((b) => dist(b.tx, b.ty, w.tx, w.ty) < 4);
         if (near && !known) {
           const nb = this.nearestEnemyBuilding(c, Math.floor(cx), Math.floor(cy));
-          const t = nb ? { tx: nb.tx, ty: nb.ty } : this.searchPoint(c);
+          // A raid moves on to the next part of the economy it knows of (AI-14).
+          const t = (this.plan === 'raider' ? this.economyTarget(c) : null) ?? (nb ? { tx: nb.tx, ty: nb.ty } : this.searchPoint(c));
           w.tx = t.tx;
           w.ty = t.ty;
         }
@@ -672,9 +768,19 @@ export class AI {
 
     if (threatened || c.tick < this.waveCooldown) return;
     const p = this.armyPower(army);
-    const threshold = Math.min(4200, (1100 + 450 * this.stats.waves) * this.jitter.wave);
+    const raiding = this.plan === 'raider';
+    const sw = c.buildings.find((b) => buildingDef(b.kind).superweapon && b.charge >= 100);
+    // Doomsday with a charged superweapon sends its wave at what it will strike (AI-15).
+    const striking = this.plan === 'doomsday' && sw !== undefined;
+    // Doomsday keeps its army home until the superweapon is ready to go in with it (AI-15).
+    if (this.plan === 'doomsday' && !striking) return;
+    if (raiding && (c.tick < RAID_FROM || (!this.economyTarget(c) && c.tick < 2 * RAID_FROM))) return;
+    let threshold = Math.min(4200, (1100 + 450 * this.stats.waves) * this.jitter.wave);
+    if (raiding) threshold = 0;
+    if (striking) threshold = Math.min(threshold, 1500);
     const known = this.nearestEnemyBuilding(c, stage.tx, stage.ty);
-    const target = known ? { tx: known.tx, ty: known.ty } : this.enemyStart();
+    const aim = raiding ? this.economyTarget(c) : striking && sw ? this.bestStrike(c, sw, null, true) : null;
+    const target = aim ?? (known ? { tx: known.tx, ty: known.ty } : this.enemyStart());
     // Attack only on fresh intel: what we have recently seen of their army (anywhere), plus their defences at the target.
     // Without it we are blind, and a blind attack into a defender with reinforcements is how armies get lost.
     const recent = [...this.intel.values()].filter((e) => UNIT_DEFS[e.kind]?.weapon && c.tick - e.t <= 1200);
@@ -682,18 +788,27 @@ export class AI {
     const defences = c.enemyBuildings.reduce((s, b) => (buildingDef(b.kind).weapon && dist(b.tx, b.ty, target.tx, target.ty) <= 14 ? s + buildingDef(b.kind).cost * 1.5 : s), 0);
     const blind = recent.length === 0;
     const stalemate = c.tick - this.lastWaveEnd > 7000;
-    const est = blind ? (stalemate ? 1.1 * p : 3 * p) : 1.15 * seen + defences + 250;
-    if (!shouldAttack(p, est, army.length, threshold, this.jitter.ratio)) {
+    let est = blind ? (stalemate ? 1.1 * p : 3 * p) : 1.15 * seen + defences + 250;
+    // A raid goes for the economy and slips past the army rather than fighting it (AI-14); a strike clears the way (AI-15).
+    if (raiding) est = (blind ? 0 : 0.6 * seen) + defences;
+    if (striking) est = 0.5 * ((blind ? 0 : 1.15 * seen) + defences);
+    if (!shouldAttack(p, est, army.length, threshold, this.jitter.ratio) || (raiding && army.length < RAID_MIN_ARMY)) {
       this.gatherSince = -1;
       return;
     }
     // Strong enough: set out only once most of the army has gathered at the staging point (AI-11), or after a while.
     const gathered = army.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) <= GATHER_R);
     if (this.gatherSince < 0) this.gatherSince = c.tick;
-    if (gathered.length < GATHER_SHARE * army.length && c.tick - this.gatherSince < GATHER_WAIT) return;
+    // A charged strike does not wait for stragglers: the army goes in together with it (AI-15).
+    if (!striking && gathered.length < GATHER_SHARE * army.length && c.tick - this.gatherSince < GATHER_WAIT) return;
     this.gatherSince = -1;
-    const wave = gathered.length >= 3 ? gathered : army;
+    const wave = gathered.length >= 3 && !striking ? gathered : army;
     this.stats.waves++;
+    if (this.stats.firstWaveAt < 0) this.stats.firstWaveAt = c.tick;
+    if (c.tick < RAIDER_OPENING_END) {
+      this.stats.earlyWaves++;
+      if (this.isEconomy(c, target)) this.stats.economyWaves++;
+    }
     if (p < 0.8 * est) this.stats.suicides++;
     if (wave.length < 5) this.stats.lone++;
     this.wave = { tx: target.tx, ty: target.ty, startPower: this.armyPower(wave), lastOrder: c.tick, members: new Set(wave.map((u) => u.id)), size: wave.length, held: false };
@@ -702,6 +817,53 @@ export class AI {
     order('attackmove', wave, x + ((target.tx - x) * Math.min(d, WAVE_HOP)) / Math.max(1, d), y + ((target.ty - y) * Math.min(d, WAVE_HOP)) / Math.max(1, d));
   }
 
+
+  /** The nearest part of the enemy economy we know of: a refinery, or a hauler seen lately (AI-14). */
+  private economyTarget(c: Ctx): { tx: number; ty: number } | null {
+    const stage = this.staging as { tx: number; ty: number };
+    let best: { tx: number; ty: number } | null = null;
+    let bd = Infinity;
+    const consider = (tx: number, ty: number): void => {
+      const d = dist(tx, ty, stage.tx, stage.ty);
+      if (d < bd) {
+        bd = d;
+        best = { tx, ty };
+      }
+    };
+    for (const b of c.enemyBuildings) if (buildingDef(b.kind).refinery) consider(b.tx + 1, b.ty + 1);
+    for (const e of this.intel.values()) if (UNIT_DEFS[e.kind]?.capacity !== undefined && c.tick - e.t <= 1200) consider(tileOf(e.x), tileOf(e.y));
+    // Unseen, the enemy mines the shard field nearest its start: the map shows the fields to every player (MENU-1).
+    return best ?? this.enemyField();
+  }
+
+  private field: { tx: number; ty: number } | null | undefined;
+  /** The shard tile nearest the enemy start, from the static map. */
+  private enemyField(): { tx: number; ty: number } | null {
+    if (this.field !== undefined) return this.field;
+    const start = this.enemyStart();
+    const W = this.map.width;
+    let bd = Infinity;
+    this.field = null;
+    for (let i = 0; i < (this.map.shards?.length ?? 0); i++) {
+      if (!this.map.shards?.[i]) continue;
+      const d = dist(i % W, Math.floor(i / W), start.tx, start.ty);
+      if (d > 3 && d < bd) {
+        bd = d;
+        this.field = { tx: i % W, ty: Math.floor(i / W) };
+      }
+    }
+    return this.field;
+  }
+
+  /** Whether a target point is on the enemy economy: a known refinery or a recently seen hauler close by. */
+  private isEconomy(c: Ctx, t: { tx: number; ty: number }): boolean {
+    const f = this.enemyField();
+    return (
+      (f !== null && dist(f.tx, f.ty, t.tx, t.ty) <= 4) ||
+      c.enemyBuildings.some((b) => buildingDef(b.kind).refinery && dist(b.tx + 1, b.ty + 1, t.tx, t.ty) <= 4) ||
+      [...this.intel.values()].some((e) => UNIT_DEFS[e.kind]?.capacity !== undefined && c.tick - e.t <= 1200 && dist(tileOf(e.x), tileOf(e.y), t.tx, t.ty) <= 4)
+    );
+  }
 
   // ---------------------------------------------------------------- scouting
 
@@ -724,14 +886,16 @@ export class AI {
       return;
     }
     const fresh = [...this.intel.values()].some((e) => UNIT_DEFS[e.kind]?.weapon && c.tick - e.t <= 900);
-    const due = c.tick > 1100 && (!knowEnemy || !fresh);
+    const due = c.tick > (this.plan === 'raider' ? 300 : 1100) && (!knowEnemy || !fresh);
     if (!due || c.tick - this.lastScout < 1500) return;
     // Prefer a genuinely fast scout, else spare a basic infantry unit.
     const cands = c.army.filter((u) => u.dest === null).sort((a, b) => unitDef(b.kind).speed - unitDef(a.kind).speed || a.id - b.id);
-    const pick = cands.find((u) => unitDef(u.kind).role === 'scout') ?? (c.tick > 1500 ? cands[cands.length - 1] : undefined);
+    const pick = cands.find((u) => unitDef(u.kind).role === 'scout') ?? (c.tick > (this.plan === 'raider' ? 300 : 1500) ? cands[cands.length - 1] : undefined);
     if (!pick) return;
     this.scoutId = pick.id;
     this.lastScout = c.tick;
+    // Raider scouts before it gives army orders, so the scout leaves the army now or the gather order calls it back.
+    if (this.plan === 'raider') c.army = c.army.filter((u) => u.id !== pick.id);
     const target = this.enemyStart();
     out.push({ type: 'move', player: this.player, units: [pick.id], x: target.tx * FP + FP / 2, y: target.ty * FP + FP / 2 });
   }
@@ -750,15 +914,18 @@ export class AI {
     }
   }
 
-  private superweapon(c: Ctx, out: Command[]): void {
-    const sw = c.buildings.find((b) => buildingDef(b.kind).superweapon && b.charge >= 100);
-    if (!sw) return;
+  /**
+   * The best place for a superweapon strike: the most enemy value within its radius, never near our own units or
+   * buildings. `near` limits it to around a point; `defences` counts defences double (AI-15).
+   */
+  private bestStrike(c: Ctx, sw: BuildingSnap, near: { tx: number; ty: number; r: number } | null, defences = false): { tx: number; ty: number } | null {
     const radius = (buildingDef(sw.kind).superweapon as { radius: number }).radius;
     let best: { tx: number; ty: number } | null = null;
     let bs = 500;
     for (const t of c.enemyBuildings) {
+      if (near && dist(t.tx, t.ty, near.tx, near.ty) > near.r) continue;
       let score = 0;
-      for (const o of c.enemyBuildings) if (dist(o.tx, o.ty, t.tx, t.ty) <= radius) score += buildingDef(o.kind).cost;
+      for (const o of c.enemyBuildings) if (dist(o.tx, o.ty, t.tx, t.ty) <= radius) score += buildingDef(o.kind).cost * (defences && buildingDef(o.kind).weapon ? 2 : 1);
       for (const e of this.intel.values()) if (c.tick - e.t < 300 && dist(tileOf(e.x), tileOf(e.y), t.tx, t.ty) <= radius) score += (UNIT_DEFS[e.kind]?.cost ?? 0) * 0.5;
       // Never hit ourselves.
       const friendly = c.own.some((u) => dist(tileOf(u.x), tileOf(u.y), t.tx, t.ty) <= radius + 2) || c.buildings.some((b) => dist(b.tx, b.ty, t.tx, t.ty) <= radius + 3);
@@ -767,8 +934,73 @@ export class AI {
         best = { tx: t.tx + 1, ty: t.ty + 1 };
       }
     }
+    return best;
+  }
+
+  /** The densest enemy army seen lately within STRIKE_LEAD tiles of the wave, if it is worth a strike (AI-15). */
+  private fieldStrike(c: Ctx, sw: BuildingSnap, mid: { x: number; y: number }): { tx: number; ty: number } | null {
+    const radius = (buildingDef(sw.kind).superweapon as { radius: number }).radius;
+    const foes = [...this.intel.values()].filter((e) => UNIT_DEFS[e.kind]?.weapon && c.tick - e.t < 100 && dist(tileOf(e.x), tileOf(e.y), mid.x, mid.y) <= STRIKE_LEAD);
+    let best: { tx: number; ty: number } | null = null;
+    let bs = 1200;
+    for (const f of foes) {
+      const tx = tileOf(f.x);
+      const ty = tileOf(f.y);
+      const score = foes.reduce((s, e) => (dist(tileOf(e.x), tileOf(e.y), tx, ty) <= radius ? s + (UNIT_DEFS[e.kind]?.cost ?? 0) : s), 0);
+      if (score > bs && !this.nearFriendly(c, sw, tx, ty)) {
+        bs = score;
+        best = { tx, ty };
+      }
+    }
+    return best;
+  }
+
+  private nearFriendly(c: Ctx, sw: BuildingSnap, tx: number, ty: number): boolean {
+    const radius = (buildingDef(sw.kind).superweapon as { radius: number }).radius;
+    return c.own.some((u) => dist(tileOf(u.x), tileOf(u.y), tx, ty) <= radius + 2) || c.buildings.some((b) => dist(b.tx, b.ty, tx, ty) <= radius + 3);
+  }
+
+  private superweapon(c: Ctx, out: Command[]): void {
+    const w = this.wave;
+    const members = w ? c.army.filter((u) => w.members.has(u.id)) : [];
+    const mid = members.length ? { x: members.reduce((s, u) => s + u.x, 0) / members.length / FP, y: members.reduce((s, u) => s + u.y, 0) / members.length / FP } : null;
+    // How soon after the first strike its army (three units or more) reached the struck area (AI-15).
+    const struck = this.strike;
+    if (struck && this.stats.strikeArrival < 0 && c.army.filter((u) => dist(u.x / FP, u.y / FP, struck.tx, struck.ty) <= 8).length >= 3) this.stats.strikeArrival = c.tick - this.stats.strikeAt;
+    const sw = c.buildings.find((b) => buildingDef(b.kind).superweapon && b.charge >= 100);
+    if (!sw) return;
+    let best: { tx: number; ty: number } | null = null;
+    if (this.plan === 'doomsday') {
+      // Hold the charged weapon until the wave is about to arrive, then clear the defences in its path (AI-15).
+      if (this.chargedAt < 0) this.chargedAt = c.tick;
+      const waiting = c.tick - this.chargedAt < STRIKE_HOLD;
+      if (w && mid) {
+        // An enemy army standing in the wave's way is struck first; otherwise the defences at its objective.
+        best = this.fieldStrike(c, sw, mid);
+        if (!best && dist(mid.x, mid.y, w.tx, w.ty) > STRIKE_LEAD && waiting) return;
+        best ??= this.bestStrike(c, sw, { tx: w.tx, ty: w.ty, r: 8 }, true);
+        // Nothing known there: strike the wave's objective itself, which every player can read off the map.
+        if (!best && !this.nearFriendly(c, sw, w.tx, w.ty)) best = { tx: w.tx, ty: w.ty };
+      }
+      if (!best && waiting) return;
+    }
+    best ??= this.bestStrike(c, sw, null);
     if (!best) return;
     this.stats.superweaponShots++;
-    out.push({ type: 'superweapon', player: this.player, building: sw.id, x: best.tx * FP + FP / 2, y: best.ty * FP + FP / 2 });
+    this.chargedAt = -1;
+    this.lastStrike = c.tick;
+    // The wave goes straight into the struck area, to arrive while the defenders reel (AI-15).
+    const doomsday = this.plan === 'doomsday';
+    (doomsday ? this.first : out).push({ type: 'superweapon', player: this.player, building: sw.id, x: best.tx * FP + FP / 2, y: best.ty * FP + FP / 2 });
+    if (doomsday && w && members.length) {
+      w.tx = best.tx;
+      w.ty = best.ty;
+      w.lastOrder = c.tick;
+      this.first.push({ type: 'attackmove', player: this.player, units: members.map((u) => u.id), x: best.tx * FP + FP / 2, y: best.ty * FP + FP / 2 });
+    }
+    if (this.stats.strikeAt < 0) {
+      this.stats.strikeAt = c.tick;
+      this.strike = best;
+    }
   }
 }

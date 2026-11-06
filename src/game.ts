@@ -1,4 +1,4 @@
-import { DIFFICULTIES } from './ai/ai';
+import { DIFFICULTIES, resolvePersonality } from './ai/ai';
 import { duelConfig, mapIdOf, rushConfig, showcaseConfig, skirmishConfig } from './data/maps';
 import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
@@ -16,7 +16,7 @@ import { AlertTracker } from './ui/alerts';
 import { countdownRows } from './ui/countdown';
 import { READY_FRAMES, READY_TIMEOUT_MS, readyToStart, showLoading } from './ui/loading';
 import { createHud, resultText, type ScoreView } from './ui/hud';
-import { armyPath, scoreRows } from './ui/score';
+import { armyPath, opponentLine, scoreRows } from './ui/score';
 import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, inputAllowed, KeyTap, minimapClick } from './ui/controls';
 import { cursorCss, cursorFor, type CursorState } from './ui/cursor';
 import { clampTile, Minimap, miniToTile } from './ui/minimap';
@@ -53,6 +53,8 @@ const level = (['easy', 'medium', 'hard'] as const).find((d) => d === params.get
 const scenario = params.get('scenario');
 const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number], map: mapIdOf(params.get('map')) };
 const seed = seedOf(params.get('seed'), Date.now() % 100000);
+/** The AI opponent's personality (AI-12): picked in the menu, or drawn from the game seed for Random (MENU-5). */
+const personality = resolvePersonality(params.get('personality'), seed);
 const cfg = match
   ? skirmishConfig(match.setup.seed, { factions: match.setup.factions, bonuses: [0, 0], map: match.setup.map })
   : scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0), myFaction) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
@@ -77,7 +79,7 @@ const bounds = mapBounds(map.width, map.height);
 // the two players in lockstep (NET-2).
 const watch = match ? new OnlineWatch(match, { end: (why, tick) => endOnline(why, tick) }) : null;
 // Held at its first tick until the view is drawn and the controls are live (UI-12).
-const sim = new SimClient(cfg, scenario || match ? [] : [{ player: 1, difficulty: level }], { viewer: PLAYER, net: watch?.link, hold: true });
+const sim = new SimClient(cfg, scenario || match ? [] : [{ player: 1, difficulty: level, personality }], { viewer: PLAYER, net: watch?.link, hold: true });
 watch?.attach(sim);
 // three.js loads only for the 3D view, so classic sessions do not download it.
 const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D() : new GameView();
@@ -287,7 +289,9 @@ function frame(prevTime: number): (t: number) => void {
     if (curr && curr.over && !resultShown) {
       resultShown = true;
       const r = resultText(curr.winner, PLAYER);
-      hud.showResult(r.title, r.sub, r.color, curr.stats ? scoreView(curr) : undefined);
+      // Against the AI, the result names how it played (SCR-4); the game never shows it before the end.
+      const vsAi = !scenario && !match;
+      hud.showResult(r.title, vsAi ? `${r.sub} ${opponentLine(personality, level)}` : r.sub, r.color, curr.stats ? scoreView(curr) : undefined);
       // Online, "Play again" would need a new room: only the menu is offered.
       const again = document.getElementById('again');
       if (again && match) again.hidden = true;

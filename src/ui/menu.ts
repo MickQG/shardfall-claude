@@ -1,6 +1,6 @@
 import { MAPS, mapStarts, skirmishMap, type MapId } from '../data/maps';
 import { thumbCanvas } from './mapThumb';
-import { loadSettings, safeStorage, saveSettings, type Settings } from './settings';
+import { loadSettings, personalityChoiceOf, safeStorage, saveSettings, type PersonalityChoice, type Settings } from './settings';
 import { setActiveMatch, type Match } from '../net/lobby';
 import { mountOnlinePanel, ONLINE_CSS } from './onlinePanel';
 import { createUnitSheet, FACTION_INFO } from './unitSheet';
@@ -42,6 +42,7 @@ const CSS = `
 #menu .card .hero b { color: var(--c); }
 #menu .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 #menu .row .seg { align-self: auto; }
+#menu .row .seg[aria-label="Personality"] button { padding: 10px 14px; }
 #menu #units-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px; border: 1px solid #2b6b55; background: rgba(18,51,41,.55); color: #7ff5cd; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
 #menu #units-btn:hover, #menu #units-btn:focus-visible { background: #123329; border-color: #3f9a7a; outline: none; }
 #menu #units-btn svg { width: 18px; height: 18px; }
@@ -73,7 +74,7 @@ const CSS = `
 export const HELP_TEXT =
   'Left-click select · drag to box-select · right-click move/attack · F then right-click attack-move · E select same kind · Q select army · X stop · Ctrl+1-9 groups · WASD/edges scroll · wheel zoom. Harvest shards, build up the tech tree, destroy the enemy base.';
 
-type Pick = { faction: 'human' | 'alien'; difficulty: 'easy' | 'medium' | 'hard' };
+type Pick = { faction: 'human' | 'alien'; difficulty: 'easy' | 'medium' | 'hard'; personality: PersonalityChoice };
 type Mode = 'single' | 'multi' | 'settings';
 
 const FACTIONS = [
@@ -107,7 +108,7 @@ export function showMenu(): void {
         <h2>Choose your faction</h2>
         <div class="faction">${factionCards}</div>
         <h2>Opponent</h2>
-        <div class="row"><div class="seg" role="group" aria-label="Opponent"><button data-diff="easy">Easy</button><button data-diff="medium">Medium</button><button data-diff="hard">Hard</button></div><button id="units-btn" aria-label="View units"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7l9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>View units</button></div>
+        <div class="row"><div class="seg" role="group" aria-label="Opponent"><button data-diff="easy">Easy</button><button data-diff="medium">Medium</button><button data-diff="hard">Hard</button></div><div class="seg" role="group" aria-label="Personality" title="How the opponent plays: revealed when the game ends"><button data-pers="random">Random</button><button data-pers="raider">Raider</button><button data-pers="balanced">Balanced</button><button data-pers="doomsday">Doomsday</button></div><button id="units-btn" aria-label="View units"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7l9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>View units</button></div>
         <h2>Map</h2>
         <div class="maps">${MAPS.map((m) => `<button class="map" data-map="${m.id}"><div class="thumb"></div><b>${m.name}</b><span>${m.blurb}</span></button>`).join('')}</div>
         <div class="actions"><button id="go">START</button><span class="note">Enter to start</span></div>
@@ -135,7 +136,7 @@ export function showMenu(): void {
     settings = { ...loadSettings(safeStorage()), ...patch };
     saveSettings(safeStorage(), settings);
   };
-  const pick: Pick & { map: MapId } = { faction: 'human', difficulty: 'medium', map: settings.map };
+  const pick: Pick & { map: MapId } = { faction: 'human', difficulty: 'medium', personality: settings.personality, map: settings.map };
   let mode: Mode = 'single';
   const volume = root.querySelector<HTMLInputElement>('#set-volume')!;
   const mute = root.querySelector<HTMLInputElement>('#set-mute')!;
@@ -148,6 +149,7 @@ export function showMenu(): void {
     root.querySelectorAll<HTMLElement>('[data-panel]').forEach((e) => e.classList.toggle('on', e.dataset.panel === mode));
     root.querySelectorAll<HTMLElement>('[data-faction]').forEach((e) => e.classList.toggle('sel', e.dataset.faction === pick.faction));
     root.querySelectorAll<HTMLElement>('[data-diff]').forEach((e) => e.classList.toggle('sel', e.dataset.diff === pick.difficulty));
+    root.querySelectorAll<HTMLElement>('[data-pers]').forEach((e) => e.classList.toggle('sel', e.dataset.pers === pick.personality));
     root.querySelectorAll<HTMLElement>('[data-map]').forEach((e) => e.classList.toggle('sel', e.dataset.map === pick.map));
     root.querySelectorAll<HTMLElement>('[data-quality]').forEach((e) => e.classList.toggle('sel', e.dataset.quality === settings.quality));
   };
@@ -169,10 +171,10 @@ export function showMenu(): void {
   });
 
   const start = (): void => {
-    location.search = `?faction=${pick.faction}&difficulty=${pick.difficulty}&map=${pick.map}`;
+    location.search = `?faction=${pick.faction}&difficulty=${pick.difficulty}&personality=${pick.personality}&map=${pick.map}`;
   };
   root.addEventListener('click', (e) => {
-    const t = (e.target as HTMLElement).closest('[data-mode],[data-faction],[data-diff],[data-map],[data-quality],#go,#info-btn,#units-btn') as HTMLElement | null;
+    const t = (e.target as HTMLElement).closest('[data-mode],[data-faction],[data-diff],[data-pers],[data-map],[data-quality],#go,#info-btn,#units-btn') as HTMLElement | null;
     if (!t) return;
     if (t.id === 'info-btn' || t.id === 'units-btn') return sheet.open(pick.faction);
     if (t.id === 'go') return start();
@@ -182,6 +184,10 @@ export function showMenu(): void {
       online.refresh();
     }
     else if (t.dataset.diff) pick.difficulty = t.dataset.diff as Pick['difficulty'];
+    else if (t.dataset.pers) {
+      pick.personality = personalityChoiceOf(t.dataset.pers);
+      save({ personality: pick.personality });
+    }
     else if (t.dataset.quality) save({ quality: t.dataset.quality === 'low' ? 'low' : 'high' });
     else if (t.dataset.map) {
       pick.map = MAPS.find((m) => m.id === t.dataset.map)?.id ?? pick.map;
