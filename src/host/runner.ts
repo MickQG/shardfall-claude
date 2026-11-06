@@ -1,5 +1,6 @@
 import { AI, DIFFICULTIES, type Personality } from '../ai/ai';
 import { HASH_EVERY, TURN_TICKS } from '../net/protocol';
+import { DEFAULT_SPEED } from './speed';
 import { createGame, hash, snapshot, submit, tick, TICKS_PER_SECOND, type Command, type GameConfig, type Snapshot } from '../sim';
 
 export const TICK_MS = 1000 / TICKS_PER_SECOND;
@@ -24,7 +25,8 @@ export class SimRunner {
   private turns: Map<number, Command[]> | null = null;
   /** Called with the state checksum every HASH_EVERY ticks in online play (NET-3). */
   onHash: ((tick: number, h: number) => void) | null = null;
-  speed = 1;
+  /** Game speed (UX-3): ×0.8 unless the player changes it; online it stays at the default for both players. */
+  speed = DEFAULT_SPEED;
   paused = false;
 
   constructor(
