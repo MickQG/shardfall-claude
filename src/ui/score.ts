@@ -33,3 +33,14 @@ export function opponentLine(personality: string, difficulty: string): string {
   const cap = (w: string): string => w.charAt(0).toUpperCase() + w.slice(1);
   return `Your opponent played ${cap(personality)} on ${cap(difficulty)}.`;
 }
+
+/** The result-screen line giving a generated map's seed (SCR-5). */
+export const mapSeedLine = (mapSeed: number): string => `Map seed ${mapSeed}.`;
+
+/**
+ * The address of a new single player game on the same generated map (SCR-5): same map seed, faction, opponent
+ * difficulty and personality setting (Random stays Random).
+ */
+export function replayMapSearch(o: { faction: string; difficulty: string; personality: string; mapSeed: number }): string {
+  return `?faction=${o.faction}&difficulty=${o.difficulty}&personality=${o.personality}&map=generated&mapseed=${o.mapSeed}`;
+}

@@ -1,5 +1,5 @@
 import { DIFFICULTIES, resolvePersonality } from './ai/ai';
-import { duelConfig, mapIdOf, rushConfig, showcaseConfig, skirmishConfig } from './data/maps';
+import { duelConfig, mapIdOf, mapSeedOf, resolveMapSeed, rushConfig, showcaseConfig, skirmishConfig } from './data/maps';
 import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
 import { soundFor } from './audio/plan';
@@ -16,7 +16,7 @@ import { AlertTracker } from './ui/alerts';
 import { countdownRows } from './ui/countdown';
 import { READY_FRAMES, READY_TIMEOUT_MS, readyToStart, showLoading } from './ui/loading';
 import { createHud, resultText, type ScoreView } from './ui/hud';
-import { armyPath, opponentLine, scoreRows } from './ui/score';
+import { armyPath, mapSeedLine, opponentLine, replayMapSearch, scoreRows } from './ui/score';
 import { amoveClick, attackMoveIds, centroid, combatUnitIds, DoubleTap, inputAllowed, KeyTap, minimapClick } from './ui/controls';
 import { cursorCss, cursorFor, type CursorState } from './ui/cursor';
 import { clampTile, Minimap, miniToTile } from './ui/minimap';
@@ -25,7 +25,7 @@ import { acknowledge, Acks, type Acknowledgement } from './ui/acknowledge';
 import { OWNER_COLORS } from './render/colors';
 import type { Command } from './sim';
 import { seedOf } from './ui/params';
-import { effectsEnabled, loadSettings, safeStorage, saveSettings } from './ui/settings';
+import { effectsEnabled, loadSettings, personalityChoiceOf, safeStorage, saveSettings } from './ui/settings';
 import { placementLive } from './ui/production';
 import { FrameStats } from './ui/frameStats';
 import { Sidebar } from './ui/sidebar';
@@ -51,12 +51,12 @@ const PLAYER = match?.me ?? 0;
 const myFaction = params.get('faction') === 'alien' ? 'alien' : 'human';
 const level = (['easy', 'medium', 'hard'] as const).find((d) => d === params.get('difficulty')) ?? 'medium';
 const scenario = params.get('scenario');
-const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number], map: mapIdOf(params.get('map')) };
+const opts = { factions: [myFaction, myFaction === 'human' ? 'alien' : 'human'] as ['human' | 'alien', 'human' | 'alien'], bonuses: [0, DIFFICULTIES[level].bonus] as [number, number], map: mapIdOf(params.get('map')), mapSeed: resolveMapSeed(mapSeedOf(params.get('mapseed'), 1)) };
 const seed = seedOf(params.get('seed'), Date.now() % 100000);
 /** The AI opponent's personality (AI-12): picked in the menu, or drawn from the game seed for Random (MENU-5). */
 const personality = resolvePersonality(params.get('personality'), seed);
 const cfg = match
-  ? skirmishConfig(match.setup.seed, { factions: match.setup.factions, bonuses: [0, 0], map: match.setup.map })
+  ? skirmishConfig(match.setup.seed, { factions: match.setup.factions, bonuses: [0, 0], map: match.setup.map, mapSeed: match.setup.mapSeed })
   : scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0), myFaction) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
 /** What this browser's WebGL2 is: missing, software-rendered, or on a graphics chip. */
 function probeGpu(): GpuProbe {
@@ -295,6 +295,15 @@ function frame(prevTime: number): (t: number) => void {
       // Online, "Play again" would need a new room: only the menu is offered.
       const again = document.getElementById('again');
       if (again && match) again.hidden = true;
+      // On a generated map (SCR-5): its seed, and a new single player game on the same map with the same settings.
+      const mapSeed = match ? match.setup.mapSeed : !scenario && opts.map === 'generated' ? opts.mapSeed : undefined;
+      if (again && mapSeed !== undefined) {
+        const sub = document.querySelector<HTMLElement>('#result .sub');
+        if (sub) sub.textContent = `${sub.textContent ?? ''} ${mapSeedLine(mapSeed)}`;
+        again.hidden = false;
+        again.textContent = 'Play this map again';
+        again.onclick = () => (location.search = replayMapSearch({ faction: myFaction, difficulty: level, personality: personalityChoiceOf(params.get('personality')), mapSeed }));
+      }
       watch?.finished(curr.tick);
     }
     if (curr && sim.prev) {

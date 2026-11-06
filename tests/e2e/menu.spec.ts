@@ -6,7 +6,7 @@ test('MENU-1: the menu has a rail of four modes, faction cards naming heroes, ma
   await expect(page.locator('#menu .rail .nav')).toHaveText([/Single player/, /Multiplayer/, /Units/, /Settings/]);
   await expect(page.locator('#menu [data-faction="human"]')).toContainText('Paladin');
   await expect(page.locator('#menu [data-faction="alien"]')).toContainText('Dreadstrider');
-  await expect(page.locator('#menu [data-map] canvas')).toHaveCount(3);
+  await expect(page.locator('#menu [data-map] canvas')).toHaveCount(4);
   await expect(page.locator('#menu [data-diff]')).toHaveCount(3);
   // Up and Down move through the rail.
   await page.locator('#menu [data-mode="single"]').focus();
@@ -82,4 +82,31 @@ test('MENU-5: a Personality control beside the opponent difficulty, Random by de
   await expect(page.locator('#menu [data-pers="doomsday"]')).toHaveClass(/sel/);
   await page.locator('#menu #go').click();
   await page.waitForURL(/personality=doomsday/);
+});
+
+test('MENU-6: a Generated map card with a thumbnail, reroll and an editable seed, remembered and passed to the game', async ({ page }) => {
+  await page.goto('/');
+  const card = page.locator('#menu [data-map="generated"]');
+  await expect(card).toContainText('Generated');
+  await expect(card.locator('canvas')).toHaveCount(1);
+  const seed = card.locator('#map-seed');
+  const before = await card.locator('canvas').evaluate((c: HTMLCanvasElement) => c.toDataURL());
+  // Typing a seed selects the card and redraws its thumbnail.
+  await seed.fill('4242');
+  await seed.press('Tab');
+  await expect(card).toHaveClass(/sel/);
+  await expect(seed).toHaveValue(/^\d+$/);
+  const typed = await seed.inputValue();
+  expect(await card.locator('canvas').evaluate((c: HTMLCanvasElement) => c.toDataURL())).not.toBe(before);
+  // Reroll draws another seed.
+  await card.locator('#reroll').click();
+  await expect(seed).not.toHaveValue(typed);
+  const rolled = await seed.inputValue();
+  // Remembered on the device.
+  await page.reload();
+  await expect(page.locator('#menu [data-map="generated"]')).toHaveClass(/sel/);
+  await expect(page.locator('#map-seed')).toHaveValue(rolled);
+  await page.locator('#menu #go').click();
+  await page.waitForURL(new RegExp(`map=generated&mapseed=${rolled}`));
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
 });

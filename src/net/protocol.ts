@@ -7,7 +7,7 @@ import type { Command } from '../sim';
  */
 
 /** Bumped whenever the protocol or the simulation changes in a way that would desync older clients. */
-export const NET_VERSION = 3;
+export const NET_VERSION = 4;
 /** Ticks per lockstep turn (100 ms at 20 ticks a second). */
 export const TURN_TICKS = 2;
 export const TURN_MS = TURN_TICKS * 50;
@@ -31,13 +31,17 @@ export const MAX_IDS = 200;
 export const MAX_MESSAGE_CHARS = 24_000;
 
 export type Faction = 'human' | 'alien';
-export type MapName = 'crossroads' | 'riverbed' | 'highlands';
-const MAPS: readonly MapName[] = ['crossroads', 'riverbed', 'highlands'];
+export type MapName = 'crossroads' | 'riverbed' | 'highlands' | 'generated';
+const MAPS: readonly MapName[] = ['crossroads', 'riverbed', 'highlands', 'generated'];
+/** Map seeds run from 0 to 999999 (MAP-7). */
+const MAP_SEED_LIMIT = 1_000_000;
 
 /** The match both players build: the host's choices; the guest plays the other faction. */
 export interface MatchSetup {
   seed: number;
   map: MapName;
+  /** The host's map seed when the map is generated (NET-6): both players build the same map from it. */
+  mapSeed?: number;
   /** Faction of player 0 (the host) and player 1 (the guest). */
   factions: [Faction, Faction];
 }
@@ -114,7 +118,10 @@ function parseSetup(x: unknown): MatchSetup | null {
   if (!isObj(x) || !isInt(x.seed, 0, 1_000_000_000) || !MAPS.includes(x.map as MapName) || !Array.isArray(x.factions) || x.factions.length !== 2) return null;
   const [a, b] = x.factions as unknown[];
   const f = (v: unknown): v is Faction => v === 'human' || v === 'alien';
-  return f(a) && f(b) ? { seed: x.seed, map: x.map as MapName, factions: [a, b] } : null;
+  if (!f(a) || !f(b)) return null;
+  if (x.map !== 'generated') return { seed: x.seed, map: x.map as MapName, factions: [a, b] };
+  // A generated map needs its seed (NET-6).
+  return isInt(x.mapSeed, 0, MAP_SEED_LIMIT - 1) ? { seed: x.seed, map: 'generated', mapSeed: x.mapSeed, factions: [a, b] } : null;
 }
 
 /**

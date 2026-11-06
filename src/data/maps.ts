@@ -1,139 +1,10 @@
 import { buildingDef, type Faction } from './defs';
 import type { BuildingSpawn, GameConfig, MapDef, PlayerSetup, UnitSpawn } from '../sim';
+import { generatedMap } from './mapgen';
+import { buildMap, DEFAULT_START, MAP_SIZE, turnMap, type Blob, type Field, type MapPlan } from './mapPlan';
 
-export const MAP_SIZE = 96;
-
-/** Player 0's start (its HQ's top-left tile) unless a map says otherwise: the top corner in the isometric view. */
-const DEFAULT_START = { tx: 10, ty: 10 } as const;
-
-interface Blob {
-  cx: number;
-  cy: number;
-  rx: number;
-  ry: number;
-}
-
-interface Field {
-  cx: number;
-  cy: number;
-  r: number;
-  amount: number;
-}
-
-/**
- * One half of a point-symmetric map (MAP-4): every rock, lake and field listed is mirrored through the map centre, so
- * both players get the same ground. `water` adds a per-tile shape that must be point-symmetric itself.
- */
-interface MapPlan {
-  rocks: Blob[];
-  lakes: Blob[];
-  fields: Field[];
-  /** Shards in the disc of radius `r` around the exact centre; amount 0 for none. */
-  centre: { r: number; amount: number };
-  /** Extra water. */
-  water?: (x: number, y: number) => boolean;
-  /** Player 0's HQ tile, with the base laid out toward +x and +y from it; player 1 mirrors it. DEFAULT_START otherwise. */
-  start?: { tx: number; ty: number };
-  /**
-   * Turn the whole map, bases included, a quarter turn about its centre, (x, y) to (W - 1 - y, x): in the isometric view
-   * the top and bottom corners become the right and left ones (MAP-6).
-   */
-  turn?: boolean;
-}
-
-/** A tile turned a quarter about the map centre (MapPlan.turn). */
-const turnTile = (x: number, y: number): [number, number] => [MAP_SIZE - 1 - y, x];
-
-/** The same map turned a quarter about its centre (MapPlan.turn); still point-symmetric. */
-function turnMap(m: MapDef): MapDef {
-  const W = MAP_SIZE;
-  const out = (a: readonly number[]): number[] => {
-    const r = new Array<number>(W * W).fill(0);
-    for (let y = 0; y < W; y++)
-      for (let x = 0; x < W; x++) {
-        const [nx, ny] = turnTile(x, y);
-        r[ny * W + nx] = a[y * W + x] as number;
-      }
-    return r;
-  };
-  return { width: W, height: W, heights: out(m.heights), blocked: out(m.blocked ?? []), shards: out(m.shards ?? []) };
-}
-
-function buildMap(plan: MapPlan): MapDef {
-  const W = MAP_SIZE;
-  const heights = new Array<number>(W * W).fill(0);
-  const blocked = new Array<number>(W * W).fill(0);
-  const shards = new Array<number>(W * W).fill(0);
-  const set = (x: number, y: number, rock: number): void => {
-    if (x < 0 || y < 0 || x >= W || y >= W) return;
-    const i = y * W + x;
-    heights[i] = Math.max(heights[i] as number, rock);
-    blocked[i] = 1;
-  };
-  for (const b of plan.rocks) {
-    for (let y = b.cy - b.ry; y <= b.cy + b.ry; y++) {
-      for (let x = b.cx - b.rx; x <= b.cx + b.rx; x++) {
-        const d = ((x - b.cx) / (b.rx + 0.5)) ** 2 + ((y - b.cy) / (b.ry + 0.5)) ** 2;
-        if (d > 1) continue;
-        const h = d < 0.45 ? 2 : 1;
-        set(x, y, h);
-        set(W - 1 - x, W - 1 - y, h);
-      }
-    }
-  }
-  // A crest (level 2) needs rock all round it, so rock always steps down one level at a time to open ground.
-  const crest = heights.slice();
-  for (let y = 0; y < W; y++) {
-    for (let x = 0; x < W; x++) {
-      if (crest[y * W + x] !== 2) continue;
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = x + dx;
-          const ny = y + dy;
-          if (nx >= 0 && ny >= 0 && nx < W && ny < W && !crest[ny * W + nx]) heights[y * W + x] = 1;
-        }
-      }
-    }
-  }
-  // Water is blocked ground at level 0; it never replaces rock.
-  const wet = (x: number, y: number): void => {
-    if (x < 0 || y < 0 || x >= W || y >= W) return;
-    const i = y * W + x;
-    if ((heights[i] as number) > 0) return;
-    blocked[i] = 1;
-  };
-  for (const b of plan.lakes) {
-    for (let y = b.cy - b.ry; y <= b.cy + b.ry; y++) {
-      for (let x = b.cx - b.rx; x <= b.cx + b.rx; x++) {
-        // A rounder, slightly uneven outline than the rocks.
-        const wobble = 0.12 * Math.sin(x * 1.7 + y * 0.9);
-        const d = ((x - b.cx) / (b.rx + 0.5)) ** 2 + ((y - b.cy) / (b.ry + 0.5)) ** 2;
-        if (d > 1 + wobble) continue;
-        wet(x, y);
-        wet(W - 1 - x, W - 1 - y);
-      }
-    }
-  }
-  if (plan.water) for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (plan.water(x, y)) wet(x, y);
-  // Shards lie on open ground only, never under rock or water.
-  const shard = (i: number, amount: number): void => {
-    if (!blocked[i]) shards[i] = amount;
-  };
-  for (const f of plan.fields) {
-    for (let y = f.cy - f.r; y <= f.cy + f.r; y++) {
-      for (let x = f.cx - f.r; x <= f.cx + f.r; x++) {
-        if ((x - f.cx) ** 2 + (y - f.cy) ** 2 > f.r * f.r + 1) continue;
-        shard(y * W + x, f.amount);
-        shard((W - 1 - y) * W + (W - 1 - x), f.amount);
-      }
-    }
-  }
-  // The centre field is a disc around the map's exact centre (47.5, 47.5), so it is point-symmetric.
-  const c = (W - 1) / 2;
-  const r = plan.centre.r;
-  if (plan.centre.amount > 0) for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if ((x - c) ** 2 + (y - c) ** 2 <= r * r) shard(y * W + x, plan.centre.amount);
-  return { width: W, height: W, heights, blocked, shards };
-}
+export { MAP_SIZE } from './mapPlan';
+export { MAP_SEED_MAX, mapSeedOf, resolveMapSeed } from './mapgen';
 
 /** Shard fields beside a base at DEFAULT_START, so every start has a working economy (Riverbed has its own). */
 const HOME_FIELDS: Field[] = [
@@ -242,10 +113,13 @@ const HIGHLANDS: MapPlan = {
   water: (x, y) => Math.hypot(x - (MAP_SIZE - 1) / 2, y - (MAP_SIZE - 1) / 2) <= 2.6,
 };
 
-export type MapId = 'crossroads' | 'riverbed' | 'highlands';
+/** The hand-made maps (MAP-4). */
+export type HandMadeMapId = 'crossroads' | 'riverbed' | 'highlands';
+/** A skirmish map: one of the hand-made ones, or the map generated from a map seed (MAP-7). */
+export type MapId = HandMadeMapId | 'generated';
 
 /** The skirmish maps in menu order; the first is the default (MAP-4). */
-export const MAPS: readonly { id: MapId; name: string; blurb: string; plan: MapPlan }[] = [
+export const MAPS: readonly { id: HandMadeMapId; name: string; blurb: string; plan: MapPlan }[] = [
   { id: 'crossroads', name: 'Crossroads', blurb: 'Rock outcrops and lakes funnel the fight through chokepoints.', plan: CROSSROADS },
   { id: 'riverbed', name: 'Riverbed', blurb: 'A river between the bases: hold the bridge and the two fords.', plan: RIVERBED },
   { id: 'highlands', name: 'Highlands', blurb: 'A ring of ridges around a rich basin, entered by its passes and corner gaps.', plan: HIGHLANDS },
@@ -254,16 +128,19 @@ export const MAPS: readonly { id: MapId; name: string; blurb: string; plan: MapP
 export const DEFAULT_MAP: MapId = 'crossroads';
 
 /** A map id from untrusted input (the address bar, saved settings), or the default. */
-export const mapIdOf = (v: unknown): MapId => MAPS.find((m) => m.id === v)?.id ?? DEFAULT_MAP;
+export const mapIdOf = (v: unknown): MapId => (v === 'generated' ? 'generated' : (MAPS.find((m) => m.id === v)?.id ?? DEFAULT_MAP));
 
-/** A 96x96 point-symmetric two-player skirmish map (MAP-2, MAP-4): Crossroads unless another is named. */
-export function skirmishMap(id: MapId = DEFAULT_MAP): MapDef {
-  const plan = planOf(id);
+/**
+ * A 96x96 point-symmetric two-player skirmish map (MAP-2, MAP-4): Crossroads unless another is named; for 'generated',
+ * the map of `mapSeed` (MAP-7, MAP-9).
+ */
+export function skirmishMap(id: MapId = DEFAULT_MAP, mapSeed = 0): MapDef {
+  const plan = planOf(id, mapSeed);
   const m = buildMap(plan);
   return plan.turn ? turnMap(m) : m;
 }
 
-const planOf = (id: MapId): MapPlan => MAPS.find((m) => m.id === id)!.plan;
+const planOf = (id: MapId, mapSeed = 0): MapPlan => (id === 'generated' ? generatedMap(mapSeed).plan : MAPS.find((m) => m.id === id)!.plan);
 
 /**
  * Where a footprint `w` by `h` laid out at offset (dx, dy) from player 0's start ends up for `owner` on a map: turned with
@@ -279,8 +156,8 @@ function footprint(plan: MapPlan, owner: number, dx: number, dy: number, w: numb
 }
 
 /** Each player's start on a map: the top-left tile of their HQ (MAP-5, MAP-6). */
-export function mapStarts(id: MapId = DEFAULT_MAP): [{ tx: number; ty: number }, { tx: number; ty: number }] {
-  const plan = planOf(id);
+export function mapStarts(id: MapId = DEFAULT_MAP, mapSeed = 0): [{ tx: number; ty: number }, { tx: number; ty: number }] {
+  const plan = planOf(id, mapSeed);
   return [footprint(plan, 0, 0, 0, 3, 3), footprint(plan, 1, 0, 0, 3, 3)];
 }
 
@@ -307,18 +184,20 @@ export interface SkirmishOptions {
   credits?: number;
   /** Which skirmish map (MAP-4); Crossroads by default. */
   map?: MapId;
+  /** The map seed of a generated map (MAP-7). */
+  mapSeed?: number;
 }
 
 export function skirmishConfig(seed = 1, o: SkirmishOptions = {}): GameConfig {
   const f = o.factions ?? ['human', 'alien'];
-  const plan = planOf(o.map ?? DEFAULT_MAP);
+  const plan = planOf(o.map ?? DEFAULT_MAP, o.mapSeed);
   const a = startingForce(0, f[0], plan);
   const b = startingForce(1, f[1], plan);
   const players: PlayerSetup[] = [
     { faction: f[0], credits: o.credits ?? 1800, bonus: o.bonuses?.[0] ?? 0 },
     { faction: f[1], credits: o.credits ?? 1800, bonus: o.bonuses?.[1] ?? 0 },
   ];
-  return { seed, map: skirmishMap(o.map), players, buildings: [...a.buildings, ...b.buildings], units: [...a.units, ...b.units] };
+  return { seed, map: skirmishMap(o.map, o.mapSeed), players, buildings: [...a.buildings, ...b.buildings], units: [...a.units, ...b.units] };
 }
 
 /** Small deterministic test terrain: a ridge ring with gaps around the centre. */
