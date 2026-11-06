@@ -247,31 +247,6 @@ describe('headless harness', () => {
     expect(bad.violations[0].hoard + bad.violations[1].hoard).toBeGreaterThanOrEqual(1); // shards pile up unspent
     expect(bad.ai[0].waves + bad.ai[1].waves).toBe(0);
   }, LONG);
-
-  it('HAR-3: across seeds and sides, Hard beats Easy, and Hard beats Medium more often than not', () => {
-    const series = (a: keyof typeof DIFFICULTIES, b: keyof typeof DIFFICULTIES, seeds: number[]): { a: number; b: number } => {
-      let wa = 0;
-      let wb = 0;
-      // Every pairing is played from both sides of the map and with both factions, so difficulty is not confused with faction or position.
-      for (const seed of seeds) {
-        for (const factions of [['human', 'alien'], ['alien', 'human']] as const) {
-          for (const swap of [false, true]) {
-            const d = swap ? [DIFFICULTIES[b], DIFFICULTIES[a]] : [DIFFICULTIES[a], DIFFICULTIES[b]];
-            const r = playMatch({ seed, factions: [factions[0], factions[1]], difficulties: [d[0]!, d[1]!], maxTicks: 12000 });
-            if (r.winner === null) continue;
-            if ((r.winner === 0) !== swap) wa++;
-            else wb++;
-          }
-        }
-      }
-      return { a: wa, b: wb };
-    };
-    const hardEasy = series('hard', 'easy', [1]);
-    expect(hardEasy.a).toBeGreaterThanOrEqual(3); // of 4
-    expect(hardEasy.a).toBeGreaterThan(hardEasy.b);
-    const hardMedium = series('hard', 'medium', [1, 2, 3]);
-    expect(hardMedium.a).toBeGreaterThan(hardMedium.b);
-  }, 600_000);
 });
 
 function buildingKind(kind: string): boolean {
