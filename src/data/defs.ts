@@ -133,11 +133,11 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // ---- Humans ----
   hum_hauler: { faction: 'human', name: 'Shard Hauler', speed: 30, hp: 400, radius: 96, vision: 6, cost: 400, buildTime: 450, builtAt: 'hum_factory', requires: ['hum_refinery'], armor: 'heavy', capacity: 200, role: 'harvester' },
   hum_rifleman: {
-    faction: 'human', name: 'Rifleman', speed: 38, hp: 100, radius: 80, vision: 7, cost: 100, buildTime: 120, builtAt: 'hum_barracks', requires: [], armor: 'light', squad: 3, role: 'infantry',
+    faction: 'human', name: 'Rifleman', speed: 28, hp: 100, radius: 80, vision: 7, cost: 100, buildTime: 120, builtAt: 'hum_barracks', requires: [], armor: 'light', squad: 3, role: 'infantry',
     weapon: { damage: 7, range: 5, cooldown: 10, type: 'pierce', antiAir: true, antiGround: true },
   },
   hum_rocketeer: {
-    faction: 'human', name: 'Rocketeer', speed: 34, hp: 100, radius: 80, vision: 7, cost: 250, buildTime: 200, builtAt: 'hum_barracks', requires: ['hum_factory'], armor: 'light', squad: 3, role: 'antiarmor',
+    faction: 'human', name: 'Rocketeer', speed: 27, hp: 100, radius: 80, vision: 7, cost: 250, buildTime: 200, builtAt: 'hum_barracks', requires: ['hum_factory'], armor: 'light', squad: 3, role: 'antiarmor',
     weapon: { damage: 38, range: 6, cooldown: 30, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
   },
   hum_buggy: {
@@ -145,7 +145,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
     weapon: { damage: 7, range: 4.5, cooldown: 8, type: 'pierce', antiAir: false, antiGround: true },
   },
   hum_tank: {
-    faction: 'human', name: 'Bulwark Tank', speed: 34, hp: 550, radius: 104, vision: 7, cost: 800, buildTime: 450, builtAt: 'hum_factory', requires: [], armor: 'heavy', crusher: true, role: 'tank',
+    faction: 'human', name: 'Bulwark Tank', speed: 42, hp: 550, radius: 104, vision: 7, cost: 800, buildTime: 450, builtAt: 'hum_factory', requires: [], armor: 'heavy', crusher: true, role: 'tank',
     weapon: { damage: 38, range: 6, cooldown: 25, type: 'rocket', antiAir: false, antiGround: true, flight: 3 },
   },
   hum_artillery: {
@@ -162,11 +162,11 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // ---- Aliens ----
   ali_gorger: { faction: 'alien', name: 'Gorger', speed: 34, hp: 350, radius: 96, vision: 6, cost: 350, buildTime: 420, builtAt: 'ali_pit', requires: ['ali_extractor'], armor: 'heavy', capacity: 200, regen: 2, role: 'harvester' },
   ali_skitter: {
-    faction: 'alien', name: 'Skitterer', speed: 60, hp: 74, radius: 70, vision: 7, cost: 80, buildTime: 100, builtAt: 'ali_nest', requires: [], armor: 'light', regen: 1, squad: 3, role: 'raider',
+    faction: 'alien', name: 'Skitterer', speed: 50, hp: 74, radius: 70, vision: 7, cost: 80, buildTime: 100, builtAt: 'ali_nest', requires: [], armor: 'light', regen: 1, squad: 3, role: 'raider',
     weapon: { damage: 7, range: 1.5, cooldown: 8, type: 'bite', antiAir: false, antiGround: true },
   },
   ali_spitter: {
-    faction: 'alien', name: 'Spitter', speed: 40, hp: 82, radius: 76, vision: 7, cost: 220, buildTime: 200, builtAt: 'ali_nest', requires: ['ali_pit'], armor: 'light', regen: 1, squad: 3, role: 'antiarmor',
+    faction: 'alien', name: 'Spitter', speed: 30, hp: 82, radius: 76, vision: 7, cost: 220, buildTime: 200, builtAt: 'ali_nest', requires: ['ali_pit'], armor: 'light', regen: 1, squad: 3, role: 'antiarmor',
     weapon: { damage: 30, range: 6, cooldown: 26, type: 'rocket', antiAir: true, antiGround: true, flight: 6 },
   },
   ali_stalker: {
@@ -174,7 +174,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
     weapon: { damage: 8, range: 1.6, cooldown: 7, type: 'bite', antiAir: false, antiGround: true },
   },
   ali_brute: {
-    faction: 'alien', name: 'Brute', speed: 33, hp: 620, radius: 112, vision: 6, cost: 830, buildTime: 500, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 2, crusher: true, role: 'tank',
+    faction: 'alien', name: 'Brute', speed: 38, hp: 620, radius: 112, vision: 6, cost: 830, buildTime: 500, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 2, crusher: true, role: 'tank',
     weapon: { damage: 58, range: 1.9, cooldown: 20, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_lobber: {

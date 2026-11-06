@@ -342,7 +342,7 @@ describe('infantry spam no longer wins', () => {
     }
   }, 120_000);
 
-  it('BAL-9: pure anti-armour infantry still beats pure crushers, but only narrowly', () => {
+  it('BAL-9: pure anti-armour infantry and pure crushers trade about evenly', () => {
     const margins: number[] = [];
     for (const crusher of ['hum_tank', 'ali_brute'])
       for (const at of ['hum_rocketeer', 'ali_spitter']) {
@@ -352,7 +352,26 @@ describe('infantry spam no longer wins', () => {
         expect(mean(rs, 'bLost')).toBeGreaterThanOrEqual(60);
       }
     const avg = margins.reduce((s, m) => s + m, 0) / margins.length;
-    expect(avg).toBeLessThan(0);
-    expect(avg).toBeGreaterThan(-30);
+    expect(Math.abs(avg)).toBeLessThan(15);
   }, 120_000);
+});
+
+describe('unit speeds', () => {
+  it('BAL-12: tanks outpace infantry; scouts > Skitterer > tanks > line infantry > artillery > heroes', () => {
+    const s = (k: string) => unitDef(k).speed;
+    const scouts = ['hum_buggy', 'ali_stalker'];
+    const tanks = ['hum_tank', 'ali_brute'];
+    const line = ['hum_rifleman', 'hum_rocketeer', 'ali_spitter'];
+    const artillery = ['hum_artillery', 'ali_lobber'];
+    const heroes = ['hum_paladin', 'ali_strider'];
+    const order = [scouts, ['ali_skitter'], tanks, line, artillery, heroes];
+    for (let i = 0; i + 1 < order.length; i++) {
+      expect(Math.min(...order[i]!.map(s))).toBeGreaterThan(Math.max(...order[i + 1]!.map(s)));
+    }
+    // A tank is at least a quarter faster than any line infantry squad.
+    expect(Math.min(...tanks.map(s)) * 4).toBeGreaterThanOrEqual(Math.max(...line.map(s)) * 5);
+    // Every infantry squad but the Skitterer is slower than every tank.
+    const squads = Object.keys(UNIT_DEFS).filter((k) => (UNIT_DEFS[k]!.squad ?? 1) > 1 && k !== 'ali_skitter');
+    for (const q of squads) for (const t of tanks) expect(s(q)).toBeLessThan(s(t));
+  });
 });
