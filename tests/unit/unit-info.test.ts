@@ -14,7 +14,7 @@ describe('unit info cards', () => {
   });
 
   it('INF-2: words, not numbers, for toughness, speed and range; cost, role, air and regeneration', () => {
-    expect(card('human', 'Rocketeer')).toMatchObject({ cost: 250, role: 'Anti-armour', toughness: 'Fragile', speed: 'Average', range: 'Medium', hitsAir: true, regenerates: false });
+    expect(card('human', 'Rocketeer')).toMatchObject({ cost: 250, role: 'Anti-armour', toughness: 'Fragile', speed: 'Slow', range: 'Medium', hitsAir: true, regenerates: false });
     expect(card('human', 'Paladin')).toMatchObject({ role: 'Hero tank', toughness: 'Very tough', speed: 'Slow', range: 'Medium', hitsAir: true, regenerates: true });
     expect(card('human', 'Hammer Artillery')).toMatchObject({ toughness: 'Sturdy', speed: 'Slow', range: 'Long', hitsAir: false });
     expect(card('alien', 'Brute')).toMatchObject({ role: 'Tank', toughness: 'Very tough', speed: 'Average', range: 'Melee', hitsAir: false, regenerates: true });

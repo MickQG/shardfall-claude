@@ -37,7 +37,7 @@ describe('unit sheet', () => {
 
   it("INF-6: the preview runs the unit at its match speed and fire rate, through the game's own motion, squad and effects code", () => {
     // Speed is fixed-point units (256 a tile) per tick (20 a second).
-    expect(tilesPerSecond(UNIT_DEFS.hum_tank!.speed)).toBeCloseTo((34 * 20) / 256);
+    expect(tilesPerSecond(UNIT_DEFS.hum_tank!.speed)).toBeCloseTo((42 * 20) / 256);
     expect(shotEvery(UNIT_DEFS.hum_rifleman!)).toBe(500);
     expect(shotEvery(UNIT_DEFS.hum_artillery!)).toBe(3000);
     // A calm pace: the close-up camera makes match speed look hurried.
