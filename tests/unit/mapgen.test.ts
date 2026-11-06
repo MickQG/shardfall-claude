@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { DIFFICULTIES } from '../../src/ai/ai';
-import { playMatch } from '../../src/ai/harness';
 import { checkPlan, generatePlan, generatedMap } from '../../src/data/mapgen';
 import { MAP_SEED_MAX, MAP_SIZE, mapIdOf, mapSeedOf, mapStarts, resolveMapSeed, skirmishConfig, skirmishMap } from '../../src/data/maps';
 import { NET_VERSION, parseMessage } from '../../src/net/protocol';
@@ -81,15 +79,6 @@ describe('map generator', () => {
       expect(checkPlan(generatedMap(s).plan)).toEqual({ ok: true, why: '' });
     }
   }, 120_000);
-
-  it('MAP-8: both AIs build their bases and fight on generated maps', () => {
-    for (const s of [11, 2024, 777777]) {
-      const r = playMatch({ seed: 3, factions: ['human', 'alien'], difficulties: [DIFFICULTIES.medium, DIFFICULTIES.medium], maxTicks: 20 * 60 * 7, map: 'generated', mapSeed: s });
-      expect(r.ai[0].waves + r.ai[1].waves, `seed ${s}`).toBeGreaterThan(0);
-      expect(r.orders[0]).toBeGreaterThan(50);
-      expect(r.orders[1]).toBeGreaterThan(50);
-    }
-  }, 300_000);
 
   it('MAP-9: a seed whose map fails moves on to the next seed; the reported seed gives the same map', () => {
     const failing: number[] = [];

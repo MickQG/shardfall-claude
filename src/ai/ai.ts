@@ -42,6 +42,8 @@ export const RAID_FROM = 20 * 75;
 export const STRIKE_LEAD = 16;
 /** Doomsday holds a charged superweapon at most this long (ticks) for its wave before it fires anyway. */
 export const STRIKE_HOLD = 20 * 90;
+/** How far (tiles) to one side of the straight line a scout's route swings, around the enemy's front (AI-17). */
+export const SCOUT_FLANK = 22;
 
 export type Role = 'inf' | 'at' | 'tank' | 'art' | 'air' | 'scout';
 
@@ -238,6 +240,9 @@ export class AI {
   private gatherSince = -1;
   private scoutId = -1;
   private lastScout = -100000;
+  /** The scout's route (AI-17): a flank point first, then the enemy start; trips alternate flanks. */
+  private scoutRoute: { tx: number; ty: number }[] = [];
+  private scoutTrips = 0;
   private defend = { tick: -1000, x: 0, y: 0 };
   private lastThreat = -100000;
   private idle = new Map<number, { x: number; y: number; n: number }>();
@@ -290,14 +295,12 @@ export class AI {
     const out: Command[] = [];
     this.placeReady(c, out);
     this.defendBase(c, out);
-    // Raider finds the enemy economy first (AI-14): its scout order goes ahead of production in the command budget.
-    const raider = this.plan === 'raider';
-    if (raider) this.scout(c, out);
+    // Scouting goes ahead of building and production in the command budget, or the scout is rarely sent (AI-6, AI-17).
+    this.scout(c, out);
     this.structures(c, out);
     this.production(c, out);
     this.economy(c, out);
     this.attackLogic(c, out);
-    if (!raider) this.scout(c, out);
     this.maintain(c, out);
     this.superweapon(c, out);
     // Crush orders go last so they override this tick's wave orders for the same units, and always get a share of the
@@ -873,6 +876,9 @@ export class AI {
     const knowEnemy = c.enemyBuildings.length > 0;
     if (knowEnemy && this.stats.scoutedAt < 0) this.stats.scoutedAt = c.tick;
     const stage = this.staging as { tx: number; ty: number };
+    const go = (id: number, t: { tx: number; ty: number }): void => {
+      out.push({ type: 'move', player: this.player, units: [id], x: t.tx * FP + FP / 2, y: t.ty * FP + FP / 2 });
+    };
 
     if (me) {
       // A scout is expendable until it has been hit; then it falls back with what it learned.
@@ -880,24 +886,44 @@ export class AI {
       const danger = hurt && c.foes.some((u) => unitDef(u.kind).weapon && dist(tileOf(u.x), tileOf(u.y), tileOf(me.x), tileOf(me.y)) < 9);
       const done = knowEnemy && c.tick - this.lastScout > 900;
       if (danger || done) {
-        out.push({ type: 'move', player: this.player, units: [me.id], x: stage.tx * FP + FP / 2, y: stage.ty * FP + FP / 2 });
+        this.scoutRoute = [];
+        go(me.id, stage);
         if (done || dist(tileOf(me.x), tileOf(me.y), stage.tx, stage.ty) < 8) this.scoutId = -1;
+        return;
+      }
+      // On to the next leg of the route once this one is reached (or the unit has stopped short of it).
+      const leg = this.scoutRoute[0];
+      if (leg && (me.dest === null || dist(tileOf(me.x), tileOf(me.y), leg.tx, leg.ty) < 4)) {
+        this.scoutRoute.shift();
+        const next = this.scoutRoute[0];
+        if (next) go(me.id, next);
       }
       return;
     }
     const fresh = [...this.intel.values()].some((e) => UNIT_DEFS[e.kind]?.weapon && c.tick - e.t <= 900);
     const due = c.tick > (this.plan === 'raider' ? 300 : 1100) && (!knowEnemy || !fresh);
     if (!due || c.tick - this.lastScout < 1500) return;
-    // Prefer a genuinely fast scout, else spare a basic infantry unit.
-    const cands = c.army.filter((u) => u.dest === null).sort((a, b) => unitDef(b.kind).speed - unitDef(a.kind).speed || a.id - b.id);
-    const pick = cands.find((u) => unitDef(u.kind).role === 'scout') ?? (c.tick > (this.plan === 'raider' ? 300 : 1500) ? cands[cands.length - 1] : undefined);
+    // A genuine scout if there is one; else the fastest unit that is not a hero (AI-17).
+    const cands = c.army.filter((u) => u.dest === null && !unitDef(u.kind).hero).sort((a, b) => unitDef(b.kind).speed - unitDef(a.kind).speed || a.id - b.id);
+    const pick = cands.find((u) => unitDef(u.kind).role === 'scout') ?? (c.tick > (this.plan === 'raider' ? 300 : 1500) ? cands[0] : undefined);
     if (!pick) return;
     this.scoutId = pick.id;
     this.lastScout = c.tick;
-    // Raider scouts before it gives army orders, so the scout leaves the army now or the gather order calls it back.
-    if (this.plan === 'raider') c.army = c.army.filter((u) => u.id !== pick.id);
+    // The scout leaves the army now, so this turn's wave or gather orders do not call it back (AI-17).
+    c.army = c.army.filter((u) => u.id !== pick.id);
+    // Around the enemy's front rather than through it: a flank point halfway there, off to one side (AI-17).
     const target = this.enemyStart();
-    out.push({ type: 'move', player: this.player, units: [pick.id], x: target.tx * FP + FP / 2, y: target.ty * FP + FP / 2 });
+    const dx = target.tx - stage.tx;
+    const dy = target.ty - stage.ty;
+    const len = Math.max(1, Math.hypot(dx, dy));
+    const side = this.scoutTrips++ % 2 === 0 ? 1 : -1;
+    const W = this.map.width;
+    const H = this.map.height;
+    const clampX = (v: number): number => Math.max(2, Math.min(W - 3, Math.round(v)));
+    const clampY = (v: number): number => Math.max(2, Math.min(H - 3, Math.round(v)));
+    const flank = this.nearestFree(clampX(stage.tx + dx * 0.55 - (dy / len) * side * SCOUT_FLANK), clampY(stage.ty + dy * 0.55 + (dx / len) * side * SCOUT_FLANK));
+    this.scoutRoute = [flank, target];
+    go(pick.id, flank);
   }
 
   // ---------------------------------------------------------------- upkeep
