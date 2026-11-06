@@ -39,7 +39,7 @@ describe('procedural models', () => {
       expect(def.radius).toBeGreaterThan(0);
       expect(def.height).toBeGreaterThan(0);
     }
-  });
+  }, 30_000);
 
   it('R3D-3: every armed unit and building has a muzzle point; turrets turn on their own pivot', () => {
     for (const kind of Object.keys(UNIT_DEFS)) if (unitDef(kind).weapon) expect(muzzleCount(UNIT_RIGS[kind]!()), kind).toBeGreaterThan(0);

@@ -27,5 +27,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `021-infantry-balance.md` | Crushing (heroes crush vehicles), infantry damage, slower heroes, straight shells, elite shots, AI crushing | 21 |
 | `022-aim-and-models.md` | Shots leave along the barrel; no clipping between moving parts or into the ground | 22 |
 | `023-ai-personalities.md` | AI personalities (Raider, Balanced, Doomsday); match-length script | 23 |
+| `024-map-generator.md` | Seeded map generator, Generated map card, replay a seed | 24 |
 
 Umbrella spec: GitHub issue #1.

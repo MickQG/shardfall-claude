@@ -31,10 +31,10 @@ export const ONLINE_CSS = `
 `;
 
 const NAMES = { human: 'Aegis Union', alien: 'Vrax Hive' } as const;
-const MAP_NAMES = { crossroads: 'Crossroads', riverbed: 'Riverbed', highlands: 'Highlands' } as const;
+const MAP_NAMES = { crossroads: 'Crossroads', riverbed: 'Riverbed', highlands: 'Highlands', generated: 'Generated' } as const;
 
 export interface OnlinePanelDeps {
-  pick(): { faction: Faction; map: MapName };
+  pick(): { faction: Faction; map: MapName; mapSeed: number };
   /** A fresh random seed for a hosted match. */
   seed(): number;
   start(m: Match): void;
@@ -70,7 +70,7 @@ export function mountOnlinePanel(el: HTMLElement, badge: HTMLElement, deps: Onli
   const refresh = (): void => {
     const p = deps.pick();
     q('[data-mp="faction"]').textContent = NAMES[p.faction];
-    q('[data-mp="map"]').textContent = MAP_NAMES[p.map];
+    q('[data-mp="map"]').textContent = p.map === 'generated' ? `${MAP_NAMES.generated} (seed ${p.mapSeed})` : MAP_NAMES[p.map];
   };
   const show = (waiting: boolean, room = '', status = ''): void => {
     cards.hidden = waiting;
@@ -105,7 +105,7 @@ export function mountOnlinePanel(el: HTMLElement, badge: HTMLElement, deps: Onli
       if (room === null) {
         const p = deps.pick();
         show(true, ticket.room, 'Waiting for your friend to join');
-        pending = hostRoom(transport, ticket.room, { seed: deps.seed(), map: p.map, factions: [p.faction, p.faction === 'human' ? 'alien' : 'human'] });
+        pending = hostRoom(transport, ticket.room, { seed: deps.seed(), map: p.map, ...(p.map === 'generated' ? { mapSeed: p.mapSeed } : {}), factions: [p.faction, p.faction === 'human' ? 'alien' : 'human'] });
       } else {
         show(true, ticket.room, 'Joining');
         pending = joinRoom(transport, ticket.room);
