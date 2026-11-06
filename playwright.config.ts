@@ -6,6 +6,8 @@ const PORT = 4179;
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 90_000,
+  // Shards split by test rather than by file, so CI's shards finish together (#107).
+  fullyParallel: true,
   retries: process.env.CI ? 1 : 0,
   use: {
     baseURL: external ?? `http://localhost:${PORT}`,

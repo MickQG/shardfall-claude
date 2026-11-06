@@ -10,5 +10,5 @@ Scaffold, determinism primitives, traceability, CI, deployment and the first ren
 - **FND-6**: `npm run trace` fails when a requirement ID in `specs/` has no citing test and passes otherwise.
 - **FND-7**: Non-deterministic APIs (`Math.random`, `Date`, `performance`, DOM) are rejected by lint inside `src/sim`, `src/ai` and `src/data`.
 - **FND-8**: The built app loads in a browser, renders a non-blank canvas showing the isometric map, and exposes a PWA manifest.
-- **FND-9**: CI runs lint, type-check, unit tests, trace, build and e2e on every PR; `main` deploys to Azure Static Web Apps and PRs get previews.
+- **FND-9**: CI runs lint, type-check, unit tests, trace, build and e2e on every PR, and the full AI-vs-AI matches (the AI harness on every map and the statistical match tests) in parallel jobs on every push to `main` and on every PR that changes the simulation, AI, data or those tests (#107); `main` deploys to Azure Static Web Apps and PRs get previews.
 - **FND-10**: `npm run trace` fails when the same requirement ID is defined more than once across `specs/`.
