@@ -1,4 +1,4 @@
-import { musicPlan, type Sound } from './plan';
+import { menuPlan, musicPlan, type Sound } from './plan';
 
 type Name = Sound['name'] | 'alert' | 'ready' | 'click' | 'deny' | 'ack' | 'ackAttack';
 
@@ -15,6 +15,7 @@ export class AudioEngine {
   private musicBeat = 0;
   private plan: ReturnType<typeof musicPlan> = [];
   private nextBeatTime = 0;
+  private bus: GainNode | null = null;
   muted = false;
   volume = 0.6;
 
@@ -190,12 +191,12 @@ export class AudioEngine {
     }
   }
 
-  /** Starts the generative ambient score. */
-  startMusic(seed: number): void {
+  /** Starts the generative ambient score; `menu` plays the main-menu score instead (AUD-4). */
+  startMusic(seed: number, menu = false): void {
     try {
       const c = this.ctx;
       if (!c || !this.master || this.musicTimer !== null) return;
-      this.plan = musicPlan(seed, 64);
+      this.plan = menu ? menuPlan(seed, 64) : musicPlan(seed, 64);
       this.musicBeat = 0;
       this.nextBeatTime = c.currentTime + 0.2;
       const bus = c.createGain();
@@ -204,6 +205,7 @@ export class AudioEngine {
       lp.type = 'lowpass';
       lp.frequency.value = 1800;
       bus.connect(lp).connect(this.master);
+      this.bus = bus;
       const BEAT = 0.55;
       this.musicTimer = setInterval(() => {
         if (!this.ctx || this.muted) {
@@ -230,8 +232,20 @@ export class AudioEngine {
     }
   }
 
-  stopMusic(): void {
-    if (this.musicTimer !== null) clearInterval(this.musicTimer);
+  /** Stops the score; with `fadeSec` the music fades out first (AUD-4) and the notes already queued die away with it. */
+  stopMusic(fadeSec = 0): void {
+    const timer = this.musicTimer;
     this.musicTimer = null;
+    if (timer === null) return;
+    try {
+      if (fadeSec > 0 && this.bus && this.ctx) {
+        this.bus.gain.setTargetAtTime(0, this.ctx.currentTime, fadeSec / 3);
+        setTimeout(() => clearInterval(timer), fadeSec * 1000);
+        return;
+      }
+    } catch {
+      /* fall through to an immediate stop */
+    }
+    clearInterval(timer);
   }
 }
