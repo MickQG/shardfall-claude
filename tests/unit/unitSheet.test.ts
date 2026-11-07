@@ -59,20 +59,20 @@ describe('unit sheet', () => {
   it('INF-7: health, speed, range and firepower come from the definitions; firepower counts squad figures', () => {
     const rifle = UNIT_DEFS.hum_rifleman!;
     expect(firepower(rifle)).toBeCloseTo(((rifle.weapon!.damage * 3 * 20) / rifle.weapon!.cooldown), 1);
-    expect(unitStats(UNIT_DEFS.hum_paladin!)).toEqual({ health: 3000, speed: 20, range: 7, firepower: 61.1 });
+    expect(unitStats(UNIT_DEFS.hum_paladin!)).toEqual({ health: 4500, speed: 20, range: 7, firepower: 50 });
     expect(card('human', 'Shard Hauler').stats).toMatchObject({ range: 0, firepower: 0 });
   });
 
   it('INF-7: bars fill by the square root of the share of the largest value across both factions', () => {
     const max = statMax();
-    expect(max.health).toBe(3000);
+    expect(max.health).toBe(4500);
     expect(statFill(3000, 3000)).toBe(1);
     expect(statFill(750, 3000)).toBeCloseTo(0.5);
     expect(statFill(0, 3000)).toBe(0);
     const html = factsHtml(card('human', 'Paladin'), max);
     expect(html).toContain('Paladin');
     expect(html).toContain('width:100.0%');
-    expect(html).toContain('61.1/s');
+    expect(html).toContain('50/s');
     expect(html).toContain('Trained at:</b> Motor Pool · needs Tech Lab');
     expect(factsHtml(card('human', 'Shard Hauler'), max)).toContain('Cannot attack');
   });
