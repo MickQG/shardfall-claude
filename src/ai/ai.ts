@@ -45,6 +45,8 @@ export const STRIKE_HOLD = 20 * 90;
 /** Doomsday goes for its superweapon only with an army worth this much and this many haulers working (AI-15). */
 export const SUPERWEAPON_ARMY = 5000;
 export const SUPERWEAPON_HAULERS = 5;
+/** Doomsday sizes its rifle floor on enemy infantry seen within this many ticks (AI-15): "lately", not everything it has seen since the sight lingers (FOG-7). */
+export const RIFLE_INTEL = 20 * 30;
 /** How far (tiles) to one side of the straight line a scout's route swings, around the enemy's front (AI-17). */
 export const SCOUT_FLANK = 22;
 
@@ -461,7 +463,7 @@ export class AI {
     return { tx, ty };
   }
 
-  private intelSummary(c: Ctx): Intel {
+  private intelSummary(c: Ctx, within = 2400): Intel {
     let air = 0;
     let heavy = 0;
     let light = 0;
@@ -469,7 +471,7 @@ export class AI {
     let total = 0;
     for (const e of this.intel.values()) {
       const d = UNIT_DEFS[e.kind];
-      if (!d || !d.weapon || c.tick - e.t > 2400) continue;
+      if (!d || !d.weapon || c.tick - e.t > within) continue;
       total++;
       if ((d.squad ?? 1) > 1) squads++;
       if (d.armor === 'air') air++;
@@ -692,7 +694,7 @@ export class AI {
     const hold = next && c.hq.queue.length === 0 ? Math.min(buildingDef(next).cost, doom && next === this.kit.superweapon ? Infinity : doom ? 1100 : 750) : 0;
     const urgent = c.army.length < 4 || c.tick - this.lastThreat < 600;
     const tilt = this.plan === 'raider' ? RAIDER_TILT : this.plan === 'doomsday' ? TECH_TILT : undefined;
-    const rifles = this.plan === 'doomsday' ? infantryNeeded(intel) : 0;
+    const rifles = this.plan === 'doomsday' ? infantryNeeded(this.intelSummary(c, RIFLE_INTEL)) : 0;
     const haulerWanted = this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0);
 
     for (const b of c.buildings) {
