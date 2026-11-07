@@ -195,25 +195,58 @@ describe('dock pad', () => {
     expect(g.state.players[0]!.credits).toBeGreaterThanOrEqual(400);
   });
 
-  it('ECO-8: three haulers on one refinery earn within 10% of what they did before the pad beside their field, within 15% off any side', () => {
-    // Credits after three minutes from the same scenes before the dock pad (unloading from any tile beside the refinery).
+  it('ECO-8: three haulers on one refinery earn within 10% of before beside their field, within 15% off any side, both factions alike', () => {
+    // Beside the field: credits after three minutes from the same scene before the dock pad.
+    const beside = { human: 16890, alien: 18010 };
+    for (const faction of ['human', 'alien'] as const) {
+      const make = (): Game => scene(faction, [[19, 23], [20, 23], [21, 23]]);
+      const g = make();
+      expect(runOnPad(g, 20 * 180), faction).toBeGreaterThanOrEqual(beside[faction] * 0.9);
+      const again = make();
+      run(again, 20 * 180);
+      expect(hash(again)).toBe(hash(g));
+    }
+    // Off each side: credits after three minutes, summed over fields 2 to 11 tiles out (so the old haulers' ten-tick
+    // rhythm, which favoured whichever unit's round trip happened to fit it, averages out), before the dock pad.
     const before = {
-      human: { beside: 16890, east: 12600, west: 13000, south: 13800, north: 13200 },
-      alien: { beside: 18010, east: 14400, west: 14600, south: 15000, north: 14770 },
+      human: { east: 108060, west: 114380, south: 116370, north: 115030 },
+      alien: { east: 114560, west: 121380, south: 122710, north: 121570 },
     };
-    for (const faction of ['human', 'alien'] as const)
-      for (const side of Object.keys(FIELDS) as (keyof typeof FIELDS)[]) {
-        const make = (): Game => scene(faction, [[19, 23], [20, 23], [21, 23]], { field: FIELDS[side] });
-        const g = make();
-        const earned = runOnPad(g, 20 * 180);
-        expect(earned, `${faction} ${side}`).toBeGreaterThanOrEqual(before[faction][side] * (side === 'beside' ? 0.9 : 0.85));
-        if (side === 'beside') {
-          const again = make();
-          run(again, 20 * 180);
-          expect(hash(again)).toBe(hash(g));
+    const at: Record<keyof (typeof before)['human'], (gap: number) => [number, number]> = {
+      east: (gap) => [35 + gap, 31],
+      west: (gap) => [27 - gap, 30],
+      south: (gap) => [31, 34 + gap],
+      north: (gap) => [31, 27 - gap],
+    };
+    const N = 64;
+    for (const side of Object.keys(at) as (keyof typeof at)[]) {
+      const loss = { human: 0, alien: 0 };
+      for (const faction of ['human', 'alien'] as const) {
+        let sum = 0;
+        for (let gap = 2; gap < 12; gap++) {
+          const [fx, fy] = at[side](gap);
+          const sh = new Array<number>(N * N).fill(0);
+          for (let y = fy - 2; y <= fy + 2; y++) for (let x = fx - 2; x <= fx + 2; x++) sh[y * N + x] = 3000;
+          const g = createGame({
+            seed: 1,
+            map: { width: N, height: N, heights: new Array<number>(N * N).fill(0), blocked: new Array<number>(N * N).fill(0), shards: sh },
+            players: [
+              { faction, credits: 0 },
+              { faction: 'alien', credits: 0 },
+            ],
+            buildings: [{ owner: 0, kind: faction === 'human' ? 'hum_refinery' : 'ali_extractor', tx: 30, ty: 30 }, { owner: 1, kind: 'ali_hq', tx: 2, ty: 2 }],
+            units: [29, 30, 31].map((tx) => ({ owner: 0, kind: faction === 'human' ? 'hum_hauler' : 'ali_gorger', tx, ty: 33 })),
+          });
+          run(g, 20 * 180);
+          sum += g.state.players[0]!.credits;
         }
+        expect(sum, `${faction} ${side}`).toBeGreaterThanOrEqual(before[faction][side] * 0.85);
+        loss[faction] = 1 - sum / before[faction][side];
       }
-  }, 120_000);
+      // The faster Gorger loses no bigger a share at the pad than the Shard Hauler.
+      expect(loss.alien - loss.human, side).toBeLessThanOrEqual(0.02);
+    }
+  }, 300_000);
 
   it('ECO-8: both starting sides earn alike, within 3% of each other, on every map', () => {
     const maps: [MapId, number][] = [...MAPS.map(({ id }) => [id, 0] as [MapId, number]), ['generated', 3]];

@@ -66,6 +66,8 @@ const LINE_SPOTS = 4;
 const BUSY_TILES = 8;
 /** Ticks a hauler waits in line before it looks for a less busy refinery (ECO-9). */
 export const LINE_PATIENCE = 300;
+/** Ticks before the pad comes free that the first hauler in line sets off for it (ECO-8). */
+const ROLL_UP = 8;
 
 const isRefineryOf = (b: Building | undefined, owner: number): b is Building => !!b && b.owner === owner && !!buildingDef(b.kind).refinery;
 
@@ -127,8 +129,19 @@ function lineSpot(s: State, b: Building, n: number, u: Unit): number {
   const uy = tileOf(u.y);
   const far = (i: number): number => ((i % g.width) - ux) ** 2 + (Math.floor(i / g.width) - uy) ** 2;
   const byNear = (a: number, c: number): number => far(a) - far(c);
-  const spots = [...ring.filter(direct).sort(byNear), ...ring.filter((i) => !direct(i)).sort(byNear)];
+  // Best of all: beside the pad along the refinery's wall, clear of the lane haulers use to drive on and off (ECO-8).
+  const d = buildingDef(b.kind);
+  const wall = (i: number): boolean => gapToBuilding(b, i % g.width, Math.floor(i / g.width)) === 1 && Math.abs((i % g.width) - px) + Math.abs(Math.floor(i / g.width) - py) === 1 && touches(b, d, i % g.width, Math.floor(i / g.width));
+  const rank = (i: number): number => (wall(i) ? 0 : direct(i) ? 1 : 2);
+  const spots = [...ring].sort((a, c) => rank(a) - rank(c) || byNear(a, c));
   return spots[Math.max(0, Math.min(n, spots.length - 1))] ?? pad;
+}
+
+/** Whether tile (x, y), outside the footprint, shares a side with it. */
+function touches(b: Building, d: { w: number; h: number }, x: number, y: number): boolean {
+  const inX = x >= b.tx && x < b.tx + d.w;
+  const inY = y >= b.ty && y < b.ty + d.h;
+  return (inX && (y === b.ty - 1 || y === b.ty + d.h)) || (inY && (x === b.tx - 1 || x === b.tx + d.w));
 }
 
 /** Free tile adjacent to the building's footprint other than its pad, nearest to (tx, ty): where a hauler unloads if the pad cannot be reached. */
@@ -251,8 +264,15 @@ function stepHauler(s: State, u: Unit): void {
         break;
       }
       const at = padLine(s, ref).indexOf(u);
-      if (at === 0 && !padHolder(s, ref)) {
+      const holder = padHolder(s, ref);
+      if (at === 0 && !holder) {
         takePad(s, u, ref);
+        break;
+      }
+      // First in line and the pad about to come free: roll up to it now, so the pad never stands idle (ECO-8). The
+      // unloading hauler holds its place meanwhile; this one takes the pad only once it is free.
+      if (at === 0 && holder && holder.hv === Hv.Unload && holder.load <= UNLOAD_PER_TICK * ROLL_UP && u.goal !== padIndex(s, ref)) {
+        orderMove(s, u, padIndex(s, ref));
         break;
       }
       if (!throttle) break;
@@ -267,7 +287,7 @@ function stepHauler(s: State, u: Unit): void {
         }
       }
       const spot = lineSpot(s, ref, at, u);
-      if (stopped && here !== spot) orderMove(s, u, spot);
+      if (stopped && here !== spot && !(at === 0 && u.goal === padIndex(s, ref))) orderMove(s, u, spot);
       break;
     }
     case Hv.ToPad: {
