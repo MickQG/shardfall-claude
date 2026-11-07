@@ -16,6 +16,10 @@ const SIDES = [
   [2, ['alien', 'human']],
   [3, ['human', 'alien']],
   [3, ['alien', 'human']],
+  // A fourth seed: Doomsday often loses before it strikes against a Balanced AI that scouts well (#104), so AI-15
+  // needs eight games for enough strikes to judge (#120).
+  [4, ['human', 'alien']],
+  [4, ['alien', 'human']],
 ] as const;
 
 /** Ten minutes covers Raider's opening and Balanced's comparison; Doomsday needs fourteen for its strikes to land. */

@@ -902,7 +902,8 @@ export class AI {
     }
     const fresh = [...this.intel.values()].some((e) => UNIT_DEFS[e.kind]?.weapon && c.tick - e.t <= 900);
     const due = c.tick > (this.plan === 'raider' ? 300 : 1100) && (!knowEnemy || !fresh);
-    if (!due || c.tick - this.lastScout < 1500) return;
+    // A scout lost before it found the enemy is replaced sooner: finding the base early matters most (AI-17).
+    if (!due || c.tick - this.lastScout < (knowEnemy ? 1500 : 1000)) return;
     // A genuine scout if there is one; else the fastest unit that is not a hero (AI-17).
     const cands = c.army.filter((u) => u.dest === null && !unitDef(u.kind).hero).sort((a, b) => unitDef(b.kind).speed - unitDef(a.kind).speed || a.id - b.id);
     const pick = cands.find((u) => unitDef(u.kind).role === 'scout') ?? (c.tick > (this.plan === 'raider' ? 300 : 1500) ? cands[0] : undefined);

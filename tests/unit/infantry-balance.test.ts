@@ -376,6 +376,15 @@ describe('unit speeds', () => {
   });
 });
 
+describe('Vrax speed', () => {
+  it('BAL-14: the Vrax Hive is a little slower, Skitterers a little tougher; the Brute, Gorger and Dreadstrider are unchanged', () => {
+    const s = (k: string) => unitDef(k).speed;
+    expect([s('ali_skitter'), s('ali_spitter'), s('ali_stalker'), s('ali_lobber')]).toEqual([47, 29, 86, 25]);
+    expect(unitDef('ali_skitter').hp).toBe(77);
+    expect([s('ali_brute'), s('ali_gorger'), s('ali_strider')]).toEqual([38, 34, 20]);
+  });
+});
+
 describe('defences', () => {
   it('BAL-13: a lone powered defence holds against twice its cost of any one early attacker, and falls to four times its cost', () => {
     for (const [defence, attackers] of [
