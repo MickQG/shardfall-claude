@@ -908,6 +908,20 @@ function lobber(): RigDef {
   };
 }
 
+/** Where the gorger's head hinges on its body, and how far it bows to disgorge, radians (R3D-22). */
+export const GORGER_NECK = 0.4;
+export const GORGER_BOW = 0.7;
+
+/** Swollen chitin segments along the gorger's back, [x, radius] each, with team plates on top. */
+function gorgerSegments(s: Shape, seg: readonly (readonly [number, number])[]): Shape {
+  for (const [x, r] of seg) {
+    s.ball(r, CHITIN, { at: [x, 0, 0], scale: [1, 0.78, 1], seg: 12 });
+    s.ball(r * 0.98, 'teamDark', { at: [x, 0.02, 0], scale: [0.85, 0.76, 0.85], seg: 12, cut: 0.35 });
+    s.ball(r * 0.25, 'team', { at: [x, r * 0.76, 0], scale: [1.6, 0.4, 1], seg: 8 });
+  }
+  return s;
+}
+
 function gorger(): RigDef {
   return {
     move: 'walker',
@@ -920,14 +934,12 @@ function gorger(): RigDef {
       legR: () => insectLeg(1, 0.3, 0.24, 0.1, 0.04, CHITIN),
       legL: () => insectLeg(-1, 0.3, 0.24, 0.1, 0.04, CHITIN),
       body: () => {
-        const s = shape();
-        // Three swollen segments, front to back, team plates on top.
-        const seg = [[0.4, 0.2], [0.05, 0.28], [-0.38, 0.24]] as const;
-        for (const [x, r] of seg) {
-          s.ball(r, CHITIN, { at: [x, 0, 0], scale: [1, 0.78, 1], seg: 12 });
-          s.ball(r * 0.98, 'teamDark', { at: [x, 0.02, 0], scale: [0.85, 0.76, 0.85], seg: 12, cut: 0.35 });
-          s.ball(r * 0.25, 'team', { at: [x, r * 0.76, 0], scale: [1.6, 0.4, 1], seg: 8 });
-        }
+        // Two swollen segments behind the head, team plates on top.
+        return gorgerSegments(shape(), [[0.05, 0.28], [-0.38, 0.24]]);
+      },
+      head: () => {
+        // The front segment with the maw; it dips into a refinery's feeding maw to disgorge (R3D-22).
+        const s = gorgerSegments(shape(), [[0.4, 0.2]]);
         s.ring(0.12, 0.035, BONE, { at: [0.6, -0.02, 0], rot: [0, 0, Math.PI / 2], seg: 12 }); // maw
         s.cyl(0.1, 0.02, FLESH, { at: [0.62, -0.02, 0], rot: [0, 0, Math.PI / 2], seg: 10 });
         for (let i = 0; i < 6; i++) {
@@ -952,7 +964,12 @@ function gorger(): RigDef {
           geo: 'body',
           at: [0, 0.3, 0],
           // The glowing belly sac swells as the gorger feeds.
-          kids: [...sixLegs([0.35, 0.02, -0.32], -0.06, 0.16, 0.3, 0.04), { geo: 'cargo', anim: { k: 'cargo', pivot: [0.05, 0.2, 0], swell: true } }],
+          kids: [
+            ...sixLegs([0.35, 0.02, -0.32], -0.06, 0.16, 0.3, 0.04),
+            { geo: 'cargo', anim: { k: 'cargo', pivot: [0.05, 0.2, 0], swell: true } },
+            // Unloading, the head bows about its neck into the maw (R3D-22).
+            { geo: 'head', anim: { k: 'tip', pivot: [GORGER_NECK, 0, 0], max: -GORGER_BOW } },
+          ],
         },
       ],
     },

@@ -30,6 +30,29 @@ const MAGENTA = 0xff5ab0;
 
 const shape = (): Shape => new Shape();
 
+/**
+ * Where each refinery model draws its dock pad and its intake, in model coordinates (x along +X, z along +Z, from the
+ * footprint centre) (ECO-7, R3D-22). The pad lies on the footprint tile the simulation keeps as the dock pad; a docked
+ * hauler turns toward the intake to unload into it.
+ */
+export const DOCKS: Readonly<Record<string, { pad: readonly [number, number]; intake: readonly [number, number] }>> = {
+  hum_refinery: { pad: [0.8, 0.35], intake: [0.3, 0.1] },
+  ali_extractor: { pad: [0.75, 0.25], intake: [0.75, 0.25] },
+};
+
+/**
+ * The world yaw a hauler unloading at (x, z) turns to (R3D-22), for a refinery of `kind` with its footprint centre at
+ * (cx, cz): a gorger faces the feeding maw; a hauler, whose bed tips out of the back, turns its back to the intake.
+ */
+export function dockYaw(unitKind: string, kind: string, cx: number, cz: number, x: number, z: number): number | undefined {
+  const d = DOCKS[kind];
+  if (!d) return undefined;
+  const dx = cx + d.intake[0] - x;
+  const dz = cz + d.intake[1] - z;
+  if (Math.hypot(dx, dz) < 1e-3) return undefined;
+  return unitKind.startsWith('ali_') ? Math.atan2(dz, dx) : Math.atan2(-dz, -dx);
+}
+
 const def = (w: number, d: number, height: number, shapes: RigDef['shapes'], kids: RigNode[], o: Partial<RigDef> = {}): RigDef => ({
   shapes,
   root: { kids: [{ geo: 'body' }, ...kids] },
@@ -218,8 +241,9 @@ function humRefinery(): RigDef {
       s.cyl(0.2, 0.3, 0x47e8c4, { at: [0.35, 0.3, -0.45], seg: 14, glow: true });
       s.ring(0.245, 0.02, STEEL, { at: [0.35, 0.55, -0.45], seg: 16 });
       // Unloading dock on the front right, with a hazard-marked pad.
-      s.box(1.0, 0.03, 0.75, DARK, { at: [0.8, 0.115, 0.35], bevel: 0 });
-      for (let i = 0; i < 5; i++) s.box(0.06, 0.012, 0.75, HAZARD, { at: [0.36 + i * 0.22, 0.13, 0.35], bevel: 0 });
+      const [px, pz] = DOCKS.hum_refinery!.pad;
+      s.box(1.0, 0.03, 0.75, DARK, { at: [px, 0.115, pz], bevel: 0 });
+      for (let i = 0; i < 5; i++) s.box(0.06, 0.012, 0.75, HAZARD, { at: [px - 0.44 + i * 0.22, 0.13, pz], bevel: 0 });
       s.slab([[0.2, 0.1], [0.4, 0.1], [0.4, 0.5], [0.3, 0.55]], 0.4, STEEL2, { at: [0, 0, 0.0], bevel: 0.02 });
       s.tube(0.035, 0.7, GUN, { at: [0.1, 0.5, -0.1], rot: [0, 0, 0.3] }); // conveyor
       // Chimney.
@@ -444,11 +468,12 @@ function aliExtractor(): RigDef {
       for (let i = 0; i < 4; i++) s.cone(0.07, 0.4, BONE, { at: [-1.0 + i * 0.27, 0.95, -0.2], rot: [0, 0, 0.4], seg: 6 });
       for (const z of [0.4, -0.65]) s.tube(0.07, 0.8, FLESH, { at: [0.2, 0.15, z], rot: [0, 0.3, -0.25], seg: 8 });
       // Feeding maw with a glowing pool, front right, where gorgers unload.
-      s.ring(0.38, 0.08, BONE, { at: [0.75, 0.15, 0.25], seg: 16 });
-      s.cyl(0.32, 0.03, ACID, { at: [0.75, 0.15, 0.25], seg: 16, glow: true });
+      const [mx, mz] = DOCKS.ali_extractor!.pad;
+      s.ring(0.38, 0.08, BONE, { at: [mx, 0.15, mz], seg: 16 });
+      s.cyl(0.32, 0.03, ACID, { at: [mx, 0.15, mz], seg: 16, glow: true });
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
-        s.cone(0.04, 0.16, BONE, { at: [0.75 + Math.cos(a) * 0.38, 0.24, 0.25 + Math.sin(a) * 0.38], rot: [Math.sin(a) * -0.6, 0, Math.cos(a) * 0.6], seg: 4 });
+        s.cone(0.04, 0.16, BONE, { at: [mx + Math.cos(a) * 0.38, 0.24, mz + Math.sin(a) * 0.38], rot: [Math.sin(a) * -0.6, 0, Math.cos(a) * 0.6], seg: 4 });
       }
       for (let i = 0; i < 3; i++) s.ball(0.05, GREEN, { at: [-0.25 + i * 0.12, 0.62 - i * 0.05, 0.25], seg: 6, glow: true });
       return s;

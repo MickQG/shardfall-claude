@@ -87,6 +87,8 @@ export interface UnitSnap {
   load: number;
   /** Facing in steps of 256 a circle, for units that turn slowly (HERO-5): 0 along +x, increasing toward +y. */
   facing?: number;
+  /** Haulers unloading at a refinery: its building id (ECO-7, R3D-22); absent otherwise. */
+  dock?: number;
 }
 
 export interface QueueSnap {

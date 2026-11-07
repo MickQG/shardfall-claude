@@ -100,7 +100,10 @@ function applyCommand(s: State, cmd: Command): void {
         u.target = -1;
         u.mode = 'idle';
         u.amove = -1;
-        if (unitDef(u.kind).capacity !== undefined) u.auto = false;
+        if (unitDef(u.kind).capacity !== undefined) {
+          u.auto = false;
+          u.dock = -1; // gives up its place at the pad (ECO-9)
+        }
       }
       return;
     case 'move':
@@ -128,6 +131,7 @@ function applyCommand(s: State, cmd: Command): void {
         u.auto = true;
         clearOrder(u);
         u.hv = Hv.Idle;
+        u.dock = -1;
         const i = tileOf(cmd.y) * s.grid.width + tileOf(cmd.x);
         if ((s.shards[i] as number) > 0) {
           orderMove(s, u, i);
@@ -171,6 +175,7 @@ function moveUnits(s: State, player: number, ids: number[], x: number, y: number
   for (const u of ground) {
     u.auto = false;
     u.hv = Hv.Idle;
+    u.dock = -1;
     u.mode = mode;
     u.target = -1;
     let bi = 0;
@@ -255,6 +260,7 @@ export function snapshot(game: Game, viewer?: number): Snapshot {
       id: u.id, owner: u.owner, kind: u.kind, x: u.x, y: u.y, hp: u.hp, load: u.load, rank: u.rank, target: u.target,
       dest: u.goal >= 0 ? [u.goal % w, Math.floor(u.goal / w)] : null,
       ...(unitDef(u.kind).turnRate ? { facing: u.facing } : {}),
+      ...(u.hv === Hv.Unload && u.auto ? { dock: u.dock } : {}),
     })),
     buildings: visibleBuildings.map((b) => buildingSnap(b, god || b.owner === viewer)),
     ghosts: god ? [] : [...(s.players[viewer]?.ghosts.values() ?? [])].filter((g) => !shown.has(g.id)),
@@ -305,7 +311,7 @@ export function hash(game: Game): number {
   const h = new Hasher().int(s.tick).int(s.rng.state).int(s.cfg.map.width).int(s.cfg.map.height);
   for (const v of s.cfg.map.heights) h.int(v);
   for (const v of s.grid.blocked) h.int(v);
-  for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0).int(u.load).int(u.hv).int(u.auto ? 1 : 0).int(u.target).int(u.cooldown).int(u.amove).int(u.sinceHurt > 100 ? 100 : u.sinceHurt).int(u.mode.length).int(u.xp).int(u.rank).int(u.facing);
+  for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0).int(u.load).int(u.hv).int(u.dock).int(u.queuedAt).int(u.dockTries).int(u.auto ? 1 : 0).int(u.target).int(u.cooldown).int(u.amove).int(u.sinceHurt > 100 ? 100 : u.sinceHurt).int(u.mode.length).int(u.xp).int(u.rank).int(u.facing);
   for (const b of s.buildings) {
     h.int(b.id).int(b.owner).int(b.tx).int(b.ty).int(b.hp).int(b.queue.length).int(b.charge).int(b.cooldown).int(b.target);
     for (const q of b.queue) h.int(q.progress).int(q.ready ? 1 : 0);

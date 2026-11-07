@@ -1,4 +1,4 @@
-import { buildingDef, unitDef, type Faction } from '../data/defs';
+import { buildingDef, padTile, unitDef, type Faction } from '../data/defs';
 import { dirOf } from './facing';
 import { centerOf, FP } from './fixed';
 import { createFog } from './fog';
@@ -11,7 +11,12 @@ export enum Hv {
   ToField = 1,
   Gather = 2,
   ToRefinery = 3,
+  /** On the dock pad, unloading (ECO-7). */
   Unload = 4,
+  /** Holding the refinery's dock pad and driving onto it (ECO-7). */
+  ToPad = 5,
+  /** Waiting beside a taken dock pad for its turn (ECO-8). */
+  Queue = 6,
 }
 
 export interface Unit {
@@ -31,6 +36,11 @@ export interface Unit {
   auto: boolean;
   hv: Hv;
   load: number;
+  /** Haulers: the refinery (building id) it is heading for, queueing at or unloading into, or -1 (ECO-7). */
+  dock: number;
+  /** Haulers: when it joined the refinery's line (ECO-8), and how often it has tried to reach the pad in vain. */
+  queuedAt: number;
+  dockTries: number;
   /** Ticks since the unit last took damage (alien regeneration). */
   sinceHurt: number;
   /** Combat target id (unit or building), or -1. */
@@ -186,7 +196,7 @@ export function addUnit(s: State, owner: number, kind: string, x: number, y: num
   const d = unitDef(kind);
   const u: Unit = {
     id: s.nextId++, owner, kind, x, y, hp: d.hp, path: [], goal: -1, waiting: false,
-    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, sinceHurt: 1000, target: -1, cooldown: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
+    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, dock: -1, queuedAt: 0, dockTries: 0, sinceHurt: 1000, target: -1, cooldown: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
     // A slow turner starts facing the middle of the map, where the fight is (HERO-5).
     facing: d.turnRate ? Math.max(0, dirOf(((s.grid.width * FP) >> 1) - x, ((s.grid.height * FP) >> 1) - y)) : 0,
   };
@@ -211,7 +221,20 @@ export function rebuildBlocked(s: State): void {
     const d = buildingDef(b.kind);
     for (let y = b.ty; y < b.ty + d.h; y++) for (let x = b.tx; x < b.tx + d.w; x++) if (x >= 0 && y >= 0 && x < width && y < height) blocked[y * width + x] = 1;
   }
+  // A refinery's dock pad stays drivable, so haulers can pull onto it (ECO-7); terrain under it still blocks.
+  for (const b of s.buildings) {
+    const p = padTile(b.kind, b.tx, b.ty);
+    if (!p || p.tx < 0 || p.ty < 0 || p.tx >= width || p.ty >= height) continue;
+    const i = p.ty * width + p.tx;
+    if (!terrain?.[i] && !s.buildings.some((o) => o !== b && covers(o, p.tx, p.ty))) blocked[i] = 0;
+  }
 }
+
+/** Whether a building's footprint covers tile (x, y). */
+const covers = (b: Building, x: number, y: number): boolean => {
+  const d = buildingDef(b.kind);
+  return x >= b.tx && x < b.tx + d.w && y >= b.ty && y < b.ty + d.h;
+};
 
 export const buildingById = (s: State, id: number): Building | undefined => s.buildings.find((b) => b.id === id);
 export const unitById = (s: State, id: number): Unit | undefined => s.units.find((u) => u.id === id);

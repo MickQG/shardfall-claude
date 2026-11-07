@@ -16,6 +16,8 @@ export interface RenderUnit {
   target: number;
   /** For units the simulation turns (HERO-5): the facing, radians, 0 along +x and increasing toward +y. */
   yaw?: number;
+  /** Haulers unloading on a dock pad: the refinery's id (ECO-7, R3D-22). */
+  dock?: number;
 }
 
 const SCALE = 256;
@@ -44,6 +46,7 @@ export function interpolate(prev: readonly UnitSnap[], curr: readonly UnitSnap[]
       rank: u.rank,
       target: u.target,
       ...(u.facing !== undefined ? { yaw: facingYaw(p.facing ?? u.facing, u.facing, a) } : {}),
+      ...(u.dock !== undefined ? { dock: u.dock } : {}),
     };
   });
 }

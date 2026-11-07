@@ -1,4 +1,4 @@
-import { buildingDef, type Faction } from './defs';
+import { buildingDef, padTile, refineryOf, type Faction } from './defs';
 import type { BuildingSpawn, GameConfig, MapDef, PlayerSetup, UnitSpawn } from '../sim';
 import { generatedMap } from './mapgen';
 import { buildMap, DEFAULT_START, MAP_SIZE, turnMap, type Blob, type Field, type MapPlan } from './mapPlan';
@@ -161,6 +161,137 @@ export function mapStarts(id: MapId = DEFAULT_MAP, mapSeed = 0): [{ tx: number; 
   return [footprint(plan, 0, 0, 0, 3, 3), footprint(plan, 1, 0, 0, 3, 3)];
 }
 
+/** A footprint as a rectangle of tiles. */
+interface Rect {
+  tx: number;
+  ty: number;
+  w: number;
+  h: number;
+}
+
+const inRect = (r: Rect, x: number, y: number): boolean => x >= r.tx && x < r.tx + r.w && y >= r.ty && y < r.ty + r.h;
+
+/**
+ * How far a refinery's haulers drive (ECO-7): the road distance, in tiles, from its dock pad to the nearest home shard
+ * tile, and the mean over all of them. `blocked` marks terrain and the base's buildings; the pad itself is open.
+ */
+const ROAD_CAP = 24;
+
+/** Road distances (tiles, 8-way, no corner cutting) from the source tiles, up to ROAD_CAP; -1 beyond or unreachable. */
+function roads(m: MapDef, blocked: Uint8Array, sources: readonly number[], openTile: number): Int32Array {
+  const W = m.width;
+  const H = m.height;
+  const open = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < W && y < H && (y * W + x === openTile || !blocked[y * W + x]);
+  const dist = new Int32Array(W * H).fill(-1);
+  const queue = new Int32Array(W * H);
+  let tail = 0;
+  for (const i of sources) {
+    dist[i] = 0;
+    queue[tail++] = i;
+  }
+  for (let k = 0; k < tail; k++) {
+    const i = queue[k] as number;
+    if ((dist[i] as number) >= ROAD_CAP) break; // home fields are close; farther roads do not matter
+    const x = i % W;
+    const y = (i - x) / W;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        if ((dx === 0 && dy === 0) || !open(x + dx, y + dy) || (dx !== 0 && dy !== 0 && (!open(x + dx, y) || !open(x, y + dy)))) continue;
+        const j = (y + dy) * W + x + dx;
+        if (dist[j] !== -1) continue;
+        dist[j] = (dist[i] as number) + 1;
+        queue[tail++] = j;
+      }
+  }
+  return dist;
+}
+
+function padRoads(m: MapDef, blocked: Uint8Array, home: readonly number[], pad: { tx: number; ty: number }): { near: number; mean: number } {
+  const at = pad.ty * m.width + pad.tx;
+  const dist = roads(m, blocked, [at], at);
+  let near = Infinity;
+  let sum = 0;
+  let n = 0;
+  for (const i of home) {
+    const d = dist[i] as number;
+    if (d < 0) continue;
+    near = Math.min(near, d);
+    sum += d;
+    n++;
+  }
+  return { near, mean: n ? sum / n : Infinity };
+}
+
+/** Terrain and the given footprints as a blocked mask, and the shard tiles within 14 tiles of the HQ. */
+function baseGround(m: MapDef, hq: Rect, rects: readonly Rect[]): { blocked: Uint8Array; home: number[] } {
+  const W = m.width;
+  const blocked = new Uint8Array(W * m.height);
+  for (let i = 0; i < blocked.length; i++) blocked[i] = m.blocked?.[i] ? 1 : 0;
+  for (const r of rects) for (let y = r.ty; y < r.ty + r.h; y++) for (let x = r.tx; x < r.tx + r.w; x++) if (x >= 0 && y >= 0 && x < W && y < m.height) blocked[y * W + x] = 1;
+  const home: number[] = [];
+  const cx = hq.tx + hq.w / 2;
+  const cy = hq.ty + hq.h / 2;
+  for (let i = 0; i < W * m.height; i++) if (m.shards?.[i] && Math.hypot((i % W) + 0.5 - cx, Math.floor(i / W) + 0.5 - cy) <= 14) home.push(i);
+  return { blocked, home };
+}
+
+/**
+ * The starting refineries (ECO-7). Buildings never turn, so the dock pad is always on the same corner of the footprint
+ * and a mirrored refinery would turn its pad away from player 1's fields. Player 0's refinery keeps its place in the
+ * layout; player 1's stands where its haulers drive as far to unload as player 0's do (to the nearest home shard tile
+ * and on average), near the mirror image of player 0's, clear of the other buildings and of the shards.
+ */
+function startRefineries(m: MapDef, plan: MapPlan, kinds: [string, string]): [BuildingSpawn, BuildingSpawn] {
+  const W = m.width;
+  const rect = (owner: number, dx: number, dy: number, w: number, h: number): Rect => ({ ...footprint(plan, owner, dx, dy, w, h), w, h });
+  const base = (owner: number): Rect[] => [rect(owner, 0, 0, 3, 3), rect(owner, 0, 4, 2, 2)];
+  const units = (owner: number): Rect[] => [[5, 4], [4, 6], [5, 6], [6, 6]].map(([dx, dy]) => rect(owner, dx as number, dy as number, 1, 1));
+  const d0 = buildingDef(kinds[0]);
+  const r0 = rect(0, 4, 0, d0.w, d0.h);
+  const [hq0, power0] = base(0) as [Rect, Rect];
+  const g0 = baseGround(m, hq0, [hq0, power0, r0]);
+  const want = padRoads(m, g0.blocked, g0.home, padTile(kinds[0], r0.tx, r0.ty) as { tx: number; ty: number });
+  const d1 = buildingDef(kinds[1]);
+  const mirror = rect(1, 4, 0, d1.w, d1.h);
+  const [hq1, power1] = base(1) as [Rect, Rect];
+  const taken = [hq1, power1];
+  const standing = units(1);
+  const g1 = baseGround(m, hq1, taken);
+  const field = roads(m, g1.blocked, g1.home, -1);
+  let best = mirror;
+  let bs = Infinity;
+  for (let ty = mirror.ty - 6; ty <= mirror.ty + 6; ty++)
+    for (let tx = mirror.tx - 6; tx <= mirror.tx + 6; tx++) {
+      const r: Rect = { tx, ty, w: d1.w, h: d1.h };
+      if (tx < 1 || ty < 1 || tx + r.w >= W || ty + r.h >= m.height) continue;
+      let ok = true;
+      // On open ground without shards, off the starting units, a tile clear of the other buildings (never walling a gap).
+      for (let y = ty - 1; ok && y <= ty + r.h; y++)
+        for (let x = tx - 1; ok && x <= tx + r.w; x++) {
+          const inside = inRect(r, x, y);
+          if (taken.some((t) => inRect(t, x, y))) ok = false;
+          else if (inside && (m.blocked?.[y * W + x] || m.shards?.[y * W + x] || standing.some((t) => inRect(t, x, y)))) ok = false;
+        }
+      if (!ok) continue;
+      const pad = padTile(kinds[1], tx, ty) as { tx: number; ty: number };
+      // Quick filter: a pad already farther from every home shard than player 0's, by the roads without this building.
+      const rough = field[pad.ty * W + pad.tx] as number;
+      if (rough < 0 || rough > want.near + 3) continue;
+      const blocked = g1.blocked.slice();
+      for (let y = ty; y < ty + r.h; y++) blocked.fill(1, y * W + tx, y * W + tx + r.w);
+      const got = padRoads(m, blocked, g1.home, pad);
+      const score = Math.abs(got.near - want.near) + Math.abs(got.mean - want.mean) + 0.01 * (Math.abs(tx - mirror.tx) + Math.abs(ty - mirror.ty));
+      if (score < bs) {
+        bs = score;
+        best = r;
+      }
+    }
+  return [
+    { owner: 0, kind: kinds[0], tx: r0.tx, ty: r0.ty },
+    { owner: 1, kind: kinds[1], tx: best.tx, ty: best.ty },
+  ];
+}
+
 function startingForce(owner: number, faction: Faction, plan: MapPlan): { buildings: BuildingSpawn[]; units: UnitSpawn[] } {
   const human = faction === 'human';
   // Player 1 mirrors player 0 through the map centre, so footprints are reflected too.
@@ -168,11 +299,10 @@ function startingForce(owner: number, faction: Faction, plan: MapPlan): { buildi
   const u = (kind: string, dx: number, dy: number): UnitSpawn => ({ owner, kind, ...footprint(plan, owner, dx, dy, 1, 1) });
   const hq = human ? 'hum_hq' : 'ali_hq';
   const power = human ? 'hum_reactor' : 'ali_generator';
-  const ref = human ? 'hum_refinery' : 'ali_extractor';
   const hauler = human ? 'hum_hauler' : 'ali_gorger';
   const inf = human ? 'hum_rifleman' : 'ali_skitter';
   return {
-    buildings: [b(hq, 0, 0, 3, 3), b(power, 0, 4, 2, 2), b(ref, 4, 0, 3, 2)],
+    buildings: [b(hq, 0, 0, 3, 3), b(power, 0, 4, 2, 2)],
     units: [u(hauler, 5, 4), u(inf, 4, 6), u(inf, 5, 6), u(inf, 6, 6)],
   };
 }
@@ -188,16 +318,23 @@ export interface SkirmishOptions {
   mapSeed?: number;
 }
 
+/** Starting refineries already worked out, by map, map seed and factions (the search takes a moment). */
+const refineryCache = new Map<string, [BuildingSpawn, BuildingSpawn]>();
+
 export function skirmishConfig(seed = 1, o: SkirmishOptions = {}): GameConfig {
   const f = o.factions ?? ['human', 'alien'];
   const plan = planOf(o.map ?? DEFAULT_MAP, o.mapSeed);
+  const map = skirmishMap(o.map, o.mapSeed);
   const a = startingForce(0, f[0], plan);
   const b = startingForce(1, f[1], plan);
+  const key = `${o.map ?? DEFAULT_MAP}:${o.mapSeed ?? 0}:${f.join()}`;
+  const [ra, rb] = refineryCache.get(key) ?? startRefineries(map, plan, [refineryOf(f[0]), refineryOf(f[1])]);
+  refineryCache.set(key, [ra, rb]);
   const players: PlayerSetup[] = [
     { faction: f[0], credits: o.credits ?? 1800, bonus: o.bonuses?.[0] ?? 0 },
     { faction: f[1], credits: o.credits ?? 1800, bonus: o.bonuses?.[1] ?? 0 },
   ];
-  return { seed, map: skirmishMap(o.map, o.mapSeed), players, buildings: [...a.buildings, ...b.buildings], units: [...a.units, ...b.units] };
+  return { seed, map, players, buildings: [...a.buildings, { ...ra }, ...b.buildings, { ...rb }], units: [...a.units, ...b.units] };
 }
 
 /** Small deterministic test terrain: a ridge ring with gaps around the centre. */

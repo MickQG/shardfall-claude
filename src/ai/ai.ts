@@ -1,4 +1,4 @@
-import { BUILDING_DEFS, buildingDef, canCrush, UNIT_DEFS, unitDef, type Faction, type UnitDef } from '../data/defs';
+import { BUILDING_DEFS, buildingDef, canCrush, padTile, UNIT_DEFS, unitDef, type Faction, type UnitDef } from '../data/defs';
 import { BUILD_RANGE, canPlace, EXPLORED, FP, QUEUE_MAX, Rng, VISIBLE, type BuildingSnap, type Command, type MapDef, type Snapshot, type UnitSnap } from '../sim';
 import { kitOf, type Kit } from './kit';
 
@@ -484,7 +484,9 @@ export class AI {
   private structures(c: Ctx, out: Command[]): void {
     if (c.hq.queue.length > 0) return;
     const kind = this.wantedStructure(c);
-    if (kind && this.can(c, kind)) out.push({ type: 'produce', player: this.player, source: c.hq.id, kind });
+    if (!kind || !this.can(c, kind)) return;
+    out.push({ type: 'produce', player: this.player, source: c.hq.id, kind });
+    c.credits -= buildingDef(kind).cost; // what is left is all the units ordered with it may spend (AI-3)
   }
 
   private placeReady(c: Ctx, out: Command[]): void {
@@ -503,9 +505,14 @@ export class AI {
     const occupied = [...snap.buildings, ...snap.ghosts];
     const ctx = { width: W, height: snap.mapHeight, terrain: this.map.blocked, occupied, own: c.buildings, fog };
     const occ = new Set<number>();
+    // The open ground in front of each dock pad, where haulers drive on and wait (ECO-7): never built over.
+    const aprons = new Set<number>();
+    const apron = (p: { tx: number; ty: number }): number[] => [[1, 0], [0, 1], [1, 1]].map(([dx, dy]) => (p.ty + (dy as number)) * W + p.tx + (dx as number));
     for (const b of occupied) {
       const bd = buildingDef(b.kind);
       for (let y = b.ty; y < b.ty + bd.h; y++) for (let x = b.tx; x < b.tx + bd.w; x++) occ.add(y * W + x);
+      const pad = padTile(b.kind, b.tx, b.ty);
+      if (pad) for (const i of apron(pad)) aprons.add(i);
     }
     const home = this.home as { tx: number; ty: number };
     // Scored from the exact HQ centre toward the exact mirror of it (the enemy's start), so both players weigh mirror-image
@@ -548,6 +555,9 @@ export class AI {
         let touching = 0;
         for (let y = ty - 1; y <= ty + d.h; y++) for (let x = tx - 1; x <= tx + d.w; x++) if (occ.has(y * W + x) || this.map.blocked?.[y * W + x]) touching++;
         score += touching * (d.weapon ? 1 : 6);
+        for (let y = ty; y < ty + d.h; y++) for (let x = tx; x < tx + d.w; x++) if (aprons.has(y * W + x)) score += 200;
+        const pad = padTile(kind, tx, ty);
+        if (pad) for (const i of apron(pad)) if (occ.has(i) || this.map.blocked?.[i]) score += 200;
         // Never build on crystal.
         for (let y = ty; y < ty + d.h; y++) for (let x = tx; x < tx + d.w; x++) if ((snap.shards[y * W + x] as number) > 0) score += 80;
         const cx = tx + d.w / 2;
@@ -555,8 +565,11 @@ export class AI {
         const toward = ((cx - hc.x) * dir.x + (cy - hc.y) * dir.y) / dl;
         if (d.weapon) score -= toward * 2.2; // defences face the enemy
         else if (d.refinery) {
+          // Haulers unload on the dock pad, so it is the pad that should be near the shards (ECO-7).
+          const px = (pad as { tx: number }).tx + 0.5;
+          const py = (pad as { ty: number }).ty + 0.5;
           let nearest = 40;
-          for (const [fx, fy] of fields) nearest = Math.min(nearest, dist(cx, cy, fx, fy));
+          for (const [fx, fy] of fields) nearest = Math.min(nearest, dist(px, py, fx, fy));
           score += nearest * 3;
         } else score += Math.max(0, toward) * 1.5 + dist(cx, cy, hc.x, hc.y) * 0.8; // soft buildings stay behind the lines
         if (score < bs) {

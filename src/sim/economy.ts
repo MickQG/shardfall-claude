@@ -1,8 +1,8 @@
-import { buildingDef, unitDef } from '../data/defs';
+import { buildingDef, padTile, unitDef } from '../data/defs';
 import { tileOf } from './fixed';
 import { isBlocked } from './path';
-import { clearOrder, orderMove } from './movement';
-import { gapToBuilding, Hv, type Building, type Player, type State, type Unit } from './state';
+import { clearOrder, orderMove, ringTiles } from './movement';
+import { buildingById, gapToBuilding, Hv, type Building, type Player, type State, type Unit } from './state';
 
 /** Shards a hauler takes per tick while on a field, and delivers per tick while unloading. */
 export const GATHER_PER_TICK = 4;
@@ -56,12 +56,47 @@ function findField(s: State, tx: number, ty: number, owner: number): number {
   return best;
 }
 
-function nearestRefinery(s: State, owner: number, tx: number, ty: number): Building | undefined {
+/** Within this many tiles (Chebyshev) of the pad, a hauler takes the pad or joins the line beside it (ECO-8). */
+const PAD_NEAR = 5;
+/** Tries at reaching a pad (one every ten ticks while stopped short of it) before unloading beside the refinery instead. */
+export const DOCK_TRIES = 6;
+/** Waiting spots beside a pad; a longer line shares the last one. */
+const LINE_SPOTS = 4;
+/** How heavily a busy pad counts against a refinery, in tiles per hauler ahead (ECO-8). */
+const BUSY_TILES = 8;
+/** Ticks a hauler waits in line before it looks for a less busy refinery (ECO-9). */
+export const LINE_PATIENCE = 300;
+
+const isRefineryOf = (b: Building | undefined, owner: number): b is Building => !!b && b.owner === owner && !!buildingDef(b.kind).refinery;
+
+/** The pad tile index of a refinery (ECO-7). */
+function padIndex(s: State, b: Building): number {
+  const p = padTile(b.kind, b.tx, b.ty) as { tx: number; ty: number };
+  return p.ty * s.grid.width + p.tx;
+}
+
+/** The hauler holding a refinery's pad: driving onto it or unloading on it (ECO-7). */
+const padHolder = (s: State, b: Building): Unit | undefined => s.units.find((u) => u.auto && u.dock === b.id && (u.hv === Hv.ToPad || u.hv === Hv.Unload));
+
+/** Haulers waiting in a refinery's line, first come first served (ECO-8). */
+function padLine(s: State, b: Building): Unit[] {
+  return s.units.filter((u) => u.auto && u.dock === b.id && u.hv === Hv.Queue).sort((a, c) => a.queuedAt - c.queuedAt || a.id - c.id);
+}
+
+/** How many haulers are ahead at a refinery's pad: its holder and its line, not counting `u` (ECO-8). */
+function busy(s: State, b: Building, u: Unit): number {
+  let n = 0;
+  for (const o of s.units) if (o !== u && o.auto && o.dock === b.id && (o.hv === Hv.ToPad || o.hv === Hv.Unload || o.hv === Hv.Queue)) n++;
+  return n;
+}
+
+/** The refinery to deliver to: the nearest, counting each hauler already at its pad as a few tiles further (ECO-8). */
+function chooseRefinery(s: State, u: Unit, tx: number, ty: number, avoid = -1): Building | undefined {
   let best: Building | undefined;
   let bd = Infinity;
   for (const b of s.buildings) {
-    if (b.owner !== owner || !buildingDef(b.kind).refinery) continue;
-    const d = gapToBuilding(b, tx, ty);
+    if (!isRefineryOf(b, u.owner) || b.id === avoid) continue;
+    const d = gapToBuilding(b, tx, ty) + BUSY_TILES * busy(s, b, u);
     if (d < bd) {
       bd = d;
       best = b;
@@ -70,8 +105,28 @@ function nearestRefinery(s: State, owner: number, tx: number, ty: number): Build
   return best;
 }
 
-/** Free tile adjacent to the building's footprint, nearest to (tx, ty). */
-function dockTile(s: State, b: Building, tx: number, ty: number): number | undefined {
+/**
+ * Where the n-th hauler in line waits (ECO-8): first the free tiles next to the pad with a straight step onto it, then
+ * other free tiles around it, nearest first; never the pad itself.
+ */
+function lineSpot(s: State, b: Building, n: number): number {
+  const g = s.grid;
+  const pad = padIndex(s, b);
+  const px = pad % g.width;
+  const py = Math.floor(pad / g.width);
+  const ring = ringTiles(g, px, py, LINE_SPOTS + 9).filter((i) => i !== pad);
+  const direct = (i: number): boolean => {
+    const dx = (i % g.width) - px;
+    const dy = Math.floor(i / g.width) - py;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) !== 1) return false;
+    return dx === 0 || dy === 0 || (!isBlocked(g, px + dx, py) && !isBlocked(g, px, py + dy));
+  };
+  const spots = [...ring.filter(direct), ...ring.filter((i) => !direct(i))].slice(0, LINE_SPOTS);
+  return spots[Math.max(0, Math.min(n, spots.length - 1))] ?? pad;
+}
+
+/** Free tile adjacent to the building's footprint, nearest to (tx, ty): where a hauler unloads if the pad cannot be reached. */
+function besideTile(s: State, b: Building, tx: number, ty: number): number | undefined {
   const d = buildingDef(b.kind);
   let best: number | undefined;
   let bd = Infinity;
@@ -92,12 +147,43 @@ function dockTile(s: State, b: Building, tx: number, ty: number): number | undef
   return best;
 }
 
+/** Let go of the refinery (freeing its pad or a place in its line) and move on (ECO-7). */
+function undock(u: Unit, hv: Hv): void {
+  u.dock = -1;
+  u.dockTries = 0;
+  u.hv = hv;
+}
+
+/** Take the pad and drive onto it (ECO-7). */
+function takePad(s: State, u: Unit, b: Building): void {
+  u.hv = Hv.ToPad;
+  u.dock = b.id;
+  u.dockTries = 0;
+  const pad = padIndex(s, b);
+  // Already on its way there: keep going rather than stop for a fresh path.
+  if (u.goal !== pad || (u.path.length === 0 && !u.waiting)) orderMove(s, u, pad);
+}
+
+/** Head for the nearest shard field, or deliver what it carries if none is left. */
+function seekField(s: State, u: Unit, tx: number, ty: number): void {
+  const here = ty * s.grid.width + tx;
+  const f = findField(s, tx, ty, u.owner);
+  if (f < 0) {
+    if (u.load > 0) u.hv = Hv.ToRefinery;
+  } else if (f === here) u.hv = Hv.Gather;
+  else {
+    orderMove(s, u, f);
+    u.hv = Hv.ToField;
+  }
+}
+
 function stepHauler(s: State, u: Unit): void {
   const cap = unitDef(u.kind).capacity as number;
   if (!u.auto) return;
   const W = s.grid.width;
   const tx = tileOf(u.x);
   const ty = tileOf(u.y);
+  const here = ty * W + tx;
   const stopped = u.path.length === 0 && !u.waiting;
   const throttle = (s.tick + u.id) % 10 === 0;
 
@@ -107,56 +193,125 @@ function stepHauler(s: State, u: Unit): void {
         u.hv = Hv.ToRefinery;
         break;
       }
-      if (!throttle || !stopped) break;
-      const f = findField(s, tx, ty, u.owner);
-      if (f < 0) {
-        if (u.load > 0) u.hv = Hv.ToRefinery;
-      } else if (f === ty * W + tx) u.hv = Hv.Gather;
-      else {
-        orderMove(s, u, f);
-        u.hv = Hv.ToField;
-      }
+      if (throttle && stopped) seekField(s, u, tx, ty);
       break;
     }
     case Hv.ToField:
-      if (stopped) u.hv = (s.shards[ty * W + tx] as number) > 0 ? Hv.Gather : Hv.Idle;
+      if (stopped) u.hv = (s.shards[here] as number) > 0 ? Hv.Gather : Hv.Idle;
       break;
     case Hv.Gather: {
-      const i = ty * W + tx;
-      const take = Math.min(GATHER_PER_TICK, s.shards[i] as number, cap - u.load);
+      const take = Math.min(GATHER_PER_TICK, s.shards[here] as number, cap - u.load);
       if (take > 0) {
-        s.shards[i] = (s.shards[i] as number) - take;
+        s.shards[here] = (s.shards[here] as number) - take;
         u.load += take;
       }
       if (u.load >= cap) u.hv = Hv.ToRefinery;
-      else if ((s.shards[i] as number) === 0) u.hv = Hv.Idle;
+      else if ((s.shards[here] as number) === 0) u.hv = Hv.Idle;
       break;
     }
     case Hv.ToRefinery: {
-      const ref = nearestRefinery(s, u.owner, tx, ty);
-      if (!ref) break; // wait for a refinery
-      if (gapToBuilding(ref, tx, ty) <= 1) {
-        clearOrder(u);
+      // Head for a refinery's pad; close to it, take the pad if it is free and nobody waits, else join the line (ECO-8).
+      let ref = buildingById(s, u.dock);
+      if (!isRefineryOf(ref, u.owner)) {
+        u.dock = -1;
+        ref = chooseRefinery(s, u, tx, ty);
+        if (!ref) break; // wait for a refinery (ECO-3)
+        u.dock = ref.id;
+      }
+      const pad = padIndex(s, ref);
+      const dist = Math.max(Math.abs((pad % W) - tx), Math.abs(Math.floor(pad / W) - ty));
+      if (dist <= PAD_NEAR) {
+        // The pad is taken only on the last step onto it (or when stopped short of it), so it is never held for long.
+        const line = padLine(s, ref);
+        const free = !padHolder(s, ref) && line.length === 0;
+        if (free && (dist <= 1 || (stopped && u.goal === pad))) {
+          takePad(s, u, ref);
+          break;
+        }
+        if (!free) {
+          u.hv = Hv.Queue;
+          u.queuedAt = s.tick;
+          orderMove(s, u, lineSpot(s, ref, line.length));
+          break;
+        }
+      }
+      if (stopped && (throttle || u.goal !== pad)) orderMove(s, u, pad); // set off at once, then retry now and then
+      break;
+    }
+    case Hv.Queue: {
+      const ref = buildingById(s, u.dock);
+      if (!isRefineryOf(ref, u.owner)) {
+        undock(u, Hv.ToRefinery); // the refinery is gone: find another (ECO-9)
+        break;
+      }
+      const at = padLine(s, ref).indexOf(u);
+      if (at === 0 && !padHolder(s, ref)) {
+        takePad(s, u, ref);
+        break;
+      }
+      if (!throttle) break;
+      // Waited long enough: a less busy refinery may serve sooner (ECO-9).
+      if (s.tick - u.queuedAt > LINE_PATIENCE) {
+        const other = chooseRefinery(s, u, tx, ty, ref.id);
+        if (other && gapToBuilding(other, tx, ty) + BUSY_TILES * busy(s, other, u) < BUSY_TILES * (at + 1)) {
+          undock(u, Hv.ToRefinery);
+          u.dock = other.id;
+          orderMove(s, u, padIndex(s, other));
+          break;
+        }
+      }
+      const spot = lineSpot(s, ref, at);
+      if (stopped && here !== spot) orderMove(s, u, spot);
+      break;
+    }
+    case Hv.ToPad: {
+      const ref = buildingById(s, u.dock);
+      if (!isRefineryOf(ref, u.owner)) {
+        undock(u, Hv.ToRefinery);
+        break;
+      }
+      const pad = padIndex(s, ref);
+      if (here === pad && stopped) {
         u.hv = Hv.Unload;
-      } else if (stopped && throttle) {
-        const dock = dockTile(s, ref, tx, ty);
-        if (dock !== undefined) orderMove(s, u, dock);
+        break;
+      }
+      if (!stopped || !throttle) break;
+      // Stopped short of the pad: try again; if it stays out of reach, unload beside the refinery instead (ECO-9).
+      u.dockTries++;
+      if (u.dockTries <= DOCK_TRIES) orderMove(s, u, pad);
+      else if (gapToBuilding(ref, tx, ty) <= 1) u.hv = Hv.Unload;
+      else {
+        const beside = besideTile(s, ref, tx, ty);
+        if (beside !== undefined && u.dockTries <= 3 * DOCK_TRIES) orderMove(s, u, beside);
+        else undock(u, Hv.ToRefinery);
       }
       break;
     }
     case Hv.Unload: {
-      const ref = nearestRefinery(s, u.owner, tx, ty);
-      if (!ref || gapToBuilding(ref, tx, ty) > 1) {
-        u.hv = Hv.ToRefinery;
+      const ref = buildingById(s, u.dock);
+      if (!isRefineryOf(ref, u.owner)) {
+        undock(u, Hv.ToRefinery);
         break;
       }
+      // Unload only on the pad, unless the pad proved out of reach and the hauler stands beside the refinery (ECO-9).
+      const fallback = u.dockTries > DOCK_TRIES && gapToBuilding(ref, tx, ty) <= 1;
+      if (here !== padIndex(s, ref) && !fallback) {
+        u.hv = Hv.ToPad; // nudged off the pad: drive back on, keeping it
+        if (stopped) orderMove(s, u, padIndex(s, ref));
+        break;
+      }
+      clearOrder(u);
       const amt = Math.min(UNLOAD_PER_TICK, u.load);
       u.load -= amt;
       const pl = s.players[u.owner] as Player;
       const earned = Math.floor((amt * (100 + pl.bonus)) / 100);
       pl.credits += earned;
       pl.stats.shardsGathered += earned;
-      if (u.load === 0) u.hv = Hv.Idle;
+      if (u.load === 0) {
+        // Free the pad and drive straight off, back to the field.
+        undock(u, Hv.Idle);
+        seekField(s, u, tx, ty);
+      }
       break;
     }
   }

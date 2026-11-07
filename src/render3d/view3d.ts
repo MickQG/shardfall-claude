@@ -15,12 +15,12 @@ import { hpFraction } from '../render/gfx';
 import type { RenderUnit } from '../render/interp';
 import type { Projector } from '../render/projector';
 import { crystalLevel, propAt, rockVariant } from '../render/voxel/props';
-import { BUILDING_RIGS, crystalShape, grassShape, propShape, reedShape } from './buildings3d';
+import { BUILDING_RIGS, crystalShape, dockYaw, grassShape, propShape, reedShape } from './buildings3d';
 import { cameraPose, FOV, PX_PER_UNIT } from './camera3d';
 import { CombatFx } from './fx3d';
 import { Instancer } from './instancer';
 import type { Built, Shape } from './kit';
-import { bodyPose, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
+import { angleDiff, bodyPose, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
@@ -206,6 +206,8 @@ interface UnitObj {
   unloadAt: number;
   /** Shards it can carry (0 for non-harvesters). */
   capacity: number;
+  /** Docked on a refinery's pad and turned to its intake, so the offload plays (R3D-22). */
+  docked: boolean;
   /** How far the bed is tipped (or the belly squeezes), 0..1, and the cutter drum's angle (R3D-19). */
   tip: number;
   drum: number;
@@ -731,6 +733,7 @@ export class View3D {
       load: u.load,
       mineAt: -1e9,
       unloadAt: -1e9,
+      docked: false,
       capacity: d.capacity ?? 0,
       tip: 0,
       drum: 0,
@@ -1101,6 +1104,17 @@ export class View3D {
       if (u.yaw !== undefined) o.motion = { ...o.motion, heading: u.yaw };
       o.x = o.follow.x;
       o.z = o.follow.z;
+      // Docked on a pad (R3D-22): turn to the refinery's intake, then offload once facing it.
+      o.docked = false;
+      const dockAt = u.dock !== undefined && snap ? snap.buildings.find((b) => b.id === u.dock) : undefined;
+      if (dockAt) {
+        const bd = buildingDef(dockAt.kind);
+        const want = dockYaw(u.kind, dockAt.kind, dockAt.tx + bd.w / 2, dockAt.ty + bd.h / 2, o.x, o.z);
+        if (want !== undefined) {
+          o.motion = { ...o.motion, heading: turnToward(o.motion.heading, want, (def.turn ?? 4) * dt) };
+          o.docked = Math.abs(angleDiff(o.motion.heading, want)) < 0.25;
+        }
+      }
       // Harvesters (R3D-19): a rising load means mining, a falling one unloading.
       if (u.load > o.load) o.mineAt = t;
       else if (u.load < o.load) o.unloadAt = t;
@@ -1195,7 +1209,8 @@ export class View3D {
     const fz = Math.sin(o.motion.heading);
     const mining = t - o.mineAt < 300;
     // Unloading takes about a second, so the bed snaps up and stays up a moment after the last crystals leave.
-    const unloading = !mining && t - o.unloadAt < 700;
+    // The simulation says when it is docked and unloading (R3D-22); the bed stays up until it drives off.
+    const unloading = !mining && o.docked;
     o.tip += ((unloading ? 1 : 0) - o.tip) * Math.min(1, dt * (unloading ? 9 : 3));
     if (mining) o.drum += dt * 14;
     if (mining && organic && t - o.lunge > 700) o.lunge = t; // a chomp

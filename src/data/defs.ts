@@ -77,6 +77,11 @@ export interface BuildingDef {
   hq?: boolean;
   /** Accepts shard deliveries. */
   refinery?: boolean;
+  /**
+   * Refineries: the dock pad, as a tile offset inside the footprint (ECO-7). The one place haulers unload; it stays
+   * drivable while the rest of the footprint blocks. The 3D model draws the pad on this tile (buildings never rotate).
+   */
+  pad?: readonly [number, number];
   weapon?: WeaponDef;
   /** Defences go offline when power is low. */
   needsPower?: boolean;
@@ -99,7 +104,7 @@ export const BUILDING_DEFS: Readonly<Record<string, BuildingDef>> = {
   // ---- Humans (Aegis Union): armoured, structured, combined arms ----
   hum_hq: { faction: 'human', name: 'Command Hub', w: 3, h: 3, hp: 1500, cost: 0, buildTime: 0, requires: [], power: 20, vision: 9, hq: true, tier: 1 },
   hum_reactor: { faction: 'human', name: 'Fusion Reactor', w: 2, h: 2, hp: 600, cost: 300, buildTime: 300, requires: ['hum_hq'], power: 70, vision: 5, tier: 1 },
-  hum_refinery: { faction: 'human', name: 'Shard Refinery', w: 3, h: 2, hp: 900, cost: 600, buildTime: 500, requires: ['hum_reactor'], power: -15, vision: 6, refinery: true, tier: 1 },
+  hum_refinery: { faction: 'human', name: 'Shard Refinery', w: 3, h: 2, hp: 900, cost: 600, buildTime: 500, requires: ['hum_reactor'], power: -15, vision: 6, refinery: true, pad: [2, 1], tier: 1 },
   hum_barracks: { faction: 'human', name: 'Garrison', w: 2, h: 2, hp: 700, cost: 400, buildTime: 400, requires: ['hum_reactor'], power: -10, vision: 6, tier: 1 },
   hum_factory: { faction: 'human', name: 'Motor Pool', w: 3, h: 3, hp: 1100, cost: 900, buildTime: 700, requires: ['hum_refinery', 'hum_barracks'], power: -25, vision: 6, tier: 2 },
   hum_turret: {
@@ -116,7 +121,7 @@ export const BUILDING_DEFS: Readonly<Record<string, BuildingDef>> = {
   // ---- Aliens (Vrax Hive): fast, organic, regenerating ----
   ali_hq: { faction: 'alien', name: 'Hive Heart', w: 3, h: 3, hp: 1400, cost: 0, buildTime: 0, requires: [], power: 20, vision: 9, hq: true, tier: 1 },
   ali_generator: { faction: 'alien', name: 'Bio-Generator', w: 2, h: 2, hp: 500, cost: 250, buildTime: 260, requires: ['ali_hq'], power: 60, vision: 5, tier: 1 },
-  ali_extractor: { faction: 'alien', name: 'Shard Extractor', w: 3, h: 2, hp: 800, cost: 550, buildTime: 450, requires: ['ali_generator'], power: -12, vision: 6, refinery: true, tier: 1 },
+  ali_extractor: { faction: 'alien', name: 'Shard Extractor', w: 3, h: 2, hp: 800, cost: 550, buildTime: 450, requires: ['ali_generator'], power: -12, vision: 6, refinery: true, pad: [2, 1], tier: 1 },
   ali_nest: { faction: 'alien', name: 'Spawn Nest', w: 2, h: 2, hp: 600, cost: 350, buildTime: 350, requires: ['ali_generator'], power: -8, vision: 6, tier: 1 },
   ali_pit: { faction: 'alien', name: 'Brood Pit', w: 3, h: 3, hp: 1000, cost: 850, buildTime: 650, requires: ['ali_extractor', 'ali_nest'], power: -22, vision: 6, tier: 2 },
   ali_spire: {
@@ -223,3 +228,9 @@ export const structuresOf = (faction: Faction): string[] => Object.keys(BUILDING
 
 export const hqOf = (faction: Faction): string => (faction === 'human' ? 'hum_hq' : 'ali_hq');
 export const refineryOf = (faction: Faction): string => (faction === 'human' ? 'hum_refinery' : 'ali_extractor');
+
+/** The dock pad tile of a refinery standing at (tx, ty) (ECO-7), or undefined for other buildings. */
+export function padTile(kind: string, tx: number, ty: number): { tx: number; ty: number } | undefined {
+  const pad = (BUILDING_DEFS[kind] as BuildingDef | undefined)?.pad;
+  return pad ? { tx: tx + pad[0], ty: ty + pad[1] } : undefined;
+}

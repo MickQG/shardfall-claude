@@ -252,7 +252,7 @@ describe('every skirmish map', () => {
 });
 
 describe('fair starts for the AI', () => {
-  it('MAP-4: on every map two identical AIs open with mirror-image bases, so neither start is favoured by tie-breaking', async () => {
+  it('MAP-4: on every map two identical AIs open with mirror-image bases (refineries, whose pads cannot turn, aside), so neither start is favoured by tie-breaking', async () => {
     const { AI, DIFFICULTIES } = await import('../../src/ai/ai');
     const { buildingDef: def } = await import('../../src/data/defs');
     const { submit, tick } = await import('../../src/sim');
@@ -269,10 +269,13 @@ describe('fair starts for the AI', () => {
         const d = def(b.kind);
         return mirror ? `${b.kind}@${W - b.tx - d.w},${W - b.ty - d.h}` : `${b.kind}@${b.tx},${b.ty}`;
       };
-      const mine = g.state.buildings.filter((b) => b.owner === 0).map((b) => key(b, false)).sort();
-      const theirs = g.state.buildings.filter((b) => b.owner === 1).map((b) => key(b, true)).sort();
-      expect(mine.length, id).toBeGreaterThan(3);
+      // Refineries never turn, so their dock pads cannot mirror (ECO-7): each side places them for its own pad.
+      const refinery = (b: { kind: string }): boolean => !!def(b.kind).refinery;
+      const mine = g.state.buildings.filter((b) => b.owner === 0 && !refinery(b)).map((b) => key(b, false)).sort();
+      const theirs = g.state.buildings.filter((b) => b.owner === 1 && !refinery(b)).map((b) => key(b, true)).sort();
+      expect(mine.length, id).toBeGreaterThan(2);
       expect(theirs, id).toEqual(mine);
+      expect(g.state.buildings.filter((b) => b.owner === 1 && refinery(b)).length, id).toBe(g.state.buildings.filter((b) => b.owner === 0 && refinery(b)).length);
     }
   }, 60_000);
 });
