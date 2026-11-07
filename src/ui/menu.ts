@@ -1,4 +1,5 @@
 import { MAP_SEED_MAX, MAPS, mapSeedOf, mapStarts, resolveMapSeed, skirmishMap, type MapId } from '../data/maps';
+import { AudioEngine } from '../audio/engine';
 import { thumbCanvas } from './mapThumb';
 import { loadSettings, personalityChoiceOf, safeStorage, saveSettings, type PersonalityChoice, type Settings } from './settings';
 import { setActiveMatch, type Match } from '../net/lobby';
@@ -25,6 +26,8 @@ const CSS = `
 #menu .nav.sel { background: linear-gradient(90deg, #123329, #0f1b26); border-color: #2b6b55; color: #7ff5cd; }
 #menu .nav.wip { color: #8a98a6; }
 #menu .badge { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; padding: 4px 7px; border-radius: 999px; background: #3a2f12; color: #ffcf6a; border: 1px solid #6b5520; }
+#menu #music-btn { align-self: flex-start; margin-top: 14px; padding: 7px 12px; border-radius: 8px; border: 1px solid #22384c; background: transparent; color: #8aa0b4; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+#menu #music-btn:hover, #menu #music-btn:focus-visible { color: #dfe8e2; border-color: #35506a; outline: none; }
 #menu .rail .help { margin-top: auto; padding-top: 18px; color: #5f7386; font-size: 11.5px; line-height: 1.5; }
 #menu .main { position: relative; overflow: auto; padding: 40px clamp(20px, 4vw, 56px) 28px; }
 #menu section { display: none; flex-direction: column; gap: 18px; max-width: 980px; }
@@ -39,6 +42,8 @@ const CSS = `
 #menu .card .sub { font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: #8aa0b4; margin-bottom: 10px; }
 #menu .card p { margin: 0; color: #b6c7d6; font-size: 13.5px; }
 #menu .card .hero { margin-top: 10px; font-size: 12.5px; color: #b6c7d6; }
+#menu .card .hero { white-space: nowrap; }
+@media (max-width: 480px) { #menu .card { padding: 16px 12px 14px; } #menu .card .hero { font-size: 11px; letter-spacing: -.01em; } }
 #menu .card .hero b { color: var(--c); }
 #menu .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 #menu .row .seg { align-self: auto; }
@@ -81,8 +86,11 @@ export const HELP_TEXT =
 type Pick = { faction: 'human' | 'alien'; difficulty: 'easy' | 'medium' | 'hard'; personality: PersonalityChoice };
 type Mode = 'single' | 'multi' | 'settings';
 
+/** The Aegis card's hero line (MENU-7): short enough to sit on one row of the card. */
+export const HUMAN_HERO_LINE = 'Paladin, a giant assault walker with cannons and missiles.';
+
 const FACTIONS = [
-  { id: 'human', sub: 'Humans · armour and firepower', text: 'Structured combined arms: rifle squads, rocketeers, tanks and artillery behind pulse turrets.', hero: 'Paladin, a giant four-legged assault walker whose cannons and missiles hit ground and air' },
+  { id: 'human', sub: 'Humans · armour and firepower', text: 'Structured combined arms: rifle squads, rocketeers, tanks and artillery behind pulse turrets.', hero: HUMAN_HERO_LINE },
   { id: 'alien', sub: 'Aliens · speed and regeneration', text: 'Fast, organic swarms: skitterers, spitters and brutes that heal between fights.', hero: 'Dreadstrider, a towering six-legged walker with an acid cannon' },
 ] as const;
 
@@ -105,6 +113,7 @@ export function showMenu(): void {
       <button class="nav" data-mode="multi">Multiplayer <span class="badge" id="mp-badge" hidden>Unavailable</span></button>
       <button class="nav" id="info-btn" aria-label="Unit info">Units</button>
       <button class="nav" data-mode="settings">Settings</button>
+      <button id="music-btn" aria-label="Music" aria-pressed="false"></button>
       <div class="help">${HELP_TEXT}</div>
     </nav>
     <div class="main">
@@ -140,6 +149,30 @@ export function showMenu(): void {
     settings = { ...loadSettings(safeStorage()), ...patch };
     saveSettings(safeStorage(), settings);
   };
+  // Menu music (AUD-4): browsers block autoplay, so it starts on the first click or key press; Mute (or M) is remembered.
+  const music = new AudioEngine();
+  music.setMuted(settings.muted);
+  music.setVolume(settings.volume);
+  const musicSeed = Date.now() % 100000;
+  const musicBtn = root.querySelector<HTMLButtonElement>('#music-btn')!;
+  const showMuted = (): void => {
+    musicBtn.textContent = settings.muted ? 'Music: off' : 'Music: on';
+    musicBtn.setAttribute('aria-pressed', String(!settings.muted));
+    const box = root.querySelector<HTMLInputElement>('#set-mute');
+    if (box) box.checked = settings.muted;
+  };
+  const setMuted = (m: boolean): void => {
+    save({ muted: m });
+    music.setMuted(m);
+    showMuted();
+  };
+  const beginMusic = (): void => {
+    music.unlock();
+    music.startMusic(musicSeed, true);
+  };
+  window.addEventListener('pointerdown', beginMusic, { signal: life.signal, once: true });
+  window.addEventListener('keydown', beginMusic, { signal: life.signal, once: true });
+  showMuted();
   const pick: Pick & { map: MapId; mapSeed: number } = { faction: 'human', difficulty: 'medium', personality: settings.personality, map: settings.map, mapSeed: resolveMapSeed(settings.mapSeed) };
   // The Generated card (MENU-6): its thumbnail and seed box follow the current map seed, which is always one that
   // produces a map (MAP-9).
@@ -165,7 +198,9 @@ export function showMenu(): void {
   volume.value = String(Math.round(settings.volume * 100));
   mute.checked = settings.muted;
   volume.addEventListener('input', () => save({ volume: Number(volume.value) / 100 }));
-  mute.addEventListener('change', () => save({ muted: mute.checked }));
+  mute.addEventListener('change', () => setMuted(mute.checked));
+  volume.addEventListener('input', () => music.setVolume(Number(volume.value) / 100));
+  musicBtn.addEventListener('click', () => setMuted(!settings.muted));
   const sync = (): void => {
     root.querySelectorAll<HTMLElement>('[data-mode]').forEach((e) => e.classList.toggle('sel', e.dataset.mode === mode));
     root.querySelectorAll<HTMLElement>('[data-panel]').forEach((e) => e.classList.toggle('on', e.dataset.panel === mode));
@@ -178,6 +213,7 @@ export function showMenu(): void {
   // An online match starts in this page, keeping its connection: the menu goes and the game loads (NET-1).
   const startOnline = (m: Match): void => {
     setActiveMatch(m);
+    music.stopMusic(0.8);
     life.abort();
     sheet.close();
     root.remove();
@@ -193,6 +229,7 @@ export function showMenu(): void {
   });
 
   const start = (): void => {
+    music.stopMusic(0.8);
     location.search = `?faction=${pick.faction}&difficulty=${pick.difficulty}&personality=${pick.personality}&map=${pick.map}${pick.map === 'generated' ? `&mapseed=${pick.mapSeed}` : ''}`;
   };
   root.addEventListener('click', (e) => {
@@ -225,6 +262,7 @@ export function showMenu(): void {
     'keydown',
     (e) => {
       if (sheet.isOpen() || e.target instanceof HTMLInputElement) return;
+      if (e.key === 'm' || e.key === 'M') setMuted(!settings.muted);
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         const i = navs.indexOf(document.activeElement as HTMLButtonElement);
         const next = navs[(i + (e.key === 'ArrowDown' ? 1 : navs.length - 1)) % navs.length] ?? navs[0]!;
