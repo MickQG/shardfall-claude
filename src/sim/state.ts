@@ -1,8 +1,8 @@
-import { buildingDef, unitDef, type Faction } from '../data/defs';
+import { buildingDef, choosePad, nearestShard2, unitDef, type Faction } from '../data/defs';
 import { dirOf } from './facing';
 import { centerOf, FP } from './fixed';
 import { createFog } from './fog';
-import type { Grid } from './path';
+import { isBlocked, type Grid } from './path';
 import { Rng } from './rng';
 import type { BuildingSnap, Command, GameConfig, PlayerStats, SimEvent } from './types';
 
@@ -11,7 +11,12 @@ export enum Hv {
   ToField = 1,
   Gather = 2,
   ToRefinery = 3,
+  /** On the dock pad, unloading (ECO-7). */
   Unload = 4,
+  /** Holding the refinery's dock pad and driving onto it (ECO-7). */
+  ToPad = 5,
+  /** Waiting beside a taken dock pad for its turn (ECO-8). */
+  Queue = 6,
 }
 
 export interface Unit {
@@ -31,6 +36,11 @@ export interface Unit {
   auto: boolean;
   hv: Hv;
   load: number;
+  /** Haulers: the refinery (building id) it is heading for, queueing at or unloading into, or -1 (ECO-7). */
+  dock: number;
+  /** Haulers: when it joined the refinery's line (ECO-8), and how often it has tried to reach the pad in vain. */
+  queuedAt: number;
+  dockTries: number;
   /** Ticks since the unit last took damage (alien regeneration). */
   sinceHurt: number;
   /** Combat target id (unit or building), or -1. */
@@ -97,6 +107,8 @@ export interface Building {
   /** Superweapon charge in ticks. */
   charge: number;
   target: number;
+  /** Refineries: the dock pad tile [tx, ty], beside the side facing the nearest shards, chosen once when placed (ECO-7). */
+  pad: [number, number] | null;
 }
 
 export interface Player {
@@ -186,7 +198,7 @@ export function addUnit(s: State, owner: number, kind: string, x: number, y: num
   const d = unitDef(kind);
   const u: Unit = {
     id: s.nextId++, owner, kind, x, y, hp: d.hp, path: [], goal: -1, waiting: false,
-    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, sinceHurt: 1000, target: -1, cooldown: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
+    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, dock: -1, queuedAt: 0, dockTries: 0, sinceHurt: 1000, target: -1, cooldown: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
     // A slow turner starts facing the middle of the map, where the fight is (HERO-5).
     facing: d.turnRate ? Math.max(0, dirOf(((s.grid.width * FP) >> 1) - x, ((s.grid.height * FP) >> 1) - y)) : 0,
   };
@@ -196,7 +208,10 @@ export function addUnit(s: State, owner: number, kind: string, x: number, y: num
 
 export function addBuilding(s: State, owner: number, kind: string, tx: number, ty: number): Building {
   const d = buildingDef(kind);
-  const b: Building = { id: s.nextId++, owner, kind, tx, ty, hp: d.hp, queue: [], rally: null, repairing: false, cooldown: 0, charge: 0, target: -1 };
+  const W = s.grid.width;
+  const open = (x: number, y: number): boolean => !isBlocked(s.grid, x, y);
+  const pad = choosePad(kind, tx, ty, W, s.grid.height, open, (x, y) => nearestShard2(s.shards, W, x, y)) ?? null;
+  const b: Building = { id: s.nextId++, owner, kind, tx, ty, hp: d.hp, queue: [], rally: null, repairing: false, cooldown: 0, charge: 0, target: -1, pad };
   s.buildings.push(b);
   rebuildBlocked(s);
   return b;

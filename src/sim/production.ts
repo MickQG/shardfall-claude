@@ -45,7 +45,7 @@ export function cancel(s: State, owner: number, sourceId: number, index: number)
   src.queue.splice(index, 1);
 }
 
-const footprints = (s: State): Footprint[] => s.buildings.map((b) => ({ kind: b.kind, tx: b.tx, ty: b.ty }));
+const footprints = (s: State): Footprint[] => s.buildings.map((b) => ({ kind: b.kind, tx: b.tx, ty: b.ty, pad: b.pad }));
 
 export function placementOk(s: State, owner: number, kind: string, tx: number, ty: number): boolean {
   return canPlace(

@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { BUILDING_DEFS, UNIT_DEFS, unitDef } from '../../src/data/defs';
+import { BUILDING_DEFS, buildingDef, UNIT_DEFS, unitDef } from '../../src/data/defs';
 import { createGame, hash, snapshot, tick, type GameConfig, type SimEvent } from '../../src/sim';
-import { BUILDING_RIGS, crystalShape } from '../../src/render3d/buildings3d';
+import { BUILDING_RIGS, crystalShape, DOCK_RIGS, dockFrame, dockIntake, dockModelYaw, dockYaw } from '../../src/render3d/buildings3d';
 import { CombatFx, LOOKS, scorchTexture, shotDuration } from '../../src/render3d/fx3d';
 import { Instancer } from '../../src/render3d/instancer';
 import { Shape } from '../../src/render3d/kit';
@@ -13,7 +13,7 @@ import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, ROCK_AMP, rockOffset, sc
 import { kneels, newMember, SQUAD_SPREAD, stepSquad, type Member, type SquadFrame } from '../../src/render3d/squad3d';
 import { demoMap, showcaseConfig, skirmishMap } from '../../src/data/maps';
 import type { MapDef } from '../../src/sim';
-import { UNIT_RIGS } from '../../src/render3d/units3d';
+import { GORGER_NECK, UNIT_RIGS } from '../../src/render3d/units3d';
 import { HIDE_FROM, HIDE_FULL, unexploredMask } from '../../src/render3d/unexplored';
 import { CRASH_MS, damageLook, GLOW, glowLevels, HIVE_GLOW } from '../../src/render3d/view3d';
 
@@ -295,6 +295,52 @@ describe('fog, damage, harvesters and deaths', () => {
     fx.sparks(new THREE.Vector3(1, 1, 1), false, 0);
     fx.update(16, 0.016);
     expect(fx.particleCount).toBeGreaterThan(3);
+  });
+
+  it('R3D-22: docked on the pad, the hauler backs its tipping bed to the intake and the gorger bows its head into the maw', () => {
+    for (const [ref, unit] of [['hum_refinery', 'hum_hauler'], ['ali_extractor', 'ali_gorger']] as const) {
+      const d = buildingDef(ref);
+      // A dock model exists for each refinery kind, with real detail.
+      const dock = DOCK_RIGS[ref]!();
+      expect(Object.values(dock.shapes).reduce((n, sh) => n + sh().pieces.length, 0), ref).toBeGreaterThanOrEqual(8);
+      // A refinery at tile (10, 20), with its pad on each side in turn: the dock stands on the pad, facing out.
+      for (const pad of [[13, 21], [9, 20], [11, 22], [11, 19]] as [number, number][]) {
+        const f = dockFrame({ kind: ref, tx: 10, ty: 20, pad }, d.w, d.h)!;
+        expect([Math.floor(f.x), Math.floor(f.z)]).toEqual(pad);
+        // The model's +X, turned by its yaw, points out of the building.
+        const out = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), dockModelYaw(f));
+        expect(out.x).toBeCloseTo(f.out[0], 6);
+        expect(out.z).toBeCloseTo(f.out[1], 6);
+        // The intake is at the building's wall.
+        const [ix, iz] = dockIntake(ref, f);
+        expect(Math.abs(ix - f.x) + Math.abs(iz - f.z)).toBeGreaterThan(0.3);
+        const x = f.x;
+        const z = f.z;
+        const yaw = dockYaw(unit, ref, f, x, z)!;
+        const intake = new THREE.Vector2(ix, iz);
+        const ahead = new THREE.Vector2(x + Math.cos(yaw) * 0.5, z + Math.sin(yaw) * 0.5).distanceTo(intake);
+        const behind = new THREE.Vector2(x - Math.cos(yaw) * 0.5, z - Math.sin(yaw) * 0.5).distanceTo(intake);
+        if (unit === 'hum_hauler') expect(behind, 'the bed tips out of the back, into the hopper').toBeLessThan(ahead);
+        else expect(ahead, 'the gorger faces the maw').toBeLessThan(behind);
+      }
+    }
+    // Unloading, the gorger's maw dips well down toward the pool, about its neck; the hauler's bed tips (R3D-19).
+    const g = rigTree(UNIT_RIGS.ali_gorger!());
+    const head = g.drawn.find((n) => n.geo === 'head')!;
+    const maw = (tip: number): THREE.Vector3 => {
+      poseRig(g, { ...STILL, walker: true, tip });
+      g.root.updateMatrixWorld(true);
+      return new THREE.Vector3(0.62, -0.02, 0).applyMatrix4(head.obj.matrixWorld);
+    };
+    const up = maw(0);
+    const down = maw(1);
+    expect(up.y - down.y).toBeGreaterThan(0.1);
+    const neck = (tip: number): THREE.Vector3 => {
+      poseRig(g, { ...STILL, walker: true, tip });
+      g.root.updateMatrixWorld(true);
+      return new THREE.Vector3(GORGER_NECK, 0, 0).applyMatrix4(head.obj.matrixWorld);
+    };
+    expect(neck(1).distanceTo(neck(0))).toBeLessThan(1e-6);
   });
 
   it('R3D-19: each harvester cargo grows with its load, and mining and unloading play while they last', () => {

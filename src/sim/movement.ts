@@ -2,7 +2,7 @@ import { unitDef } from '../data/defs';
 import { crushable, isCrusher } from './crush';
 import { centerOf, FP, isqrt, tileOf } from './fixed';
 import { findPath, isBlocked, type Grid } from './path';
-import type { State, Unit } from './state';
+import { Hv, type State, type Unit } from './state';
 
 /** Free tiles around (tx,ty) in deterministic ring order, nearest first. */
 export function ringTiles(g: Grid, tx: number, ty: number, count: number): number[] {
@@ -81,6 +81,8 @@ const MAX_PUSH = FP / 24;
 
 const isSquad = (u: Unit): boolean => (unitDef(u.kind).squad ?? 1) > 1;
 const isHero = (u: Unit): boolean => unitDef(u.kind).hero === true;
+/** A hauler unloading on a dock pad holds its place: nothing shoves it off the pad (ECO-8). */
+const docked = (u: Unit): boolean => u.auto && u.hv === Hv.Unload;
 
 /** Following a path, as opposed to standing still with no move pending. A unit shooting at a target holds its ground. */
 const moving = (u: Unit): boolean => u.path.length > 0;
@@ -103,7 +105,7 @@ function heading(s: State, u: Unit): [number, number] | null {
  */
 function makeWay(s: State, mover: Unit, blocker: Unit): [number, number] | null {
   // A hero never steps aside for a smaller ally (HERO-5).
-  if (mover.owner !== blocker.owner || !moving(mover) || !standing(blocker) || (isHero(blocker) && !isHero(mover))) return null;
+  if (mover.owner !== blocker.owner || !moving(mover) || !standing(blocker) || docked(blocker) || (isHero(blocker) && !isHero(mover))) return null;
   const h = heading(s, mover);
   if (!h) return null;
   const rx = blocker.x - mover.x;
@@ -158,8 +160,8 @@ export function separate(s: State): void {
           // A hero walks straight over an enemy vehicle it can crush: neither is pushed, so the hero overruns it (BAL-10).
           if ((uHolds && !isSquad(o)) || (oHolds && !isSquad(u))) continue;
           // A hero is never shoved by a smaller unit: it gives way, the hero does not (HERO-5).
-          const uFirm = uHolds || (isHero(u) && !isHero(o));
-          const oFirm = oHolds || (isHero(o) && !isHero(u));
+          const uFirm = uHolds || (isHero(u) && !isHero(o)) || (docked(u) && !docked(o));
+          const oFirm = oHolds || (isHero(o) && !isHero(u)) || (docked(o) && !docked(u));
           // An ally standing in a mover's way steps aside; the mover is not pushed back (SIM-9).
           const uWay = makeWay(s, o, u);
           const oWay = makeWay(s, u, o);

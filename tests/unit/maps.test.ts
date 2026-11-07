@@ -252,7 +252,7 @@ describe('every skirmish map', () => {
 });
 
 describe('fair starts for the AI', () => {
-  it('MAP-4: on every map two identical AIs open with mirror-image bases, so neither start is favoured by tie-breaking', async () => {
+  it('MAP-4 ECO-7: on every map two identical AIs open with mirror-image bases, dock pads included, so neither start is favoured by tie-breaking', async () => {
     const { AI, DIFFICULTIES } = await import('../../src/ai/ai');
     const { buildingDef: def } = await import('../../src/data/defs');
     const { submit, tick } = await import('../../src/sim');
@@ -273,6 +273,10 @@ describe('fair starts for the AI', () => {
       const theirs = g.state.buildings.filter((b) => b.owner === 1).map((b) => key(b, true)).sort();
       expect(mine.length, id).toBeGreaterThan(3);
       expect(theirs, id).toEqual(mine);
+      // Refineries' dock pads mirror too (ECO-7).
+      const pads = (owner: number, mirror: boolean): string[] =>
+        g.state.buildings.filter((b) => b.owner === owner && b.pad).map((b) => (mirror ? `${W - 1 - b.pad![0]},${W - 1 - b.pad![1]}` : `${b.pad![0]},${b.pad![1]}`)).sort();
+      expect(pads(1, true), `${id} pads`).toEqual(pads(0, false));
     }
   }, 60_000);
 });

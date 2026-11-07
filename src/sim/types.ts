@@ -87,6 +87,8 @@ export interface UnitSnap {
   load: number;
   /** Facing in steps of 256 a circle, for units that turn slowly (HERO-5): 0 along +x, increasing toward +y. */
   facing?: number;
+  /** Haulers unloading at a refinery: its building id (ECO-7, R3D-22); absent otherwise. */
+  dock?: number;
 }
 
 export interface QueueSnap {
@@ -112,6 +114,8 @@ export interface BuildingSnap {
   rally: [number, number] | null;
   /** Superweapon charge 0..100 (own buildings and the god view only). */
   charge: number;
+  /** Refineries: the dock pad tile [tx, ty], beside the footprint on the side facing the shards (ECO-7). */
+  pad?: [number, number];
 }
 
 /** End-of-game statistics for one player (SCR-1). */

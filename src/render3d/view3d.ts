@@ -15,12 +15,12 @@ import { hpFraction } from '../render/gfx';
 import type { RenderUnit } from '../render/interp';
 import type { Projector } from '../render/projector';
 import { crystalLevel, propAt, rockVariant } from '../render/voxel/props';
-import { BUILDING_RIGS, crystalShape, grassShape, propShape, reedShape } from './buildings3d';
+import { BUILDING_RIGS, crystalShape, DOCK_RIGS, dockFrame, dockModelYaw, dockYaw, grassShape, propShape, reedShape } from './buildings3d';
 import { cameraPose, FOV, PX_PER_UNIT } from './camera3d';
 import { CombatFx } from './fx3d';
 import { Instancer } from './instancer';
 import type { Built, Shape } from './kit';
-import { bodyPose, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
+import { angleDiff, bodyPose, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
@@ -206,6 +206,8 @@ interface UnitObj {
   unloadAt: number;
   /** Shards it can carry (0 for non-harvesters). */
   capacity: number;
+  /** Docked on a refinery's pad and turned to its intake, so the offload plays (R3D-22). */
+  docked: boolean;
   /** How far the bed is tipped (or the belly squeezes), 0..1, and the cutter drum's angle (R3D-19). */
   tip: number;
   drum: number;
@@ -239,6 +241,8 @@ interface BuildingObj {
   /** When the next spark or ichor spurt flies from a badly damaged building. */
   nextSpark: number;
   drawn: number;
+  /** A refinery's dock, drawn on its pad beside the building (R3D-22). */
+  dock: { rig: RigInst; root: THREE.Group } | null;
 }
 
 interface PendingShot {
@@ -731,6 +735,7 @@ export class View3D {
       load: u.load,
       mineAt: -1e9,
       unloadAt: -1e9,
+      docked: false,
       capacity: d.capacity ?? 0,
       tip: 0,
       drum: 0,
@@ -1101,6 +1106,18 @@ export class View3D {
       if (u.yaw !== undefined) o.motion = { ...o.motion, heading: u.yaw };
       o.x = o.follow.x;
       o.z = o.follow.z;
+      // Docked on a pad (R3D-22): turn to the refinery's intake, then offload once facing it.
+      o.docked = false;
+      const dockAt = u.dock !== undefined && snap ? snap.buildings.find((b) => b.id === u.dock) : undefined;
+      if (dockAt) {
+        const bd = buildingDef(dockAt.kind);
+        const frame = dockFrame(dockAt, bd.w, bd.h);
+        const want = frame ? dockYaw(u.kind, dockAt.kind, frame, o.x, o.z) : undefined;
+        if (want !== undefined) {
+          o.motion = { ...o.motion, heading: turnToward(o.motion.heading, want, (def.turn ?? 4) * dt) };
+          o.docked = Math.abs(angleDiff(o.motion.heading, want)) < 0.25;
+        }
+      }
       // Harvesters (R3D-19): a rising load means mining, a falling one unloading.
       if (u.load > o.load) o.mineAt = t;
       else if (u.load < o.load) o.unloadAt = t;
@@ -1195,7 +1212,8 @@ export class View3D {
     const fz = Math.sin(o.motion.heading);
     const mining = t - o.mineAt < 300;
     // Unloading takes about a second, so the bed snaps up and stays up a moment after the last crystals leave.
-    const unloading = !mining && t - o.unloadAt < 700;
+    // The simulation says when it is docked and unloading (R3D-22); the bed stays up until it drives off.
+    const unloading = !mining && o.docked;
     o.tip += ((unloading ? 1 : 0) - o.tip) * Math.min(1, dt * (unloading ? 9 : 3));
     if (mining) o.drum += dt * 14;
     if (mining && organic && t - o.lunge > 700) o.lunge = t; // a chomp
@@ -1420,6 +1438,18 @@ export class View3D {
         const y = (snap.heights[b.ty * this.mapW + b.tx] ?? 0) * LEVEL_H;
         root.position.set(x, y, z);
         root.add(rig.root);
+        // A refinery's dock stands on the pad the simulation chose, facing out of the building (ECO-7, R3D-22).
+        const frame = dockFrame(b, d.w, d.h);
+        const dockMake = DOCK_RIGS[b.kind];
+        let dock: BuildingObj['dock'] = null;
+        if (frame && dockMake) {
+          const dockRig = this.instantiate(dockMake(), `${b.kind}_dock`, OWNER_COLORS[b.owner] ?? 0xffffff);
+          const dockRoot = new THREE.Group();
+          dockRoot.position.set(frame.x, (snap.heights[Math.floor(frame.z) * this.mapW + Math.floor(frame.x)] ?? 0) * LEVEL_H, frame.z);
+          dockRoot.rotation.y = dockModelYaw(frame);
+          dockRoot.add(dockRig.root);
+          dock = { rig: dockRig, root: dockRoot };
+        }
         const pts = [[-d.w / 2, -d.h / 2], [d.w / 2, -d.h / 2], [d.w / 2, d.h / 2], [-d.w / 2, d.h / 2]].map(([px, pz]) => new THREE.Vector3(px, 0.05, pz));
         const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x7ff5cd }));
         ring.visible = false;
@@ -1428,7 +1458,7 @@ export class View3D {
         // Only the viewer's own new buildings rise from the ground (GFX-1).
         const born = this.seeded && b.owner === vs.viewer && !this.known.has(b.id) ? vs.time : -Infinity;
         const yaw = b.owner === 0 ? Math.PI / 4 : (-3 * Math.PI) / 4;
-        o = { kind: b.kind, team: OWNER_COLORS[b.owner] ?? 0xffffff, def, rig, root, ring, born, x, z, y, hpFrac: 1, aim: yaw, aimHold: 0, turretYaw: yaw, turreted: rig.anims.some((a) => a.anim.k === 'turret'), lastFire: -1e9, muzzleTurn: 0, dying: null, lastSmoke: 0, nextSpark: 0, drawn: -1 };
+        o = { kind: b.kind, team: OWNER_COLORS[b.owner] ?? 0xffffff, def, rig, root, ring, born, x, z, y, hpFrac: 1, aim: yaw, aimHold: 0, turretYaw: yaw, turreted: rig.anims.some((a) => a.anim.k === 'turret'), lastFire: -1e9, muzzleTurn: 0, dying: null, lastSmoke: 0, nextSpark: 0, drawn: -1, dock };
         this.buildings.set(b.id, o);
         this.known.add(b.id);
       }
@@ -1478,6 +1508,13 @@ export class View3D {
         o.root.updateMatrixWorld(true);
         o.drawn = this.frame;
         this.drawRig(o.rig, this.tint.setScalar(tint), 1);
+      }
+      if (o.dock && this.inView(o.dock.root.position.x, o.y, o.dock.root.position.z, 1)) {
+        o.dock.root.scale.y = o.root.scale.y;
+        if (o.dying === null) o.dock.root.position.y = o.y;
+        else o.dock.root.position.y = o.root.position.y;
+        o.dock.root.updateMatrixWorld(true);
+        this.drawRig(o.dock.rig, this.tint.setScalar(tint), 1);
       }
       if (!visible || o.dying !== null || k < 1) continue;
       // Health bar while selected or below half health (R3D-20), sized to the building.

@@ -223,3 +223,66 @@ export const structuresOf = (faction: Faction): string[] => Object.keys(BUILDING
 
 export const hqOf = (faction: Faction): string => (faction === 'human' ? 'hum_hq' : 'ali_hq');
 export const refineryOf = (faction: Faction): string => (faction === 'human' ? 'hum_refinery' : 'ali_extractor');
+
+/**
+ * The tiles where a refinery standing at (tx, ty) may have its dock pad (ECO-7): every tile just outside its footprint
+ * that touches a side (not the diagonal corners). The set is closed under the half turn of a point-symmetric map: the
+ * mirror image of each spot is a spot of the mirrored footprint. Empty for other buildings.
+ */
+export function padSpots(kind: string, tx: number, ty: number): [number, number][] {
+  const d = BUILDING_DEFS[kind] as BuildingDef | undefined;
+  if (!d?.refinery) return [];
+  const out: [number, number][] = [];
+  for (let x = 0; x < d.w; x++) out.push([tx + x, ty - 1], [tx + x, ty + d.h]);
+  for (let y = 0; y < d.h; y++) out.push([tx - 1, ty + y], [tx + d.w, ty + y]);
+  return out;
+}
+
+/**
+ * The dock pad of a refinery placed at (tx, ty) (ECO-7): of its pad spots that are open ground (`open`), the one nearest
+ * the nearest shards (`shardDist2` gives the squared distance from a tile to them, Infinity if none). Ties go by how far
+ * the spot is from the map centre along each axis and on which diagonal side of it, all unchanged by the half turn, so
+ * on a point-symmetric map the mirror image of a refinery always gets the mirror image of its pad. If no spot is open,
+ * the best spot is taken anyway (haulers then unload beside the refinery, ECO-9).
+ */
+export function choosePad(
+  kind: string,
+  tx: number,
+  ty: number,
+  width: number,
+  height: number,
+  open: (x: number, y: number) => boolean,
+  shardDist2: (x: number, y: number) => number,
+): [number, number] | undefined {
+  const spots = padSpots(kind, tx, ty);
+  if (spots.length === 0) return undefined;
+  const key = ([x, y]: [number, number]): number[] => {
+    const cx = 2 * x + 1 - width;
+    const cy = 2 * y + 1 - height;
+    return [open(x, y) ? 0 : 1, shardDist2(x, y), Math.abs(cx), Math.abs(cy), Math.sign(cx * cy)];
+  };
+  let best = spots[0] as [number, number];
+  let bk = key(best);
+  for (const p of spots.slice(1)) {
+    const k = key(p);
+    const i = k.findIndex((v, j) => v !== bk[j]);
+    if (i >= 0 && (k[i] as number) < (bk[i] as number)) {
+      best = p;
+      bk = k;
+    }
+  }
+  return best;
+}
+
+/** Squared distance from (x, y) to the nearest tile with shards in a row-major grid, or Infinity if there are none. */
+export function nearestShard2(shards: ArrayLike<number>, width: number, x: number, y: number): number {
+  let best = Infinity;
+  for (let i = 0; i < shards.length; i++) {
+    if (!shards[i]) continue;
+    const dx = (i % width) - x;
+    const dy = Math.floor(i / width) - y;
+    const d = dx * dx + dy * dy;
+    if (d < best) best = d;
+  }
+  return best;
+}
