@@ -13,9 +13,9 @@ export const createFog = (w: number, h: number): Uint8Array => new Uint8Array(w 
 
 /**
  * How long a tile stays in sight after the last unit or building that saw it moves away or dies (FOG-6, FOG-7), ticks
- * (4 s): the fog closes in slowly instead of at once.
+ * (8 s): the fog closes in slowly instead of at once.
  */
-export const SIGHT_LINGER = 80;
+export const SIGHT_LINGER = 160;
 
 /** Lingering sight: per tile, the tick until which it stays visible, and the clock. */
 export interface Linger {
