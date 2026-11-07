@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
-import { angleDiff, gunYaw, readyToFire, turretOnBody, walkerFacing } from '../../src/render3d/motion';
+import { angleDiff, bodyPose, gunYaw, readyToFire, restingMotion, turretOnBody, walkerFacing } from '../../src/render3d/motion';
 import { MAX_STEER, poseRig, rigTree, turretReach, walk, type RigDef, type RigPose, type RigTree } from '../../src/render3d/rig';
 import { PALADIN_SWIVEL, UNIT_RIGS } from '../../src/render3d/units3d';
 
@@ -118,7 +118,11 @@ describe('models do not clip', () => {
       const lean = walker ? 0.04 : 0.08;
       const poses: [string, RigPose][] = [];
       for (let a = -Math.PI; a < Math.PI; a += Math.PI / 8) poses.push([`turret ${a.toFixed(2)}`, { ...STILL, walker, turret: a }]);
-      for (let ph = 0; ph < Math.PI * 2; ph += Math.PI / 6) poses.push([`gait ${ph.toFixed(2)}`, { ...STILL, walker, phase: ph, stride: 1, dist: ph }]);
+      for (let ph = 0; ph < Math.PI * 2; ph += Math.PI / 6) {
+        // A walker with its own walk (HERO-6) bobs and sways its hull with each step as well.
+        const own = def.walk ? bodyPose('walker', { ...restingMotion(), stride: 1 }, ph, 0, 0, def.walk) : { pitch: 0, roll: 0, bob: 0 };
+        poses.push([`gait ${ph.toFixed(2)}`, { ...STILL, walker, phase: ph, stride: 1, dist: ph, ...own }]);
+      }
       poses.push(
         ['recoil', { ...STILL, walker, kick: 1 }],
         ['lunge', { ...STILL, walker, lunge: 1, reach: def.radius * 0.25 }],
