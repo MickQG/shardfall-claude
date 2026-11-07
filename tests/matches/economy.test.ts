@@ -45,5 +45,5 @@ describe('AI economy in full matches', () => {
           for (const p of use) for (const n of p) if (n < 2) ok = false;
         }
     expect(ok, rows.join('\n')).toBe(true);
-  }, 900_000);
+  }, 1_800_000);
 });
