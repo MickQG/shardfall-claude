@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { AudioEngine } from '../../src/audio/engine';
-import { CHORD_ROOTS, musicPlan, SCALE_TONES, semitonesFromA, soundFor } from '../../src/audio/plan';
+import { CHORD_ROOTS, menuPlan, musicPlan, SCALE_TONES, semitonesFromA, soundFor } from '../../src/audio/plan';
 import { UNIT_DEFS } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
 import { SimRunner, TICK_MS } from '../../src/host/runner';
 import { UNIT_MODELS } from '../../src/render/voxel/models';
 import { createGame, snapshot, submit, tick, type SimEvent } from '../../src/sim';
 import { AlertTracker } from '../../src/ui/alerts';
+import { HUMAN_HERO_LINE } from '../../src/ui/menu';
 import { defaultSettings, effectsEnabled, loadSettings, saveSettings } from '../../src/ui/settings';
 
 describe('visuals and settings', () => {
@@ -78,6 +79,37 @@ describe('audio', () => {
       expect(n.beat).toBeGreaterThanOrEqual(0);
       expect(n.dur).toBeGreaterThan(0);
     }
+  });
+
+  it('AUD-4: the menu score is deterministic per seed, in key, and differs from the in-match score', () => {
+    const a = menuPlan(7, 16);
+    expect(menuPlan(7, 16)).toEqual(a);
+    expect(menuPlan(8, 16)).not.toEqual(a);
+    expect(a).not.toEqual(musicPlan(7, 16));
+    const scale = new Set(SCALE_TONES);
+    for (const n of a) {
+      const pc = ((Math.round(semitonesFromA(n.freq)) % 12) + 12) % 12;
+      expect(CHORD_ROOTS.some((r) => scale.has((((pc - r) % 12) + 12) % 12) || (((pc - r) % 12) + 12) % 12 === 7)).toBe(true);
+    }
+  });
+
+  it('AUD-4: the menu mute is saved and read back; the menu engine does not throw without audio', () => {
+    const mem = new Map<string, string>();
+    const store = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
+    saveSettings(store, { ...loadSettings(store), muted: true });
+    expect(loadSettings(store).muted).toBe(true);
+    const e = new AudioEngine();
+    expect(() => {
+      e.setMuted(true);
+      e.unlock();
+      e.startMusic(3, true);
+      e.stopMusic(0.8);
+      e.stopMusic();
+    }).not.toThrow();
+  });
+
+  it('MENU-7: the Aegis hero line is the short one', () => {
+    expect(HUMAN_HERO_LINE).toBe('Paladin, a giant assault walker with cannons and missiles.');
   });
 
   it('AUD-3: the audio engine is safe where no audio exists', () => {

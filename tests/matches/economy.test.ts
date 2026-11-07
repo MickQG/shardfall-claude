@@ -33,6 +33,9 @@ function fieldUse(map: MapId, seed: number, factions: [Faction, Faction]): numbe
   return on.map((fs) => fs.map((s) => s.size));
 }
 
+/** Shards both players gathered between minutes 5 and 6 in the match below, before haulers kept to their field (#125). */
+const BASELINE_INCOME = 16590;
+
 describe('AI economy in full matches', () => {
   it('AI-18: by minute 5 the AI works both home fields, each with at least two haulers, on every map and from both sides', () => {
     const rows: string[] = [];
@@ -45,5 +48,35 @@ describe('AI economy in full matches', () => {
           for (const p of use) for (const n of p) if (n < 2) ok = false;
         }
     expect(ok, rows.join('\n')).toBe(true);
-  }, 1_800_000);
+  }, 900_000);
+
+  it('ECO-8: between minutes 5 and 6 haulers keep to their own home field and the income holds up', () => {
+    const map: MapId = MAPS[0]!.id;
+    const factions: [Faction, Faction] = ['human', 'alien'];
+    const cfg = skirmishConfig(1, { map, factions });
+    const g = createGame(cfg);
+    const ais = [0, 1].map((p) => new AI(p, factions[p]!, DIFFICULTIES.medium, cfg.map, 1));
+    const fields = mapStarts(map).map((s) => homeFields(cfg.map, s).map((f) => new Set(f.tiles)));
+    const W = cfg.map.width;
+    const seen = new Map<number, Set<number>>();
+    let at5 = 0;
+    for (let t = 0; t < 20 * 60 * 6; t++) {
+      for (const [p, ai] of ais.entries()) if ((t + p * 7) % ai.diff.thinkEvery === 0) for (const c of ai.think(snapshot(g, p))) submit(g, c);
+      tick(g);
+      if (t === 20 * 60 * 5) at5 = g.state.players.reduce((a, p) => a + p.stats.shardsGathered, 0);
+      if (t < 20 * 60 * 5 || t % 10) continue;
+      for (const u of g.state.units) {
+        if (u.kind !== 'hum_hauler' && u.kind !== 'ali_gorger') continue;
+        const i = Math.floor(u.y / FP) * W + Math.floor(u.x / FP);
+        const k = fields[u.owner]!.findIndex((f) => f.has(i));
+        if (k >= 0) (seen.get(u.id) ?? seen.set(u.id, new Set()).get(u.id)!).add(k);
+      }
+    }
+    const income = g.state.players.reduce((a, p) => a + p.stats.shardsGathered, 0) - at5;
+    const split = [...seen.values()].filter((s) => s.size > 1).length;
+    console.log('ECO-8 income', income, 'haulers', seen.size, 'switchers', split);
+    expect(seen.size).toBeGreaterThanOrEqual(4);
+    expect(split, 'haulers seen on both home fields').toBeLessThanOrEqual(Math.floor(seen.size / 4));
+    expect(income).toBeGreaterThanOrEqual(BASELINE_INCOME);
+  }, 300_000);
 });
