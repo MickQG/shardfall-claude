@@ -1,8 +1,8 @@
-import { buildingDef, padTile, unitDef, type Faction } from '../data/defs';
+import { buildingDef, choosePad, nearestShard2, unitDef, type Faction } from '../data/defs';
 import { dirOf } from './facing';
 import { centerOf, FP } from './fixed';
 import { createFog } from './fog';
-import type { Grid } from './path';
+import { isBlocked, type Grid } from './path';
 import { Rng } from './rng';
 import type { BuildingSnap, Command, GameConfig, PlayerStats, SimEvent } from './types';
 
@@ -107,6 +107,8 @@ export interface Building {
   /** Superweapon charge in ticks. */
   charge: number;
   target: number;
+  /** Refineries: the dock pad tile [tx, ty], beside the side facing the nearest shards, chosen once when placed (ECO-7). */
+  pad: [number, number] | null;
 }
 
 export interface Player {
@@ -206,7 +208,10 @@ export function addUnit(s: State, owner: number, kind: string, x: number, y: num
 
 export function addBuilding(s: State, owner: number, kind: string, tx: number, ty: number): Building {
   const d = buildingDef(kind);
-  const b: Building = { id: s.nextId++, owner, kind, tx, ty, hp: d.hp, queue: [], rally: null, repairing: false, cooldown: 0, charge: 0, target: -1 };
+  const W = s.grid.width;
+  const open = (x: number, y: number): boolean => !isBlocked(s.grid, x, y);
+  const pad = choosePad(kind, tx, ty, W, s.grid.height, open, (x, y) => nearestShard2(s.shards, W, x, y)) ?? null;
+  const b: Building = { id: s.nextId++, owner, kind, tx, ty, hp: d.hp, queue: [], rally: null, repairing: false, cooldown: 0, charge: 0, target: -1, pad };
   s.buildings.push(b);
   rebuildBlocked(s);
   return b;
@@ -221,20 +226,7 @@ export function rebuildBlocked(s: State): void {
     const d = buildingDef(b.kind);
     for (let y = b.ty; y < b.ty + d.h; y++) for (let x = b.tx; x < b.tx + d.w; x++) if (x >= 0 && y >= 0 && x < width && y < height) blocked[y * width + x] = 1;
   }
-  // A refinery's dock pad stays drivable, so haulers can pull onto it (ECO-7); terrain under it still blocks.
-  for (const b of s.buildings) {
-    const p = padTile(b.kind, b.tx, b.ty);
-    if (!p || p.tx < 0 || p.ty < 0 || p.tx >= width || p.ty >= height) continue;
-    const i = p.ty * width + p.tx;
-    if (!terrain?.[i] && !s.buildings.some((o) => o !== b && covers(o, p.tx, p.ty))) blocked[i] = 0;
-  }
 }
-
-/** Whether a building's footprint covers tile (x, y). */
-const covers = (b: Building, x: number, y: number): boolean => {
-  const d = buildingDef(b.kind);
-  return x >= b.tx && x < b.tx + d.w && y >= b.ty && y < b.ty + d.h;
-};
 
 export const buildingById = (s: State, id: number): Building | undefined => s.buildings.find((b) => b.id === id);
 export const unitById = (s: State, id: number): Unit | undefined => s.units.find((u) => u.id === id);

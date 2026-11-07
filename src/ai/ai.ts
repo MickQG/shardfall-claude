@@ -1,4 +1,4 @@
-import { BUILDING_DEFS, buildingDef, canCrush, padTile, UNIT_DEFS, unitDef, type Faction, type UnitDef } from '../data/defs';
+import { BUILDING_DEFS, buildingDef, canCrush, choosePad, UNIT_DEFS, unitDef, type Faction, type UnitDef } from '../data/defs';
 import { BUILD_RANGE, canPlace, EXPLORED, FP, QUEUE_MAX, Rng, VISIBLE, type BuildingSnap, type Command, type MapDef, type Snapshot, type UnitSnap } from '../sim';
 import { kitOf, type Kit } from './kit';
 
@@ -505,14 +505,13 @@ export class AI {
     const occupied = [...snap.buildings, ...snap.ghosts];
     const ctx = { width: W, height: snap.mapHeight, terrain: this.map.blocked, occupied, own: c.buildings, fog };
     const occ = new Set<number>();
-    // The open ground in front of each dock pad, where haulers drive on and wait (ECO-7): never built over.
+    // The open ground around each dock pad, where haulers drive on and wait (ECO-7): never built over.
     const aprons = new Set<number>();
-    const apron = (p: { tx: number; ty: number }): number[] => [[1, 0], [0, 1], [1, 1]].map(([dx, dy]) => (p.ty + (dy as number)) * W + p.tx + (dx as number));
+    const apron = (p: readonly [number, number]): number[] => [-1, 0, 1].flatMap((dy) => [-1, 0, 1].map((dx) => (p[1] + dy) * W + p[0] + dx));
     for (const b of occupied) {
       const bd = buildingDef(b.kind);
       for (let y = b.ty; y < b.ty + bd.h; y++) for (let x = b.tx; x < b.tx + bd.w; x++) occ.add(y * W + x);
-      const pad = padTile(b.kind, b.tx, b.ty);
-      if (pad) for (const i of apron(pad)) aprons.add(i);
+      if (b.pad) for (const i of apron(b.pad)) aprons.add(i);
     }
     const home = this.home as { tx: number; ty: number };
     // Scored from the exact HQ centre toward the exact mirror of it (the enemy's start), so both players weigh mirror-image
@@ -532,6 +531,11 @@ export class AI {
         const i = flip ? n - 1 - k : k;
         if ((snap.shards[i] as number) > 0) fields.push([(i % W) + 0.5, Math.floor(i / W) + 0.5]); // tile centres mirror exactly
       }
+    const nearField = (x: number, y: number): number => {
+      let m = Infinity;
+      for (const [fx, fy] of fields) m = Math.min(m, (fx - x - 0.5) ** 2 + (fy - y - 0.5) ** 2);
+      return m;
+    };
     let best: { tx: number; ty: number } | null = null;
     let bs = Infinity;
     const minX = Math.min(...c.buildings.map((b) => b.tx)) - BUILD_RANGE - d.w;
@@ -556,8 +560,10 @@ export class AI {
         for (let y = ty - 1; y <= ty + d.h; y++) for (let x = tx - 1; x <= tx + d.w; x++) if (occ.has(y * W + x) || this.map.blocked?.[y * W + x]) touching++;
         score += touching * (d.weapon ? 1 : 6);
         for (let y = ty; y < ty + d.h; y++) for (let x = tx; x < tx + d.w; x++) if (aprons.has(y * W + x)) score += 200;
-        const pad = padTile(kind, tx, ty);
-        if (pad) for (const i of apron(pad)) if (occ.has(i) || this.map.blocked?.[i]) score += 200;
+        // A refinery's pad goes on the side facing the nearest shards, as the simulation will place it (ECO-7).
+        const free = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < W && y < snap.mapHeight && !occ.has(y * W + x) && !this.map.blocked?.[y * W + x];
+        const pad = d.refinery ? choosePad(kind, tx, ty, W, snap.mapHeight, free, nearField) : undefined;
+        if (pad) for (const i of apron(pad)) if ((occ.has(i) || this.map.blocked?.[i]) && !(i % W >= tx && i % W < tx + d.w && Math.floor(i / W) >= ty && Math.floor(i / W) < ty + d.h)) score += 40;
         // Never build on crystal.
         for (let y = ty; y < ty + d.h; y++) for (let x = tx; x < tx + d.w; x++) if ((snap.shards[y * W + x] as number) > 0) score += 80;
         const cx = tx + d.w / 2;
@@ -566,8 +572,8 @@ export class AI {
         if (d.weapon) score -= toward * 2.2; // defences face the enemy
         else if (d.refinery) {
           // Haulers unload on the dock pad, so it is the pad that should be near the shards (ECO-7).
-          const px = (pad as { tx: number }).tx + 0.5;
-          const py = (pad as { ty: number }).ty + 0.5;
+          const px = (pad as [number, number])[0] + 0.5;
+          const py = (pad as [number, number])[1] + 0.5;
           let nearest = 40;
           for (const [fx, fy] of fields) nearest = Math.min(nearest, dist(px, py, fx, fy));
           score += nearest * 3;

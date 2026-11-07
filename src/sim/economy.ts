@@ -1,4 +1,4 @@
-import { buildingDef, padTile, unitDef } from '../data/defs';
+import { buildingDef, unitDef } from '../data/defs';
 import { tileOf } from './fixed';
 import { isBlocked } from './path';
 import { clearOrder, orderMove, ringTiles } from './movement';
@@ -71,8 +71,8 @@ const isRefineryOf = (b: Building | undefined, owner: number): b is Building => 
 
 /** The pad tile index of a refinery (ECO-7). */
 function padIndex(s: State, b: Building): number {
-  const p = padTile(b.kind, b.tx, b.ty) as { tx: number; ty: number };
-  return p.ty * s.grid.width + p.tx;
+  const p = b.pad as [number, number];
+  return p[1] * s.grid.width + p[0];
 }
 
 /** The hauler holding a refinery's pad: driving onto it or unloading on it (ECO-7). */
@@ -106,26 +106,32 @@ function chooseRefinery(s: State, u: Unit, tx: number, ty: number, avoid = -1): 
 }
 
 /**
- * Where the n-th hauler in line waits (ECO-8): first the free tiles next to the pad with a straight step onto it, then
- * other free tiles around it, nearest first; never the pad itself.
+ * Where a hauler n-th in line waits (ECO-8): a free tile next to the pad with a straight step onto it, on the side the
+ * hauler comes from so it never drives across the pad to get there (the n-th nearest to it), else further round.
  */
-function lineSpot(s: State, b: Building, n: number): number {
+function lineSpot(s: State, b: Building, n: number, u: Unit): number {
   const g = s.grid;
   const pad = padIndex(s, b);
   const px = pad % g.width;
   const py = Math.floor(pad / g.width);
   const ring = ringTiles(g, px, py, LINE_SPOTS + 9).filter((i) => i !== pad);
+  // Ties go by scan order, from the far end for player 1, so mirrored lines wait on mirrored spots (MAP-4).
+  if (b.owner % 2 === 1) ring.reverse();
   const direct = (i: number): boolean => {
     const dx = (i % g.width) - px;
     const dy = Math.floor(i / g.width) - py;
     if (Math.max(Math.abs(dx), Math.abs(dy)) !== 1) return false;
     return dx === 0 || dy === 0 || (!isBlocked(g, px + dx, py) && !isBlocked(g, px, py + dy));
   };
-  const spots = [...ring.filter(direct), ...ring.filter((i) => !direct(i))].slice(0, LINE_SPOTS);
+  const ux = tileOf(u.x);
+  const uy = tileOf(u.y);
+  const far = (i: number): number => ((i % g.width) - ux) ** 2 + (Math.floor(i / g.width) - uy) ** 2;
+  const byNear = (a: number, c: number): number => far(a) - far(c);
+  const spots = [...ring.filter(direct).sort(byNear), ...ring.filter((i) => !direct(i)).sort(byNear)];
   return spots[Math.max(0, Math.min(n, spots.length - 1))] ?? pad;
 }
 
-/** Free tile adjacent to the building's footprint, nearest to (tx, ty): where a hauler unloads if the pad cannot be reached. */
+/** Free tile adjacent to the building's footprint other than its pad, nearest to (tx, ty): where a hauler unloads if the pad cannot be reached. */
 function besideTile(s: State, b: Building, tx: number, ty: number): number | undefined {
   const d = buildingDef(b.kind);
   let best: number | undefined;
@@ -137,7 +143,7 @@ function besideTile(s: State, b: Building, tx: number, ty: number): number | und
     const x = b.tx - 1 + (j % cols);
     const y = b.ty - 1 + Math.floor(j / cols);
     const onRing = x === b.tx - 1 || x === b.tx + d.w || y === b.ty - 1 || y === b.ty + d.h;
-    if (!onRing || isBlocked(s.grid, x, y)) continue;
+    if (!onRing || isBlocked(s.grid, x, y) || (b.pad && b.pad[0] === x && b.pad[1] === y)) continue;
     const dist = (x - tx) ** 2 + (y - ty) ** 2;
     if (dist < bd) {
       bd = dist;
@@ -231,7 +237,7 @@ function stepHauler(s: State, u: Unit): void {
         if (!free) {
           u.hv = Hv.Queue;
           u.queuedAt = s.tick;
-          orderMove(s, u, lineSpot(s, ref, line.length));
+          orderMove(s, u, lineSpot(s, ref, line.length, u));
           break;
         }
       }
@@ -260,7 +266,7 @@ function stepHauler(s: State, u: Unit): void {
           break;
         }
       }
-      const spot = lineSpot(s, ref, at);
+      const spot = lineSpot(s, ref, at, u);
       if (stopped && here !== spot) orderMove(s, u, spot);
       break;
     }
@@ -271,8 +277,8 @@ function stepHauler(s: State, u: Unit): void {
         break;
       }
       const pad = padIndex(s, ref);
-      if (here === pad && stopped) {
-        u.hv = Hv.Unload;
+      if (here === pad) {
+        u.hv = Hv.Unload; // unloading starts on rolling onto the pad; it pulls up at the centre meanwhile
         break;
       }
       if (!stopped || !throttle) break;
@@ -300,7 +306,7 @@ function stepHauler(s: State, u: Unit): void {
         if (stopped) orderMove(s, u, padIndex(s, ref));
         break;
       }
-      clearOrder(u);
+      if (u.goal !== padIndex(s, ref)) clearOrder(u);
       const amt = Math.min(UNLOAD_PER_TICK, u.load);
       u.load -= amt;
       const pl = s.players[u.owner] as Player;

@@ -9,6 +9,8 @@ export interface Footprint {
   /** Top-left tile. */
   tx: number;
   ty: number;
+  /** Refineries: the dock pad tile, which stays clear of other buildings (ECO-7). */
+  pad?: readonly [number, number] | null;
 }
 
 export interface PlacementContext {
@@ -44,6 +46,7 @@ export function canPlace(ctx: PlacementContext, kind: string, tx: number, ty: nu
   for (const o of ctx.occupied) {
     const d = buildingDef(o.kind);
     if (tx < o.tx + d.w && tx + w > o.tx && ty < o.ty + d.h && ty + h > o.ty) return false;
+    if (o.pad && o.pad[0] >= tx && o.pad[0] < tx + w && o.pad[1] >= ty && o.pad[1] < ty + h) return false;
   }
   return ctx.own.some((o) => {
     const d = buildingDef(o.kind);

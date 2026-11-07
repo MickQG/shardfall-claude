@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { BUILDING_DEFS, buildingDef, padTile, UNIT_DEFS, unitDef } from '../../src/data/defs';
+import { BUILDING_DEFS, buildingDef, UNIT_DEFS, unitDef } from '../../src/data/defs';
 import { createGame, hash, snapshot, tick, type GameConfig, type SimEvent } from '../../src/sim';
-import { BUILDING_RIGS, crystalShape, DOCKS, dockYaw } from '../../src/render3d/buildings3d';
+import { BUILDING_RIGS, crystalShape, DOCK_RIGS, dockFrame, dockIntake, dockModelYaw, dockYaw } from '../../src/render3d/buildings3d';
 import { CombatFx, LOOKS, scorchTexture, shotDuration } from '../../src/render3d/fx3d';
 import { Instancer } from '../../src/render3d/instancer';
 import { Shape } from '../../src/render3d/kit';
@@ -299,21 +299,30 @@ describe('fog, damage, harvesters and deaths', () => {
 
   it('R3D-22: docked on the pad, the hauler backs its tipping bed to the intake and the gorger bows its head into the maw', () => {
     for (const [ref, unit] of [['hum_refinery', 'hum_hauler'], ['ali_extractor', 'ali_gorger']] as const) {
-      // A refinery at tile (10, 20); the hauler stands on the centre of its pad tile, where the model draws the pad.
       const d = buildingDef(ref);
-      const pad = padTile(ref, 10, 20)!;
-      const cx = 10 + d.w / 2;
-      const cz = 20 + d.h / 2;
-      const [dx, dz] = DOCKS[ref]!.pad;
-      expect([Math.floor(cx + dx), Math.floor(cz + dz)]).toEqual([pad.tx, pad.ty]);
-      const x = pad.tx + 0.5;
-      const z = pad.ty + 0.5;
-      const yaw = dockYaw(unit, ref, cx, cz, x, z)!;
-      const intake = new THREE.Vector2(cx + DOCKS[ref]!.intake[0], cz + DOCKS[ref]!.intake[1]);
-      const ahead = new THREE.Vector2(x + Math.cos(yaw) * 0.5, z + Math.sin(yaw) * 0.5).distanceTo(intake);
-      const behind = new THREE.Vector2(x - Math.cos(yaw) * 0.5, z - Math.sin(yaw) * 0.5).distanceTo(intake);
-      if (unit === 'hum_hauler') expect(behind, 'the bed tips out of the back, into the intake').toBeLessThan(ahead);
-      else expect(ahead, 'the gorger faces the maw').toBeLessThan(behind);
+      // A dock model exists for each refinery kind, with real detail.
+      const dock = DOCK_RIGS[ref]!();
+      expect(Object.values(dock.shapes).reduce((n, sh) => n + sh().pieces.length, 0), ref).toBeGreaterThanOrEqual(8);
+      // A refinery at tile (10, 20), with its pad on each side in turn: the dock stands on the pad, facing out.
+      for (const pad of [[13, 21], [9, 20], [11, 22], [11, 19]] as [number, number][]) {
+        const f = dockFrame({ kind: ref, tx: 10, ty: 20, pad }, d.w, d.h)!;
+        expect([Math.floor(f.x), Math.floor(f.z)]).toEqual(pad);
+        // The model's +X, turned by its yaw, points out of the building.
+        const out = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), dockModelYaw(f));
+        expect(out.x).toBeCloseTo(f.out[0], 6);
+        expect(out.z).toBeCloseTo(f.out[1], 6);
+        // The intake is at the building's wall.
+        const [ix, iz] = dockIntake(ref, f);
+        expect(Math.abs(ix - f.x) + Math.abs(iz - f.z)).toBeGreaterThan(0.3);
+        const x = f.x;
+        const z = f.z;
+        const yaw = dockYaw(unit, ref, f, x, z)!;
+        const intake = new THREE.Vector2(ix, iz);
+        const ahead = new THREE.Vector2(x + Math.cos(yaw) * 0.5, z + Math.sin(yaw) * 0.5).distanceTo(intake);
+        const behind = new THREE.Vector2(x - Math.cos(yaw) * 0.5, z - Math.sin(yaw) * 0.5).distanceTo(intake);
+        if (unit === 'hum_hauler') expect(behind, 'the bed tips out of the back, into the hopper').toBeLessThan(ahead);
+        else expect(ahead, 'the gorger faces the maw').toBeLessThan(behind);
+      }
     }
     // Unloading, the gorger's maw dips well down toward the pool, about its neck; the hauler's bed tips (R3D-19).
     const g = rigTree(UNIT_RIGS.ali_gorger!());

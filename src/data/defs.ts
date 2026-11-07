@@ -77,11 +77,6 @@ export interface BuildingDef {
   hq?: boolean;
   /** Accepts shard deliveries. */
   refinery?: boolean;
-  /**
-   * Refineries: the dock pad, as a tile offset inside the footprint (ECO-7). The one place haulers unload; it stays
-   * drivable while the rest of the footprint blocks. The 3D model draws the pad on this tile (buildings never rotate).
-   */
-  pad?: readonly [number, number];
   weapon?: WeaponDef;
   /** Defences go offline when power is low. */
   needsPower?: boolean;
@@ -104,7 +99,7 @@ export const BUILDING_DEFS: Readonly<Record<string, BuildingDef>> = {
   // ---- Humans (Aegis Union): armoured, structured, combined arms ----
   hum_hq: { faction: 'human', name: 'Command Hub', w: 3, h: 3, hp: 1500, cost: 0, buildTime: 0, requires: [], power: 20, vision: 9, hq: true, tier: 1 },
   hum_reactor: { faction: 'human', name: 'Fusion Reactor', w: 2, h: 2, hp: 600, cost: 300, buildTime: 300, requires: ['hum_hq'], power: 70, vision: 5, tier: 1 },
-  hum_refinery: { faction: 'human', name: 'Shard Refinery', w: 3, h: 2, hp: 900, cost: 600, buildTime: 500, requires: ['hum_reactor'], power: -15, vision: 6, refinery: true, pad: [2, 1], tier: 1 },
+  hum_refinery: { faction: 'human', name: 'Shard Refinery', w: 3, h: 2, hp: 900, cost: 600, buildTime: 500, requires: ['hum_reactor'], power: -15, vision: 6, refinery: true, tier: 1 },
   hum_barracks: { faction: 'human', name: 'Garrison', w: 2, h: 2, hp: 700, cost: 400, buildTime: 400, requires: ['hum_reactor'], power: -10, vision: 6, tier: 1 },
   hum_factory: { faction: 'human', name: 'Motor Pool', w: 3, h: 3, hp: 1100, cost: 900, buildTime: 700, requires: ['hum_refinery', 'hum_barracks'], power: -25, vision: 6, tier: 2 },
   hum_turret: {
@@ -121,7 +116,7 @@ export const BUILDING_DEFS: Readonly<Record<string, BuildingDef>> = {
   // ---- Aliens (Vrax Hive): fast, organic, regenerating ----
   ali_hq: { faction: 'alien', name: 'Hive Heart', w: 3, h: 3, hp: 1400, cost: 0, buildTime: 0, requires: [], power: 20, vision: 9, hq: true, tier: 1 },
   ali_generator: { faction: 'alien', name: 'Bio-Generator', w: 2, h: 2, hp: 500, cost: 250, buildTime: 260, requires: ['ali_hq'], power: 60, vision: 5, tier: 1 },
-  ali_extractor: { faction: 'alien', name: 'Shard Extractor', w: 3, h: 2, hp: 800, cost: 550, buildTime: 450, requires: ['ali_generator'], power: -12, vision: 6, refinery: true, pad: [2, 1], tier: 1 },
+  ali_extractor: { faction: 'alien', name: 'Shard Extractor', w: 3, h: 2, hp: 800, cost: 550, buildTime: 450, requires: ['ali_generator'], power: -12, vision: 6, refinery: true, tier: 1 },
   ali_nest: { faction: 'alien', name: 'Spawn Nest', w: 2, h: 2, hp: 600, cost: 350, buildTime: 350, requires: ['ali_generator'], power: -8, vision: 6, tier: 1 },
   ali_pit: { faction: 'alien', name: 'Brood Pit', w: 3, h: 3, hp: 1000, cost: 850, buildTime: 650, requires: ['ali_extractor', 'ali_nest'], power: -22, vision: 6, tier: 2 },
   ali_spire: {
@@ -229,8 +224,65 @@ export const structuresOf = (faction: Faction): string[] => Object.keys(BUILDING
 export const hqOf = (faction: Faction): string => (faction === 'human' ? 'hum_hq' : 'ali_hq');
 export const refineryOf = (faction: Faction): string => (faction === 'human' ? 'hum_refinery' : 'ali_extractor');
 
-/** The dock pad tile of a refinery standing at (tx, ty) (ECO-7), or undefined for other buildings. */
-export function padTile(kind: string, tx: number, ty: number): { tx: number; ty: number } | undefined {
-  const pad = (BUILDING_DEFS[kind] as BuildingDef | undefined)?.pad;
-  return pad ? { tx: tx + pad[0], ty: ty + pad[1] } : undefined;
+/**
+ * The tiles where a refinery standing at (tx, ty) may have its dock pad (ECO-7): every tile just outside its footprint
+ * that touches a side (not the diagonal corners). The set is closed under the half turn of a point-symmetric map: the
+ * mirror image of each spot is a spot of the mirrored footprint. Empty for other buildings.
+ */
+export function padSpots(kind: string, tx: number, ty: number): [number, number][] {
+  const d = BUILDING_DEFS[kind] as BuildingDef | undefined;
+  if (!d?.refinery) return [];
+  const out: [number, number][] = [];
+  for (let x = 0; x < d.w; x++) out.push([tx + x, ty - 1], [tx + x, ty + d.h]);
+  for (let y = 0; y < d.h; y++) out.push([tx - 1, ty + y], [tx + d.w, ty + y]);
+  return out;
+}
+
+/**
+ * The dock pad of a refinery placed at (tx, ty) (ECO-7): of its pad spots that are open ground (`open`), the one nearest
+ * the nearest shards (`shardDist2` gives the squared distance from a tile to them, Infinity if none). Ties go by how far
+ * the spot is from the map centre along each axis and on which diagonal side of it, all unchanged by the half turn, so
+ * on a point-symmetric map the mirror image of a refinery always gets the mirror image of its pad. If no spot is open,
+ * the best spot is taken anyway (haulers then unload beside the refinery, ECO-9).
+ */
+export function choosePad(
+  kind: string,
+  tx: number,
+  ty: number,
+  width: number,
+  height: number,
+  open: (x: number, y: number) => boolean,
+  shardDist2: (x: number, y: number) => number,
+): [number, number] | undefined {
+  const spots = padSpots(kind, tx, ty);
+  if (spots.length === 0) return undefined;
+  const key = ([x, y]: [number, number]): number[] => {
+    const cx = 2 * x + 1 - width;
+    const cy = 2 * y + 1 - height;
+    return [open(x, y) ? 0 : 1, shardDist2(x, y), Math.abs(cx), Math.abs(cy), Math.sign(cx * cy)];
+  };
+  let best = spots[0] as [number, number];
+  let bk = key(best);
+  for (const p of spots.slice(1)) {
+    const k = key(p);
+    const i = k.findIndex((v, j) => v !== bk[j]);
+    if (i >= 0 && (k[i] as number) < (bk[i] as number)) {
+      best = p;
+      bk = k;
+    }
+  }
+  return best;
+}
+
+/** Squared distance from (x, y) to the nearest tile with shards in a row-major grid, or Infinity if there are none. */
+export function nearestShard2(shards: ArrayLike<number>, width: number, x: number, y: number): number {
+  let best = Infinity;
+  for (let i = 0; i < shards.length; i++) {
+    if (!shards[i]) continue;
+    const dx = (i % width) - x;
+    const dy = Math.floor(i / width) - y;
+    const d = dx * dx + dy * dy;
+    if (d < best) best = d;
+  }
+  return best;
 }

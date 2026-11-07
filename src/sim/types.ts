@@ -114,6 +114,8 @@ export interface BuildingSnap {
   rally: [number, number] | null;
   /** Superweapon charge 0..100 (own buildings and the god view only). */
   charge: number;
+  /** Refineries: the dock pad tile [tx, ty], beside the footprint on the side facing the shards (ECO-7). */
+  pad?: [number, number];
 }
 
 /** End-of-game statistics for one player (SCR-1). */

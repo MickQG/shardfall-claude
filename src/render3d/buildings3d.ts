@@ -31,24 +31,45 @@ const MAGENTA = 0xff5ab0;
 const shape = (): Shape => new Shape();
 
 /**
- * Where each refinery model draws its dock pad and its intake, in model coordinates (x along +X, z along +Z, from the
- * footprint centre) (ECO-7, R3D-22). The pad lies on the footprint tile the simulation keeps as the dock pad; a docked
- * hauler turns toward the intake to unload into it.
+ * A refinery's dock (ECO-7, R3D-22) is drawn as its own model on the pad tile the simulation chose, beside the side of
+ * the footprint facing the shards. Dock models stand on the pad's centre with +X pointing out, away from the building,
+ * whose wall is at x = -0.5. How far in from the pad's centre each dock takes in the load: the Aegis hopper at the
+ * wall, the Vrax feeding maw just short of it.
  */
-export const DOCKS: Readonly<Record<string, { pad: readonly [number, number]; intake: readonly [number, number] }>> = {
-  hum_refinery: { pad: [0.8, 0.35], intake: [0.3, 0.1] },
-  ali_extractor: { pad: [0.75, 0.25], intake: [0.75, 0.25] },
-};
+export const DOCK_INTAKE: Readonly<Record<string, number>> = { hum_refinery: 0.45, ali_extractor: 0.42 };
+
+/** Where a refinery's dock stands (R3D-22): the pad tile's centre and the unit vector pointing out of the building. */
+export interface DockFrame {
+  x: number;
+  z: number;
+  out: [number, number];
+}
+
+export function dockFrame(b: { kind: string; tx: number; ty: number; pad?: readonly [number, number] | null }, w: number, h: number): DockFrame | undefined {
+  if (!b.pad || DOCK_INTAKE[b.kind] === undefined) return undefined;
+  const [px, py] = b.pad;
+  const ox = px < b.tx ? -1 : px >= b.tx + w ? 1 : 0;
+  const oz = py < b.ty ? -1 : py >= b.ty + h ? 1 : 0;
+  return { x: px + 0.5, z: py + 0.5, out: [ox, oz] };
+}
+
+/** The world point a dock takes the load in at (R3D-22). */
+export function dockIntake(kind: string, f: DockFrame): [number, number] {
+  const k = DOCK_INTAKE[kind] ?? 0.45;
+  return [f.x - f.out[0] * k, f.z - f.out[1] * k];
+}
+
+/** The yaw that turns a dock model's +X out of the building (three.js: +X turned by `yaw` about Y goes to (cos, -sin)). */
+export const dockModelYaw = (f: DockFrame): number => Math.atan2(-f.out[1], f.out[0]);
 
 /**
- * The world yaw a hauler unloading at (x, z) turns to (R3D-22), for a refinery of `kind` with its footprint centre at
- * (cx, cz): a gorger faces the feeding maw; a hauler, whose bed tips out of the back, turns its back to the intake.
+ * The world yaw a hauler unloading at (x, z) turns to (R3D-22): a gorger faces the feeding maw; a hauler, whose bed
+ * tips out of the back, turns its back to the hopper.
  */
-export function dockYaw(unitKind: string, kind: string, cx: number, cz: number, x: number, z: number): number | undefined {
-  const d = DOCKS[kind];
-  if (!d) return undefined;
-  const dx = cx + d.intake[0] - x;
-  const dz = cz + d.intake[1] - z;
+export function dockYaw(unitKind: string, kind: string, f: DockFrame, x: number, z: number): number | undefined {
+  const [ix, iz] = dockIntake(kind, f);
+  const dx = ix - x;
+  const dz = iz - z;
   if (Math.hypot(dx, dz) < 1e-3) return undefined;
   return unitKind.startsWith('ali_') ? Math.atan2(dz, dx) : Math.atan2(-dz, -dx);
 }
@@ -240,10 +261,11 @@ function humRefinery(): RigDef {
       s.cyl(0.24, 0.42, GLASS, { at: [0.35, 0.33, -0.45], seg: 14 });
       s.cyl(0.2, 0.3, 0x47e8c4, { at: [0.35, 0.3, -0.45], seg: 14, glow: true });
       s.ring(0.245, 0.02, STEEL, { at: [0.35, 0.55, -0.45], seg: 16 });
-      // Unloading dock on the front right, with a hazard-marked pad.
-      const [px, pz] = DOCKS.hum_refinery!.pad;
-      s.box(1.0, 0.03, 0.75, DARK, { at: [px, 0.115, pz], bevel: 0 });
-      for (let i = 0; i < 5; i++) s.box(0.06, 0.012, 0.75, HAZARD, { at: [px - 0.44 + i * 0.22, 0.13, pz], bevel: 0 });
+      // Shard bins in the front corner (haulers unload at the separate dock beside the building, R3D-22).
+      for (const [x, z] of [[0.75, 0.35], [1.1, 0.35], [0.92, 0.7]] as const) {
+        s.box(0.28, 0.2, 0.26, STEEL2, { at: [x, 0.2, z], bevel: 0.15 });
+        s.box(0.24, 0.02, 0.22, 0x47e8c4, { at: [x, 0.31, z], glow: true, bevel: 0 });
+      }
       s.slab([[0.2, 0.1], [0.4, 0.1], [0.4, 0.5], [0.3, 0.55]], 0.4, STEEL2, { at: [0, 0, 0.0], bevel: 0.02 });
       s.tube(0.035, 0.7, GUN, { at: [0.1, 0.5, -0.1], rot: [0, 0, 0.3] }); // conveyor
       // Chimney.
@@ -467,13 +489,10 @@ function aliExtractor(): RigDef {
       scutes(s, [-0.6, 0.35, -0.2], [0.84, 0.57, 0.6], 53);
       for (let i = 0; i < 4; i++) s.cone(0.07, 0.4, BONE, { at: [-1.0 + i * 0.27, 0.95, -0.2], rot: [0, 0, 0.4], seg: 6 });
       for (const z of [0.4, -0.65]) s.tube(0.07, 0.8, FLESH, { at: [0.2, 0.15, z], rot: [0, 0.3, -0.25], seg: 8 });
-      // Feeding maw with a glowing pool, front right, where gorgers unload.
-      const [mx, mz] = DOCKS.ali_extractor!.pad;
-      s.ring(0.38, 0.08, BONE, { at: [mx, 0.15, mz], seg: 16 });
-      s.cyl(0.32, 0.03, ACID, { at: [mx, 0.15, mz], seg: 16, glow: true });
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
-        s.cone(0.04, 0.16, BONE, { at: [mx + Math.cos(a) * 0.38, 0.24, mz + Math.sin(a) * 0.38], rot: [Math.sin(a) * -0.6, 0, Math.cos(a) * 0.6], seg: 4 });
+      // Glowing digestive pustules in the front corner (gorgers feed it at the separate maw beside it, R3D-22).
+      for (const [x, z, r] of [[0.75, 0.3, 0.16], [1.05, 0.5, 0.12], [0.8, 0.65, 0.1]] as const) {
+        s.ball(r, SAC, { at: [x, 0.1 + r * 0.6, z], scale: [1, 0.8, 1], seg: 10 });
+        s.ball(r * 0.4, ACID, { at: [x, 0.1 + r * 1.3, z], seg: 6, glow: true });
       }
       for (let i = 0; i < 3; i++) s.ball(0.05, GREEN, { at: [-0.25 + i * 0.12, 0.62 - i * 0.05, 0.25], seg: 6, glow: true });
       return s;
@@ -675,6 +694,50 @@ export function reedShape(variant: number): Shape {
   }
   return s;
 }
+
+/** The Aegis dock (R3D-22): a hazard-striped pad with bollards, and a hopper at the wall that takes the tipped load. */
+function humDock(): RigDef {
+  return def(1, 1, 0.6, {
+    body: () => {
+      const s = shape();
+      s.box(0.92, 0.03, 0.92, DARK, { at: [0, 0.015, 0], bevel: 0 });
+      for (let i = 0; i < 4; i++) s.box(0.92, 0.008, 0.07, HAZARD, { at: [0, 0.034, -0.34 + i * 0.227], bevel: 0 });
+      for (const z of [0.4, -0.4]) {
+        s.cyl(0.035, 0.24, HAZARD, { at: [0.38, 0.12, z], seg: 8 });
+        s.cyl(0.03, 0.03, AMBER, { at: [0.38, 0.255, z], seg: 8, glow: true });
+      }
+      // The hopper: a sloped steel funnel against the wall, its mouth facing the pad, and a conveyor up into the plant.
+      s.slab([[-0.5, 0.0], [-0.3, 0.0], [-0.22, 0.42], [-0.5, 0.48]], 0.7, STEEL2, { bevel: 0.02 });
+      s.box(0.05, 0.05, 0.7, 'team', { at: [-0.24, 0.44, 0], bevel: 0.2 });
+      s.box(0.04, 0.2, 0.5, DARK, { at: [-0.27, 0.28, 0], bevel: 0 });
+      s.tube(0.04, 0.5, GUN, { at: [-0.45, 0.55, 0], rot: [0, 0, 1.2] });
+      return s;
+    },
+  }, []);
+}
+
+/** The Vrax dock (R3D-22): a bone-toothed feeding maw over a glowing pool at the wall, fed into the hive by a fleshy gullet. */
+function aliDock(): RigDef {
+  return def(1, 1, 0.4, {
+    body: () => {
+      const s = shape();
+      s.lathe([[0, 0], [0.48, 0], [0.44, 0.04], [0, 0.05]], BELLY, { seg: 14 });
+      const mx = -DOCK_INTAKE.ali_extractor!;
+      s.ring(0.26, 0.07, BONE, { at: [mx, 0.1, 0], seg: 16 });
+      s.cyl(0.21, 0.03, ACID, { at: [mx, 0.08, 0], seg: 16, glow: true });
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        s.cone(0.03, 0.13, BONE, { at: [mx + Math.cos(a) * 0.27, 0.17, Math.sin(a) * 0.27], rot: [Math.sin(a) * -0.6, 0, Math.cos(a) * 0.6], seg: 4 });
+      }
+      s.tube(0.08, 0.5, FLESH, { at: [mx - 0.1, 0.25, 0], rot: [0, 0, 1.0], seg: 8 });
+      for (let i = 0; i < 3; i++) s.ball(0.04, GREEN, { at: [0.15 + i * 0.1, 0.06, -0.3 + i * 0.3], seg: 6, glow: true });
+      return s;
+    },
+  }, [], { organic: true });
+}
+
+/** Dock models by refinery kind (R3D-22). */
+export const DOCK_RIGS: Readonly<Record<string, () => RigDef>> = { hum_refinery: humDock, ali_extractor: aliDock };
 
 export const BUILDING_RIGS: Readonly<Record<string, () => RigDef>> = {
   hum_hq: humHq,

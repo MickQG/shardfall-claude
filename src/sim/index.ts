@@ -58,6 +58,7 @@ function buildingSnap(b: Building, detail: boolean): BuildingSnap {
     repairing: b.repairing,
     rally: detail ? b.rally : null,
     charge: detail && d.superweapon ? Math.min(100, Math.floor((b.charge * 100) / d.superweapon.charge)) : 0,
+    ...(b.pad ? { pad: [b.pad[0], b.pad[1]] as [number, number] } : {}),
   };
 }
 
@@ -313,7 +314,7 @@ export function hash(game: Game): number {
   for (const v of s.grid.blocked) h.int(v);
   for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0).int(u.load).int(u.hv).int(u.dock).int(u.queuedAt).int(u.dockTries).int(u.auto ? 1 : 0).int(u.target).int(u.cooldown).int(u.amove).int(u.sinceHurt > 100 ? 100 : u.sinceHurt).int(u.mode.length).int(u.xp).int(u.rank).int(u.facing);
   for (const b of s.buildings) {
-    h.int(b.id).int(b.owner).int(b.tx).int(b.ty).int(b.hp).int(b.queue.length).int(b.charge).int(b.cooldown).int(b.target);
+    h.int(b.id).int(b.owner).int(b.tx).int(b.ty).int(b.hp).int(b.pad ? b.pad[1] * s.grid.width + b.pad[0] : -1).int(b.queue.length).int(b.charge).int(b.cooldown).int(b.target);
     for (const q of b.queue) h.int(q.progress).int(q.ready ? 1 : 0);
   }
   for (const p of s.players) {
