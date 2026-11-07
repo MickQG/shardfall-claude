@@ -1095,7 +1095,7 @@ export class View3D {
       const air = def.move === 'air';
       // The drawn position rides a spring toward the simulation's, so uneven snapshots never show as jitter (R3D-10).
       follow(o.follow, u.tx, u.ty, dt);
-      o.motion = stepMotion(o.motion, o.follow.x - o.x, o.follow.z - o.z, dt, def.turn ?? 4);
+      o.motion = stepMotion(o.motion, o.follow.x - o.x, o.follow.z - o.z, dt, def.turn ?? 4, def.walk?.blend);
       // A unit the simulation turns (a hero, HERO-5) faces exactly where the simulation says, however it is moving.
       o.simFacing = u.yaw !== undefined;
       if (u.yaw !== undefined) o.motion = { ...o.motion, heading: u.yaw };
@@ -1266,7 +1266,7 @@ export class View3D {
         f.root.rotation.y = -((o.figureYaw[i] as number) - m.heading);
       }
       const phase = gaitPhase(mo.dist, def.stride ?? 1) + i * 1.7 + o.seed;
-      const pose = bodyPose(def.move, mo, phase, t, o.seed + i);
+      const pose = bodyPose(def.move, mo, phase, t, o.seed + i, mm ? undefined : def.walk);
       // A hero's whole body heaves with each heavy shot (HERO-4).
       const heave = heroHeave(def.weapon, t - (o.lastFire[i] ?? -1e9));
       poseRig(f, {

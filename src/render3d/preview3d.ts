@@ -287,7 +287,7 @@ export class UnitPreview {
     const px = s.follow.x;
     const pz = s.follow.z;
     follow(s.follow, s.tx, s.tz, dt);
-    s.motion = stepMotion(s.motion, s.follow.x - px, s.follow.z - pz, dt, def.turn ?? 4);
+    s.motion = stepMotion(s.motion, s.follow.x - px, s.follow.z - pz, dt, def.turn ?? 4, def.walk?.blend);
     const mo = s.motion;
     // Working: the aim sweeps a little either side of the hull, as if picking targets.
     const firing = beat.act === 'fire';
@@ -339,7 +339,7 @@ export class UnitPreview {
         tree.root.rotation.set(0, -(walker ? s.figureYaw : mo.heading), 0);
       }
       const phase = gaitPhase(fm.dist, def.stride ?? 1) + i * 1.7 + SEED;
-      const pose = bodyPose(def.move, fm, phase, now, SEED + i);
+      const pose = bodyPose(def.move, fm, phase, now, SEED + i, mm ? undefined : def.walk);
       const heave = heroHeave(def.weapon, now - (s.lastFire[i] ?? -1e9));
       poseRig(tree, {
         turret: turretOnBody(s.turretYaw, !mm && walker ? s.figureYaw : mo.heading),
