@@ -40,8 +40,8 @@ function run(g: Game, n: number): Missile[] {
 }
 
 describe('the Paladin missile pods (HERO-7)', () => {
-  it('HERO-7: the second weapon is a four-missile salvo every 80 ticks at range 9, 15 splash damage each, ground and air', () => {
-    expect(pod).toMatchObject({ damage: 15, range: 9, cooldown: 80, antiAir: true, antiGround: true });
+  it('HERO-7: the second weapon is a four-missile salvo every 80 ticks at range 9, 10 splash damage each, ground and air', () => {
+    expect(pod).toMatchObject({ damage: 10, range: 9, cooldown: 80, antiAir: true, antiGround: true });
     expect(pod.salvo?.count).toBe(4);
     expect(pod.splash).toBeGreaterThan(0);
     // The cannon and the hit points are as BAL-15 left them.
