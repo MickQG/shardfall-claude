@@ -1,0 +1,115 @@
+<mxfile host="Electron" modified="2026-11-01T21:00:00.000Z" version="26.0.0">
+  <diagram id="azure-infra" name="Azure infrastructure">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Shardfall – Azure infrastructure and web traffic" style="text;strokeColor=none;fillColor=none;fontSize=18;fontStyle=1;align=left;verticalAlign=middle;html=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="15" width="700" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Production: https://black-sea-00f40ee03.6.azurestaticapps.net · each PR gets its own preview environment of the same app" style="text;strokeColor=none;fillColor=none;fontSize=11;fontColor=#555555;align=left;verticalAlign=middle;html=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="42" width="800" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- Players area -->
+        <mxCell id="players" value="Players' browsers" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;verticalAlign=top;fontStyle=1;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="30" y="100" width="260" height="540" as="geometry" />
+        </mxCell>
+        <mxCell id="users-icon" value="" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=12;image=img/lib/azure2/identity/Users.svg;" vertex="1" parent="1">
+          <mxGeometry x="140" y="125" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="browserA" value="&lt;b&gt;Player A (host)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Game simulation in a Web Worker,&lt;br&gt;three.js renderer&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="50" y="170" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="browserB" value="&lt;b&gt;Player B (guest)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Joins with the host's room code.&lt;br&gt;Also makes calls ① and ② like Player A&lt;br&gt;(not drawn, to keep the picture clear)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="50" y="470" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="sp-note" value="Single player needs only ①: the whole game, including the AI opponent, runs in the browser." style="text;html=1;whiteSpace=wrap;fontSize=10;fontColor=#555555;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="50" y="580" width="220" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Resource group -->
+        <mxCell id="rg" value="Resource group rg-shardfall · West Europe" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#0078D4;strokeWidth=2;dashed=1;verticalAlign=top;align=left;spacingLeft=50;spacingTop=10;fontStyle=1;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="420" y="100" width="720" height="540" as="geometry" />
+        </mxCell>
+        <mxCell id="rg-icon" value="" style="image;aspect=fixed;html=1;points=[];image=img/lib/azure2/general/Resource_Groups.svg;" vertex="1" parent="1">
+          <mxGeometry x="430" y="108" width="34" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Static Web App: one resource holding the game files, its built-in Functions and its settings -->
+        <mxCell id="swa" value="&lt;b&gt;swa-shardfall&lt;/b&gt; · Static Web App (Free)&lt;br&gt;&lt;font style=&quot;font-size:10px;font-weight:normal&quot;&gt;One resource: everything in this box is part of it&lt;/font&gt;" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#eef5fc;strokeColor=#0078D4;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=52;spacingTop=6;fontStyle=1;fontColor=#0b4f8a;" vertex="1" parent="1">
+          <mxGeometry x="470" y="140" width="640" height="310" as="geometry" />
+        </mxCell>
+        <mxCell id="swa-icon" value="" style="image;aspect=fixed;html=1;points=[];image=img/lib/azure2/preview/Static_Apps.svg;" vertex="1" parent="1">
+          <mxGeometry x="482" y="148" width="34" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="files" value="&lt;b&gt;Game files&lt;/b&gt; (HTML, JS, 3D models)&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Global CDN, security headers (CSP)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="500" y="192" width="260" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="func" value="&lt;b&gt;Built-in Functions&lt;/b&gt; (managed API)&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Not a separate Function App&lt;br&gt;POST /api/negotiate · Node 22&lt;/font&gt;" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=11;verticalLabelPosition=bottom;verticalAlign=top;labelBackgroundColor=none;image=img/lib/azure2/compute/Function_Apps.svg;" vertex="1" parent="1">
+          <mxGeometry x="540" y="310" width="56" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="settings" value="&lt;b&gt;App settings&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;WEBPUBSUB_CONNECTION_STRING (secret)&lt;br&gt;WEBPUBSUB_HUB = shardfall&lt;br&gt;Never in the repository&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="800" y="303" width="240" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Web PubSub -->
+        <mxCell id="pubsub" value="&lt;b&gt;wps-shardfall&lt;/b&gt; · Azure Web PubSub (Free_F1)&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Hub shardfall, one group per room (room-CODE).&lt;br&gt;Relays the players' orders; runs no game logic.&lt;/font&gt;" style="image;aspect=fixed;html=1;points=[];align=left;fontSize=11;verticalLabelPosition=middle;verticalAlign=middle;labelPosition=right;spacingLeft=8;image=img/lib/azure2/web/SignalR.svg;" vertex="1" parent="1">
+          <mxGeometry x="760" y="483" width="64" height="64" as="geometry" />
+        </mxCell>
+
+        <!-- GitHub -->
+        <mxCell id="github" value="&lt;b&gt;GitHub: MickQG/shardfall-claude&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Actions: CI checks, then deploy.yml uploads dist/ and api/&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="850" y="20" width="290" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- 1: game files -->
+        <mxCell id="eA1" value="① HTTPS GET" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#0078D4;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="browserA" target="files" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- 2: negotiate -->
+        <mxCell id="eA2" value="② HTTPS POST" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.72;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="browserA" target="func" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="390" y="235" />
+              <mxPoint x="390" y="338" />
+            </Array>
+            <mxPoint x="30" y="0" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <!-- 3: settings -->
+        <mxCell id="e3" value="③ reads the key" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#d6b656;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="func" target="settings" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- 4: websockets -->
+        <mxCell id="eA4" value="④ WebSocket (WSS)" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;startArrow=block;startFill=1;strokeColor=#d79b00;strokeWidth=3;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.92;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" edge="1" source="browserA" target="pubsub" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="340" y="253" />
+              <mxPoint x="340" y="502" />
+            </Array>
+            <mxPoint x="120" y="0" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="eB4" value="④ WebSocket (WSS)" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;startArrow=block;startFill=1;strokeColor=#d79b00;strokeWidth=3;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.642;exitDx=0;exitDy=0;entryX=0;entryY=0.7;entryDx=0;entryDy=0;" edge="1" source="browserB" target="pubsub" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="120" y="0" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <!-- 5: deploy -->
+        <mxCell id="e5" value="⑤ deploy" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeColor=#9673a6;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.2;exitY=1;exitDx=0;exitDy=0;entryX=0.684;entryY=0;entryDx=0;entryDy=0;" edge="1" source="github" target="swa" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            </mxGeometry>
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="legend" value="&lt;div style=&quot;text-align:left&quot;&gt;&lt;b&gt;Traffic&lt;/b&gt;&lt;br&gt;① Game files over HTTPS, once per visit, then cached by the browser.&lt;br&gt;② Multiplayer only: get a room code and a 1-hour token that only allows sending to that room.&lt;br&gt;③ The function signs the token itself with the stored key; it never calls Web PubSub.&lt;br&gt;④ Lockstep play: each player sends its orders every 125 ms and a checksum every 4 s; Web PubSub forwards them to the other player.&lt;br&gt;⑤ A push to main deploys production; each pull request gets its own preview environment.&lt;/div&gt;" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=10;align=left;verticalAlign=top;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="30" y="660" width="1110" height="110" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

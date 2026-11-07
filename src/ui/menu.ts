@@ -91,7 +91,7 @@ export const HUMAN_HERO_LINE = 'Paladin, a giant assault walker with cannons and
 
 const FACTIONS = [
   { id: 'human', sub: 'Humans · armour and firepower', text: 'Structured combined arms: rifle squads, rocketeers, tanks and artillery behind pulse turrets.', hero: HUMAN_HERO_LINE },
-  { id: 'alien', sub: 'Aliens · speed and regeneration', text: 'Fast, organic swarms: skitterers, spitters and brutes that heal between fights.', hero: 'Dreadstrider, a towering six-legged walker with an acid cannon' },
+  { id: 'alien', sub: 'Aliens · speed and regeneration', text: 'Fast, organic swarms: skitterers, spitters and brutes that heal between fights.', hero: 'Dreadstrider, a towering six-legged walker with an acid cannon.' },
 ] as const;
 
 export function showMenu(): void {
