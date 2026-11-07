@@ -6,7 +6,7 @@ import { isLowPower } from './economy';
 import { faces } from './facing';
 import { removeBuilding } from './production';
 import type { Building, State, Unit } from './state';
-import { ELITE_REPAIR, gainXp, MAX_RANK, maxHpOf, unitDamage } from './units';
+import { ELITE_REPAIR, gainXp, MAX_RANK, maxHpOf, missileDamage, unitDamage } from './units';
 
 type Entity = Unit | Building;
 const isBuilding = (e: Entity): e is Building => 'tx' in e;
@@ -87,6 +87,25 @@ function fire(s: State, shooter: { x: number; y: number; owner: number; id: numb
   } else {
     hurt(s, t, damageAgainst({ damage, type: w.type }, armorOf(t)), shooter.id, unit);
   }
+}
+
+/**
+ * The second weapon (HERO-7): when its cooldown is up and the target is in its range and one it can hit, launch the
+ * whole salvo. Missiles leave `gap` ticks apart and each lands, and hurts, on its own tick; like the cannon the pods fire only at what the hero faces (HERO-5), and
+ * the missiles arc over buildings. Nothing random: tick counts and the hit list decide everything.
+ */
+function firePod(s: State, u: Unit, w: WeaponDef, t: Entity): void {
+  if (u.cooldown2 > 0 || t.owner === u.owner || !canHit(w, t) || distTo(u.x, u.y, t) > rangeFp(w) || !faces(u, t)) return;
+  const tp = pos(t);
+  const { count, gap } = w.salvo ?? { count: 1, gap: 0 };
+  const air = armorOf(t) === 'air';
+  const damage = missileDamage(u.kind, u.rank);
+  for (let i = 0; i < count; i++) {
+    const delay = i * gap;
+    s.events.push({ t: 'shot', x: u.x, y: u.y, tx: tp.x, ty: tp.y, weapon: 'missile', owner: u.owner, air, flight: w.flight ?? 0, src: u.id, delay, ...(u.rank >= MAX_RANK ? { elite: true } : {}) });
+    s.projectiles.push({ hit: s.tick + delay + Math.max(1, w.flight ?? 1), x: tp.x, y: tp.y, targetId: t.id, owner: u.owner, damage, type: w.type, splash: w.splash ?? 0, air, shooter: u.id });
+  }
+  u.cooldown2 = w.cooldown;
 }
 
 function land(s: State, p: { x: number; y: number; targetId: number; owner: number; damage: number; type: string; splash: number; shooter: number }, byId: Map<number, Entity>): void {
@@ -184,6 +203,8 @@ function fireOnTheMove(s: State, u: Unit, w: WeaponDef, byId: Map<number, Entity
     t = id >= 0 ? byId.get(id) : undefined;
   }
   u.target = t ? t.id : -1;
+  const pod = unitDef(u.kind).weapon2;
+  if (t && pod) firePod(s, u, pod, t);
   if (t && u.cooldown === 0 && faces(u, t) && lineOfFire(s, occ, u.x, u.y, t, w, air)) {
     fire(s, { x: u.x, y: u.y, owner: u.owner, id: u.id }, w, t, u);
     u.cooldown = w.cooldown;
@@ -193,6 +214,7 @@ function fireOnTheMove(s: State, u: Unit, w: WeaponDef, byId: Map<number, Entity
 function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array): void {
   const def = unitDef(u.kind);
   if (u.cooldown > 0) u.cooldown--;
+  if (u.cooldown2 > 0) u.cooldown2--;
   u.sinceHurt = Math.min(u.sinceHurt + 1, 100000);
   if (u.mode === 'move' && u.path.length === 0 && !u.waiting) u.mode = 'idle';
   const w = def.weapon;
@@ -237,6 +259,7 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
   }
 
   const d = distTo(u.x, u.y, t);
+  if (def.weapon2) firePod(s, u, def.weapon2, t);
   // In range but behind a building: move for a clear shot instead of firing through it (CMB-14).
   if (d <= rangeFp(w) && !lineOfFire(s, occ, u.x, u.y, t, w, !!def.air)) {
     if ((s.tick + u.id) % 10 === 0 || (u.path.length === 0 && !u.waiting)) chase(s, u, t);

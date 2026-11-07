@@ -22,6 +22,8 @@ export interface WeaponDef {
   flight?: number;
   /** Lobbed: fires over buildings (CMB-14). */
   indirect?: boolean;
+  /** A salvo (HERO-7): `count` missiles per shot, one launched every `gap` ticks, each landing on its own. */
+  salvo?: { count: number; gap: number };
 }
 
 export interface UnitDef {
@@ -41,6 +43,8 @@ export interface UnitDef {
   requires: string[];
   armor: ArmorType;
   weapon?: WeaponDef;
+  /** A second weapon with its own cooldown and range (HERO-7). */
+  weapon2?: WeaponDef;
   air?: boolean;
   /** Haulers: shards carried per trip. */
   capacity?: number;
@@ -158,6 +162,8 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   hum_paladin: {
     faction: 'human', name: 'Paladin', speed: 20, hp: 4500, radius: 180, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, crusher: true, turnRate: 2, role: 'tank',
     weapon: { damage: 90, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 5, splash: 0.9 },
+    // The shoulder missile pods (HERO-7): a salvo of four every 4 s at range 9, ground and air.
+    weapon2: { damage: 15, range: 9, cooldown: 80, type: 'rocket', antiAir: true, antiGround: true, flight: 8, splash: 1, indirect: true, salvo: { count: 4, gap: 3 } },
   },
 
   // ---- Aliens ----

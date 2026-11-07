@@ -36,6 +36,11 @@ export function unitDamage(kind: string, hp: number, rank: number): number {
   return Math.max(1, Math.floor((base * alive * (100 + RANK_BONUS * rank)) / (size * 100)));
 }
 
+/** Damage of one missile of a unit's second weapon: base scaled by rank (HERO-7). */
+export function missileDamage(kind: string, rank: number): number {
+  return Math.max(1, Math.floor(((unitDef(kind).weapon2?.damage ?? 0) * (100 + RANK_BONUS * rank)) / 100));
+}
+
 /** Credit `u` with `dealt` damage to an enemy as experience (VET-1), ranking it up with its hit points scaled to match. */
 export function gainXp(u: Unit, dealt: number): void {
   if (dealt <= 0) return;

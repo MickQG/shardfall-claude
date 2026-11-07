@@ -3,6 +3,8 @@
  * banking. Nothing here feeds back into the simulation.
  */
 
+import { unitDef } from '../data/defs';
+
 const TAU = Math.PI * 2;
 
 /** Signed shortest angle from `a` to `b`, in (-PI, PI]. */
@@ -194,3 +196,59 @@ export const gunYaw = (bodyYaw: number, turretYaw: number, reach: number): numbe
 /** A shell's drawn flight after waiting for its turret, ms: shorter by the wait, so it still lands with the damage. */
 export const flightAfterWait = (flightMs: number, waited: number): number => Math.max(60, flightMs - waited);
 
+
+/** The arc of a pod missile's flight, as a share of the distance flown (HERO-7). */
+export const MISSILE_ARC = 0.35;
+/** How long the Paladin's pods take to open before the first missile leaves, and to close after the last, ms (HERO-7). */
+export const POD_OPEN_MS = 100;
+export const POD_CLOSE_MS = 350;
+
+/** A point `k` (0..1) of the way from `from` to `to` on an arc rising `4 * arc * distance * k * (1 - k)` above the line. */
+export function arcPoint(from: readonly [number, number, number], to: readonly [number, number, number], k: number, arc: number): [number, number, number] {
+  const dist = Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+  return [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k + 4 * arc * dist * k * (1 - k), from[2] + (to[2] - from[2]) * k];
+}
+
+/** A salvo's timing: `count` missiles `gapMs` apart, each in the air `flightMs`, the first leaving `POD_OPEN_MS` after the pods start to open. */
+export interface Salvo {
+  count: number;
+  gapMs: number;
+  flightMs: number;
+}
+
+/** When missile `i` of a salvo leaves, ms after the pods start to open. */
+export const missileLaunchAt = (v: Salvo, i: number): number => POD_OPEN_MS + i * v.gapMs;
+
+/** When missile `i` lands, ms after the pods start to open: where its impact flash begins. */
+export const missileLandsAt = (v: Salvo, i: number): number => missileLaunchAt(v, i) + v.flightMs;
+
+/**
+ * How far the Paladin's pods are open, 0..1, `sinceMs` after the salvo was ordered (HERO-7): they swing open in
+ * `POD_OPEN_MS`, stay open while the missiles leave, then fold shut over `POD_CLOSE_MS`. A pure function of time.
+ */
+export function podOpen(sinceMs: number, v: Salvo): number {
+  if (sinceMs <= 0) return 0;
+  if (sinceMs < POD_OPEN_MS) return sinceMs / POD_OPEN_MS;
+  const open = missileLaunchAt(v, v.count - 1);
+  if (sinceMs <= open) return 1;
+  return Math.max(0, 1 - (sinceMs - open) / POD_CLOSE_MS);
+}
+
+/**
+ * Where each missile of a salvo is `sinceMs` after it was ordered (HERO-7): null before it leaves or once it has
+ * landed, else the point on its arc. A pure function of time.
+ */
+export function missilePositions(from: readonly [number, number, number], to: readonly [number, number, number], sinceMs: number, v: Salvo, arc = MISSILE_ARC): ([number, number, number] | null)[] {
+  const out: ([number, number, number] | null)[] = [];
+  for (let i = 0; i < v.count; i++) {
+    const k = (sinceMs - missileLaunchAt(v, i)) / v.flightMs;
+    out.push(k < 0 || k >= 1 ? null : arcPoint(from, to, k, arc));
+  }
+  return out;
+}
+
+/** The salvo timing of a unit kind's missile pods (from its second weapon), at `msPerTick`; one missile with no gap if it has none. */
+export function salvoOf(kind: string, msPerTick: number): Salvo {
+  const w = unitDef(kind).weapon2;
+  return { count: w?.salvo?.count ?? 1, gapMs: (w?.salvo?.gap ?? 0) * msPerTick, flightMs: Math.max(80, (w?.flight ?? 1) * msPerTick - POD_OPEN_MS) };
+}

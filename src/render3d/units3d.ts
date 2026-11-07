@@ -601,8 +601,8 @@ function paladin(): RigDef {
               // target, and only the cannon cradle under the nose swivels a little to finish the aim.
               geo: 'hull',
               kids: [
-                { geo: 'pod', at: [-0.04, 0.17, 0.35] },
-                { geo: 'pod', at: [-0.04, 0.17, -0.35] },
+                { geo: 'pod', at: [-0.04, 0.17, 0.35], anim: { k: 'pod', open: 0.7 } },
+                { geo: 'pod', at: [-0.04, 0.17, -0.35], anim: { k: 'pod', open: 0.7 } },
                 {
                   geo: 'cradle',
                   at: [0.24, -0.18, 0],

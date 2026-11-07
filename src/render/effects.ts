@@ -14,7 +14,7 @@ interface Fx {
 
 const TICK_MS = 50;
 const toScreen = (x: number, y: number): { x: number; y: number } => tileToScreen(x / 256, y / 256);
-const WEAPON_COLOR: Record<string, number> = { pierce: 0xfff1a8, rocket: 0xffb347, blast: 0xff8c42, claw: 0xff5a8a, bite: 0xff7a9a, beam: 0x9ff0ff };
+const WEAPON_COLOR: Record<string, number> = { pierce: 0xfff1a8, rocket: 0xffb347, missile: 0xffd27a, blast: 0xff8c42, claw: 0xff5a8a, bite: 0xff7a9a, beam: 0x9ff0ff };
 /** Shots fired by top-rank (elite) units, in both renderers (BAL-7). */
 export const ELITE_SHOT_2D = 0xd36bff;
 
@@ -50,7 +50,9 @@ export class Effects {
     }
   }
 
-  private shot(e: Extract<SimEvent, { t: 'shot' }>, now: number): void {
+  private shot(e: Extract<SimEvent, { t: 'shot' }>, launched: number): void {
+    // Later missiles of a salvo leave a few ticks after the first (HERO-7).
+    const now = launched + (e.delay ?? 0) * TICK_MS;
     const a = toScreen(e.x, e.y);
     const b = toScreen(e.tx, e.ty);
     const color = e.elite ? ELITE_SHOT_2D : WEAPON_COLOR[e.weapon] ?? 0xffffff;
@@ -199,6 +201,8 @@ export class Effects {
     const keep: Fx[] = [];
     for (const f of this.list) {
       const k = (now - f.born) / f.life;
+      // A missile of a salvo not yet launched (HERO-7) stays hidden.
+      if (f.g.visible !== k >= 0) f.g.visible = k >= 0;
       if (k >= 1) {
         f.g.destroy();
         continue;
