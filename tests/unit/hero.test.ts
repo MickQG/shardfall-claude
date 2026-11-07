@@ -152,7 +152,7 @@ describe('hero looks and deaths', () => {
     const p = UNIT_RIGS.hum_paladin!();
     const tank = UNIT_RIGS.hum_tank!();
     expect(p.move).toBe('walker');
-    const legs = (p.root.kids ?? []).filter((k) => k.geo === 'leg');
+    const legs = (p.root.kids ?? []).filter((k) => k.anim?.k === 'step');
     expect(legs).toHaveLength(4);
     // A diagonal trot: each front leg is in step with the hind leg on the other side.
     const phase = (x: number, z: number): number => (legs.find((l) => Math.sign(l.at![0]) === x && Math.sign(l.at![2]) === z)!.anim as { phase: number }).phase;
@@ -166,6 +166,7 @@ describe('hero looks and deaths', () => {
     const tree = rigTree(p);
     tree.root.updateMatrixWorld(true);
     const all = new THREE.Box3();
+    let legBox: InstanceType<typeof THREE.Box3> | undefined;
     const sizeOf: Record<string, InstanceType<typeof THREE.Vector3>> = {};
     for (const d of tree.drawn) {
       const b = p.shapes[d.geo]!().build(0xffffff);
@@ -174,7 +175,10 @@ describe('hero looks and deaths', () => {
       const box = geo.boundingBox!.clone().applyMatrix4(d.obj.matrixWorld);
       all.union(box);
       sizeOf[d.geo] = box.getSize(new THREE.Vector3());
+      // A leg is its thigh, shin and foot together (HERO-6): measured as one, the first leg's.
+      if (['thigh', 'shin', 'foot'].includes(d.geo) && tree.drawn.indexOf(d) < tree.drawn.findIndex((x) => x.geo === 'thigh') + 3) (legBox ??= new THREE.Box3()).union(box);
     }
+    sizeOf.leg = legBox!.getSize(new THREE.Vector3());
     const whole = all.getSize(new THREE.Vector3());
     expect(whole.x / whole.y).toBeGreaterThanOrEqual(1.4);
     expect(sizeOf.leg!.y).toBeLessThan(sizeOf.hull!.x);
@@ -210,8 +214,11 @@ describe('hero looks and deaths', () => {
     const { footLift } = await import('../../src/render3d/rig');
     const p = UNIT_RIGS.hum_paladin!();
     expect(p.stride ?? 1).toBeGreaterThanOrEqual(1.8);
-    const legs = (p.root.kids ?? []).filter((k) => k.geo === 'leg');
-    for (const l of legs) expect(l.anim).toMatchObject({ k: 'gait', ease: true });
+    const legs = (p.root.kids ?? []).filter((k) => k.anim?.k === 'step');
+    expect(legs).toHaveLength(4);
+    // Each foot lifts on the eased curve (HERO-6 steps through footLift).
+    const { stepPath } = await import('../../src/render3d/rig');
+    for (let ph = 0; ph < 7; ph += 0.1) expect(stepPath(ph).lift).toBeCloseTo(footLift(ph, true), 12);
     // An eased foot sets down with no jerk: its height approaches the ground flat, unlike the plain curve.
     const slope = (ease: boolean): number => (footLift(Math.PI / 2 - 1e-3, ease) - footLift(Math.PI / 2 - 2e-3, ease)) / 1e-3;
     expect(Math.abs(slope(true))).toBeLessThan(0.01);

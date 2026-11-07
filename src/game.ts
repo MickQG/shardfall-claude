@@ -11,7 +11,8 @@ import { GameView, type PlacementPreview } from './render/gameView';
 import type { WorldRenderer } from './render/worldRenderer';
 import { interpolate, type RenderUnit } from './render/interp';
 import { tileToScreen } from './render/iso';
-import { canPlace, FP, TICKS_PER_SECOND, type Snapshot } from './sim';
+import { canPlace, FP, type Snapshot } from './sim';
+import { ONLINE_SPEED, stepSpeed, tickMsAt } from './host/speed';
 import { AlertTracker } from './ui/alerts';
 import { countdownRows } from './ui/countdown';
 import { READY_FRAMES, READY_TIMEOUT_MS, readyToStart, showLoading } from './ui/loading';
@@ -94,15 +95,16 @@ audio.setMuted(settings.muted);
 audio.setVolume(settings.volume);
 const alerts = new AlertTracker(PLAYER);
 let paused = false;
-let speedIdx = 1;
-const SPEEDS = [0.5, 1, 2, 4];
+/** Game speed (UX-3): the player's last choice, ×0.8 by default; online always ×0.8. */
+let speed = match ? ONLINE_SPEED : settings.speed;
+if (!match) sim.setSpeed(speed);
 
 function topbar(): void {
   if (match) {
     hud.setTop(`Shardfall · online · room ${match.room} · Esc menu · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · E select same kind · F attack-move · F2 quality: ${settings.quality}`);
     return;
   }
-  hud.setTop(`Shardfall · ×${SPEEDS[speedIdx]} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · E select same kind · F attack-move · F2 quality: ${settings.quality}`);
+  hud.setTop(`Shardfall · ×${speed} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · E select same kind · F attack-move · F2 quality: ${settings.quality}`);
 }
 topbar();
 
@@ -181,7 +183,7 @@ function centerOnUnits(units: readonly { x: number; y: number }[]): void {
 /** One picking context per query: units are interpolated to the same instant for hover, right-click and left-click. */
 function hitContext(snap: Snapshot): HitContext {
   const proj = view.projector(cam);
-  const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
+  const alpha = (performance.now() - sim.currAt) / tickMsAt(speed);
   return {
     player: PLAYER,
     units: toScreenUnits(interpolate(sim.prev?.units ?? snap.units, snap.units, alpha), proj),
@@ -311,7 +313,7 @@ function frame(prevTime: number): (t: number) => void {
       if (selectedBuilding !== null && !curr.buildings.some((b) => b.id === selectedBuilding)) selectedBuilding = null;
       if (placing && !placementLive(placing, curr.buildings, PLAYER)) placing = null;
       if (targeting && !curr.buildings.some((b) => b.id === targeting?.building && b.owner === PLAYER)) targeting = null;
-      const alpha = (performance.now() - sim.currAt) / (1000 / TICKS_PER_SECOND);
+      const alpha = (performance.now() - sim.currAt) / tickMsAt(speed);
       const ru = interpolate(sim.prev.units, curr.units, alpha);
       view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings), acks: acks.markers(performance.now(), (id) => locate(id, ru, curr)), flash: acks.flashing(performance.now()) }, curr);
       if (curr.tick !== lastAlertTick) {
@@ -519,8 +521,10 @@ async function boot(): Promise<void> {
     }
     if ((k === '+' || k === '=' || k === '-') && match) hud.toast('Online matches run at normal speed', 'info');
     else if (k === '+' || k === '=' || k === '-') {
-      speedIdx = Math.max(0, Math.min(SPEEDS.length - 1, speedIdx + (k === '-' ? -1 : 1)));
-      sim.setSpeed(SPEEDS[speedIdx] as number);
+      speed = stepSpeed(speed, k === '-' ? -1 : 1);
+      sim.setSpeed(speed);
+      settings.speed = speed;
+      saveSettings(safeStorage(), settings);
       topbar();
     }
     if (/^[1-9]$/.test(k) && sim.curr) {
@@ -688,7 +692,10 @@ async function boot(): Promise<void> {
       const units = snap ? interpolate(snap.units, snap.units, 1) : [];
       return { markers: snap ? acks.markers(now, (id) => locate(id, units, snap)) : [], flashing: [...acks.flashing(now).keys()], last: acks.last, now };
     },
-    setSpeed: (v: number) => sim.setSpeed(v),
+    setSpeed: (v: number) => {
+      speed = v;
+      sim.setSpeed(v);
+    },
     tileScreen: (tx: number, ty: number) => view.projector(cam).toScreen(tx, ty),
     screenPos: (id: number) => {
       if (!sim.curr) return null;

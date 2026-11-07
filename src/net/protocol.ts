@@ -1,3 +1,4 @@
+import { ONLINE_SPEED, tickMsAt } from '../host/speed';
 import type { Command } from '../sim';
 
 /**
@@ -7,10 +8,10 @@ import type { Command } from '../sim';
  */
 
 /** Bumped whenever the protocol or the simulation changes in a way that would desync older clients. */
-export const NET_VERSION = 4;
-/** Ticks per lockstep turn (100 ms at 20 ticks a second). */
+export const NET_VERSION = 5;
+/** Ticks per lockstep turn: 125 ms of real time at the online game speed of ×0.8 (UX-3). */
 export const TURN_TICKS = 2;
-export const TURN_MS = TURN_TICKS * 50;
+export const TURN_MS = TURN_TICKS * tickMsAt(ONLINE_SPEED);
 /**
  * How many turns ahead a player announces its turns (its input delay): DELAY_TURNS until the connection has been
  * measured, then fitted to it (NET-2), between MIN_DELAY_TURNS and MAX_DELAY_TURNS.

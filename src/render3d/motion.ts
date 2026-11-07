@@ -87,9 +87,10 @@ export function follow(f: Follow, tx: number, tz: number, dt: number, smoothTime
 
 /**
  * Advance one frame: `dx`, `dz` is this frame's displacement in tiles, `dt` seconds, `turn` the hull's maximum turn
- * rate. The hull turns toward the direction of travel; standing units keep their heading.
+ * rate. The hull turns toward the direction of travel; standing units keep their heading. The gait fades in and out at
+ * `blend` per second (a heavy walker's more slowly, HERO-6).
  */
-export function stepMotion(m: MotionState, dx: number, dz: number, dt: number, turn: number): MotionState {
+export function stepMotion(m: MotionState, dx: number, dz: number, dt: number, turn: number, blend = 8): MotionState {
   if (dt <= 0) return m;
   const d = Math.hypot(dx, dz);
   const v = d / dt;
@@ -97,7 +98,7 @@ export function stepMotion(m: MotionState, dx: number, dz: number, dt: number, t
   const accel = approach(m.accel, (speed - m.speed) / dt, 6, dt);
   const heading = v > MOVING ? turnToward(m.heading, Math.atan2(dz, dx), turn * dt) : m.heading;
   const turnRate = approach(m.turnRate, angleDiff(m.heading, heading) / dt, 8, dt);
-  const stride = approach(m.stride, v > MOVING ? 1 : 0, 8, dt);
+  const stride = approach(m.stride, v > MOVING ? 1 : 0, blend, dt);
   return { heading, dist: m.dist + d, speed, accel, turnRate, stride, turned: m.turned + angleDiff(m.heading, heading) };
 }
 
@@ -111,14 +112,36 @@ export interface BodyPose {
 }
 
 /**
+ * A walker's own walk (HERO-6): how high its hull bobs (tiles, model scale) and how far it sways (radians of roll) in
+ * time with its steps, and how fast (per second) its walk fades in and out as it starts and stops.
+ */
+export interface WalkStyle {
+  bob: number;
+  sway: number;
+  blend: number;
+}
+
+/** 0 to 1 with zero slope at both ends. */
+const ease = (x: number): number => {
+  const c = Math.max(0, Math.min(1, x));
+  return c * c * (3 - 2 * c);
+};
+
+/**
  * Body pose by locomotion: vehicles squat on acceleration and dip on braking and roll out of turns; walkers bob with
  * each step; aircraft hover and bank into turns.
  */
-export function bodyPose(kind: 'tracked' | 'wheeled' | 'walker' | 'air' | 'static', m: MotionState, phase: number, t: number, seed: number): BodyPose {
+export function bodyPose(kind: 'tracked' | 'wheeled' | 'walker' | 'air' | 'static', m: MotionState, phase: number, t: number, seed: number, walk?: WalkStyle): BodyPose {
   const clamp = (x: number, a: number): number => Math.max(-a, Math.min(a, x));
   if (kind === 'tracked' || kind === 'wheeled') {
     const rumble = m.stride * (kind === 'tracked' ? 0.004 : 0.007) * Math.sin(t * 0.031 + seed);
     return { pitch: clamp(m.accel * 0.05, 0.08), roll: clamp(-m.turnRate * m.speed * (kind === 'wheeled' ? 0.07 : 0.04), 0.1), bob: rumble };
+  }
+  if (kind === 'walker' && walk) {
+    // Highest as each diagonal pair stands straight under it (phase 0 and pi), lowest as the pairs change over; the
+    // sway follows the step, and both fade in and out with the walk, smoothly at either end (HERO-6).
+    const e = ease(m.stride);
+    return { pitch: e * 0.04, roll: e * walk.sway * Math.sin(phase), bob: e * walk.bob * Math.cos(phase) ** 2 };
   }
   if (kind === 'walker') return { pitch: m.stride * 0.04, roll: m.stride * 0.012 * Math.sin(phase), bob: m.stride * 0.006 * Math.abs(Math.sin(phase)) };
   if (kind === 'air') return { pitch: clamp(-m.accel * 0.08, 0.2) - m.speed * 0.05, roll: clamp(m.turnRate * 0.35, 0.45), bob: Math.sin(t * 0.0017 + seed) * 0.04 };

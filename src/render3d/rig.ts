@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Shape, V3 } from './kit';
+import type { WalkStyle } from './motion';
 
 /**
  * A rig is a model split into named, separately moving parts (R3D-3, R3D-10): a tree of nodes, each optionally drawn
@@ -23,6 +24,15 @@ export type Anim =
   /** Legs: swing about `axis` with the gait phase, lifting by `lift` on the forward stroke; kneeling turns the leg by
    * `kneel` and lowers its hip by `drop`. */
   | { k: 'gait'; axis: Axis; amp: number; phase: number; lift?: number; kneel?: number; drop?: number; ease?: boolean }
+  /**
+   * A jointed leg that plants its foot (HERO-6): the node is the hip and draws the thigh, its first kid (at the knee)
+   * the shin, and that kid's first kid (at the ankle) the foot. `knee` is the knee's rest offset from the hip and `ankle`
+   * the ankle's from the knee, in the leg's own X-Y plane; `sole` is how far the foot reaches below the ankle. The foot
+   * is planted for half the cycle, moving back `reach` either side of its stance (`fore` ahead of the ankle's rest) exactly as fast as the walker travels,
+   * then swings forward lifted by `lift`; two-bone IK poses thigh and shin, and the foot stays level. The hip rides up
+   * and down with the hull. The node may splay about X; its rest turn about Z is not used.
+   */
+  | { k: 'step'; phase: number; fore?: number; reach: number; lift: number; knee: readonly [number, number]; ankle: readonly [number, number]; sole: number }
   /** Rotors, radar dishes: spin with time. */
   | { k: 'spin'; axis: Axis; rate: number }
   /** Wings: beat with time. */
@@ -67,6 +77,8 @@ export interface RigDef {
   stride?: number;
   /** Hull turn rate, radians per second. */
   turn?: number;
+  /** A walker's own hull bob and sway with its steps and how gently its walk starts and stops (HERO-6). */
+  walk?: WalkStyle;
   /** Shiny chitin instead of painted metal. */
   organic?: boolean;
   weapon?: WeaponLook;
@@ -103,6 +115,8 @@ export interface AnimatedNode {
   anim: Anim;
   pos: THREE.Vector3;
   rot: THREE.Euler;
+  /** A stepping leg's shin and foot (HERO-6). */
+  links?: readonly THREE.Object3D[];
 }
 
 /** A live copy of a rig: plain groups (never added to a scene) whose world matrices place the drawn parts. */
@@ -132,9 +146,17 @@ export function rigTree(def: RigDef): RigTree {
     if (n.rot) o.rotation.set(...n.rot);
     const inCargo = cargo || n.anim?.k === 'cargo';
     if (n.geo) drawn.push({ obj: o, geo: n.geo, cargo: inCargo });
-    if (n.anim) anims.push({ obj: o, anim: n.anim, pos: o.position.clone(), rot: o.rotation.clone() });
+    const animated: AnimatedNode | null = n.anim ? { obj: o, anim: n.anim, pos: o.position.clone(), rot: o.rotation.clone() } : null;
+    if (animated) anims.push(animated);
     if (n.muzzle) muzzles.push(o);
     for (const k of n.kids ?? []) o.add(make(k, inCargo));
+    if (animated?.anim.k === 'step') {
+      const shin = o.children[0]!;
+      const foot = shin.children[0]!;
+      // The foot turns back by the leg's splay last, so it can sit level whatever the leg does.
+      foot.rotation.order = 'ZYX';
+      animated.links = [shin, foot];
+    }
     return o;
   };
   return { root: make(def.root, false) as THREE.Group, drawn, anims, muzzles };
@@ -192,6 +214,40 @@ export function footLift(phase: number, ease: boolean): number {
   return ease ? up * up : up;
 }
 
+/** 0 to 1 with zero slope at both ends: a walk fades in and out gently rather than at a constant rate (HERO-6). */
+export const smoothstep = (x: number): number => {
+  const c = Math.max(0, Math.min(1, x));
+  return c * c * (3 - 2 * c);
+};
+
+/**
+ * Where a stepping foot is through its cycle at phase `u` (HERO-6): `fore` from the hip, in units of the leg's reach
+ * (+1 front, -1 back), and `lift` 0..1. Planted while cos(u) <= 0, it moves back from +1 to -1 at a constant rate, so
+ * it stays put on the ground as the body passes over it; then it swings forward on a curve whose speed matches the
+ * stance at both ends (a cubic Hermite), lifting with the eased `footLift`, so it leaves and meets the ground smoothly.
+ */
+export function stepPath(u: number): { fore: number; lift: number } {
+  const TAU = Math.PI * 2;
+  // s runs 0..1 over the swing (u from -pi/2 to pi/2), then 1..2 over the stance.
+  const s = ((((u + Math.PI / 2) % TAU) + TAU) % TAU) / Math.PI;
+  if (s >= 1) return { fore: 1 - 2 * (s - 1), lift: 0 };
+  // Positions -1 and +1, both end slopes -2 (the stance's own speed).
+  const fore = -8 * s ** 3 + 12 * s ** 2 - 2 * s - 1;
+  return { fore, lift: footLift(u, true) };
+}
+
+/**
+ * Two-bone IK in a plane (HERO-6): with the hip at the origin, the knee of a thigh `l1` long and a shin `l2` long that
+ * puts the ankle at (`tx`, `ty`), bending back (the knee behind the line from hip to ankle, to -X when the foot hangs
+ * below). An ankle out of reach is drawn in to it.
+ */
+export function kneeFor(l1: number, l2: number, tx: number, ty: number): [number, number] {
+  const d = Math.max(Math.abs(l1 - l2) + 1e-6, Math.min(l1 + l2 - 1e-6, Math.hypot(tx, ty)));
+  const a = Math.acos(Math.max(-1, Math.min(1, (l1 * l1 + d * d - l2 * l2) / (2 * l1 * d))));
+  const th = Math.atan2(ty, tx) - a;
+  return [l1 * Math.cos(th), l1 * Math.sin(th)];
+}
+
 /** How far front wheels steer either way, radians: clear of the body and mudguards (AIM-2). */
 export const MAX_STEER = 0.3;
 
@@ -226,6 +282,30 @@ export function poseRig(tree: RigTree, p: RigPose): void {
         const c = p.crouch ?? 0;
         turn(obj, an.axis, a.rot[an.axis] + Math.sin(p.phase + an.phase) * an.amp * p.stride + c * (an.kneel ?? 0));
         if (an.lift || an.drop) obj.position.y = a.pos.y + (an.lift ?? 0) * footLift(p.phase + an.phase, !!an.ease) * p.stride - c * (an.drop ?? 0);
+        break;
+      }
+      case 'step': {
+        const [shin, foot] = a.links!;
+        const e = smoothstep(p.stride);
+        const { fore, lift } = stepPath(p.phase + an.phase);
+        const hipY = a.pos.y + p.bob;
+        const splay = a.rot.x;
+        // The ankle's target in the leg's plane: under the hip, moved fore and aft, at the height that sets the sole on
+        // the ground (or lifted); the plane is tilted by the splay, so heights stretch by 1 / cos(splay).
+        const rx = an.knee[0] + an.ankle[0] + (an.fore ?? 0);
+        const tx = rx + an.reach * fore * e;
+        const ty = -(hipY - an.sole - an.lift * lift * e) / Math.cos(splay);
+        const l1 = Math.hypot(an.knee[0], an.knee[1]);
+        const l2 = Math.hypot(an.ankle[0], an.ankle[1]);
+        const [kx, ky] = kneeFor(l1, l2, tx, ty);
+        const thigh = Math.atan2(ky, kx) - Math.atan2(an.knee[1], an.knee[0]);
+        const total = Math.atan2(ty - ky, tx - kx) - Math.atan2(an.ankle[1], an.ankle[0]);
+        obj.position.y = hipY;
+        turn(obj, 'z', thigh);
+        turn(shin!, 'z', total - thigh);
+        // Level: undo the leg's swing and its splay.
+        const fr = foot!.rotation;
+        if (fr.x !== -splay || fr.z !== -total) fr.set(-splay, 0, -total);
         break;
       }
       case 'tip': {
