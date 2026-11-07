@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DIFFICULTIES, type Personality } from '../../src/ai/ai';
+import { DIFFICULTIES, SUPERWEAPON_ARMY, SUPERWEAPON_HAULERS, type Personality } from '../../src/ai/ai';
 import type { MatchResult } from '../../src/ai/harness';
 import { playMatches } from './pool';
 
@@ -16,8 +16,7 @@ const SIDES = [
   [2, ['alien', 'human']],
   [3, ['human', 'alien']],
   [3, ['alien', 'human']],
-  // A fourth seed: Doomsday often loses before it strikes against a Balanced AI that scouts well (#104), so AI-15
-  // needs eight games for enough strikes to judge (#120).
+  // Eight games: Doomsday's superweapon is optional (AI-15), so it strikes in only some of them.
   [4, ['human', 'alien']],
   [4, ['alien', 'human']],
 ] as const;
@@ -52,14 +51,34 @@ describe('AI personalities in full matches', () => {
     expect(share(rs)).toBeGreaterThan(share(b));
   }, LONG);
 
-  it('AI-15: Doomsday stands its superweapon first, and its army reaches the struck area within about ten seconds of the strike', async () => {
+  it('AI-15: Doomsday techs up first, fields more tanks, artillery and heroes but keeps rifles, builds its superweapon only when strong, and wins its share', async () => {
     const [d, b] = await Promise.all([series('doomsday'), series('balanced')]);
+    // Value of what it trained: tanks, artillery and heroes against everything (unit costs of either faction, roughly).
+    const value = (r: MatchResult): { tech: number; all: number } => {
+      const p = r.ai[0].produced;
+      const v = { inf: p.inf * 90, at: p.at * 235, tank: p.tank * 815, art: p.art * 850, hero: p.hero * 2000, air: 0, scout: p.scout * 235 };
+      return { tech: v.tank + v.art + v.hero, all: Object.values(v).reduce((t, x) => t + x, 0) };
+    };
+    const share = (ms: MatchResult[]): number => ms.reduce((t, r) => t + value(r).tech / Math.max(1, value(r).all), 0) / ms.length;
     d.forEach((m, i) => {
-      expect(m.ai[0].superweaponAt).toBeGreaterThanOrEqual(0);
-      expect(m.ai[0].superweaponAt).toBeLessThan(never(b[i]!.ai[0].superweaponAt));
+      // Its lab before Balanced's, in every game.
+      expect(m.ai[0].labAt).toBeGreaterThanOrEqual(0);
+      expect(m.ai[0].labAt).toBeLessThan(never(b[i]!.ai[0].labAt));
+      // Rifles to answer enemy infantry.
+      expect(m.ai[0].produced.inf).toBeGreaterThanOrEqual(2);
+      // A superweapon only with a strong army and a working economy.
+      const o = m.ai[0].superweaponOrder;
+      if (o) {
+        expect(o.army).toBeGreaterThanOrEqual(SUPERWEAPON_ARMY);
+        expect(o.haulers).toBeGreaterThanOrEqual(SUPERWEAPON_HAULERS);
+      }
     });
+    expect(share(d)).toBeGreaterThan(share(b) + 0.04);
+    // It does go for the superweapon when it can, and times its attack with the strike.
     const arrivals = d.filter((m) => m.ai[0].strikeAt >= 0).map((m) => never(m.ai[0].strikeArrival)).sort((x, y) => x - y);
-    expect(arrivals.length).toBeGreaterThanOrEqual(4);
+    expect(arrivals.length).toBeGreaterThanOrEqual(2);
     expect(arrivals[Math.floor((arrivals.length - 1) / 2)]).toBeLessThanOrEqual(20 * 10);
+    // A fair opponent: it wins at least three of eight games against Balanced.
+    expect(d.filter((m) => m.winner === 0).length).toBeGreaterThanOrEqual(3);
   }, LONG);
 });

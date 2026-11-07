@@ -42,6 +42,9 @@ export const RAID_FROM = 20 * 75;
 export const STRIKE_LEAD = 16;
 /** Doomsday holds a charged superweapon at most this long (ticks) for its wave before it fires anyway. */
 export const STRIKE_HOLD = 20 * 90;
+/** Doomsday goes for its superweapon only with an army worth this much and this many haulers working (AI-15). */
+export const SUPERWEAPON_ARMY = 5000;
+export const SUPERWEAPON_HAULERS = 5;
 /** How far (tiles) to one side of the straight line a scout's route swings, around the enemy's front (AI-17). */
 export const SCOUT_FLANK = 22;
 
@@ -113,6 +116,17 @@ export interface Intel {
 }
 
 const BASE_WEIGHTS: Record<Role, number> = { inf: 0.28, at: 0.2, tank: 0.32, art: 0.08, air: 0.08, scout: 0.04 };
+/** The Doomsday mix (AI-15): tech units (tanks, artillery) over cheap ones; its rifles come from the infantry floor. */
+const TECH_TILT: Partial<Record<Role, number>> = { tank: 0.2, art: 0.08, at: -0.06, inf: -0.16 };
+
+/**
+ * Rifle infantry Doomsday keeps to answer enemy infantry (AI-15): at least two, and at least half as many as the enemy
+ * infantry squads it has seen lately.
+ */
+export function infantryNeeded(intel: Intel): number {
+  return Math.max(2, Math.ceil(0.5 * (intel.squads ?? 0) * intel.total));
+}
+
 /** The Raider mix (AI-14): fast, cheap raiders and rifles over tanks and artillery. */
 const RAIDER_TILT: Partial<Record<Role, number>> = { inf: 0.12, scout: 0.06, tank: -0.04, art: -0.04 };
 
@@ -251,6 +265,12 @@ export interface AiStats {
   /** Tick of its first superweapon strike, and ticks until its wave reached the struck area afterwards, or -1 (AI-15). */
   strikeAt: number;
   strikeArrival: number;
+  /** Tick its first lab was ordered, or -1 (AI-15). */
+  labAt: number;
+  /** Combat units ordered, by role, heroes apart (AI-15). */
+  produced: Record<Role | 'hero', number>;
+  /** Haulers and army value when it ordered its first superweapon, or null (AI-15). */
+  superweaponOrder: { haulers: number; army: number } | null;
 }
 
 type Ctx = {
@@ -275,7 +295,7 @@ type Ctx = {
  */
 export class AI {
   readonly kit: Kit;
-  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1 };
+  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null };
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
   private adapted = false;
   private raidsLost = 0;
@@ -377,8 +397,6 @@ export class AI {
     if (sw && this.stats.superweaponAt < 0) this.stats.superweaponAt = c.tick;
     if (this.adapted) return;
     if (this.personality === 'raider' && (c.tick >= RAIDER_OPENING_END || this.raidsLost >= RAIDER_RAIDS_LOST)) this.adapted = true;
-    // Doomsday without the superweapon it built falls back to Balanced, still rebuilding it first (wantedStructure).
-    if (this.personality === 'doomsday' && this.stats.superweaponAt >= 0 && !sw) this.adapted = true;
   }
 
   // ---------------------------------------------------------------- knowledge
@@ -501,28 +519,18 @@ export class AI {
     const haulers = c.haulers.length;
     const refineries = n(k.refinery);
     const plain = Math.min(6, (c.tick < 3000 ? 0 : c.tick < 6500 ? 1 : c.tick < 11000 ? 2 : 3) + Math.min(3, this.attacks));
-    // Raider defends with its army in the opening; Doomsday holds with defences while it climbs to its superweapon.
-    const rushing = this.personality === 'doomsday' && n(k.superweapon) === 0;
+    // Raider defends with its army in the opening (AI-14).
     const turretsWanted = this.plan === 'raider' ? 0 : plain;
+    const tech = this.plan === 'doomsday';
 
     if (c.powerIn > c.powerOut || margin < 15) return k.power;
     if (n(k.barracks) === 0) return k.barracks;
     if (refineries < 2) return k.refinery;
     if (margin < 35) return k.power;
     if (n(k.factory) === 0) return k.factory;
-    if (rushing) {
-      // Two defences hold the base while it climbs; more wait until the superweapon stands.
-      if (n(k.turret) < Math.min(turretsWanted, 2)) return k.turret;
-      // Doomsday (AI-15): straight up the tech tree to the superweapon, rebuilt first if it is lost (AI-16); spare money
-      // still goes into a second barracks and factory, so the army keeps growing while the superweapon is built.
-      const rebuilding = this.stats.superweaponAt >= 0;
-      if (!rebuilding && n(k.barracks) < 2 && c.credits > 1500) return k.barracks;
-      if (!rebuilding && n(k.factory) < 2 && c.credits > 2000) return k.factory;
-      if (n(k.lab) === 0) return k.lab;
-      const sw = buildingDef(k.superweapon);
-      if (margin < -sw.power + 10) return k.power;
-      return k.superweapon;
-    }
+    // Doomsday (AI-15): tech first, its lab straight after the first factory and a second factory when it can afford it.
+    if (tech && n(k.lab) === 0) return k.lab;
+    if (tech && n(k.factory) < 2 && c.credits > 1400) return k.factory;
     if (n(k.turret) < turretsWanted) return k.turret;
     const rich = c.credits > 3000 ? 2 : c.credits > 1400 ? 1 : 0;
     if (n(k.barracks) < 1 + rich + (c.tick > 5000 ? 1 : 0) && n(k.barracks) < 4) return k.barracks;
@@ -531,7 +539,8 @@ export class AI {
     if (teching && n(k.lab) === 0 && c.credits > 1100) return k.lab;
     if (n(k.factory) < 1 + rich && n(k.factory) < 3) return k.factory;
     if (refineries < 3 && haulers >= 4 && c.credits > 1100) return k.refinery;
-    if (teching && n(k.superweapon) === 0 && n(k.lab) > 0) {
+    // Doomsday's superweapon is optional: only when it can spare the money and its army is strong (AI-15).
+    if (teching && n(k.superweapon) === 0 && n(k.lab) > 0 && (!tech || this.canAffordDoom(c))) {
       const sw = buildingDef(k.superweapon);
       if (margin < -sw.power + 10) return k.power;
       return k.superweapon;
@@ -543,10 +552,21 @@ export class AI {
     return null;
   }
 
+  /**
+   * Whether Doomsday goes for its superweapon now (AI-15): a strong army, a working economy (two refineries and enough
+   * haulers) and a quiet base; then it saves for it.
+   */
+  private canAffordDoom(c: Ctx): boolean {
+    const refineries = c.buildings.filter((b) => buildingDef(b.kind).refinery).length;
+    return this.armyPower(c.army) >= SUPERWEAPON_ARMY && refineries >= 2 && c.haulers.length >= SUPERWEAPON_HAULERS && c.tick - this.lastThreat > 600;
+  }
+
   private structures(c: Ctx, out: Command[]): void {
     if (c.hq.queue.length > 0) return;
     const kind = this.wantedStructure(c);
     if (kind && this.can(c, kind)) {
+      if (kind === this.kit.lab && this.stats.labAt < 0) this.stats.labAt = c.tick;
+      if (kind === this.kit.superweapon && !this.stats.superweaponOrder) this.stats.superweaponOrder = { haulers: c.haulers.length, army: this.armyPower(c.army) };
       out.push({ type: 'produce', player: this.player, source: c.hq.id, kind });
       // Spent now, so units ordered in the same turn cannot count on it (AI-3).
       c.credits -= buildingDef(kind).cost;
@@ -666,11 +686,13 @@ export class AI {
     for (const [kind, n] of queued) counts[roleOf(unitDef(kind))] += n;
 
     const next = this.wantedStructure(c);
-    // Doomsday saves the full price of its superweapon and up to 1500 for other steps; others hold back at most 750.
-    const saving = this.personality === 'doomsday' && !c.buildings.some((b) => buildingDef(b.kind).superweapon);
-    const hold = next && c.hq.queue.length === 0 ? Math.min(buildingDef(next).cost, saving && next === this.kit.superweapon ? Infinity : saving ? 1500 : 750) : 0;
+    // Doomsday saves the whole price of a superweapon it has decided on, else up to its lab's price (AI-15); others hold
+    // back at most 750.
+    const doom = this.plan === 'doomsday';
+    const hold = next && c.hq.queue.length === 0 ? Math.min(buildingDef(next).cost, doom && next === this.kit.superweapon ? Infinity : doom ? 1100 : 750) : 0;
     const urgent = c.army.length < 4 || c.tick - this.lastThreat < 600;
-    const tilt = this.plan === 'raider' ? RAIDER_TILT : undefined;
+    const tilt = this.plan === 'raider' ? RAIDER_TILT : this.plan === 'doomsday' ? TECH_TILT : undefined;
+    const rifles = this.plan === 'doomsday' ? infantryNeeded(intel) : 0;
     const haulerWanted = this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0);
 
     for (const b of c.buildings) {
@@ -682,8 +704,10 @@ export class AI {
       const allowed = trainable.filter((k) => unitDef(k).requires.every((r) => c.buildings.some((x) => x.kind === r)) && !(unitDef(k).hero && (queued.has(k) || c.own.some((u) => u.kind === k))));
       // Its hero takes the field whenever it is available and affordable with credits to spare (HERO-1).
       const hero = allowed.find((k) => unitDef(k).hero && c.credits >= unitDef(k).cost + 400);
+      // Doomsday keeps enough rifle infantry for the enemy's infantry before anything else from the barracks (AI-15).
+      const rifle = counts.inf < rifles ? allowed.find((k) => roleOf(unitDef(k)) === 'inf' && !unitDef(k).hero) : undefined;
       const pick: string | null =
-        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) ? this.kit.hauler : (hero ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt));
+        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) ? this.kit.hauler : (hero ?? rifle ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt));
       if (!pick) continue;
       const cost = unitDef(pick).cost;
       const reserve = pick === this.kit.hauler || urgent ? 0 : hold;
@@ -691,6 +715,7 @@ export class AI {
       c.credits -= cost;
       out.push({ type: 'produce', player: this.player, source: b.id, kind: pick });
       counts[roleOf(unitDef(pick))]++;
+      if (pick !== this.kit.hauler) this.stats.produced[unitDef(pick).hero ? 'hero' : roleOf(unitDef(pick))]++;
       if (pick === this.kit.hauler || unitDef(pick).hero) queued.set(pick, (queued.get(pick) ?? 0) + 1);
     }
   }
@@ -921,8 +946,6 @@ export class AI {
     const sw = c.buildings.find((b) => buildingDef(b.kind).superweapon && b.charge >= 100);
     // Doomsday with a charged superweapon sends its wave at what it will strike (AI-15).
     const striking = this.plan === 'doomsday' && sw !== undefined;
-    // Doomsday keeps its army home until the superweapon is ready to go in with it (AI-15).
-    if (this.plan === 'doomsday' && !striking) return;
     if (raiding && (c.tick < RAID_FROM || (!this.economyTarget(c) && c.tick < 2 * RAID_FROM))) return;
     let threshold = Math.min(4200, (1100 + 450 * this.stats.waves) * this.jitter.wave);
     if (raiding) threshold = 0;
