@@ -69,6 +69,7 @@ jobs:
           - { name: harness highlands, run: npm run harness -- 2 highlands }
           - { name: faction balance, run: npm run test:matches -- faction-balance }
           - { name: difficulty, run: npm run test:matches -- difficulty }
+          - { name: harder hard, run: npm run test:matches -- harder-hard }
           - { name: raider, run: npm run test:matches -- personalities -t AI-14 }
           - { name: doomsday, run: npm run test:matches -- personalities -t AI-15 }
           - { name: scouting and maps, run: npm run test:matches -- scouting-and-maps }
