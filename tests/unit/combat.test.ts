@@ -306,7 +306,7 @@ describe('rosters', () => {
 });
 
 describe('lingering sight', () => {
-  it('FOG-6: a dead unit\'s sight lingers where it fell for 4 seconds, then fades', () => {
+  it('FOG-6: a dead unit\'s sight lingers where it fell for 8 seconds (visible at tick 159, hidden at 160), then fades', () => {
     const g = createGame(cfg({
       buildings: [{ owner: 0, kind: 'hum_hq', tx: 2, ty: 2 }, { owner: 1, kind: 'ali_hq', tx: 44, ty: 44 }],
       units: [sp(0, 'hum_buggy', 30, 12)],
@@ -321,13 +321,14 @@ describe('lingering sight', () => {
     expect(g.state.units.some((u) => u.kind === 'hum_buggy')).toBe(false);
     expect(seen()).toBe(true); // still in sight just after it died
     expect(hash(g)).not.toBe(before);
-    run(g, SIGHT_LINGER - 6);
-    expect(seen()).toBe(true);
-    run(g, 6);
-    expect(seen()).toBe(false); // faded after 4 s (80 ticks)
+    run(g, SIGHT_LINGER - 2);
+    expect(seen()).toBe(true); // 159 ticks after the last sight
+    run(g, 1);
+    expect(seen()).toBe(false); // faded after 8 s (160 ticks)
+    expect((g.state.fog[0]![at] as number) & EXPLORED).toBe(EXPLORED);
   });
 
-  it('FOG-7: when a unit moves away, the ground it saw stays in sight for 4 seconds before the fog closes in', () => {
+  it('FOG-7: when a unit moves away, the ground it saw stays in sight for 8 seconds before the fog closes in', () => {
     const g = createGame(cfg({
       buildings: [{ owner: 0, kind: 'hum_hq', tx: 2, ty: 2 }, { owner: 1, kind: 'ali_hq', tx: 44, ty: 44 }],
       units: [sp(0, 'hum_buggy', 30, 12), sp(1, 'ali_skitter', 30, 15)],
@@ -343,13 +344,17 @@ describe('lingering sight', () => {
     b.x = 8 * FP + FP / 2;
     b.y = 40 * FP + FP / 2;
     b.path = [];
-    run(g, SIGHT_LINGER - 4);
+    run(g, SIGHT_LINGER - 1);
     expect(seen()).toBe(true);
-    // ...then the fog closes in; the tile stays explored.
-    run(g, 6);
+    expect(enemyShown()).toBe(true);
+    const mid = hash(g);
+    // ...then the fog closes in at tick 160; the tile stays explored.
+    run(g, 1);
     expect(seen()).toBe(false);
+    expect(enemyShown()).toBe(false);
+    expect(hash(g)).not.toBe(mid);
     expect((g.state.fog[0]![at] as number) & EXPLORED).toBe(EXPLORED);
-    expect(SIGHT_LINGER).toBe(80);
+    expect(SIGHT_LINGER).toBe(160);
   });
 });
 

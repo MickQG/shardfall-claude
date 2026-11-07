@@ -45,6 +45,8 @@ export const STRIKE_HOLD = 20 * 90;
 /** Doomsday goes for its superweapon only with an army worth this much and this many haulers working (AI-15). */
 export const SUPERWEAPON_ARMY = 5000;
 export const SUPERWEAPON_HAULERS = 5;
+/** Doomsday sizes its rifle floor on enemy infantry seen within this many ticks (AI-15): "lately", not everything it has seen since the sight lingers (FOG-7). */
+export const RIFLE_INTEL = 20 * 30;
 /** How far (tiles) to one side of the straight line a scout's route swings, around the enemy's front (AI-17). */
 export const SCOUT_FLANK = 22;
 
@@ -117,7 +119,7 @@ export interface Intel {
 
 const BASE_WEIGHTS: Record<Role, number> = { inf: 0.28, at: 0.2, tank: 0.32, art: 0.08, air: 0.08, scout: 0.04 };
 /** The Doomsday mix (AI-15): tech units (tanks, artillery) over cheap ones; its rifles come from the infantry floor. */
-const TECH_TILT: Partial<Record<Role, number>> = { tank: 0.2, art: 0.08, at: -0.06, inf: -0.16 };
+const TECH_TILT: Partial<Record<Role, number>> = { tank: 0.3, art: 0.1, at: -0.08, inf: -0.22 };
 
 /**
  * Rifle infantry Doomsday keeps to answer enemy infantry (AI-15): at least two, and at least half as many as the enemy
@@ -473,7 +475,7 @@ export class AI {
     return { tx, ty };
   }
 
-  private intelSummary(c: Ctx): Intel {
+  private intelSummary(c: Ctx, within = 2400): Intel {
     let air = 0;
     let heavy = 0;
     let light = 0;
@@ -481,7 +483,7 @@ export class AI {
     let total = 0;
     for (const e of this.intel.values()) {
       const d = UNIT_DEFS[e.kind];
-      if (!d || !d.weapon || c.tick - e.t > 2400) continue;
+      if (!d || !d.weapon || c.tick - e.t > within) continue;
       total++;
       if ((d.squad ?? 1) > 1) squads++;
       if (d.armor === 'air') air++;
@@ -704,7 +706,7 @@ export class AI {
     const hold = next && c.hq.queue.length === 0 ? Math.min(buildingDef(next).cost, doom && next === this.kit.superweapon ? Infinity : doom ? 1100 : 750) : 0;
     const urgent = c.army.length < 4 || c.tick - this.lastThreat < 600;
     const tilt = this.plan === 'raider' ? RAIDER_TILT : this.plan === 'doomsday' ? TECH_TILT : undefined;
-    const rifles = this.plan === 'doomsday' ? infantryNeeded(intel) : 0;
+    const rifles = this.plan === 'doomsday' ? infantryNeeded(this.intelSummary(c, RIFLE_INTEL)) : 0;
     // Doomsday saving for its superweapon does not spend on the floor (AI-15, AI-19).
     const guns = doom && next === this.kit.superweapon ? 0 : artilleryNeeded(intel);
     const haulerWanted = this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0);
