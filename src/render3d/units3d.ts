@@ -1,4 +1,4 @@
-import { Shape } from './kit';
+import { Shape, type V3 } from './kit';
 import type { RigDef, RigNode } from './rig';
 
 /**
@@ -476,32 +476,72 @@ export const PALADIN_SWIVEL = 0.2;
 /** How far out the Paladin's hips sit from the hull's centre line: beside the hull, not under it (AIM-2). */
 const PALADIN_HIP = 0.38;
 
+/** The Paladin's leg joints, in the leg's plane: the knee from the hip, the ankle from the knee (HERO-6). */
+const PALADIN_KNEE = [-0.17, -0.24] as const;
+const PALADIN_ANKLE = [0.2, -0.22] as const;
+const PALADIN_KNEE3: V3 = [...PALADIN_KNEE, 0];
+const PALADIN_ANKLE3: V3 = [...PALADIN_ANKLE, 0];
+/** How far the Paladin's soles reach below its ankles. */
+const PALADIN_SOLE = 0.06;
+/** Tiles per full gait cycle and model scale: together they set how far a planted foot travels back. */
+const PALADIN_STRIDE = 2.0;
+const PALADIN_SCALE = 2.2;
+
+/**
+ * One of the Paladin's legs at hip `x` on side `side` (+1 or -1 in Z), its foot standing `fore` ahead of the hip: a thigh, a shin and a foot posed by IK so the
+ * foot plants (HERO-6). A planted foot moves back half a stride's length (in model units) over its half of the cycle,
+ * exactly as far as the hull moves forward.
+ */
+function paladinLeg(x: number, side: 1 | -1, phase: number, fore: number): RigNode {
+  return {
+    geo: 'thigh',
+    at: [x, 0.53, side * PALADIN_HIP],
+    rot: [-side * 0.16, 0, 0],
+    anim: { k: 'step', phase, fore, reach: PALADIN_STRIDE / (4 * PALADIN_SCALE), lift: 0.06, knee: PALADIN_KNEE, ankle: PALADIN_ANKLE, sole: PALADIN_SOLE },
+    kids: [{ geo: 'shin', at: PALADIN_KNEE3, kids: [{ geo: 'foot', at: PALADIN_ANKLE3 }] }],
+  };
+}
+
 function paladin(): RigDef {
   const GOLD = 0xd8b24a;
   return {
     move: 'walker',
-    // A long, unhurried stride: the legs swing less per step and the cycle is slower, so the walk reads heavy and smooth.
-    stride: 2.0,
+    // A long, unhurried stride: the cycle is slow, so the walk reads heavy and smooth.
+    stride: PALADIN_STRIDE,
+    // The hull bobs and sways gently with each step, and the walk takes about a second to build up or settle (HERO-6).
+    walk: { bob: 0.012, sway: 0.016, blend: 3.5 },
     turn: 4,
     radius: 0.72,
     height: 0.86,
-    scale: 2.2,
+    scale: PALADIN_SCALE,
     weapon: 'heroCannon',
     shapes: {
-      leg: () => {
-        // Hip joint at the origin; a thick thigh back and down to a reverse knee, a stout shin forward and down to a broad
-        // armoured foot. Shorter than before, so the hull rides low.
+      // A reverse-jointed leg in three parts, so its knee bends and its foot plants (HERO-6): a thick thigh back and down
+      // from the hip to the knee, a stout shin forward and down to the ankle, and a broad armoured foot that stays level.
+      // Together at rest they make the leg as it always was. Shorter than before, so the hull rides low.
+      thigh: () => {
         const s = shape();
         s.cyl(0.1, 0.15, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 14 });
-        s.strut([0, 0, 0], [-0.17, -0.24, 0], 0.095, STEEL, { r2: 0.082 });
+        s.strut([0, 0, 0], PALADIN_KNEE3, 0.095, STEEL, { r2: 0.082 });
         s.box(0.2, 0.2, 0.13, 'team', { at: [-0.085, -0.12, 0], rot: [0, 0, 0.62], bevel: 0.2 });
-        s.cyl(0.082, 0.14, GUN, { at: [-0.17, -0.24, 0], rot: [Math.PI / 2, 0, 0], seg: 12 });
-        s.strut([-0.17, -0.24, 0], [0.03, -0.46, 0], 0.075, STEEL, { r2: 0.062 });
-        s.box(0.11, 0.16, 0.1, STEEL2, { at: [-0.07, -0.35, 0], rot: [0, 0, 0.83], bevel: 0.2 }); // shin guard
-        s.tube(0.026, 0.22, GUN, { at: [-0.09, -0.36, 0.07], rot: [0, 0, 0.9] }); // piston
-        s.box(0.32, 0.065, 0.21, STEEL2, { at: [0.06, -0.48, 0], bevel: 0.2 }); // foot
-        s.box(0.09, 0.05, 0.22, GUN, { at: [0.23, -0.495, 0], bevel: 0.2 }); // toe
-        s.box(0.08, 0.05, 0.15, GUN, { at: [-0.1, -0.495, 0], bevel: 0.2 }); // heel spur
+        s.cyl(0.082, 0.14, GUN, { at: PALADIN_KNEE3, rot: [Math.PI / 2, 0, 0], seg: 12 });
+        return s;
+      },
+      shin: () => {
+        // From the knee (origin) to the ankle.
+        const s = shape();
+        s.strut([0, 0, 0], PALADIN_ANKLE3, 0.075, STEEL, { r2: 0.062 });
+        s.box(0.11, 0.16, 0.1, STEEL2, { at: [0.1, -0.11, 0], rot: [0, 0, 0.83], bevel: 0.2 }); // shin guard
+        s.tube(0.026, 0.22, GUN, { at: [0.08, -0.12, 0.07], rot: [0, 0, 0.9] }); // piston
+        return s;
+      },
+      foot: () => {
+        // From the ankle (origin): its sole lies PALADIN_SOLE below it.
+        const s = shape();
+        s.cyl(0.06, 0.12, GUN, { rot: [Math.PI / 2, 0, 0], seg: 10 }); // ankle joint
+        s.box(0.28, 0.065, 0.21, STEEL2, { at: [0.03, -0.0275, 0], bevel: 0.2 }); // foot
+        s.box(0.09, 0.05, 0.22, GUN, { at: [0.17, -0.035, 0], bevel: 0.2 }); // toe
+        s.box(0.07, 0.05, 0.15, GUN, { at: [-0.11, -0.035, 0], bevel: 0.2 }); // heel spur
         return s;
       },
       hull: () => {
@@ -582,12 +622,15 @@ function paladin(): RigDef {
             },
           ],
         },
-        // Four legs beside the long hull's corners, their thighs just clear of its sides, splayed a little outward, stepping in a smooth diagonal
-        // trot. They hang clear of the hull's sides, so the hull can rock with a shot without cutting into them (AIM-2).
-        { geo: 'leg', at: [0.34, 0.53, PALADIN_HIP], rot: [-0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: 0, lift: 0.045, ease: true } },
-        { geo: 'leg', at: [0.34, 0.53, -PALADIN_HIP], rot: [0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: Math.PI, lift: 0.045, ease: true } },
-        { geo: 'leg', at: [-0.38, 0.53, PALADIN_HIP], rot: [-0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: Math.PI, lift: 0.045, ease: true } },
-        { geo: 'leg', at: [-0.38, 0.53, -PALADIN_HIP], rot: [0.16, 0, 0], anim: { k: 'gait', axis: 'z', amp: 0.24, phase: 0, lift: 0.045, ease: true } },
+        // Four legs beside the long hull's corners, their thighs just clear of its sides, splayed a little outward, stepping
+        // in a smooth diagonal trot. They hang clear of the hull's sides, so the hull can rock with a shot without cutting
+        // into them (AIM-2). Each foot stays planted while the hull passes over it (HERO-6).
+        // The front feet stand a little ahead of their hips and the hind feet a little behind, so a hind foot swinging
+        // forward never treads on the front foot on its side as that one leaves the ground.
+        paladinLeg(0.38, 1, 0, 0.03),
+        paladinLeg(0.38, -1, Math.PI, 0.03),
+        paladinLeg(-0.42, 1, Math.PI, -0.03),
+        paladinLeg(-0.42, -1, 0, -0.03),
       ],
     },
   };

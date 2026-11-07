@@ -147,12 +147,12 @@ describe('the Dreadstrider hero', () => {
 });
 
 describe('hero looks and deaths', () => {
-  it('HERO-1: the Paladin is a four-legged walker about twice the size of a tank, with 3000 hit points', async () => {
+  it('HERO-1 HERO-2 BAL-15: the Paladin is a four-legged walker about twice the size of a tank, with 4500 hit points', async () => {
     const { UNIT_RIGS } = await import('../../src/render3d/units3d');
     const p = UNIT_RIGS.hum_paladin!();
     const tank = UNIT_RIGS.hum_tank!();
     expect(p.move).toBe('walker');
-    const legs = (p.root.kids ?? []).filter((k) => k.geo === 'leg');
+    const legs = (p.root.kids ?? []).filter((k) => k.anim?.k === 'step');
     expect(legs).toHaveLength(4);
     // A diagonal trot: each front leg is in step with the hind leg on the other side.
     const phase = (x: number, z: number): number => (legs.find((l) => Math.sign(l.at![0]) === x && Math.sign(l.at![2]) === z)!.anim as { phase: number }).phase;
@@ -166,6 +166,7 @@ describe('hero looks and deaths', () => {
     const tree = rigTree(p);
     tree.root.updateMatrixWorld(true);
     const all = new THREE.Box3();
+    let legBox: InstanceType<typeof THREE.Box3> | undefined;
     const sizeOf: Record<string, InstanceType<typeof THREE.Vector3>> = {};
     for (const d of tree.drawn) {
       const b = p.shapes[d.geo]!().build(0xffffff);
@@ -174,14 +175,17 @@ describe('hero looks and deaths', () => {
       const box = geo.boundingBox!.clone().applyMatrix4(d.obj.matrixWorld);
       all.union(box);
       sizeOf[d.geo] = box.getSize(new THREE.Vector3());
+      // A leg is its thigh, shin and foot together (HERO-6): measured as one, the first leg's.
+      if (['thigh', 'shin', 'foot'].includes(d.geo) && tree.drawn.indexOf(d) < tree.drawn.findIndex((x) => x.geo === 'thigh') + 3) (legBox ??= new THREE.Box3()).union(box);
     }
+    sizeOf.leg = legBox!.getSize(new THREE.Vector3());
     const whole = all.getSize(new THREE.Vector3());
     expect(whole.x / whole.y).toBeGreaterThanOrEqual(1.4);
     expect(sizeOf.leg!.y).toBeLessThan(sizeOf.hull!.x);
     expect(Math.min(sizeOf.leg!.x, sizeOf.leg!.z)).toBeGreaterThanOrEqual(0.25);
     expect(sizeOf.pod).toBeDefined(); // the missile pods are parts of their own (HERO-3)
-    expect(unitDef('hum_paladin').hp).toBe(3000);
-    expect(unitDef('ali_strider').hp).toBe(3000);
+    expect(unitDef('hum_paladin').hp).toBe(4500);
+    expect(unitDef('ali_strider').hp).toBe(4500);
   });
 
   it('HERO-3: a hero dies in a long chain of blasts, a final shockwave with debris, lasting fires and a hard shake', async () => {
@@ -210,8 +214,11 @@ describe('hero looks and deaths', () => {
     const { footLift } = await import('../../src/render3d/rig');
     const p = UNIT_RIGS.hum_paladin!();
     expect(p.stride ?? 1).toBeGreaterThanOrEqual(1.8);
-    const legs = (p.root.kids ?? []).filter((k) => k.geo === 'leg');
-    for (const l of legs) expect(l.anim).toMatchObject({ k: 'gait', ease: true });
+    const legs = (p.root.kids ?? []).filter((k) => k.anim?.k === 'step');
+    expect(legs).toHaveLength(4);
+    // Each foot lifts on the eased curve (HERO-6 steps through footLift).
+    const { stepPath } = await import('../../src/render3d/rig');
+    for (let ph = 0; ph < 7; ph += 0.1) expect(stepPath(ph).lift).toBeCloseTo(footLift(ph, true), 12);
     // An eased foot sets down with no jerk: its height approaches the ground flat, unlike the plain curve.
     const slope = (ease: boolean): number => (footLift(Math.PI / 2 - 1e-3, ease) - footLift(Math.PI / 2 - 2e-3, ease)) / 1e-3;
     expect(Math.abs(slope(true))).toBeLessThan(0.01);
@@ -292,7 +299,7 @@ describe('hero looks and deaths', () => {
     expect(SHOT_BLAST_DIM).toBeLessThanOrEqual(0.7);
   });
 
-  it('HERO-4: heroes fire slow, heavy shots that burst over an area, with no less sustained firepower than before', () => {
+  it('HERO-4 BAL-15: heroes fire slow, heavy shots that burst over an area, with sustained firepower close to the old weapon', () => {
     const tank = unitDef('hum_tank').weapon!;
     for (const kind of ['hum_paladin', 'ali_strider']) {
       const w = unitDef(kind).weapon!;
@@ -300,8 +307,8 @@ describe('hero looks and deaths', () => {
       expect(w.damage, kind).toBeGreaterThanOrEqual(2 * tank.damage);
       expect(w.splash ?? 0, kind).toBeGreaterThan(0);
       expect(w.antiAir, kind).toBe(true);
-      // The old weapon: 46 damage every 16 ticks.
-      expect(w.damage / w.cooldown, kind).toBeGreaterThanOrEqual(46 / 16);
+      // The old weapon: 46 damage every 16 ticks; heroes are tanks now (BAL-15), so at least 85% of it.
+      expect(w.damage / w.cooldown, kind).toBeGreaterThanOrEqual((0.85 * 46) / 16);
     }
   });
 
