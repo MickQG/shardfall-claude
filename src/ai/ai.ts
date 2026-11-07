@@ -47,6 +47,58 @@ export const SCOUT_FLANK = 22;
 
 export type Role = 'inf' | 'at' | 'tank' | 'art' | 'air' | 'scout';
 
+/** A shard field: a patch of shard tiles (8-way neighbours), by its tiles and centre (AI-18). */
+export interface ShardField {
+  tiles: number[];
+  cx: number;
+  cy: number;
+}
+
+/** The shard fields of a map, from its shard tiles: each connected patch is one field (AI-18). */
+export function shardFields(map: MapDef): ShardField[] {
+  const W = map.width;
+  const shards = map.shards ?? [];
+  const seen = new Uint8Array(shards.length);
+  const out: ShardField[] = [];
+  for (let i = 0; i < shards.length; i++) {
+    if (seen[i] || !((shards[i] as number) > 0)) continue;
+    const tiles: number[] = [];
+    const stack = [i];
+    seen[i] = 1;
+    while (stack.length) {
+      const t = stack.pop() as number;
+      tiles.push(t);
+      const x = t % W;
+      const y = Math.floor(t / W);
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= map.height) continue;
+          const j = ny * W + nx;
+          if (!seen[j] && (shards[j] as number) > 0) {
+            seen[j] = 1;
+            stack.push(j);
+          }
+        }
+    }
+    tiles.sort((p, q) => p - q);
+    const cx = tiles.reduce((s2, t) => s2 + (t % W), 0) / tiles.length + 0.5;
+    const cy = tiles.reduce((s2, t) => s2 + Math.floor(t / W), 0) / tiles.length + 0.5;
+    out.push({ tiles, cx, cy });
+  }
+  return out;
+}
+
+/** A player's home fields (AI-18): the two shard fields nearest their start, within 20 tiles of it. */
+export function homeFields(map: MapDef, home: { tx: number; ty: number }): ShardField[] {
+  const d = (f: ShardField): number => Math.hypot(f.cx - home.tx - 1.5, f.cy - home.ty - 1.5);
+  return shardFields(map)
+    .filter((f) => d(f) <= 20)
+    .sort((a, b) => d(a) - d(b) || a.tiles[0]! - b.tiles[0]!)
+    .slice(0, 2);
+}
+
 export const roleOf = (d: UnitDef): Role =>
   d.role === 'infantry' || d.role === 'raider' ? 'inf' : d.role === 'antiarmor' ? 'at' : d.role === 'tank' ? 'tank' : d.role === 'artillery' ? 'art' : d.role === 'air' ? 'air' : 'scout';
 
@@ -248,6 +300,10 @@ export class AI {
   private idle = new Map<number, { x: number; y: number; n: number }>();
   private staging: { tx: number; ty: number } | null = null;
   private home: { tx: number; ty: number } | null = null;
+  /** The map's shard fields, its two home fields first (AI-18), and which field each hauler works. */
+  private fields: ShardField[] = [];
+  private haulerField = new Map<number, number>();
+  private lastRebalance = -1000;
   /** The exact centre of our HQ, in tiles; on a point-symmetric map the two players' centres mirror exactly. */
   private centre: { x: number; y: number } = { x: 0, y: 0 };
   private attacks = 0;
@@ -351,6 +407,12 @@ export class AI {
     const hy = c.hq.ty + d.h / 2;
     this.home = { tx: Math.floor(hx), ty: Math.floor(hy) };
     this.centre = { x: hx, y: hy };
+    // Home fields first, then every other field by distance (AI-18).
+    const homes = homeFields(this.map, { tx: c.hq.tx, ty: c.hq.ty });
+    const rest = shardFields(this.map)
+      .filter((f) => !homes.some((h) => h.tiles[0] === f.tiles[0]))
+      .sort((a, b) => dist(a.cx, a.cy, hx, hy) - dist(b.cx, b.cy, hx, hy) || a.tiles[0]! - b.tiles[0]!);
+    this.fields = [...homes, ...rest];
     // Symmetric map: the opponent starts opposite us. A human can read this off the map too.
     const ex = W - hx;
     const ey = H - hy;
@@ -484,9 +546,11 @@ export class AI {
   private structures(c: Ctx, out: Command[]): void {
     if (c.hq.queue.length > 0) return;
     const kind = this.wantedStructure(c);
-    if (!kind || !this.can(c, kind)) return;
-    out.push({ type: 'produce', player: this.player, source: c.hq.id, kind });
-    c.credits -= buildingDef(kind).cost; // what is left is all the units ordered with it may spend (AI-3)
+    if (kind && this.can(c, kind)) {
+      out.push({ type: 'produce', player: this.player, source: c.hq.id, kind });
+      // Spent now, so units ordered in the same turn cannot count on it (AI-3).
+      c.credits -= buildingDef(kind).cost;
+    }
   }
 
   private placeReady(c: Ctx, out: Command[]): void {
@@ -526,7 +590,10 @@ export class AI {
     const fields: [number, number][] = [];
     // Every third tile counted from the player's own corner of the map, so both players sample mirror-image tiles.
     const n = snap.shards.length;
-    if (d.refinery)
+    // A new refinery goes beside the first field without one, home fields first (AI-18).
+    const unserved = d.refinery ? this.fields.find((f) => f.tiles.some((t) => (snap.shards[t] as number) > 0) && !c.buildings.some((b) => buildingDef(b.kind).refinery && dist(b.tx + 1.5, b.ty + 1, f.cx, f.cy) <= 9)) : undefined;
+    if (unserved) for (const t of unserved.tiles) if ((snap.shards[t] as number) > 0) fields.push([(t % W) + 0.5, Math.floor(t / W) + 0.5]);
+    if (d.refinery && fields.length === 0)
       for (let k = 0; k < n; k += 3) {
         const i = flip ? n - 1 - k : k;
         if ((snap.shards[i] as number) > 0) fields.push([(i % W) + 0.5, Math.floor(i / W) + 0.5]); // tile centres mirror exactly
@@ -630,7 +697,29 @@ export class AI {
 
   private haulerTarget(c: Ctx): number {
     const refs = c.buildings.filter((b) => buildingDef(b.kind).refinery).length;
-    return refs === 0 ? 0 : Math.min(7, refs * 2 + 1);
+    // Three haulers a refinery fill both home fields (AI-18).
+    return refs === 0 ? 0 : Math.min(8, refs * 3);
+  }
+
+  /** Whether a field still has shards and one of our refineries beside it (AI-18). */
+  private served(c: Ctx, f: ShardField): boolean {
+    return f.tiles.some((t) => (c.snap.shards[t] as number) > 0) && c.buildings.some((b) => buildingDef(b.kind).refinery && dist(b.tx + 1.5, b.ty + 1, f.cx, f.cy) <= 9);
+  }
+
+  /** The shard tile of field `fi` nearest to (x, y) (tiles), skipping exhausted ones. */
+  private fieldTile(c: Ctx, fi: number, x: number, y: number): { x: number; y: number } | null {
+    const W = c.snap.mapWidth;
+    let best: { x: number; y: number } | null = null;
+    let bd = Infinity;
+    for (const t of this.fields[fi]!.tiles) {
+      if (!((c.snap.shards[t] as number) > 0)) continue;
+      const d = dist(t % W, Math.floor(t / W), x, y);
+      if (d < bd) {
+        bd = d;
+        best = { x: t % W, y: Math.floor(t / W) };
+      }
+    }
+    return best;
   }
 
   private economy(c: Ctx, out: Command[]): void {
@@ -652,15 +741,53 @@ export class AI {
       }
       return best;
     };
+    // Fields worth sending haulers to: ours (a refinery beside them), not held by the enemy (AI-18).
+    const open = this.fields.map((f, i) => (this.served(c, f) && this.enemyPowerNear(c, Math.floor(f.cx), Math.floor(f.cy), 8) <= 150 ? i : -1)).filter((i) => i >= 0);
+    const alive = new Set(c.haulers.map((h) => h.id));
+    for (const id of [...this.haulerField.keys()]) if (!alive.has(id)) this.haulerField.delete(id);
+    const load = (fi: number): number => [...this.haulerField.values()].filter((v) => v === fi).length;
+    const send = (h: UnitSnap, fi: number): boolean => {
+      const t = this.fieldTile(c, fi, tileOf(h.x), tileOf(h.y));
+      if (!t) return false;
+      this.haulerField.set(h.id, fi);
+      out.push({ type: 'harvest', player: this.player, units: [h.id], x: t.x * FP + FP / 2, y: t.y * FP + FP / 2 });
+      return true;
+    };
+    // The field with the fewest haulers for its refinery, the nearer on a tie (AI-18).
+    const leastWorked = (h: UnitSnap): number | undefined =>
+      [...open].sort((a, b) => load(a) - load(b) || dist(this.fields[a]!.cx, this.fields[a]!.cy, tileOf(h.x), tileOf(h.y)) - dist(this.fields[b]!.cx, this.fields[b]!.cy, tileOf(h.x), tileOf(h.y)) || a - b)[0];
     for (const h of c.haulers) {
+      // A hauler already at work on a field we know counts for that field.
+      if (!this.haulerField.has(h.id) && h.dest === null && h.load > 0) {
+        const fi = this.fields.findIndex((f) => f.tiles.some((t) => dist(t % W, Math.floor(t / W), tileOf(h.x), tileOf(h.y)) <= 2));
+        if (fi >= 0) this.haulerField.set(h.id, fi);
+      }
       const prev = this.idle.get(h.id);
       const still = prev && prev.x === h.x && prev.y === h.y;
       const n = still ? prev.n + 1 : 0;
       this.idle.set(h.id, { x: h.x, y: h.y, n });
       if (n >= 3 && h.dest === null) {
-        const f = fieldsNear(tileOf(h.x), tileOf(h.y));
-        if (f) out.push({ type: 'harvest', player: this.player, units: [h.id], x: f.x * FP + FP / 2, y: f.y * FP + FP / 2 });
+        const fi = leastWorked(h);
+        if (fi === undefined || !send(h, fi)) {
+          const f = fieldsNear(tileOf(h.x), tileOf(h.y));
+          if (f) out.push({ type: 'harvest', player: this.player, units: [h.id], x: f.x * FP + FP / 2, y: f.y * FP + FP / 2 });
+        }
         this.idle.set(h.id, { x: h.x, y: h.y, n: 0 });
+      }
+    }
+    // New haulers, and an uneven split: move one hauler from the busiest field to the least worked (AI-18).
+    for (const h of c.haulers) {
+      if (this.haulerField.has(h.id)) continue;
+      const fi = leastWorked(h);
+      if (fi !== undefined) send(h, fi);
+    }
+    if (open.length >= 2 && c.tick - this.lastRebalance >= 200) {
+      const byLoad = [...open].sort((a, b) => load(a) - load(b) || a - b);
+      const low = byLoad[0]!;
+      const high = byLoad[byLoad.length - 1]!;
+      if (load(high) - load(low) >= 2) {
+        const h = c.haulers.filter((u) => this.haulerField.get(u.id) === high).sort((a, b) => a.load - b.load || a.id - b.id)[0];
+        if (h && send(h, low)) this.lastRebalance = c.tick;
       }
     }
   }
@@ -921,7 +1048,8 @@ export class AI {
     }
     const fresh = [...this.intel.values()].some((e) => UNIT_DEFS[e.kind]?.weapon && c.tick - e.t <= 900);
     const due = c.tick > (this.plan === 'raider' ? 300 : 1100) && (!knowEnemy || !fresh);
-    if (!due || c.tick - this.lastScout < 1500) return;
+    // A scout lost before it found the enemy is replaced sooner: finding the base early matters most (AI-17).
+    if (!due || c.tick - this.lastScout < (knowEnemy ? 1500 : 1000)) return;
     // A genuine scout if there is one; else the fastest unit that is not a hero (AI-17).
     const cands = c.army.filter((u) => u.dest === null && !unitDef(u.kind).hero).sort((a, b) => unitDef(b.kind).speed - unitDef(a.kind).speed || a.id - b.id);
     const pick = cands.find((u) => unitDef(u.kind).role === 'scout') ?? (c.tick > (this.plan === 'raider' ? 300 : 1500) ? cands[0] : undefined);
