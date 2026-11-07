@@ -36,7 +36,7 @@ export const isLowPower = (s: State, owner: number): boolean => {
  */
 const scanIndex = (owner: number, k: number, n: number): number => (owner % 2 === 1 ? n - 1 - k : k);
 
-function findField(s: State, tx: number, ty: number, owner: number): number {
+function findField(s: State, tx: number, ty: number, owner: number, around = -1): number {
   const W = s.grid.width;
   let best = -1;
   let bd = Infinity;
@@ -47,6 +47,7 @@ function findField(s: State, tx: number, ty: number, owner: number): number {
     const x = i % W;
     const y = (i - x) / W;
     if (isBlocked(s.grid, x, y)) continue;
+    if (around >= 0 && Math.max(Math.abs(x - (around % W)), Math.abs(y - Math.floor(around / W))) > FIELD_RADIUS) continue;
     const d = (x - tx) ** 2 + (y - ty) ** 2;
     if (d < bd) {
       bd = d;
@@ -56,13 +57,15 @@ function findField(s: State, tx: number, ty: number, owner: number): number {
   return best;
 }
 
+/** A hauler's field is the shards within this many tiles (Chebyshev) of its home tile (ECO-8). */
+const FIELD_RADIUS = 8;
 /** Within this many tiles (Chebyshev) of the pad, a hauler takes the pad or joins the line beside it (ECO-8). */
 const PAD_NEAR = 5;
 /** Tries at reaching a pad (one every ten ticks while stopped short of it) before unloading beside the refinery instead. */
 export const DOCK_TRIES = 6;
 /** Waiting spots beside a pad; a longer line shares the last one. */
 const LINE_SPOTS = 4;
-/** How heavily a busy pad counts against a refinery, in tiles per hauler ahead (ECO-8). */
+/** How heavily a busy pad counts against another refinery, in tiles per hauler ahead, for a hauler waiting long (ECO-9). */
 const BUSY_TILES = 8;
 /** Ticks a hauler waits in line before it looks for a less busy refinery (ECO-9). */
 export const LINE_PATIENCE = 300;
@@ -92,10 +95,29 @@ function busy(s: State, b: Building, u: Unit): number {
   return n;
 }
 
-/** The refinery to deliver to: the nearest, counting each hauler already at its pad as a few tiles further (ECO-8). */
-function chooseRefinery(s: State, u: Unit, tx: number, ty: number, avoid = -1): Building | undefined {
+/** The refinery to deliver to: the one whose dock pad is nearest the hauler's field, however busy it is (ECO-8). */
+function chooseRefinery(s: State, u: Unit, tx: number, ty: number): Building | undefined {
+  const W = s.grid.width;
+  const fx = u.home >= 0 ? u.home % W : tx;
+  const fy = u.home >= 0 ? Math.floor(u.home / W) : ty;
   let best: Building | undefined;
   let bd = Infinity;
+  for (const b of s.buildings) {
+    if (!isRefineryOf(b, u.owner)) continue;
+    const p = b.pad as [number, number];
+    const d = (p[0] - fx) ** 2 + (p[1] - fy) ** 2;
+    if (d < bd) {
+      bd = d;
+      best = b;
+    }
+  }
+  return best;
+}
+
+/** A refinery other than `avoid` that would serve a hauler waiting in line sooner: near it and with few ahead (ECO-9). */
+function lessBusyRefinery(s: State, u: Unit, tx: number, ty: number, avoid: number, ahead: number): Building | undefined {
+  let best: Building | undefined;
+  let bd = BUSY_TILES * ahead;
   for (const b of s.buildings) {
     if (!isRefineryOf(b, u.owner) || b.id === avoid) continue;
     const d = gapToBuilding(b, tx, ty) + BUSY_TILES * busy(s, b, u);
@@ -186,7 +208,10 @@ function takePad(s: State, u: Unit, b: Building): void {
 /** Head for the nearest shard field, or deliver what it carries if none is left. */
 function seekField(s: State, u: Unit, tx: number, ty: number): void {
   const here = ty * s.grid.width + tx;
-  const f = findField(s, tx, ty, u.owner);
+  // Back to its own field; any other only when that one is used up (ECO-8).
+  let f = findField(s, tx, ty, u.owner, u.home);
+  if (f < 0) f = findField(s, tx, ty, u.owner);
+  if (f >= 0) u.home = u.home < 0 || Math.max(Math.abs((f % s.grid.width) - (u.home % s.grid.width)), Math.abs(Math.floor(f / s.grid.width) - Math.floor(u.home / s.grid.width))) > FIELD_RADIUS ? f : u.home;
   if (f < 0) {
     if (u.load > 0) u.hv = Hv.ToRefinery;
   } else if (f === here) u.hv = Hv.Gather;
@@ -219,6 +244,7 @@ function stepHauler(s: State, u: Unit): void {
       if (stopped) u.hv = (s.shards[here] as number) > 0 ? Hv.Gather : Hv.Idle;
       break;
     case Hv.Gather: {
+      if (u.home < 0) u.home = here;
       const take = Math.min(GATHER_PER_TICK, s.shards[here] as number, cap - u.load);
       if (take > 0) {
         s.shards[here] = (s.shards[here] as number) - take;
@@ -278,8 +304,8 @@ function stepHauler(s: State, u: Unit): void {
       if (!throttle) break;
       // Waited long enough: a less busy refinery may serve sooner (ECO-9).
       if (s.tick - u.queuedAt > LINE_PATIENCE) {
-        const other = chooseRefinery(s, u, tx, ty, ref.id);
-        if (other && gapToBuilding(other, tx, ty) + BUSY_TILES * busy(s, other, u) < BUSY_TILES * (at + 1)) {
+        const other = lessBusyRefinery(s, u, tx, ty, ref.id, at + 1);
+        if (other) {
           undock(u, Hv.ToRefinery);
           u.dock = other.id;
           orderMove(s, u, padIndex(s, other));

@@ -45,6 +45,8 @@ export const STRIKE_HOLD = 20 * 90;
 /** Doomsday goes for its superweapon only with an army worth this much and this many haulers working (AI-15). */
 export const SUPERWEAPON_ARMY = 5000;
 export const SUPERWEAPON_HAULERS = 5;
+/** Doomsday sizes its rifle floor on enemy infantry seen within this many ticks (AI-15): "lately", not everything it has seen since the sight lingers (FOG-7). */
+export const RIFLE_INTEL = 20 * 30;
 /** How far (tiles) to one side of the straight line a scout's route swings, around the enemy's front (AI-17). */
 export const SCOUT_FLANK = 22;
 
@@ -117,7 +119,7 @@ export interface Intel {
 
 const BASE_WEIGHTS: Record<Role, number> = { inf: 0.28, at: 0.2, tank: 0.32, art: 0.08, air: 0.08, scout: 0.04 };
 /** The Doomsday mix (AI-15): tech units (tanks, artillery) over cheap ones; its rifles come from the infantry floor. */
-const TECH_TILT: Partial<Record<Role, number>> = { tank: 0.2, art: 0.08, at: -0.06, inf: -0.16 };
+const TECH_TILT: Partial<Record<Role, number>> = { tank: 0.3, art: 0.1, at: -0.08, inf: -0.22 };
 
 /**
  * Rifle infantry Doomsday keeps to answer enemy infantry (AI-15): at least two, and at least half as many as the enemy
@@ -125,6 +127,15 @@ const TECH_TILT: Partial<Record<Role, number>> = { tank: 0.2, art: 0.08, at: -0.
  */
 export function infantryNeeded(intel: Intel): number {
   return Math.max(2, Math.ceil(0.5 * (intel.squads ?? 0) * intel.total));
+}
+
+/** Extra artillery weight per unit of infantry-squad share among the enemies seen (AI-19). */
+export const ARTILLERY_TILT = 0.8;
+
+/** One artillery for every four enemy infantry squads seen lately, at most four (AI-19). */
+export function artilleryNeeded(intel: Intel): number {
+  if (intel.total < 3) return 0;
+  return Math.min(4, Math.floor(((intel.squads ?? 0) * intel.total) / 4 + 1e-9));
 }
 
 /** The Raider mix (AI-14): fast, cheap raiders and rifles over tanks and artillery. */
@@ -138,6 +149,9 @@ export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record
   // A personality tilts the base mix (AI-14): Raider fields fast, cheap units.
   if (tilt) for (const [r, v] of Object.entries(tilt) as [Role, number][]) w[r] = Math.max(0.02, w[r] + v);
   if (intel.total >= 3) {
+    // Artillery grows with the share of infantry the enemy fields (AI-19), for every personality.
+    // Doomsday already leans on artillery (its tech tilt), so it takes a quarter of the extra (AI-15, AI-19).
+    w.art += ARTILLERY_TILT * (intel.squads ?? 0) * (tilt === TECH_TILT ? 0.25 : 1);
     if (intel.heavy > 0.4) {
       w.at += 0.25;
       w.art += 0.05;
@@ -159,7 +173,7 @@ export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record
     const d = unitDef(k);
     const r = roleOf(d);
     let score = w[r] * (army + 3) - counts[r];
-    if (r === 'art' && counts.art >= Math.max(1, army * 0.25)) score -= 5;
+    if (r === 'art' && counts.art >= Math.max(1, army * 0.25, artilleryNeeded(intel))) score -= 5;
     if (r === 'air' && counts.air >= Math.max(1, army * 0.25)) score -= 5;
     if (r === 'scout' && counts.scout >= 1) score -= 5;
     // Enemy aircraft: anti-air capable units are worth a premium until we have a few.
@@ -461,7 +475,7 @@ export class AI {
     return { tx, ty };
   }
 
-  private intelSummary(c: Ctx): Intel {
+  private intelSummary(c: Ctx, within = 2400): Intel {
     let air = 0;
     let heavy = 0;
     let light = 0;
@@ -469,7 +483,7 @@ export class AI {
     let total = 0;
     for (const e of this.intel.values()) {
       const d = UNIT_DEFS[e.kind];
-      if (!d || !d.weapon || c.tick - e.t > 2400) continue;
+      if (!d || !d.weapon || c.tick - e.t > within) continue;
       total++;
       if ((d.squad ?? 1) > 1) squads++;
       if (d.armor === 'air') air++;
@@ -692,7 +706,9 @@ export class AI {
     const hold = next && c.hq.queue.length === 0 ? Math.min(buildingDef(next).cost, doom && next === this.kit.superweapon ? Infinity : doom ? 1100 : 750) : 0;
     const urgent = c.army.length < 4 || c.tick - this.lastThreat < 600;
     const tilt = this.plan === 'raider' ? RAIDER_TILT : this.plan === 'doomsday' ? TECH_TILT : undefined;
-    const rifles = this.plan === 'doomsday' ? infantryNeeded(intel) : 0;
+    const rifles = this.plan === 'doomsday' ? infantryNeeded(this.intelSummary(c, RIFLE_INTEL)) : 0;
+    // Doomsday saving for its superweapon does not spend on the floor (AI-15, AI-19).
+    const guns = doom && next === this.kit.superweapon ? 0 : artilleryNeeded(intel);
     const haulerWanted = this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0);
 
     for (const b of c.buildings) {
@@ -706,9 +722,13 @@ export class AI {
       const hero = allowed.find((k) => unitDef(k).hero && c.credits >= unitDef(k).cost + 400);
       // Doomsday keeps enough rifle infantry for the enemy's infantry before anything else from the barracks (AI-15).
       const rifle = counts.inf < rifles ? allowed.find((k) => roleOf(unitDef(k)) === 'inf' && !unitDef(k).hero) : undefined;
+      // Artillery floor against enemy infantry (AI-19), when it is available here.
+      const gun = counts.art < guns ? allowed.find((k) => roleOf(unitDef(k)) === 'art' && !unitDef(k).hero) : undefined;
       const pick: string | null =
-        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) ? this.kit.hauler : (hero ?? rifle ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt));
+        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) ? this.kit.hauler : (hero ?? rifle ?? gun ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt));
       if (!pick) continue;
+      // Doomsday does not flood the field with cheap infantry beyond its rifle floor: tanks and artillery set the pace (AI-15).
+      if (doom && !rifle && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && counts.tank + counts.art >= 4 && counts.inf + counts.at >= rifles + 3 * (counts.tank + counts.art) && !urgent) continue;
       const cost = unitDef(pick).cost;
       const reserve = pick === this.kit.hauler || urgent ? 0 : hold;
       if (c.credits < cost + reserve) continue;

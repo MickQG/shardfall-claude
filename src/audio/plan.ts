@@ -60,5 +60,11 @@ export function musicPlan(seed: number, bars: number): Note[] {
   return notes;
 }
 
+/**
+ * The main-menu score (AUD-4): the same key and chord loop as the in-match ambient (AUD-2), from its own stream of the
+ * seed so the two never sound alike. Same seed, same score.
+ */
+export const menuPlan = (seed: number, bars: number): Note[] => musicPlan(seed + 7919, bars);
+
 /** Semitones above A2 of a frequency (for checking notes stay in key). */
 export const semitonesFromA = (freq: number): number => 12 * Math.log2(freq / A2);
