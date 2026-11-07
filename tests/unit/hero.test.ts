@@ -319,12 +319,14 @@ describe('hero looks and deaths', () => {
         { owner: 1, kind: enemy, tx: 25, ty: 20 },
         { owner: 1, kind: enemy, tx: 25, ty: 21 },
       ]));
-      const start = g.state.units.filter((u) => u.owner === 1).map((u) => u.hp);
+      const foes = g.state.units.filter((u) => u.owner === 1);
+      const start = foes.map((u) => u.hp);
       const hero = g.state.units.find((u) => u.kind === 'hum_paladin')!;
       const first = g.state.units.find((u) => u.owner === 1)!;
       submit(g, { type: 'attack', player: 0, units: [hero.id], target: first.id });
       for (let t = 0; t < 30; t++) tick(g); // one shot lands (it flies 8 ticks; the next leaves after 36)
-      return g.state.units.filter((u) => u.owner === 1).map((u, i) => (start[i] as number) - u.hp);
+      // A foe the shot (and the missile pods, HERO-7) killed has lost all it had.
+      return foes.map((u, i) => (start[i] as number) - Math.max(0, g.state.units.find((q) => q.id === u.id)?.hp ?? 0));
     };
     const [hit, beside] = run('ali_brute');
     expect(hit).toBeGreaterThan(0);

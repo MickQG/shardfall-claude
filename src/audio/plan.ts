@@ -5,7 +5,7 @@ export interface Sound {
   gain: number;
 }
 
-const BY_WEAPON: Record<string, Sound['name']> = { pierce: 'zap', rocket: 'rocket', blast: 'cannon', claw: 'slash', bite: 'slash', beam: 'laser' };
+const BY_WEAPON: Record<string, Sound['name']> = { pierce: 'zap', rocket: 'rocket', missile: 'rocket', blast: 'cannon', claw: 'slash', bite: 'slash', beam: 'laser' };
 
 /** The sound an event should make for this viewer. Own fire is a little louder than distant enemy fire. */
 export function soundFor(e: SimEvent, viewer: number): Sound {

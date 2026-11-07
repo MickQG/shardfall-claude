@@ -20,7 +20,7 @@ import { cameraPose, FOV, PX_PER_UNIT } from './camera3d';
 import { CombatFx } from './fx3d';
 import { Instancer } from './instancer';
 import type { Built, Shape } from './kit';
-import { angleDiff, bodyPose, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
+import { angleDiff, bodyPose, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
@@ -198,6 +198,8 @@ interface UnitObj {
   /** Faced by the simulation (HERO-5) rather than by the renderer's own turning. */
   simFacing?: boolean;
   lastFire: number[];
+  /** When the missile pods last started to open (HERO-7). */
+  podSince: number;
   muzzleTurn: number;
   lunge: number;
   load: number;
@@ -298,6 +300,9 @@ export class View3D {
   private crystals: Static[] = [];
   private props: (Static & { key: string; make: () => Shape })[] = [];
   private pending: PendingShot[] = [];
+  /** Missiles of a Paladin's salvo waiting to leave their pods (HERO-7). */
+  private missiles: { at: number; src: UnitObj; side: number; to: THREE.Vector3; flightMs: number; elite: boolean }[] = [];
+  private missileTurn = 0;
   private fogTex: THREE.DataTexture | null = null;
   private fogData: Uint8Array | null = null;
   private waterNormal: THREE.Texture | null = null;
@@ -730,6 +735,7 @@ export class View3D {
       reach: turretReach(def),
       figureYaw: figures.map(() => heading),
       lastFire: figures.map(() => -1e9),
+      podSince: -1e9,
       muzzleTurn: 0,
       lunge: -1e9,
       load: u.load,
@@ -767,6 +773,13 @@ export class View3D {
       const [sx, sz] = P(e.x, e.y);
       const [tx, tz] = P(e.tx, e.ty);
       const to = new THREE.Vector3(tx, e.air ? AIR_Y + 0.05 : this.targetHeight(tx, tz), tz);
+      if (e.weapon === 'missile' && src && isUnit(src)) {
+        // A salvo (HERO-7): the pods open, then each missile leaves its pod a beat after the last and arcs to its landing.
+        if (!e.delay) src.podSince = now;
+        const lead = POD_OPEN_MS;
+        this.missiles.push({ at: now + lead + (e.delay ?? 0) * this.msPerTick, src, side: this.missileTurn++ % 2, to, flightMs: Math.max(80, e.flight * this.msPerTick - lead), elite: e.elite === true });
+        return;
+      }
       if (src) {
         src.aim = Math.atan2(tz - sz, tx - sx);
         src.aimHold = now + 900;
@@ -890,6 +903,36 @@ export class View3D {
       }
     }
     this.pending = later;
+    this.fireMissiles(now);
+  }
+
+  /** Launch the salvo missiles that are due, each from its own pod (HERO-7). */
+  private fireMissiles(now: number): void {
+    if (this.missiles.length === 0) return;
+    const later: typeof this.missiles = [];
+    for (const m of this.missiles) {
+      if (m.at > now) {
+        later.push(m);
+        continue;
+      }
+      const rig = m.src.figures[0];
+      const pods = rig ? rig.drawn.filter((d) => d.geo === 'pod') : [];
+      const pod = pods[m.side % Math.max(1, pods.length)];
+      if (m.src.drawn !== this.frame) {
+        m.src.root.updateMatrixWorld(true);
+        m.src.drawn = this.frame;
+      }
+      if (pod) {
+        pod.obj.getWorldPosition(this.v);
+        this.v2.set(0, 1, 0);
+        this.fx.muzzle('missile', this.v, this.v2, now);
+        this.fx.shot('missile', this.v, m.to, m.flightMs - (now - m.at), now, m.elite);
+      } else {
+        const from = new THREE.Vector3(m.src.x, this.groundAt(m.src.x, m.src.z) + 1, m.src.z);
+        this.fx.shot('missile', from, m.to, m.flightMs - (now - m.at), now, m.elite);
+      }
+    }
+    this.missiles = later;
   }
 
   /** The world yaw a shooter's gun points along (AIM-1): its turret on its body, or the body itself. */
@@ -1306,6 +1349,7 @@ export class View3D {
         load: o.capacity > 0 ? o.load / o.capacity : 1,
         tip: o.tip,
         drum: o.drum,
+        pod: podOpen(t - o.podSince, salvoOf(o.kind, this.msPerTick)),
       });
     });
   }

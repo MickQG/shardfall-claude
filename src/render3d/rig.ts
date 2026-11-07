@@ -33,6 +33,8 @@ export type Anim =
    * and down with the hull. The node may splay about X; its rest turn about Z is not used.
    */
   | { k: 'step'; phase: number; fore?: number; reach: number; lift: number; knee: readonly [number, number]; ankle: readonly [number, number]; sole: number }
+  /** A missile pod: tilts its mouth up by `open` radians as the pod opens (HERO-7). */
+  | { k: 'pod'; open: number }
   /** Rotors, radar dishes: spin with time. */
   | { k: 'spin'; axis: Axis; rate: number }
   /** Wings: beat with time. */
@@ -61,7 +63,7 @@ export interface RigNode {
 export type Locomotion = 'tracked' | 'wheeled' | 'walker' | 'air' | 'static';
 
 /** How a weapon looks when it fires (chosen by the shooter's kind). */
-export type WeaponLook = 'rifle' | 'mg' | 'cannon' | 'heroCannon' | 'rocket' | 'howitzer' | 'chaingun' | 'pulse' | 'claw' | 'acid' | 'acidBig' | 'heroAcid' | 'sting' | 'spine';
+export type WeaponLook = 'rifle' | 'mg' | 'cannon' | 'heroCannon' | 'rocket' | 'howitzer' | 'chaingun' | 'pulse' | 'claw' | 'acid' | 'acidBig' | 'heroAcid' | 'missile' | 'sting' | 'spine';
 
 export interface RigDef {
   shapes: Record<string, () => Shape>;
@@ -194,6 +196,8 @@ export interface RigPose {
   tip?: number;
   /** The cutter drum's angle, radians (R3D-19). */
   drum?: number;
+  /** How far the missile pods are open, 0..1 (HERO-7). */
+  pod?: number;
 }
 
 /** Pose every animated node of a rig. Pure apart from writing the nodes' transforms. */
@@ -267,6 +271,9 @@ export function poseRig(tree: RigTree, p: RigPose): void {
         break;
       case 'turret':
         turn(obj, 'y', a.rot.y - (an.max === undefined ? p.turret : Math.max(-an.max, Math.min(an.max, p.turret))));
+        break;
+      case 'pod':
+        turn(obj, 'z', a.rot.z + an.open * (p.pod ?? 0));
         break;
       case 'barrel':
         obj.position.x = a.pos.x - an.recoil * p.kick;

@@ -48,6 +48,8 @@ export interface Unit {
   /** Combat target id (unit or building), or -1. */
   target: number;
   cooldown: number;
+  /** Ticks until the second weapon (missile pods) can fire again (HERO-7). */
+  cooldown2: number;
   /** How the unit is currently acting: idle (auto-engage), a plain move, attack-move or a focused attack. */
   mode: Mode;
   /** Attack-move destination tile index, or -1. */
@@ -200,7 +202,7 @@ export function addUnit(s: State, owner: number, kind: string, x: number, y: num
   const d = unitDef(kind);
   const u: Unit = {
     id: s.nextId++, owner, kind, x, y, hp: d.hp, path: [], goal: -1, waiting: false,
-    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, dock: -1, queuedAt: 0, dockTries: 0, home: -1, sinceHurt: 1000, target: -1, cooldown: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
+    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, dock: -1, queuedAt: 0, dockTries: 0, home: -1, sinceHurt: 1000, target: -1, cooldown: 0, cooldown2: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
     // A slow turner starts facing the middle of the map, where the fight is (HERO-5).
     facing: d.turnRate ? Math.max(0, dirOf(((s.grid.width * FP) >> 1) - x, ((s.grid.height * FP) >> 1) - y)) : 0,
   };
