@@ -376,6 +376,15 @@ describe('unit speeds', () => {
   });
 });
 
+describe('Vrax speed', () => {
+  it('BAL-14: the Vrax Hive is a little slower, Skitterers a little tougher; the Brute, Gorger and Dreadstrider are unchanged', () => {
+    const s = (k: string) => unitDef(k).speed;
+    expect([s('ali_skitter'), s('ali_spitter'), s('ali_stalker'), s('ali_lobber')]).toEqual([47, 29, 86, 25]);
+    expect(unitDef('ali_skitter').hp).toBe(77);
+    expect([s('ali_brute'), s('ali_gorger'), s('ali_strider')]).toEqual([38, 34, 20]);
+  });
+});
+
 describe('heroes as meat shields', () => {
   type Spawn = [kind: string, n: number];
   /** Player 1's force attack-moves into player 0, who holds still; returns ticks until `watch` dies and the value player 0's `back` units lost (%). */
