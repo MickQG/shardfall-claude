@@ -73,6 +73,7 @@ jobs:
           - { name: doomsday, run: npm run test:matches -- personalities -t AI-15 }
           - { name: scouting and maps, run: npm run test:matches -- scouting-and-maps }
           - { name: economy, run: npm run test:matches -- economy }
+          - { name: artillery, run: npm run test:matches -- artillery }
     name: matches (${{ matrix.name }})
     steps:
       - uses: actions/checkout@v4

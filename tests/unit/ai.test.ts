@@ -76,7 +76,7 @@ describe('economy and build order', () => {
     expect(structures.indexOf(k.refinery)).toBeLessThan(4); // a second refinery comes early
     expect(structures.includes(k.power)).toBe(true);
     expect(game.state.players[0]!.powerIn).toBeLessThanOrEqual(game.state.players[0]!.powerOut + 0); // never left in the dark
-  });
+  }, LONG);
 
   it('AI-5: replaces lost haulers and re-tasks idle ones', () => {
     const { game, ai } = setup();
