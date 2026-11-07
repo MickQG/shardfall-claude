@@ -41,9 +41,11 @@ const CSS = `
 #menu .card h3 { margin: 0 0 2px; font-size: 22px; color: var(--c); }
 #menu .card .sub { font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: #8aa0b4; margin-bottom: 10px; }
 #menu .card p { margin: 0; color: #b6c7d6; font-size: 13.5px; }
-#menu .card .hero { margin-top: 10px; font-size: 12px; letter-spacing: -.005em; color: #b6c7d6; }
+#menu .card .hero { margin-top: 10px; font-size: min(12px, 2.4cqw); color: #b6c7d6; }
+#menu .card { container-type: inline-size; }
 #menu .card .hero { white-space: nowrap; }
-@media (max-width: 480px) { #menu .card { padding: 16px 12px 14px; } #menu .card .hero { font-size: min(11px, 2.5vw); letter-spacing: -.01em; } }
+@media (max-width: 1100px) { #menu .card .hero { font-size: 11px; white-space: normal; } }
+@media (max-width: 480px) { #menu .card { padding: 16px 12px 14px; } }
 #menu .card .hero b { color: var(--c); }
 #menu .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 #menu .row .seg { align-self: auto; }
