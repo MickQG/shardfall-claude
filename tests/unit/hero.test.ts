@@ -147,7 +147,7 @@ describe('the Dreadstrider hero', () => {
 });
 
 describe('hero looks and deaths', () => {
-  it('HERO-1: the Paladin is a four-legged walker about twice the size of a tank, with 3000 hit points', async () => {
+  it('HERO-1 HERO-2 BAL-15: the Paladin is a four-legged walker about twice the size of a tank, with 4500 hit points', async () => {
     const { UNIT_RIGS } = await import('../../src/render3d/units3d');
     const p = UNIT_RIGS.hum_paladin!();
     const tank = UNIT_RIGS.hum_tank!();
@@ -180,8 +180,8 @@ describe('hero looks and deaths', () => {
     expect(sizeOf.leg!.y).toBeLessThan(sizeOf.hull!.x);
     expect(Math.min(sizeOf.leg!.x, sizeOf.leg!.z)).toBeGreaterThanOrEqual(0.25);
     expect(sizeOf.pod).toBeDefined(); // the missile pods are parts of their own (HERO-3)
-    expect(unitDef('hum_paladin').hp).toBe(3000);
-    expect(unitDef('ali_strider').hp).toBe(3000);
+    expect(unitDef('hum_paladin').hp).toBe(4500);
+    expect(unitDef('ali_strider').hp).toBe(4500);
   });
 
   it('HERO-3: a hero dies in a long chain of blasts, a final shockwave with debris, lasting fires and a hard shake', async () => {
@@ -292,7 +292,7 @@ describe('hero looks and deaths', () => {
     expect(SHOT_BLAST_DIM).toBeLessThanOrEqual(0.7);
   });
 
-  it('HERO-4: heroes fire slow, heavy shots that burst over an area, with no less sustained firepower than before', () => {
+  it('HERO-4 BAL-15: heroes fire slow, heavy shots that burst over an area, with sustained firepower close to the old weapon', () => {
     const tank = unitDef('hum_tank').weapon!;
     for (const kind of ['hum_paladin', 'ali_strider']) {
       const w = unitDef(kind).weapon!;
@@ -300,8 +300,8 @@ describe('hero looks and deaths', () => {
       expect(w.damage, kind).toBeGreaterThanOrEqual(2 * tank.damage);
       expect(w.splash ?? 0, kind).toBeGreaterThan(0);
       expect(w.antiAir, kind).toBe(true);
-      // The old weapon: 46 damage every 16 ticks.
-      expect(w.damage / w.cooldown, kind).toBeGreaterThanOrEqual(46 / 16);
+      // The old weapon: 46 damage every 16 ticks; heroes are tanks now (BAL-15), so at least 85% of it.
+      expect(w.damage / w.cooldown, kind).toBeGreaterThanOrEqual((0.85 * 46) / 16);
     }
   });
 
