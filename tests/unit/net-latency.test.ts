@@ -7,13 +7,13 @@ import { delayFor, DELAY_TURNS, JITTER_MS, MAX_DELAY_TURNS, MIN_DELAY_TURNS, par
 import { END_GRACE_MS, OnlineWatch, type EndReason } from '../../src/net/watch';
 
 describe('online input delay', () => {
-  it('NET-2: turns are 100 ms; the input delay fits the measured one-way latency plus jitter slack, within bounds', () => {
+  it('NET-2 UX-3: turns are 125 ms at the online speed; the input delay fits the measured one-way latency plus jitter slack, within bounds', () => {
     expect(TURN_TICKS).toBe(2);
-    expect(TURN_MS).toBe(100);
+    expect(TURN_MS).toBe(125);
     expect(delayFor(0)).toBe(MIN_DELAY_TURNS);
-    expect(delayFor(30)).toBe(1); // a good connection: 100-200 ms from click to effect (was 300-450 ms)
-    expect(delayFor(100 - JITTER_MS + 1)).toBe(2);
-    expect(delayFor(160)).toBe(3);
+    expect(delayFor(30)).toBe(1); // a good connection: one turn from click to effect
+    expect(delayFor(TURN_MS - JITTER_MS + 1)).toBe(2);
+    expect(delayFor(2 * TURN_MS - JITTER_MS + 1)).toBe(3);
     expect(delayFor(5000)).toBe(MAX_DELAY_TURNS);
     expect(delayFor(-20)).toBe(MIN_DELAY_TURNS);
     expect(DELAY_TURNS).toBe(2); // until the first round trip is measured

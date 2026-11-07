@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { demoMap } from '../../src/data/maps';
 import { SimRunner, TICK_MS } from '../../src/host/runner';
+import { DEFAULT_SPEED, tickMsAt } from '../../src/host/speed';
 import { clampCamera, mapBounds, pan, screenToWorld, worldToScreen, zoomAt, MAX_ZOOM, MIN_ZOOM } from '../../src/render/camera';
 import { interpolate } from '../../src/render/interp';
 import { createGame, FP, hash, snapshot, submit, tick, type Game, type MapDef, type UnitSpawn } from '../../src/sim';
@@ -188,7 +189,7 @@ describe('camera, interpolation and host', () => {
     expect(interpolate(mk(0), mk(256), -1)[0]!.tx).toBeCloseTo(0);
   });
 
-  it('HST-1: the runner ticks at a fixed rate regardless of frame size and forwards commands', () => {
+  it('HST-1 UX-3: the runner ticks at a fixed rate regardless of frame size and forwards commands', () => {
     const cfg = { seed: 1, map: open(30, 5), units: [{ owner: 0, kind: 'hum_rifleman', tx: 1, ty: 2 }] };
     const ticksFor = (frame: number): number => {
       const r = new SimRunner(cfg, () => undefined);
@@ -196,9 +197,10 @@ describe('camera, interpolation and host', () => {
       for (let t = 0; t < 1000; t += frame) n += r.advance(frame);
       return n;
     };
-    expect(ticksFor(16)).toBeGreaterThanOrEqual(19);
+    // At the default game speed (UX-3), ×0.8: 16 ticks a real second.
+    expect(ticksFor(16)).toBeGreaterThanOrEqual(15);
     expect(Math.abs(ticksFor(16) - ticksFor(33))).toBeLessThanOrEqual(1);
-    expect(Math.abs(ticksFor(16) - 1000 / TICK_MS)).toBeLessThanOrEqual(1);
+    expect(Math.abs(ticksFor(16) - 1000 / tickMsAt(DEFAULT_SPEED))).toBeLessThanOrEqual(1);
 
     let last = 0;
     const r = new SimRunner(cfg, (s) => (last = s.units[0]!.x));
