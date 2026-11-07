@@ -111,19 +111,21 @@ test('MENU-6: a Generated map card with a thumbnail, reroll and an editable seed
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
 });
 
-test('MENU-7: the Aegis card shows the short hero line on one row, on desktop and on a phone', async ({ page }) => {
+test('MENU-7: both faction cards show their short hero line on one row, on desktop and on a phone', async ({ page }) => {
+  const lines = { human: 'Hero: Paladin, a giant assault walker with cannons and missiles.', alien: 'Hero: Dreadstrider, a towering six-legged walker with an acid cannon.' };
   for (const size of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(size);
     await page.goto('/');
-    const hero = page.locator('#menu [data-faction="human"] .hero');
-    await expect(hero).toHaveText('Hero: Paladin, a giant assault walker with cannons and missiles.');
-    const fits = await hero.evaluate((el) => {
-      const r = document.createRange();
-      r.selectNodeContents(el);
-      const rects = [...r.getClientRects()];
-      const tops = new Set(rects.map((x) => Math.round(x.top)));
-      return { rows: tops.size, overflow: el.scrollWidth > el.clientWidth + 1, right: r.getBoundingClientRect().right <= el.closest('.card')!.getBoundingClientRect().right };
-    });
-    expect(fits, `at ${size.width}px`).toEqual({ rows: 1, overflow: false, right: true });
+    for (const [id, line] of Object.entries(lines)) {
+      const hero = page.locator(`#menu [data-faction="${id}"] .hero`);
+      await expect(hero).toHaveText(line);
+      const fits = await hero.evaluate((el) => {
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        const tops = new Set([...r.getClientRects()].map((x) => Math.round(x.top)));
+        return { rows: tops.size, overflow: el.scrollWidth > el.clientWidth + 1, right: r.getBoundingClientRect().right <= el.closest('.card')!.getBoundingClientRect().right };
+      });
+      expect(fits, `${id} at ${size.width}px`).toEqual({ rows: 1, overflow: false, right: true });
+    }
   }
 });

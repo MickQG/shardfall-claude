@@ -33,7 +33,7 @@ const CSS = `
 #menu section { display: none; flex-direction: column; gap: 18px; max-width: 980px; }
 #menu section.on { display: flex; }
 #menu h2 { margin: 6px 0 0; font-size: 12.5px; letter-spacing: .18em; text-transform: uppercase; color: #8aa0b4; font-weight: 700; }
-#menu .faction { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+#menu .faction { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 #menu .card { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; text-align: left; color: inherit; font: inherit; cursor: pointer; padding: 20px 20px 18px; border-radius: 12px; border: 1px solid #22384c; background: linear-gradient(160deg, rgba(16,28,40,.92), rgba(8,13,19,.92)); transition: transform .14s, border-color .14s, box-shadow .14s; }
 #menu .card::after { content: ''; position: absolute; right: -40px; top: -40px; width: 160px; height: 160px; border-radius: 50%; background: radial-gradient(circle, var(--c) 0%, transparent 70%); opacity: .14; }
 #menu .card:hover { transform: translateY(-2px); border-color: #35506a; }
@@ -41,9 +41,9 @@ const CSS = `
 #menu .card h3 { margin: 0 0 2px; font-size: 22px; color: var(--c); }
 #menu .card .sub { font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: #8aa0b4; margin-bottom: 10px; }
 #menu .card p { margin: 0; color: #b6c7d6; font-size: 13.5px; }
-#menu .card .hero { margin-top: 10px; font-size: 12.5px; color: #b6c7d6; }
+#menu .card .hero { margin-top: 10px; font-size: 12px; letter-spacing: -.005em; color: #b6c7d6; }
 #menu .card .hero { white-space: nowrap; }
-@media (max-width: 480px) { #menu .card { padding: 16px 12px 14px; } #menu .card .hero { font-size: 11px; letter-spacing: -.01em; } }
+@media (max-width: 480px) { #menu .card { padding: 16px 12px 14px; } #menu .card .hero { font-size: min(11px, 2.5vw); letter-spacing: -.01em; } }
 #menu .card .hero b { color: var(--c); }
 #menu .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 #menu .row .seg { align-self: auto; }
