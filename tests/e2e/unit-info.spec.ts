@@ -62,7 +62,7 @@ test('INF-6 INF-7 INF-8: the sheet shows each unit as a moving 3D model with pic
   await expect(panel.locator('.u.sel')).toContainText('Rifleman');
   await expect(panel.locator('.facts h3')).toHaveText('Rifleman');
   await panel.locator('.u', { hasText: 'Paladin' }).click();
-  await expect(panel.locator('.facts')).toContainText('3000');
+  await expect(panel.locator('.facts')).toContainText('4500');
   await expect(panel.locator('.facts')).toContainText('Trained at: Motor Pool · needs Tech Lab');
   await expect(panel.locator('.bars .bar')).toHaveCount(4);
   // Right switches to the other faction.
