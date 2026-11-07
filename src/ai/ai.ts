@@ -148,7 +148,8 @@ export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record
   if (tilt) for (const [r, v] of Object.entries(tilt) as [Role, number][]) w[r] = Math.max(0.02, w[r] + v);
   if (intel.total >= 3) {
     // Artillery grows with the share of infantry the enemy fields (AI-19), for every personality.
-    w.art += ARTILLERY_TILT * (intel.squads ?? 0);
+    // Doomsday already leans on artillery (its tech tilt), so it takes a quarter of the extra (AI-15, AI-19).
+    w.art += ARTILLERY_TILT * (intel.squads ?? 0) * (tilt === TECH_TILT ? 0.25 : 1);
     if (intel.heavy > 0.4) {
       w.at += 0.25;
       w.art += 0.05;
