@@ -376,6 +376,84 @@ describe('unit speeds', () => {
   });
 });
 
+describe('Vrax speed', () => {
+  it('BAL-14: the Vrax Hive is a little slower, Skitterers a little tougher; the Brute, Gorger and Dreadstrider are unchanged', () => {
+    const s = (k: string) => unitDef(k).speed;
+    expect([s('ali_skitter'), s('ali_spitter'), s('ali_stalker'), s('ali_lobber')]).toEqual([47, 29, 86, 25]);
+    expect(unitDef('ali_skitter').hp).toBe(77);
+    expect([s('ali_brute'), s('ali_gorger'), s('ali_strider')]).toEqual([38, 34, 20]);
+  });
+});
+
+describe('heroes as meat shields', () => {
+  type Spawn = [kind: string, n: number];
+  /** Player 1's force attack-moves into player 0, who holds still; returns ticks until `watch` dies and the value player 0's `back` units lost (%). */
+  const stand = (hero: string | null, back: Spawn | null, enemy: Spawn): { lived: number; backLost: number } => {
+    const units: UnitSpawn[] = [];
+    if (hero) units.push({ owner: 0, kind: hero, tx: 15, ty: 22 });
+    if (back) for (let i = 0; i < back[1]; i++) units.push({ owner: 0, kind: back[0], tx: 10, ty: 19 + i * 2 });
+    for (let i = 0; i < enemy[1]; i++) units.push({ owner: 1, kind: enemy[0], tx: 34 + (i % 3), ty: 18 + Math.floor(i / 3) * 2 });
+    const g = createGame({ seed: 1, map: open(48, 48), units });
+    const ids = (p: number): number[] => g.state.units.filter((u) => u.owner === p).map((u) => u.id);
+    submit(g, { type: 'attackmove', player: 1, units: ids(1), x: 4 * FP, y: 22 * FP });
+    let lived = -1;
+    for (let t = 0; t < 20 * 240 && ids(0).length && ids(1).length; t++) {
+      tick(g);
+      if (hero && lived < 0 && !g.state.units.some((u) => u.kind === hero)) lived = t;
+    }
+    const v = back ? g.state.units.filter((u) => u.owner === 0 && u.kind === back[0]).reduce((s, u) => s + (unitDef(u.kind).cost * u.hp) / unitDef(u.kind).hp, 0) : 0;
+    return { lived: lived < 0 ? 20 * 240 : lived, backLost: back ? 100 * (1 - v / (unitDef(back[0]).cost * back[1])) : 0 };
+  };
+  /** The same fight with a hero's old stats (3000 hit points, 110 damage), restored afterwards. */
+  const asBefore = <T,>(hero: string, f: () => T): T => {
+    const d = UNIT_DEFS[hero]!;
+    const [hp, dmg] = [d.hp, d.weapon!.damage];
+    d.hp = 3000;
+    d.weapon!.damage = 110;
+    try {
+      return f();
+    } finally {
+      d.hp = hp;
+      d.weapon!.damage = dmg;
+    }
+  };
+
+  it('BAL-15: heroes have 4500 hit points and hit for 90; a hero in front keeps a line of artillery almost unharmed', () => {
+    for (const kind of ['hum_paladin', 'ali_strider']) {
+      expect(unitDef(kind).hp).toBe(4500);
+      expect(unitDef(kind).weapon!.damage).toBe(90);
+      expect(unitDef(kind).cost).toBe(2000);
+      expect(unitDef(kind).speed).toBe(20);
+    }
+    for (const [hero, back, enemy] of [
+      ['hum_paladin', ['hum_artillery', 3], ['ali_brute', 9]],
+      ['ali_strider', ['ali_lobber', 3], ['hum_tank', 9]],
+      ['hum_paladin', ['hum_artillery', 3], ['ali_spitter', 15]],
+      ['ali_strider', ['ali_lobber', 3], ['hum_rocketeer', 15]],
+    ] as [string, Spawn, Spawn][]) {
+      expect(stand(hero, back, enemy).backLost, `${hero} shields against ${enemy[0]}`).toBeLessThanOrEqual(10);
+      expect(stand(null, back, enemy).backLost, `unshielded against ${enemy[0]}`).toBeGreaterThanOrEqual(90);
+    }
+  }, 300_000);
+
+  it('BAL-15: a lone hero lasts at least a fifth longer than before against a fixed force, and 30% longer on average', () => {
+    const gains: number[] = [];
+    for (const [hero, enemy] of [
+      ['hum_paladin', ['ali_brute', 9]],
+      ['ali_strider', ['hum_tank', 9]],
+      ['hum_paladin', ['ali_spitter', 18]],
+      ['ali_strider', ['hum_rocketeer', 18]],
+    ] as [string, Spawn][]) {
+      const now = stand(hero, null, enemy).lived;
+      const before = asBefore(hero, () => stand(hero, null, enemy).lived);
+      expect(now, `${hero} against ${enemy[0]}`).toBeGreaterThanOrEqual(before * 1.2);
+      gains.push(now / before);
+    }
+    // Measured: 1.23 to 1.37, 1.31 on average. At 5000 hit points a lone Paladin would beat eighteen Spitter squads outright.
+    expect(gains.reduce((a, b) => a + b, 0) / gains.length).toBeGreaterThanOrEqual(1.3);
+  }, 300_000);
+});
+
 describe('defences', () => {
   it('BAL-13: a lone powered defence holds against twice its cost of any one early attacker, and falls to four times its cost', () => {
     for (const [defence, attackers] of [
