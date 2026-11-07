@@ -4,6 +4,7 @@ import { MAPS, skirmishConfig, type MapId } from '../../src/data/maps';
 import { dockFrame } from '../../src/render3d/buildings3d';
 import { createGame, FP, hash, snapshot, submit, tick, type Game, type GameConfig, type MapDef } from '../../src/sim';
 import { findPath } from '../../src/sim/path';
+import { LINE_PATIENCE } from '../../src/sim/economy';
 import { addBuilding, addUnit, Hv, rebuildBlocked, type Building } from '../../src/sim/state';
 
 const W = 48;
@@ -260,17 +261,6 @@ describe('dock pad', () => {
       }
   }, 120_000);
 
-  it('ECO-8: haulers spread over refineries rather than all queueing at the nearest', () => {
-    const g = scene('human', [[19, 23], [20, 23], [21, 23], [22, 23]], { extra: [{ owner: 0, kind: 'hum_refinery', tx: 26, ty: 18 }] });
-    run(g, 20 * 120);
-    const used = new Set<number>();
-    for (let i = 0; i < 1200; i++) {
-      tick(g);
-      for (const u of haulersOf(g)) if (u.hv === Hv.Unload) used.add(u.dock);
-    }
-    expect(used.size).toBe(2);
-  }, 60_000);
-
   it('ECO-9: a unit parked on the pad does not stop the haulers', () => {
     for (const parked of ['hum_rifleman', 'hum_tank']) {
       const g = scene('human', [[22, 24]]);
@@ -352,3 +342,71 @@ describe('dock pad', () => {
 function addUnitAt(g: Game, owner: number, kind: string, tx: number, ty: number): number {
   return addUnit(g.state, owner, kind, tx * FP + FP / 2, ty * FP + FP / 2).id;
 }
+
+describe('hauler field and refinery choice (#125)', () => {
+  const two = (extra: NonNullable<GameConfig['buildings']>, fields: Record<string, number>, hx: number, hy: number): Game =>
+    createGame({
+      seed: 1,
+      map: open(fields),
+      players: [{ faction: 'human', credits: 0 }, { faction: 'alien', credits: 0 }],
+      buildings: [{ owner: 0, kind: 'hum_refinery', tx: 20, ty: 20 }, { owner: 1, kind: 'ali_hq', tx: 42, ty: 42 }, ...extra],
+      units: [{ owner: 0, kind: 'hum_hauler', tx: hx, ty: hy }],
+    });
+
+  it('ECO-8: a hauler returns to its own field on every trip although nearer shards lie elsewhere', () => {
+    // Its field lies far south-west; a richer field sits right beside the refinery.
+    const g = two([], { ...field(8, 34, 1, 3000), ...field(27, 22, 2, 3000) }, 21, 24);
+    const h = haulersOf(g)[0]!;
+    submit(g, { type: 'harvest', player: 0, units: [h.id], x: 8 * FP + FP / 2, y: 34 * FP + FP / 2 });
+    let trips = 0;
+    let was = h.hv;
+    for (let i = 0; i < 20 * 400 && trips < 3; i++) {
+      tick(g);
+      if (h.hv === Hv.Gather) {
+        const x = tileOf(h.x);
+        const y = tileOf(h.y);
+        expect(Math.max(Math.abs(x - 8), Math.abs(y - 34)), `gathers at ${x},${y} on tick ${g.state.tick}`).toBeLessThanOrEqual(3);
+      }
+      if (was === Hv.Unload && h.hv !== Hv.Unload) trips++;
+      was = h.hv;
+    }
+    expect(trips).toBe(3);
+  }, 60_000);
+
+  it('ECO-8: a hauler delivers to the refinery whose pad is nearest its field, not the one nearest the hauler', () => {
+    const g = two([{ owner: 0, kind: 'hum_refinery', tx: 36, ty: 34 }], field(40, 28, 1, 3000), 21, 24);
+    const h = haulersOf(g)[0]!;
+    submit(g, { type: 'harvest', player: 0, units: [h.id], x: 40 * FP + FP / 2, y: 28 * FP + FP / 2 });
+    for (let i = 0; i < 20 * 120 && h.hv !== Hv.Unload; i++) tick(g);
+    expect(h.hv).toBe(Hv.Unload);
+    expect(h.dock).toBe(g.state.buildings[2]!.id);
+  }, 60_000);
+
+  it('ECO-9: a hauler that waits long in line at the refinery nearest its field moves to a less busy one', () => {
+    const g = scene('human', [[19, 23], [20, 23], [21, 23], [22, 23]], { extra: [{ owner: 0, kind: 'hum_refinery', tx: 26, ty: 18 }] });
+    const used = new Set<number>();
+    for (let i = 0; i < 20 * 240; i++) {
+      // Make every hauler in line one that has waited long (ECO-9).
+      for (const u of haulersOf(g)) if (u.hv === Hv.Queue && g.state.tick - u.queuedAt <= LINE_PATIENCE) u.queuedAt = g.state.tick - LINE_PATIENCE - 1;
+      tick(g);
+      for (const u of haulersOf(g)) if (u.hv === Hv.Unload) used.add(u.dock);
+    }
+    expect(used.size).toBe(2);
+  }, 60_000);
+
+  it('AI-18: a hauler keeps its field after unloading; it changes only when the field is used up', () => {
+    const g = two([], { ...field(8, 34, 1, 20), ...field(27, 22, 2, 3000) }, 21, 24);
+    const h = haulersOf(g)[0]!;
+    for (let y = 33; y <= 35; y++) for (let x = 7; x <= 9; x++) g.state.shardSeed[y * W + x] = 0; // no regrowth: it can run dry
+    submit(g, { type: 'harvest', player: 0, units: [h.id], x: 8 * FP + FP / 2, y: 34 * FP + FP / 2 });
+    let beside = -1;
+    for (let i = 0; i < 20 * 600; i++) {
+      tick(g);
+      if (h.hv === Hv.Gather && tileOf(h.x) > 20 && beside < 0) beside = g.state.tick;
+    }
+    // Its own small field (9 tiles x 20 shards) runs dry first; only then does it move on to the richer one.
+    expect(beside).toBeGreaterThan(0);
+    const own = [...Array(9).keys()].map((k) => g.state.shards[(33 + Math.floor(k / 3)) * W + 7 + (k % 3)] as number);
+    expect(Math.max(...own)).toBeLessThan(20);
+  }, 60_000);
+});

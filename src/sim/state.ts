@@ -41,6 +41,8 @@ export interface Unit {
   /** Haulers: when it joined the refinery's line (ECO-8), and how often it has tried to reach the pad in vain. */
   queuedAt: number;
   dockTries: number;
+  /** Haulers: a shard tile index marking the field it works, or -1 until its first assignment (ECO-8). */
+  home: number;
   /** Ticks since the unit last took damage (alien regeneration). */
   sinceHurt: number;
   /** Combat target id (unit or building), or -1. */
@@ -198,7 +200,7 @@ export function addUnit(s: State, owner: number, kind: string, x: number, y: num
   const d = unitDef(kind);
   const u: Unit = {
     id: s.nextId++, owner, kind, x, y, hp: d.hp, path: [], goal: -1, waiting: false,
-    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, dock: -1, queuedAt: 0, dockTries: 0, sinceHurt: 1000, target: -1, cooldown: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
+    auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, dock: -1, queuedAt: 0, dockTries: 0, home: -1, sinceHurt: 1000, target: -1, cooldown: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
     // A slow turner starts facing the middle of the map, where the fight is (HERO-5).
     facing: d.turnRate ? Math.max(0, dirOf(((s.grid.width * FP) >> 1) - x, ((s.grid.height * FP) >> 1) - y)) : 0,
   };
