@@ -36,7 +36,7 @@ import { Sidebar } from './ui/sidebar';
 import { Soundscape } from './ui/soundscape';
 import { wireUiSounds } from './ui/uiSounds';
 import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
-import { FlyIn, flyEnabled, flyPose, smootherstep } from './render/flyIn';
+import { FLY_HUD_CSS, FlyIn, flyEnabled, flyPose, smootherstep } from './render/flyIn';
 import { chooseRenderer, probeGpu } from './render/chooseRenderer';
 import { buttonKinds } from './render/menuPlan';
 import { drawIcons } from './render3d/icons3d';
@@ -127,7 +127,7 @@ let drawCam: Camera = { x: 0, y: 0, zoom: 1 };
 // The HUD stays hidden until the fly-in ends, then fades in (CAM-5); a reduced-motion or classic fly-in fades the view in from black (CAM-8).
 document.body.classList.add('flyin');
 const flyStyle = document.createElement('style');
-flyStyle.textContent = '#hud,#sidebar{transition:opacity .7s ease-out}body.flyin #hud,body.flyin #sidebar{opacity:0!important;pointer-events:none!important}';
+flyStyle.textContent = FLY_HUD_CSS;
 document.head.appendChild(flyStyle);
 const flyFade = document.createElement('div');
 flyFade.id = 'flyfade';

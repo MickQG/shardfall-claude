@@ -146,3 +146,11 @@ export function flyPose(t01: number, map: MapSize, end: Camera, aspect = 16 / 9)
   const zoom = Math.exp(Math.log(z0) + (Math.log(end.zoom) - Math.log(z0)) * e);
   return { x: p.x, y: p.y, zoom, rise: START_RISE + (PITCH_RISE - START_RISE) * e };
 }
+
+/**
+ * The HUD's style while the fly-in plays and as it ends (CAM-5). Hiding with `opacity: 0` alone leaves the browser
+ * compositing both panels as translucent layers over the full-screen WebGL canvas, which cost about 35 ms a frame on a
+ * 1080p GPU; `visibility: hidden` as well takes them out of painting (CAM-4: the sweep must be smooth). Opacity stays 0 so
+ * the HUD still fades in when the class is removed.
+ */
+export const FLY_HUD_CSS = '#hud,#sidebar{transition:opacity .7s ease-out}body.flyin #hud,body.flyin #sidebar{opacity:0!important;visibility:hidden!important;pointer-events:none!important}';

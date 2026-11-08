@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { mapBounds, centerOnTile, type Camera } from '../../src/render/camera';
-import { FLY_MS, FlyIn, flyEnabled, flyMode, flyPose, smootherstep } from '../../src/render/flyIn';
+import { FLY_HUD_CSS, FLY_MS, FlyIn, flyEnabled, flyMode, flyPose, smootherstep } from '../../src/render/flyIn';
 import { Lockstep } from '../../src/net/lockstep';
 import { cameraPose, FOV } from '../../src/render3d/camera3d';
 
@@ -146,5 +146,13 @@ describe('the hold at the start of a match', () => {
     expect(flyEnabled('0')).toBe(false);
     const f = new FlyIn({ ...sp, enabled: false });
     expect(f.finished(0)).toBe(true);
+  });
+
+  it('CAM-4: the HUD is taken out of painting during the fly-in, not only made transparent, so the sweep stays smooth', () => {
+    const hidden = FLY_HUD_CSS.slice(FLY_HUD_CSS.indexOf('body.flyin'));
+    expect(hidden).toContain('opacity:0!important');
+    expect(hidden).toContain('visibility:hidden!important');
+    // and it still fades in when the class is removed
+    expect(FLY_HUD_CSS).toContain('transition:opacity');
   });
 });
