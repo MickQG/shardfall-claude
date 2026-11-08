@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { UNIT_DEFS } from '../../src/data/defs';
 import { BUILDING_RIGS } from '../../src/render3d/buildings3d';
-import { buttonKinds, DOLLY_FAR, DOLLY_NEAR, DOLLY_PASS_S, dollyAt, dollyDistance, FADE_IN_MS, FADE_OUT_MS, HAULER_SPOT, HERO_CLEAR, HERO_SPOT, holdStill, IconCache, iconKey, castKinds, PANEL_MARGIN, panelRight, projectedSpan, SCENE_CAST, sceneFraming, sceneKinds, sceneSlots, shardPlan } from '../../src/render/menuPlan';
+import { buttonKinds, DOLLY_FAR, DOLLY_NEAR, DOLLY_PASS_S, dollyAt, dollyDistance, FADE_IN_MS, FADE_OUT_MS, HAULER_SPOT, HERO_CLEAR, HERO_SPOT, holdStill, IconCache, iconKey, castKinds, PANEL_MARGIN, panelRight, squeezeAt, projectedSpan, SCENE_CAST, sceneFraming, sceneKinds, sceneSlots, shardPlan } from '../../src/render/menuPlan';
 import { FOG_FAR, FOG_NEAR, GROUND_RADIUS, HAZE, SKY_TOP_SHADE } from '../../src/render3d/menuScene3d';
 import { boxCorners, fitPicture, ICON_EDGE, project, viewDir } from '../../src/render3d/iconFit';
 import { PREVIEW_FOV, PREVIEW_PITCH, restBounds } from '../../src/render3d/preview3d';
@@ -118,13 +118,12 @@ describe('menu faction scene (MENU-10, MENU-11)', () => {
   it('MENU-11: from 1600 px up every unit and the HQ stand clear of the panel, to its right, at both ends of the dolly, with at least 24 px to spare', () => {
     expect(PANEL_MARGIN).toBeGreaterThanOrEqual(24);
     for (const f of ['human', 'alien'] as const) {
-      for (const w of [1600, 1920, 2560]) {
-        const h = 1080;
+      for (const [w, h] of [[1600, 900], [1680, 1050], [1920, 1080], [2560, 1080]] as const) {
         const { zoomOut, shift } = sceneFraming(f, w, h);
         expect(zoomOut).toBeGreaterThanOrEqual(1);
         for (const d of [DOLLY_NEAR, DOLLY_FAR]) {
           for (const kind of castKinds(f)) {
-            const [lo, hi] = projectedSpan(f, kind, d * zoomOut, h, shift + w / 2);
+            const [lo, hi] = projectedSpan(f, kind, d * zoomOut, h, shift + w / 2, w);
             expect(lo, `${f} ${kind} at ${w}, dolly ${d}`).toBeGreaterThanOrEqual(panelRight(w) + PANEL_MARGIN - 0.01);
             expect(hi, `${f} ${kind} at ${w}, dolly ${d}`).toBeLessThanOrEqual(w - PANEL_MARGIN + 0.01);
           }
@@ -135,7 +134,18 @@ describe('menu faction scene (MENU-10, MENU-11)', () => {
 
   it('MENU-11: the hero stays the largest unit and the focal point, and below 1600 px the scene is not backed off', () => {
     for (const f of ['human', 'alien'] as const) {
-      expect(sceneFraming(f, 1600, 900).zoomOut).toBeLessThan(2.2);
+      // A narrow strip gets a receding wedge, so the units stay large: backed off by at most about 1.4x (MENU-11).
+      for (const [w, h] of [[1600, 900], [1680, 1050]] as const) expect(sceneFraming(f, w, h).zoomOut, `${f} ${w}`).toBeLessThanOrEqual(1.45);
+      expect(squeezeAt(1920)).toBe(0);
+      expect(squeezeAt(2560)).toBe(0);
+      expect(squeezeAt(1600)).toBe(1);
+      expect(sceneSlots(f, 0)).toEqual(sceneSlots(f));
+      // The wedge is deeper than wide and the hero stands in front of everyone else.
+      const wedge = Object.entries(sceneSlots(f, 1)).filter(([k]) => k !== SCENE_CAST[f].hauler);
+      const xs = wedge.map(([, v]) => v.x);
+      const zs = wedge.map(([, v]) => v.z);
+      expect(Math.max(...zs) - Math.min(...zs)).toBeGreaterThan(Math.max(...xs) - Math.min(...xs));
+      expect(sceneSlots(f, 1)[SCENE_CAST[f].hero]!.z).toBe(Math.max(...zs));
       for (const w of [1280, 1440, 1599]) expect(sceneFraming(f, w, 800).zoomOut).toBe(1);
     }
   });

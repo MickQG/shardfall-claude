@@ -53,7 +53,7 @@ const CSS = `
 #menu .card[data-faction="human"]::after { inset: 0; right: 0; top: 0; width: auto; height: auto; border-radius: 0; opacity: .05; background: repeating-linear-gradient(0deg, var(--c) 0 1px, transparent 1px 4px), repeating-linear-gradient(90deg, var(--c) 0 1px, transparent 1px 24px); pointer-events: none; }
 #menu .card .trim { position: absolute; inset: 7px; pointer-events: none; opacity: .6; --b: var(--c);
   background:
-    linear-gradient(var(--b), var(--b)) 24px 0 / 12px 1px no-repeat, linear-gradient(var(--b), var(--b)) 0 24px / 1px 12px no-repeat,
+    linear-gradient(135deg, transparent calc(50% - .5px), var(--b) calc(50% - .5px), var(--b) calc(50% + .5px), transparent calc(50% + .5px)) 0 0 / 23px 23px no-repeat,
     linear-gradient(var(--b), var(--b)) 100% 0 / 12px 1px no-repeat, linear-gradient(var(--b), var(--b)) 100% 0 / 1px 12px no-repeat,
     linear-gradient(var(--b), var(--b)) 0 100% / 12px 1px no-repeat, linear-gradient(var(--b), var(--b)) 0 100% / 1px 12px no-repeat,
     linear-gradient(var(--b), var(--b)) 100% 100% / 12px 1px no-repeat, linear-gradient(var(--b), var(--b)) 100% 100% / 1px 12px no-repeat; }

@@ -64,7 +64,7 @@ test('MENU-12: each faction card keeps its own frame, whichever faction is picke
     const human = page.locator('#menu .card[data-faction="human"]');
     await expect(human.locator('.trim')).toHaveCount(1);
     await expect(human.locator('.tag')).toHaveCount(1);
-    expect(await human.locator('.trim').evaluate((el) => getComputedStyle(el).backgroundImage.match(/linear-gradient/g)?.length)).toBeGreaterThanOrEqual(8);
+    expect(await human.locator('.trim').evaluate((el) => getComputedStyle(el).backgroundImage.match(/linear-gradient/g)?.length)).toBeGreaterThanOrEqual(7);
     expect((aegis.clip.match(/,/g) ?? []).length).toBeGreaterThanOrEqual(7);
     await expect(page.locator('#menu .card[data-faction="alien"] .trim, #menu .card[data-faction="alien"] .tag')).toHaveCount(0);
   }

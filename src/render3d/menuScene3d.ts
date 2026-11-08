@@ -4,7 +4,7 @@ import { UNIT_DEFS } from '../data/defs';
 import { OWNER_COLORS } from '../render/colors';
 import { BUILDING_RIGS, crystalShape } from './buildings3d';
 import { addEnvironment, configureRenderer, configureSunShadow, createComposer, glowLevels, matchLights } from './lighting3d';
-import { dollyDistance, FADE_IN_MS, FADE_OUT_MS, HERO_SPOT, HQ_SPOT, SCENE_AZIMUTH, SCENE_CAST, SCENE_FOV, SCENE_PITCH, sceneFraming, sceneSlots, shardPlan, type SceneFaction, type SceneSlot } from '../render/menuPlan';
+import { dollyDistance, FADE_IN_MS, FADE_OUT_MS, hqSpot, HERO_SPOT, SCENE_AZIMUTH, SCENE_CAST, SCENE_FOV, SCENE_PITCH, sceneFraming, sceneSlots, shardPlan, squeezeAt, type SceneFaction, type SceneSlot } from '../render/menuPlan';
 import { bodyPose, restingMotion } from './motion';
 import { Instancer } from './instancer';
 import { PR_MAX } from './resolution';
@@ -150,6 +150,8 @@ class Scene3d implements MenuScene {
   private h = 0;
   /** How many times farther the camera stands so the whole group clears the panel (MENU-11). */
   private zoomOut = 1;
+  /** The squeeze the stage was built for; a resize across the narrow-strip range rebuilds it. */
+  private builtSqueeze = 0;
 
   constructor(private host: HTMLElement, o: MenuSceneOptions) {
     this.faction = o.faction;
@@ -225,7 +227,9 @@ class Scene3d implements MenuScene {
     this.groundMat.map = groundTexture(GROUND[f]);
     this.groundMat.needsUpdate = true;
     const cast = SCENE_CAST[f];
-    const slots = sceneSlots(f);
+    const squeeze = squeezeAt(this.w);
+    this.builtSqueeze = squeeze;
+    const slots = sceneSlots(f, squeeze);
     const add = (kind: string, s: SceneSlot, i: number): Figure | null => {
       const building = !!BUILDING_RIGS[kind];
       const make = UNIT_RIGS[kind] ?? BUILDING_RIGS[kind];
@@ -249,7 +253,7 @@ class Scene3d implements MenuScene {
       this.figures.push(fig);
       return fig;
     };
-    const hq = HQ_SPOT[f];
+    const hq = hqSpot(f, squeeze);
     add(cast.hq, { x: hq.x, z: hq.z, heading: 0 }, 9);
     const hero = add(cast.hero, slots[cast.hero]!, 0);
     cast.others.forEach((k, i) => add(k, slots[k]!, i + 1));
@@ -258,7 +262,7 @@ class Scene3d implements MenuScene {
     // The shard field beside the HQ and loose crystals in front: the match's crystal models and material, instanced.
     const inst = new Instancer(this.stage);
     inst.begin();
-    const plan = shardPlan(f);
+    const plan = shardPlan(f, squeeze);
     for (const c of [...plan.field, ...plan.loose]) {
       const key = `crystal/${c.level}v${c.variant}`;
       let b = this.crystalGeo.get(key);
@@ -318,6 +322,7 @@ class Scene3d implements MenuScene {
     this.composer.setPixelRatio(pr);
     this.composer.setSize(w, h);
     this.camera.aspect = w / h;
+    if (Math.abs(squeezeAt(w) - this.builtSqueeze) > 0.02) this.build(this.faction);
     this.frameGroup();
     if (this.still || this.paused) this.draw(this.time);
   }
