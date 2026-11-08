@@ -2,6 +2,7 @@ import { DIFFICULTIES, resolvePersonality } from './ai/ai';
 import { duelConfig, mapIdOf, mapSeedOf, resolveMapSeed, rushConfig, showcaseConfig, skirmishConfig } from './data/maps';
 import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
+import { BattleIntensity } from './audio/intensity';
 import { worldSoundFor, type SoundWho } from './audio/plan';
 import { AckGate, mostNumerousKind, panGain, ShotTagger } from './audio/recipes';
 import { SimClient } from './host/client';
@@ -89,6 +90,9 @@ audio.setMusicOn(settings.musicOn);
 audio.setMusicVolume(settings.musicVolume);
 // Continuous sound (AUD-8, AUD-10), explosion factions (AUD-6), the acknowledgement limit (AUD-7) and button sounds (AUD-11).
 const soundscape = new Soundscape(map, audio);
+// How hard the player is fighting drives the music's battle layer (AUD-13).
+const fighting = new BattleIntensity();
+let fightTick = -1;
 const tagger = new ShotTagger();
 const ackGate = new AckGate(150);
 wireUiSounds(document, audio);
@@ -279,6 +283,10 @@ function playEvents(events: readonly SimEvent[], snap: Snapshot | null): void {
     const p = proj.toScreen(s.at.x, s.at.y);
     const pg = panGain(p.x, p.y, vp.width, vp.height);
     audio.play(s.name, s.gain, { faction: s.faction, size: s.size, pan: pg.pan, near: pg.gain });
+    if (ev.t === 'shot' && ev.owner === PLAYER) fighting.noteDamage(ev.src, performance.now());
+    if (ev.t === 'die' && ev.owner === PLAYER) fighting.noteDamage(ev.id, performance.now());
+    // A superweapon launch or strike gets a musical stinger over the score (AUD-15).
+    if (ev.t === 'launch' || ev.t === 'strike') audio.stinger(ev.t, seed);
     if ((ev.t === 'shot' || ev.t === 'die') && ev.owner === PLAYER && (p.x < 0 || p.y < 0 || p.x > vp.width || p.y > vp.height)) away++;
   }
   if (away > 0) soundscape.noteOffscreenFight(away);
@@ -356,6 +364,11 @@ function frame(prevTime: number): (t: number) => void {
       if (sel.some((id) => !prevSelected.has(id))) ackSound(sel, 'select');
       prevSelected = new Set(sel);
       soundscape.update(sim.prev, curr, view.projector(cam), v, t);
+      if (curr.tick !== fightTick) {
+        fightTick = curr.tick;
+        fighting.observe(curr.units, curr.buildings, PLAYER, t);
+      }
+      audio.setBattleLevel(fighting.step(t));
       sidebar.update(curr, selectedBuilding, t, targeting?.building ?? null);
       hud.setCountdown(countdownRows(curr));
 
@@ -643,7 +656,7 @@ async function boot(): Promise<void> {
   let lastClick = { t: 0, id: -1 };
   canvas.addEventListener('pointerdown', (e) => {
     audio.unlock();
-    audio.startMusic(seed);
+    audio.startMusic(seed, false, myFaction);
     if (!allowed('click')) return;
     if (amoveMode) {
       amoveMode = false;
@@ -748,6 +761,8 @@ async function boot(): Promise<void> {
     audio: () => ({ ...audio.stats, mix: soundscape.last }),
     /** Renders a dense battle offline through the real engine graph and returns its peak sample (AUD-12). */
     audioBurst: (n?: number) => import('./audio/offline').then((m) => m.renderBurst(n)),
+    /** Renders the score offline through the real engine graph at a battle level and returns its loudness (AUD-13, AUD-16). */
+    audioMusic: (level: number, musicOn = true) => import('./audio/offline').then((m) => m.renderMusic(level, musicOn)),
     camera: () => cam,
     selected: () => selection.selected,
     select: (ids: number[]) => {

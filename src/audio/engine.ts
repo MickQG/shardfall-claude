@@ -1,5 +1,6 @@
 import type { Faction } from '../data/defs';
-import { menuPlan, musicPlan } from './plan';
+import { battlePlan, menuPlan, menuThemePlan, musicPlan, stingerPlan, themePlan, type Note } from './plan';
+import { busGains, layerGains } from './mix';
 import { ackRecipe, allocateVoice, MOVE_CLASSES, MOVE_LOOPS, recipeFor, sizeMods, Variation, type AmbienceMix, type FilterSpec, type Layer, type MoveClass, type Recipe, type SoundName, type VoiceInfo } from './recipes';
 
 type Name = SoundName;
@@ -64,10 +65,25 @@ export class AudioEngine {
   private ambience: { wind: GainNode; water: GainNode; rumble: GainNode } | null = null;
   private vary = new Variation(0x5eed);
   private musicTimer: ReturnType<typeof setInterval> | null = null;
+  private musicLive = false;
+  private musicMenu = false;
   private musicBeat = 0;
-  private plan: ReturnType<typeof musicPlan> = [];
   private nextBeatTime = 0;
+  /** The score by half-beat slot: calm layer, battle layer (AUD-13) and the faction theme (AUD-14). */
+  private calm = new Map<number, Note[]>();
+  private battle = new Map<number, Note[]>();
+  private theme = new Map<number, Note[]>();
+  private themeFaction: Faction = 'human';
+  private pendingTheme: Faction | null = null;
+  private musicSeed = 0;
   private bus: GainNode | null = null;
+  private calmBus: GainNode | null = null;
+  private battleBus: GainNode | null = null;
+  /** Ducks the score under a stinger (AUD-15). */
+  private duck: GainNode | null = null;
+  private stingerBus: GainNode | null = null;
+  private level = 0;
+  private appliedLevel = -1;
   muted = false;
   volume = 0.6;
   musicOn = true;
@@ -170,27 +186,17 @@ export class AudioEngine {
     this.apply();
   }
 
-  private apply(): void {
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : this.volume * 0.5, this.ctx.currentTime, 0.02);
-    // The default music volume (0.6) keeps the score at the level it always had.
-    if (this.musicOut && this.ctx) this.musicOut.gain.setTargetAtTime(this.musicOn ? this.musicVolume / 0.6 : 0, this.ctx.currentTime, 0.02);
+  /** The gains the buses are set to (AUD-16), for tests and the debug hook. */
+  gains(): { master: number; music: number } {
+    return busGains(this);
   }
 
-  /** A single enveloped oscillator note: the music uses it. */
-  private tone(freq: number, t0: number, dur: number, type: OscillatorType, gain: number, slideTo?: number, dest?: AudioNode): void {
-    const c = this.ctx;
-    if (!c || !this.master || !this.live()) return;
-    const o = c.createOscillator();
-    const g = c.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, t0);
-    if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t0 + dur);
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(gain, t0 + Math.min(0.01, dur / 4));
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    o.connect(g).connect(dest ?? this.master);
-    o.start(t0);
-    o.stop(t0 + dur + 0.02);
+  private apply(): void {
+    if (!this.ctx) return;
+    const g = busGains(this);
+    // Mute all and Master volume act on the master (everything); Music off and Music volume act on the music bus only.
+    if (this.master) this.master.gain.setTargetAtTime(g.master, this.ctx.currentTime, 0.02);
+    if (this.musicOut) this.musicOut.gain.setTargetAtTime(g.music, this.ctx.currentTime, 0.02);
   }
 
   private count(key: string): void {
@@ -494,61 +500,293 @@ export class AudioEngine {
     };
   }
 
-  /** Starts the generative ambient score; `menu` plays the main-menu score instead (AUD-4). */
-  startMusic(seed: number, menu = false): void {
+  /**
+   * Starts the generative score: a calm layer and a battle layer on one beat grid, with the faction's theme woven in
+   * (AUD-13, AUD-14). `menu` plays the main-menu score instead (AUD-4), which has no battle layer. Every note goes through
+   * the music bus (AUD-16).
+   */
+  startMusic(seed: number, menu = false, faction: Faction = 'human'): void {
     try {
       const c = this.ctx;
-      if (!c || !this.master || this.musicTimer !== null) return;
-      this.plan = menu ? menuPlan(seed, 64) : musicPlan(seed, 64);
+      if (!c || !this.master || this.musicLive) return;
+      this.musicLive = true;
+      this.musicSeed = seed;
+      this.calm = bucket(menu ? menuPlan(seed, 64) : musicPlan(seed, 64));
+      this.battle = menu ? new Map() : bucket(battlePlan(seed, 64));
+      this.themeFaction = faction;
+      this.pendingTheme = null;
+      this.theme = bucket(menu ? menuThemePlan(seed, 64, faction) : themePlan(seed, 64, faction));
+      this.musicMenu = menu;
       this.musicBeat = 0;
       this.nextBeatTime = c.currentTime + 0.2;
-      const bus = c.createGain();
-      bus.gain.value = 0.35;
+      // calm, battle and theme -> bus -> duck -> lowpass -> music bus.
+      const out = this.musicOut ?? this.master;
       const lp = c.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.value = 1800;
-      bus.connect(lp).connect(this.musicOut ?? this.master);
+      lp.frequency.value = 2200;
+      lp.connect(out);
+      const duck = c.createGain();
+      duck.connect(lp);
+      const bus = c.createGain();
+      bus.gain.value = 0.35;
+      bus.connect(duck);
+      const calm = c.createGain();
+      calm.connect(bus);
+      const battle = c.createGain();
+      battle.gain.value = 0;
+      battle.connect(bus);
       this.bus = bus;
-      const BEAT = 0.55;
-      this.musicTimer = setInterval(() => {
-        if (!this.ctx || this.muted || !this.musicOn) {
-          this.nextBeatTime = (this.ctx?.currentTime ?? 0) + 0.2;
-          return;
-        }
-        while (this.nextBeatTime < this.ctx.currentTime + 0.6) {
-          const b = this.musicBeat % (64 * 4);
-          for (const n of this.plan) {
-            if (n.beat >= b && n.beat < b + 0.5) {
-              const t = this.nextBeatTime + (n.beat - b) * BEAT;
-              const dur = n.dur * BEAT;
-              if (n.voice === 'pad') this.tone(n.freq, t, dur * 1.1, 'sine', 0.05, undefined, bus);
-              else if (n.voice === 'bass') this.tone(n.freq, t, dur, 'triangle', 0.09, undefined, bus);
-              else this.tone(n.freq, t, dur * 1.4, 'triangle', 0.035, undefined, bus);
-            }
-          }
-          this.musicBeat += 0.5;
-          this.nextBeatTime += 0.5 * BEAT;
-        }
-      }, 120);
+      this.duck = duck;
+      this.calmBus = calm;
+      this.battleBus = battle;
+      this.level = 0;
+      this.appliedLevel = -1;
+      this.setBattleLevel(0);
+      // An offline context is driven by `pumpMusic` directly.
+      if (!this.offline) this.musicTimer = setInterval(() => this.pumpMusic(), 120);
     } catch {
+      this.musicLive = false;
       this.musicTimer = null;
+    }
+  }
+
+  /** The battle layer's strength, 0..1 (AUD-13): the calm layer thins and the battle layer swells with it. Only gains change, never notes. */
+  setBattleLevel(level: number): void {
+    try {
+      const c = this.ctx;
+      this.level = Math.max(0, Math.min(1, level));
+      if (!c || !this.calmBus || !this.battleBus || Math.abs(this.level - this.appliedLevel) < 0.004) return;
+      this.appliedLevel = this.level;
+      const g = layerGains(this.level);
+      this.calmBus.gain.setTargetAtTime(g.calm, c.currentTime, 0.4);
+      this.battleBus.gain.setTargetAtTime(g.battle, c.currentTime, 0.25);
+    } catch {
+      /* audio must never break the game */
+    }
+  }
+
+  /** The battle level last asked for, for tests. */
+  battleLevel(): number {
+    return this.level;
+  }
+
+  /** Switches the faction theme (AUD-14); the new theme takes over at the next bar. */
+  setThemeFaction(faction: Faction): void {
+    if (!this.musicLive) return;
+    this.pendingTheme = faction === this.themeFaction ? null : faction;
+  }
+
+  /** Schedules the score that falls inside the next `horizon` seconds of context time. */
+  pumpMusic(horizon = 0.6): void {
+    try {
+      const c = this.ctx;
+      if (!c || !this.musicLive || !this.calmBus || !this.battleBus || !this.bus) return;
+      if (this.muted || busGains(this).music === 0 || !this.live()) {
+        this.nextBeatTime = c.currentTime + 0.2;
+        return;
+      }
+      while (this.nextBeatTime < c.currentTime + horizon) {
+        const slot = Math.round(this.musicBeat * 2) % 512;
+        // A theme change waits for the bar line, so a motif in flight is never cut.
+        if (slot % 8 === 0 && this.pendingTheme) {
+          this.themeFaction = this.pendingTheme;
+          this.pendingTheme = null;
+          this.theme = bucket(this.musicMenu ? menuThemePlan(this.musicSeed, 64, this.themeFaction) : themePlan(this.musicSeed, 64, this.themeFaction));
+        }
+        const t = this.nextBeatTime;
+        for (const n of this.calm.get(slot) ?? []) this.note(n, t, n.dur * BEAT, this.calmBus);
+        for (const n of this.theme.get(slot) ?? []) this.note(n, t, n.dur * BEAT, this.bus);
+        if (this.level > 0.01) for (const n of this.battle.get(slot) ?? []) this.note(n, t, n.dur * BEAT, this.battleBus);
+        this.musicBeat += 0.5;
+        this.nextBeatTime += 0.5 * BEAT;
+      }
+    } catch {
+      /* audio must never break the game */
+    }
+  }
+
+  /**
+   * A musical stinger over the score (AUD-15) for a superweapon `launch` or `strike`: it plays on the music bus, so Music
+   * off silences it, and the score ducks briefly under it.
+   */
+  stinger(kind: 'launch' | 'strike', seed = 0): void {
+    try {
+      const c = this.ctx;
+      if (!c || this.muted || busGains(this).music === 0 || !this.live() || !this.musicOut) return;
+      if (!this.stingerBus) {
+        this.stingerBus = c.createGain();
+        this.stingerBus.gain.value = 0.5;
+        this.stingerBus.connect(this.musicOut);
+      }
+      const now = c.currentTime;
+      const t0 = now + 0.03;
+      let end = 0;
+      for (const n of stingerPlan(kind, seed)) {
+        this.note(n, t0 + n.beat * BEAT, n.dur * BEAT, this.stingerBus);
+        end = Math.max(end, (n.beat + n.dur) * BEAT);
+      }
+      if (this.duck) {
+        this.duck.gain.cancelScheduledValues(now);
+        this.duck.gain.setTargetAtTime(0.35, now, 0.04);
+        this.duck.gain.setTargetAtTime(1, now + end * 0.6, 0.6);
+      }
+    } catch {
+      /* audio must never break the game */
+    }
+  }
+
+  /** One note of the score as nodes, into `dest`: each voice is a small synth patch. */
+  private note(n: Note, t: number, dur: number, dest: AudioNode): void {
+    const c = this.ctx as BaseAudioContext;
+    const f = n.freq;
+    /** An amplitude envelope into `to`: a rise to `peak` over `atk`, then an exponential fall to the end. */
+    const env = (peak: number, atk: number, to: AudioNode): GainNode => {
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(peak, t + Math.min(atk, dur * 0.9));
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      g.connect(to);
+      return g;
+    };
+    const osc = (type: OscillatorType, freq: number, to: AudioNode, slideTo?: number, slideTime = dur): OscillatorNode => {
+      const o = c.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t);
+      if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + slideTime);
+      o.connect(to);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+      return o;
+    };
+    /** A lowpass whose cutoff sweeps from `a` to `b` over `over` seconds: the brass-like quick filter envelope. */
+    const lowpass = (a: number, b: number, over: number, q: number, to: AudioNode): BiquadFilterNode => {
+      const l = c.createBiquadFilter();
+      l.type = 'lowpass';
+      l.Q.value = q;
+      l.frequency.setValueAtTime(a, t);
+      l.frequency.exponentialRampToValueAtTime(b, t + Math.max(0.02, Math.min(over, dur)));
+      l.connect(to);
+      return l;
+    };
+    switch (n.voice) {
+      case 'pad':
+        osc('sine', f, env(0.05, 0.01, dest), undefined, dur * 1.1);
+        break;
+      case 'bass':
+        osc('triangle', f, env(0.09, 0.01, dest));
+        break;
+      case 'arp':
+        osc('triangle', f, env(0.035, 0.01, dest));
+        break;
+      case 'ost':
+        // A driving low pulse: a sawtooth with its cutoff closing on each eighth.
+        osc('sawtooth', f, lowpass(650, 220, dur, 1, env(0.085, 0.008, dest)));
+        break;
+      case 'kick':
+        osc('sine', 120, env(0.2, 0.004, dest), 42, 0.14);
+        break;
+      case 'perc': {
+        // Noise hits, bandpassed well below the highs and short.
+        const s = c.createBufferSource();
+        s.buffer = this.noise;
+        s.loop = true;
+        const b = c.createBiquadFilter();
+        b.type = 'bandpass';
+        b.frequency.value = f;
+        b.Q.value = 0.8;
+        s.connect(b).connect(env(f > 2000 ? 0.07 : 0.1, 0.003, dest));
+        s.start(t, this.vary.float() * 0.5);
+        s.stop(t + dur + 0.05);
+        break;
+      }
+      case 'stab': {
+        const g = env(0.05, 0.01, dest);
+        const l = lowpass(2200, 500, 0.3, 2, g);
+        osc('sawtooth', f, l);
+        const d = osc('sawtooth', f, l);
+        d.detune.value = 9;
+        break;
+      }
+      case 'brass': {
+        // Aegis: a sawtooth swelling through a lowpass, like a horn section.
+        const g = env(0.06, 0.07, dest);
+        const l = lowpass(500, 1800, 0.18, 1.5, g);
+        osc('sawtooth', f, l);
+        const d = osc('sawtooth', f, l);
+        d.detune.value = 6;
+        break;
+      }
+      case 'glass': {
+        // Vrax: two sine partials, glassy and inharmonic, pulsed by a slow tremolo.
+        const g = env(0.06, 0.05, dest);
+        const trem = c.createGain();
+        trem.gain.value = 0.5;
+        trem.connect(g);
+        const lfo = c.createOscillator();
+        const lg = c.createGain();
+        lfo.frequency.value = 5.5;
+        lg.gain.value = 0.5;
+        lfo.connect(lg).connect(trem.gain);
+        lfo.start(t);
+        lfo.stop(t + dur + 0.05);
+        osc('sine', f, trem);
+        const hi = c.createGain();
+        hi.gain.value = 0.35;
+        hi.connect(trem);
+        osc('sine', f * 2.76, hi);
+        break;
+      }
+      case 'swell':
+        // A rising brass swell: a long attack while the filter opens.
+        osc('sawtooth', f, lowpass(250, 2200, dur * 0.9, 0.8, env(0.1, dur * 0.85, dest)));
+        break;
+      case 'hit': {
+        // A low hit: a falling sine and a dull noise thud.
+        osc('sine', 90, env(0.4, 0.005, dest), 32, dur * 0.8);
+        const s = c.createBufferSource();
+        s.buffer = this.noise;
+        s.loop = true;
+        const l = c.createBiquadFilter();
+        l.type = 'lowpass';
+        l.frequency.value = 320;
+        s.connect(l).connect(env(0.35, 0.004, dest));
+        s.start(t, this.vary.float() * 0.5);
+        s.stop(t + 0.5);
+        break;
+      }
     }
   }
 
   /** Stops the score; with `fadeSec` the music fades out first (AUD-4) and the notes already queued die away with it. */
   stopMusic(fadeSec = 0): void {
+    if (!this.musicLive) return;
+    this.musicLive = false;
     const timer = this.musicTimer;
     this.musicTimer = null;
-    if (timer === null) return;
     try {
       if (fadeSec > 0 && this.bus && this.ctx) {
         this.bus.gain.setTargetAtTime(0, this.ctx.currentTime, fadeSec / 3);
-        setTimeout(() => clearInterval(timer), fadeSec * 1000);
+        if (timer !== null) setTimeout(() => clearInterval(timer), fadeSec * 1000);
         return;
       }
     } catch {
       /* fall through to an immediate stop */
     }
-    clearInterval(timer);
+    if (timer !== null) clearInterval(timer);
   }
+}
+
+/** The seconds of one beat of the score. */
+const BEAT = 0.55;
+
+/** Notes grouped by half-beat slot, so the scheduler looks up what starts now instead of scanning the plan. */
+function bucket(plan: readonly Note[]): Map<number, Note[]> {
+  const m = new Map<number, Note[]>();
+  for (const n of plan) {
+    const k = Math.floor(n.beat * 2) % 512;
+    const l = m.get(k);
+    if (l) l.push(n);
+    else m.set(k, [n]);
+  }
+  return m;
 }

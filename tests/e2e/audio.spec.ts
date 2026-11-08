@@ -5,6 +5,7 @@ type Hook = {
   select: (ids: number[]) => void;
   tileScreen: (tx: number, ty: number) => { x: number; y: number };
   audio: () => { requested: Record<string, number>; started: number; dropped: number; mix: { movement: Record<string, number>; ambience: { wind: number; water: number; rumble: number } } };
+  audioMusic: (level: number, musicOn?: boolean) => Promise<{ rms: number; peak: number }>;
   audioBurst: (n?: number) => Promise<{ peak: number; started: number; dropped: number; requested: number }>;
 };
 
@@ -71,5 +72,22 @@ test('AUD-11 AUD-7: HUD buttons play hover and click, and selecting and commandi
   await expect.poll(() => count('ack:command:hum_rifleman')).toBe(1);
   await page.waitForTimeout(400);
   expect(await count('ack:command:hum_rifleman')).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test('AUD-13 AUD-16: the score rendered through the real graph is louder with the battle layer up, and silent with Music off', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=classic');
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
+  const render = (level: number, on: boolean): Promise<{ rms: number; peak: number }> =>
+    page.evaluate(`window.__shardfall.audioMusic(${level}, ${on})`) as Promise<{ rms: number; peak: number }>;
+  const calm = await render(0, true);
+  const battle = await render(1, true);
+  expect(calm.rms).toBeGreaterThan(0.0005);
+  expect(battle.rms).toBeGreaterThan(calm.rms * 1.3);
+  expect(battle.peak).toBeLessThanOrEqual(1);
+  const off = await render(1, false);
+  expect(off.peak).toBeLessThan(0.0001);
   expect(errors).toEqual([]);
 });

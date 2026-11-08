@@ -227,7 +227,7 @@ export function showMenu(): void {
   };
   const beginMusic = (): void => {
     music.unlock();
-    music.startMusic(musicSeed, true);
+    music.startMusic(musicSeed, true, pick.faction);
   };
   window.addEventListener('pointerdown', beginMusic, { signal: life.signal, once: true });
   window.addEventListener('keydown', beginMusic, { signal: life.signal, once: true });
@@ -350,6 +350,7 @@ export function showMenu(): void {
     else if (t.dataset.faction) {
       pick.faction = t.dataset.faction as Pick['faction'];
       scene?.setFaction(pick.faction);
+      music.setThemeFaction(pick.faction);
       online.refresh();
     }
     else if (t.dataset.diff) pick.difficulty = t.dataset.diff as Pick['difficulty'];

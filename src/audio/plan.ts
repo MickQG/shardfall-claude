@@ -65,6 +65,12 @@ export function worldSoundFor(e: SimEvent, viewer: number, who: SoundWho): World
   }
 }
 
+/**
+ * The voices of the score. Calm: pad, arp, bass. Battle (AUD-13): ost (low ostinato), kick, perc (a noise hit whose freq is its
+ * band centre), stab. Themes (AUD-14): brass (Aegis), glass (Vrax). Stingers (AUD-15): swell, hit, and brass.
+ */
+export type MusicVoice = 'pad' | 'arp' | 'bass' | 'ost' | 'kick' | 'perc' | 'stab' | 'brass' | 'glass' | 'swell' | 'hit';
+
 export interface Note {
   /** Start time in beats. */
   beat: number;
@@ -72,7 +78,7 @@ export interface Note {
   freq: number;
   /** Duration in beats. */
   dur: number;
-  voice: 'pad' | 'arp' | 'bass';
+  voice: MusicVoice;
 }
 
 /** A minor pentatonic over A: semitone offsets. */
@@ -108,3 +114,94 @@ export const menuPlan = (seed: number, bars: number): Note[] => musicPlan(seed +
 
 /** Semitones above A2 of a frequency (for checking notes stay in key). */
 export const semitonesFromA = (freq: number): number => 12 * Math.log2(freq / A2);
+
+/** Frequency of a semitone offset from A2 (the plans' common reference). */
+export const noteHz = hz;
+
+/**
+ * The battle layer (AUD-13): a driving low ostinato on the chord root and fifth, a percussion pulse (kick, and noise hits kept
+ * below the highs) and brass-like stabs on chord tones. Same key and chord loop as the calm layer, its own stream of the seed.
+ * Intensity never reaches this function: it only sets the layer's level, so the notes are a pure function of the seed (AUD-2).
+ */
+export function battlePlan(seed: number, bars: number): Note[] {
+  const r = new Rng(seed * 40503 + 911);
+  const notes: Note[] = [];
+  // Eighth-note shapes over a bar: 0 = root, 1 = fifth, 2 = octave.
+  const shapes = [
+    [0, 0, 1, 0, 0, 0, 1, 0],
+    [0, 0, 0, 1, 0, 0, 2, 1],
+    [0, 1, 0, 0, 0, 1, 0, 2],
+  ];
+  for (let bar = 0; bar < bars; bar++) {
+    const root = CHORD_ROOTS[bar % CHORD_ROOTS.length] as number;
+    const b0 = bar * 4;
+    const shape = shapes[r.int(shapes.length)] as number[];
+    shape.forEach((d, i) => notes.push({ beat: b0 + i * 0.5, freq: hz(root + (d === 1 ? 7 : d === 2 ? 12 : 0)), dur: 0.45, voice: 'ost' }));
+    notes.push({ beat: b0, freq: 55, dur: 0.4, voice: 'kick' }, { beat: b0 + 2, freq: 55, dur: 0.4, voice: 'kick' });
+    if (r.int(100) < 30) notes.push({ beat: b0 + 3.5, freq: 55, dur: 0.4, voice: 'kick' });
+    if (r.int(100) < 20) notes.push({ beat: b0 + 1.5, freq: 55, dur: 0.4, voice: 'kick' });
+    notes.push({ beat: b0 + 1, freq: 1500, dur: 0.22, voice: 'perc' }, { beat: b0 + 3, freq: 1500, dur: 0.22, voice: 'perc' });
+    for (let i = 0; i < 4; i++) notes.push({ beat: b0 + i + 0.5, freq: 3200, dur: 0.1, voice: 'perc' });
+    // Stabs: on the downbeat of every other bar, plus a syncopated one now and then.
+    const hits = bar % 2 === 0 ? [0] : [];
+    if (r.int(100) < 55) hits.push(bar % 2 === 0 ? 2.5 : 1.5);
+    if (r.int(100) < 25) hits.push(3.5);
+    for (const h of hits) {
+      notes.push({ beat: b0 + h, freq: hz(root + 12), dur: 0.7, voice: 'stab' }, { beat: b0 + h, freq: hz(root + 19), dur: 0.7, voice: 'stab' });
+    }
+  }
+  return notes;
+}
+
+/**
+ * The faction themes (AUD-14), beats from the motif's start, absolute pitches in A minor pentatonic. Aegis is martial and
+ * brassy: dotted rhythms and rising fourths and fifths. Vrax is eerie and pulsing: a glassy, amplitude-pulsed voice with a
+ * falling contour, wide leaps and sparse timing.
+ */
+export function motifFor(faction: Faction): Note[] {
+  if (faction === 'human') {
+    // A D (fourth) A' (fifth), then G E G A'; semitones above A2.
+    const semis = [12, 17, 24, 22, 19, 22, 24];
+    const beats = [0, 1.5, 2, 3.5, 4, 5.5, 6];
+    const durs = [1.5, 0.5, 1.5, 0.5, 1.5, 0.5, 2];
+    return semis.map((s, i) => ({ beat: beats[i] as number, freq: hz(s), dur: durs[i] as number, voice: 'brass' as const }));
+  }
+  // G C A E A, falling in leaps with gaps between them.
+  const semis = [34, 27, 24, 19, 12];
+  const beats = [0, 2, 3.5, 5, 7];
+  const durs = [1.5, 1.2, 1, 1.5, 2.5];
+  return semis.map((s, i) => ({ beat: beats[i] as number, freq: hz(s), dur: durs[i] as number, voice: 'glass' as const }));
+}
+
+/** Bars between the theme's appearances: it recurs every eight bars, never constantly. */
+export const THEME_EVERY = 8;
+
+/**
+ * The theme woven into a score (AUD-14): the faction's motif every eight bars, starting on an A chord so it always sits on
+ * its home harmony. The seed picks whether it first appears at bar 4 or bar 8; the melody itself is the faction's.
+ */
+export function themePlan(seed: number, bars: number, faction: Faction): Note[] {
+  const motif = motifFor(faction);
+  const notes: Note[] = [];
+  for (let bar = 4 + (Math.abs(Math.floor(seed)) % 2) * 4; bar < bars; bar += THEME_EVERY) {
+    for (const n of motif) notes.push({ ...n, beat: bar * 4 + n.beat });
+  }
+  return notes;
+}
+
+/**
+ * A musical stinger over the score (AUD-15), beats from its start, in key. Launch: a rising brass swell. Strike: a low hit
+ * with a falling brass motif. The seed picks one of two voicings so repeats are not identical.
+ */
+export function stingerPlan(kind: 'launch' | 'strike', seed: number): Note[] {
+  const alt = Math.abs(Math.floor(seed)) % 2;
+  if (kind === 'launch') {
+    const semis = alt ? [0, 5, 12, 17] : [0, 7, 12, 19];
+    return semis.map((s, i) => ({ beat: i * 0.5, freq: hz(s + 12), dur: 3.2 - i * 0.4, voice: 'swell' as const }));
+  }
+  const fall = alt ? [31, 24, 19, 15] : [34, 27, 24, 19];
+  return [{ beat: 0, freq: 55, dur: 2, voice: 'hit' as const }, ...fall.map((s, i) => ({ beat: 0.25 + i * 0.5, freq: hz(s - 12), dur: 1.2, voice: 'brass' as const }))];
+}
+
+/** The main-menu score's theme (AUD-14): the faction's motif on the menu's own stream of the seed, like `menuPlan`. */
+export const menuThemePlan = (seed: number, bars: number, faction: Faction): Note[] => themePlan(seed + 7919, bars, faction);
