@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AudioEngine } from '../../src/audio/engine';
@@ -14,6 +14,17 @@ const store = (init: Record<string, string> = {}): { getItem: (k: string) => str
 const files = (dir: string): string[] => readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : [join(dir, f)]));
 
 describe('front-end and HUD', () => {
+  it('MENU-8: the browser tab and app icon is the split shard emblem of the wordmark on a dark rounded tile, flat', () => {
+    const icon = readFileSync(join(__dirname, '../../public/icon.svg'), 'utf8');
+    expect(icon.match(/<polygon /g)).toHaveLength(2);
+    expect(icon).toContain('points="10,0 18.21,18.07 2.19,27.69 0,22"');
+    expect(icon).toContain('points="18.21,18.07 20,22 10,48 2.19,27.69"');
+    expect(icon).toMatch(/<rect [^>]*rx=/);
+    expect(icon).not.toMatch(/Gradient|filter/);
+    expect(readFileSync(join(__dirname, '../../index.html'), 'utf8')).toContain('href="./icon.svg"');
+    expect(readFileSync(join(__dirname, '../../public/manifest.webmanifest'), 'utf8')).toContain('"src": "icon.svg"');
+  });
+
   it('MENU-8: the wordmark is flat inline SVG named Shardfall, with a two-polygon emblem and two clipped text copies, no gradient or filter', () => {
     const svg = wordmarkSvg();
     expect(svg).toMatch(/^<svg[^>]*role="img"[^>]*aria-label="Shardfall"/);
