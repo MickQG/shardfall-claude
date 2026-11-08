@@ -7,12 +7,13 @@
 - **Dock pad** – the one place at a refinery where a hauler unloads; other haulers wait their turn beside it.
 - **Tick** – one fixed simulation step; game time is counted in ticks (20 to a game second).
 - **Game speed** – how fast game time passes in real time (×0.8 by default); it never changes what happens in the game.
+- **Fly-in** – the camera sweep that opens every match, from a view of the whole map down to the player's base; game time starts only when it ends. _Avoid_: intro, opening cinematic.
 - **Snapshot** – an immutable, per-player, fog-limited view of the game at a tick.
 - **Command** – a player or AI instruction submitted to the simulation (move, build, attack…).
-- **Acknowledgement** – the immediate sight and sound shown to the player who gives a command, before the command takes effect; seen only by that player, never part of the simulation.
+- **Acknowledgement** – the immediate sight and sound shown to the player who selects a unit or gives a command, before any command takes effect; seen only by that player, never part of the simulation.
 - **Seam** – the public simulation API through which everything else interacts with it.
 - **State hash** – a deterministic hash of the full game state, used to prove determinism.
-- **Faction** – Humans or Aliens.
+- **Faction** – Humans (the Aegis Union) or Aliens (the Vrax Hive); Aegis and Vrax for short.
 - **Map** – the battlefield a skirmish is played on, chosen before the game: a hand-made map (Crossroads, Riverbed or Highlands) or a generated map; every map is the same for both players, turned half a turn.
 - **Generated map** – a map produced from a map seed; the same seed always gives the same map.
 - **Map seed** – the number that identifies a generated map; shown so a map can be replayed or shared.
