@@ -1,7 +1,7 @@
 import type { Faction } from '../data/defs';
-import { battlePlan, menuPlan, menuThemePlan, musicPlan, stingerPlan, themePlan, type Note } from './plan';
+import { battlePlan, menuPlan, MUSIC_PATCHES, menuThemePlan, musicPlan, stingerPlan, themePlan, type Note } from './plan';
 import { busGains, layerGains } from './mix';
-import { ackRecipe, allocateVoice, MOVE_CLASSES, MOVE_LOOPS, recipeFor, sizeMods, Variation, type AmbienceMix, type FilterSpec, type Layer, type MoveClass, type Recipe, type SoundName, type VoiceInfo } from './recipes';
+import { ackRecipe, allocateVoice, MOVE_CLASSES, MOVE_LOOPS, moveLoopSamples, recipeFor, sizeMods, Variation, type AmbienceMix, type FilterSpec, type Layer, type MoveClass, type Recipe, type SoundName, type VoiceInfo } from './recipes';
 
 type Name = SoundName;
 
@@ -62,7 +62,7 @@ export class AudioEngine {
   private recent = new Map<string, number[]>();
   private voices: Voice[] = [];
   private loops = new Map<MoveClass, Loop>();
-  private ambience: { wind: GainNode; water: GainNode; rumble: GainNode } | null = null;
+  private ambience: { water: GainNode; rumble: GainNode } | null = null;
   private vary = new Variation(0x5eed);
   private musicTimer: ReturnType<typeof setInterval> | null = null;
   private musicLive = false;
@@ -87,7 +87,7 @@ export class AudioEngine {
   muted = false;
   volume = 0.6;
   musicOn = true;
-  musicVolume = 0.6;
+  musicVolume = 0.75;
   /** Turn off the per-name rate limit (a test that wants the densest possible battle). */
   limitRate = true;
   /** Counts for tests: plays asked for by key, started, and dropped by the voice budget. */
@@ -419,35 +419,29 @@ export class AudioEngine {
   private startLoop(cls: MoveClass): Loop {
     const c = this.ctx as BaseAudioContext;
     const spec = MOVE_LOOPS[cls];
+    // The loop is a generated sample of thumps, rumble or patters (never noise), kept below the hiss band by a low-pass.
+    const samples = moveLoopSamples(cls, c.sampleRate);
+    const buf = c.createBuffer(1, samples.length, c.sampleRate);
+    buf.getChannelData(0).set(samples);
     const src = c.createBufferSource();
-    src.buffer = this.noise;
+    src.buffer = buf;
     src.loop = true;
     const f = c.createBiquadFilter();
     f.type = spec.filter.type;
     f.frequency.value = spec.filter.f;
     f.Q.value = spec.filter.q;
-    // The gait: the noise bed is pulsed at the class's rate.
-    const amp = c.createGain();
-    amp.gain.value = 1 - spec.depth / 2;
-    const lfo = c.createOscillator();
-    const lg = c.createGain();
-    lfo.type = 'sine';
-    lfo.frequency.value = spec.rate;
-    lg.gain.value = spec.depth / 2;
-    lfo.connect(lg).connect(amp.gain);
     const g = c.createGain();
     g.gain.value = 0;
-    src.connect(f).connect(amp).connect(g).connect(this.sfx as GainNode);
-    src.start(0, this.vary.float() * 0.5);
-    lfo.start();
-    const loop: Loop = { gain: g, nodes: [src, lfo], quietSince: null };
+    src.connect(f).connect(g).connect(this.sfx as GainNode);
+    src.start(0, this.vary.float() * spec.period);
+    const loop: Loop = { gain: g, nodes: [src], quietSince: null };
     this.loops.set(cls, loop);
     return loop;
   }
 
   /**
-   * Ambience (AUD-10): wind always, lapping water and a distant rumble at the levels in `mix`. The beds are filtered
-   * noise with slow modulation, started on first use and kept running.
+   * Ambience (AUD-10): lapping water and a distant rumble at the levels in `mix`. Both are low, slowly swaying beds (nothing
+   * above about 800 Hz, and no wind), started on first use and kept running.
    */
   setAmbience(mix: Readonly<AmbienceMix>): void {
     try {
@@ -455,25 +449,28 @@ export class AudioEngine {
       if (!c || !this.live()) return;
       if (!this.ambience) this.ambience = this.startAmbience();
       const now = c.currentTime;
-      this.ambience.wind.gain.setTargetAtTime(mix.wind * 0.05, now, 0.5);
-      this.ambience.water.gain.setTargetAtTime(mix.water * 0.06, now, 0.5);
-      this.ambience.rumble.gain.setTargetAtTime(mix.rumble * 0.16, now, 0.6);
+      this.ambience.water.gain.setTargetAtTime(mix.water * 0.035, now, 0.5);
+      this.ambience.rumble.gain.setTargetAtTime(mix.rumble * 0.055, now, 0.6);
     } catch {
       /* audio must never break the game */
     }
   }
 
-  private startAmbience(): { wind: GainNode; water: GainNode; rumble: GainNode } {
+  private startAmbience(): { water: GainNode; rumble: GainNode } {
     const c = this.ctx as BaseAudioContext;
-    /** A noise bed through one filter, its level and filter swayed by slow oscillators. */
-    const bed = (type: BiquadFilterType, f: number, q: number, sway: { rate: number; amp: number; filter?: number }): GainNode => {
+    /** A noise bed through two cascaded low-passes (so nothing above `f` survives), its level swayed by a slow oscillator. */
+    const bed = (f: number, sway: { rate: number; amp: number }): GainNode => {
       const src = c.createBufferSource();
       src.buffer = this.noise;
       src.loop = true;
-      const fl = c.createBiquadFilter();
-      fl.type = type;
-      fl.frequency.value = f;
-      fl.Q.value = q;
+      const l1 = c.createBiquadFilter();
+      l1.type = 'lowpass';
+      l1.frequency.value = f;
+      l1.Q.value = 0.7;
+      const l2 = c.createBiquadFilter();
+      l2.type = 'lowpass';
+      l2.frequency.value = f;
+      l2.Q.value = 0.7;
       const amp = c.createGain();
       amp.gain.value = 1 - sway.amp;
       const lfo = c.createOscillator();
@@ -481,23 +478,14 @@ export class AudioEngine {
       const lg = c.createGain();
       lg.gain.value = sway.amp;
       lfo.connect(lg).connect(amp.gain);
-      if (sway.filter) {
-        const fg = c.createGain();
-        fg.gain.value = sway.filter;
-        lfo.connect(fg).connect(fl.frequency);
-      }
       const out = c.createGain();
       out.gain.value = 0;
-      src.connect(fl).connect(amp).connect(out).connect(this.sfx as GainNode);
+      src.connect(l1).connect(l2).connect(amp).connect(out).connect(this.sfx as GainNode);
       src.start(0, this.vary.float() * 0.5);
       lfo.start();
       return out;
     };
-    return {
-      wind: bed('bandpass', 450, 0.6, { rate: 0.07, amp: 0.45, filter: 180 }),
-      water: bed('bandpass', 1100, 1.4, { rate: 0.33, amp: 0.7, filter: 150 }),
-      rumble: bed('lowpass', 80, 1, { rate: 0.5, amp: 0.3 }),
-    };
+    return { water: bed(500, { rate: 0.3, amp: 0.7 }), rumble: bed(70, { rate: 0.5, amp: 0.3 }) };
   }
 
   /**
@@ -658,7 +646,7 @@ export class AudioEngine {
       o.stop(t + dur + 0.05);
       return o;
     };
-    /** A lowpass whose cutoff sweeps from `a` to `b` over `over` seconds: the brass-like quick filter envelope. */
+    /** A lowpass whose cutoff sweeps from `a` to `b` over `over` seconds: a quick filter envelope. */
     const lowpass = (a: number, b: number, over: number, q: number, to: AudioNode): BiquadFilterNode => {
       const l = c.createBiquadFilter();
       l.type = 'lowpass';
@@ -676,11 +664,12 @@ export class AudioEngine {
         osc('triangle', f, env(0.09, 0.01, dest));
         break;
       case 'arp':
-        osc('triangle', f, env(0.035, 0.01, dest));
+        // A soft, low, muted pluck: a sawtooth whose cutoff closes quickly, so it never rings.
+        osc('sawtooth', f, lowpass(...MUSIC_PATCHES.arp.lp!, dur, 0.7, env(0.04, 0.02, dest)));
         break;
       case 'ost':
         // A driving low pulse: a sawtooth with its cutoff closing on each eighth.
-        osc('sawtooth', f, lowpass(650, 220, dur, 1, env(0.085, 0.008, dest)));
+        osc('sawtooth', f, lowpass(...MUSIC_PATCHES.ost.lp!, dur, 1, env(0.085, 0.008, dest)));
         break;
       case 'kick':
         osc('sine', 120, env(0.2, 0.004, dest), 42, 0.14);
@@ -699,47 +688,54 @@ export class AudioEngine {
         s.stop(t + dur + 0.05);
         break;
       }
-      case 'stab': {
+      case 'strings': {
+        // A soft, sustained pad swell: two triangles, a slow attack and a gentle low-pass, no bright transient.
+        const g = env(0.035, dur * 0.4, dest);
+        const l = lowpass(...MUSIC_PATCHES.strings.lp!, dur * 0.5, 0.7, g);
+        osc('triangle', f, l);
+        osc('triangle', f, l).detune.value = 7;
+        break;
+      }
+      case 'march': {
+        // Aegis: a low, muted square pulse with a short percussive envelope and a closing low-pass.
         const g = env(0.05, 0.01, dest);
-        const l = lowpass(2200, 500, 0.3, 2, g);
-        osc('sawtooth', f, l);
-        const d = osc('sawtooth', f, l);
-        d.detune.value = 9;
+        const l = lowpass(...MUSIC_PATCHES.march.lp!, dur, 0.7, g);
+        osc('square', f, l);
         break;
       }
-      case 'brass': {
-        // Aegis: a sawtooth swelling through a lowpass, like a horn section.
-        const g = env(0.06, 0.07, dest);
-        const l = lowpass(500, 1800, 0.18, 1.5, g);
-        osc('sawtooth', f, l);
-        const d = osc('sawtooth', f, l);
-        d.detune.value = 6;
-        break;
-      }
-      case 'glass': {
-        // Vrax: two sine partials, glassy and inharmonic, pulsed by a slow tremolo.
-        const g = env(0.06, 0.05, dest);
+      case 'hollow': {
+        // Vrax: a dark, hollow square pad (odd harmonics, filtered) pulsed by a slow tremolo, in a mid register.
+        const g = env(0.07, 0.08, dest);
         const trem = c.createGain();
         trem.gain.value = 0.5;
         trem.connect(g);
         const lfo = c.createOscillator();
         const lg = c.createGain();
-        lfo.frequency.value = 5.5;
+        lfo.frequency.value = 5;
         lg.gain.value = 0.5;
         lfo.connect(lg).connect(trem.gain);
         lfo.start(t);
         lfo.stop(t + dur + 0.05);
-        osc('sine', f, trem);
-        const hi = c.createGain();
-        hi.gain.value = 0.35;
-        hi.connect(trem);
-        osc('sine', f * 2.76, hi);
+        const l = lowpass(...MUSIC_PATCHES.hollow.lp!, dur, 1.2, trem);
+        osc('square', f, l);
+        const d = osc('square', f, l);
+        d.detune.value = 11;
         break;
       }
       case 'swell':
-        // A rising brass swell: a long attack while the filter opens.
-        osc('sawtooth', f, lowpass(250, 2200, dur * 0.9, 0.8, env(0.1, dur * 0.85, dest)));
+        // A rising pad swell: a triangle with a long attack and a gentle, dark low-pass.
+        osc('triangle', f, lowpass(...MUSIC_PATCHES.swell.lp!, dur * 0.9, 0.7, env(0.09, dur * 0.85, dest)));
         break;
+      case 'riser':
+        // A low riser: a sine gliding up an octave, in key.
+        osc('sine', f, env(0.12, dur * 0.8, dest), f * 2, dur * 0.9);
+        break;
+      case 'tone': {
+        // A falling tone figure: a low-passed triangle with a soft attack.
+        const g = env(0.08, 0.03, dest);
+        osc('triangle', f, lowpass(...MUSIC_PATCHES.tone.lp!, dur, 0.7, g));
+        break;
+      }
       case 'hit': {
         // A low hit: a falling sine and a dull noise thud.
         osc('sine', 90, env(0.4, 0.005, dest), 32, dur * 0.8);

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { AudioEngine } from '../../src/audio/engine';
 import { BattleIntensity, DAMAGE_WINDOW_MS, intensityTarget } from '../../src/audio/intensity';
 import { busGains, layerGains } from '../../src/audio/mix';
-import { battlePlan, CHORD_ROOTS, menuPlan, menuThemePlan, motifFor, musicPlan, SCALE_TONES, semitonesFromA, stingerPlan, themePlan, THEME_EVERY, type Note } from '../../src/audio/plan';
+import { readFileSync } from 'node:fs';
+import { battlePlan, CHORD_ROOTS, menuPlan, menuThemePlan, motifFor, MUSIC_PARTIALS, MUSIC_PATCHES, musicPlan, SCALE_TONES, semitonesFromA, stingerPlan, themePlan, THEME_EVERY, type Note } from '../../src/audio/plan';
 
 const scale = new Set(SCALE_TONES);
 const rel = (freq: number, root: number): number => ((((Math.round(semitonesFromA(freq)) - root) % 12) + 12) % 12);
@@ -19,16 +20,16 @@ describe('battle layer (AUD-13)', () => {
     expect(b).not.toEqual(musicPlan(7, 16));
   });
 
-  it('AUD-13: the battle layer has a low ostinato, a percussion pulse and brass-like stabs, all in key', () => {
+  it('AUD-13: the battle layer has a low ostinato, a percussion pulse and a soft pad swell, all in key', () => {
     const b = battlePlan(7, 16);
-    for (const v of ['ost', 'kick', 'perc', 'stab'] as const) expect(b.some((n) => n.voice === v), v).toBe(true);
+    for (const v of ['ost', 'kick', 'perc', 'strings'] as const) expect(b.some((n) => n.voice === v), v).toBe(true);
     for (const n of pitched(b)) {
       expect(inKey(n), `${n.voice} ${n.freq.toFixed(1)} Hz out of key`).toBe(true);
       expect(n.beat).toBeGreaterThanOrEqual(0);
       expect(n.dur).toBeGreaterThan(0);
     }
     // The ostinato sits on the chord root and fifth of its own bar.
-    for (const n of b.filter((x) => x.voice === 'ost' || x.voice === 'stab')) {
+    for (const n of b.filter((x) => x.voice === 'ost' || x.voice === 'strings')) {
       const root = CHORD_ROOTS[Math.floor(n.beat / 4) % CHORD_ROOTS.length] as number;
       expect([0, 7], `${n.voice} at beat ${n.beat}`).toContain(rel(n.freq, root));
     }
@@ -135,8 +136,8 @@ describe('faction themes (AUD-14)', () => {
       for (const n of m) expect(scale.has(rel(n.freq, 0)), `${n.freq.toFixed(1)} Hz`).toBe(true);
     }
     expect(aegis.map((n) => n.freq)).not.toEqual(vrax.map((n) => n.freq));
-    expect(aegis.every((n) => n.voice === 'brass')).toBe(true);
-    expect(vrax.every((n) => n.voice === 'glass')).toBe(true);
+    expect(aegis.every((n) => n.voice === 'march')).toBe(true);
+    expect(vrax.every((n) => n.voice === 'hollow')).toBe(true);
   });
 
   it('AUD-14: Aegis is martial (dotted rhythm, rising fourths and fifths) and Vrax falls in wide leaps with sparse timing', () => {
@@ -159,11 +160,11 @@ describe('faction themes (AUD-14)', () => {
     for (const seed of [4, 5]) {
       for (const plan of [themePlan(seed, 32, 'human'), menuThemePlan(seed, 32, 'human')]) {
         const motif = motifFor('human');
-        const starts = plan.filter((n) => n.freq === (motif[0] as Note).freq && n.voice === 'brass').map((n) => n.beat / 4);
+        const starts = plan.filter((n) => n.freq === (motif[0] as Note).freq && n.voice === 'march').map((n) => n.beat / 4);
         expect(starts.length).toBeGreaterThanOrEqual(3);
         expect(starts.length).toBeLessThanOrEqual(32 / THEME_EVERY);
         starts.slice(1).forEach((b, i) => expect(b - (starts[i] as number)).toBe(THEME_EVERY));
-        for (const n of plan) expect(inKey(n)).toBe(true);
+        for (const n of pitched(plan)) expect(inKey(n)).toBe(true);
       }
     }
     expect(themePlan(4, 32, 'alien')).toEqual(themePlan(4, 32, 'alien'));
@@ -176,11 +177,73 @@ describe('faction themes (AUD-14)', () => {
     const h = menuThemePlan(9, 24, 'human');
     const a = menuThemePlan(9, 24, 'alien');
     expect(h.map((n) => n.freq)).not.toEqual(a.map((n) => n.freq));
-    expect(h.every((n) => n.voice === 'brass')).toBe(true);
-    expect(a.every((n) => n.voice === 'glass')).toBe(true);
+    expect(h.every((n) => n.voice === 'march' || n.voice === 'perc')).toBe(true);
+    expect(h.some((n) => n.voice === 'perc')).toBe(true);
+    expect(a.every((n) => n.voice === 'hollow')).toBe(true);
     expect(sameShape(h, h)).toBe(true);
     // The calm menu score underneath stays what AUD-4 says it is.
     expect(menuPlan(9, 24)).toEqual(menuPlan(9, 24));
+  });
+});
+
+describe('no chimes in the music (AUD-14)', () => {
+  const all = (): Note[] => [
+    ...[1, 2, 3, 4].flatMap((seed) => [...musicPlan(seed, 32), ...menuPlan(seed, 32), ...battlePlan(seed, 32), ...themePlan(seed, 32, 'human'), ...themePlan(seed, 32, 'alien'), ...stingerPlan('launch', seed), ...stingerPlan('strike', seed)]),
+    ...motifFor('human'),
+    ...motifFor('alien'),
+  ];
+
+  it('AUD-14: every music voice patch is harmonic: whole-number partial ratios only, and no inharmonic partial in the synth', () => {
+    for (const [voice, ratios] of Object.entries(MUSIC_PARTIALS)) for (const r of ratios) expect(Number.isInteger(r), `${voice} partial ${r}`).toBe(true);
+    const src = readFileSync(new URL('../../src/audio/engine.ts', import.meta.url), 'utf8');
+    const start = src.indexOf('private note(');
+    const body = src.slice(start, src.indexOf('Stops the score', start));
+    expect(body).not.toMatch(/2.76|5.4|8.93|INHARMONIC|'glass'/);
+    // Every voice the plans use has a patch.
+    for (const n of all()) expect(n.voice in MUSIC_PARTIALS, n.voice).toBe(true);
+  });
+
+  it('AUD-14: no music note is above 1.2 kHz, so nothing in the score is high enough to chime', () => {
+    for (const n of all().filter((x) => x.voice !== 'perc')) expect(n.freq, `${n.voice} ${n.freq.toFixed(0)} Hz`).toBeLessThanOrEqual(1200);
+    // The calm layer's arpeggio is soft and low: one octave over the chord root at most.
+    for (const n of musicPlan(3, 32).filter((x) => x.voice === 'arp')) expect(n.freq).toBeLessThan(450);
+  });
+
+  it('AUD-14: the Vrax theme stays eerie, pulsing and falling, in a non-bell voice in the mid register', () => {
+    const v = motifFor('alien');
+    expect(v.every((n) => n.voice === 'hollow')).toBe(true);
+    expect(v.every((n) => n.freq >= 100 && n.freq <= 500)).toBe(true);
+  });
+});
+
+describe('no brass in the music (AUD-14)', () => {
+  const used = (faction: 'human' | 'alien'): Set<string> => {
+    const v = new Set<string>();
+    for (const seed of [0, 1, 2, 3]) {
+      for (const n of [...musicPlan(seed, 32), ...battlePlan(seed, 32), ...themePlan(seed, 32, faction), ...menuThemePlan(seed, 32, faction), ...stingerPlan('launch', seed), ...stingerPlan('strike', seed)]) v.add(n.voice);
+    }
+    for (const n of motifFor(faction)) v.add(n.voice);
+    return v;
+  };
+
+  it('AUD-14: no music voice is brass-like', () => {
+    for (const faction of ['human', 'alien'] as const) {
+      const voices = used(faction);
+      expect(voices.size).toBeGreaterThan(8);
+      for (const voice of voices) {
+        expect(/brass|horn|trumpet|stab/i.test(voice), `${voice} is named like brass`).toBe(false);
+        const p = MUSIC_PATCHES[voice as keyof typeof MUSIC_PATCHES];
+        expect(p, `${voice} has a patch`).toBeDefined();
+        if (!p.lp) continue;
+        const [from, to] = p.lp;
+        expect(Math.max(from, to), `${voice} filter sweeps above 1.5 kHz`).toBeLessThanOrEqual(1500);
+        if (p.wave === 'sawtooth' || p.wave === 'square') expect(to, `${voice} cutoff rises during the attack`).toBeLessThanOrEqual(from);
+      }
+    }
+    // The engine reads its cutoffs from the patch table, so nothing in the synth can open a filter on its own.
+    const src = readFileSync(new URL('../../src/audio/engine.ts', import.meta.url), 'utf8');
+    const body = src.slice(src.indexOf('private note('), src.indexOf('Stops the score'));
+    expect(body).not.toMatch(/brass|lowpass\(\s*\d/i);
   });
 });
 
@@ -198,14 +261,16 @@ describe('stingers (AUD-15)', () => {
     }
   });
 
-  it('AUD-15: launch is a rising brass swell; strike is a low hit and a falling motif', () => {
+  it('AUD-15: launch is a rising pad swell over a low riser; strike is a low hit and a falling motif', () => {
     const launch = stingerPlan('launch', 0);
-    expect(launch.every((n) => n.voice === 'swell')).toBe(true);
-    expect(launch.map((n) => n.freq)).toEqual([...launch.map((n) => n.freq)].sort((x, y) => x - y));
+    expect(launch.some((n) => n.voice === 'riser')).toBe(true);
+    const swell = launch.filter((n) => n.voice === 'swell');
+    expect(swell.length).toBeGreaterThanOrEqual(3);
+    expect(swell.map((n) => n.freq)).toEqual([...swell.map((n) => n.freq)].sort((x, y) => x - y));
     const strike = stingerPlan('strike', 0);
     const hit = strike.find((n) => n.voice === 'hit') as Note;
     expect(hit.freq).toBeLessThan(80);
-    const fall = strike.filter((n) => n.voice === 'brass').map((n) => n.freq);
+    const fall = strike.filter((n) => n.voice === 'tone').map((n) => n.freq);
     expect(fall.length).toBeGreaterThanOrEqual(3);
     expect(fall).toEqual([...fall].sort((x, y) => y - x));
   });
@@ -317,7 +382,8 @@ describe('music settings (AUD-16)', () => {
   it('AUD-16: Music off or music volume 0 zeroes the music bus only; effects and master are untouched', () => {
     const r = rig();
     const master = gainOf(r.master);
-    expect(gainOf(r.music)).toBe(1);
+    // The default music volume (0.75) sits about 5 dB above the original score (1.75 times its gain).
+    expect(gainOf(r.music)).toBeCloseTo(1.75, 2);
     r.e.setMusicOn(false);
     expect(gainOf(r.music)).toBe(0);
     expect(gainOf(r.master)).toBe(master);
@@ -332,10 +398,10 @@ describe('music settings (AUD-16)', () => {
   it('AUD-16: music volume scales only the music bus, and Mute all zeroes the master and so everything', () => {
     const r = rig();
     r.e.setMusicVolume(0.3);
-    expect(gainOf(r.music)).toBeCloseTo(0.5, 5);
+    expect(gainOf(r.music)).toBeCloseTo(2.3 * 0.3 ** 0.95, 5);
     expect(gainOf(r.sfx)).toBe(1);
     r.e.setMusicVolume(1);
-    expect(gainOf(r.music)).toBeGreaterThan(1);
+    expect(gainOf(r.music)).toBeCloseTo(2.3, 5);
     r.e.setMuted(true);
     expect(gainOf(r.master)).toBe(0);
     expect(r.e.gains().master).toBe(0);
@@ -343,7 +409,11 @@ describe('music settings (AUD-16)', () => {
     expect(gainOf(r.master)).toBeGreaterThan(0);
     expect(busGains({ muted: true, volume: 1, musicOn: true, musicVolume: 1 }).master).toBe(0);
     expect(busGains({ muted: false, volume: 1, musicOn: false, musicVolume: 1 })).toMatchObject({ music: 0 });
-    expect(busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 0.6 }).music).toBe(1);
+    const def = busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 0.75 }).music;
+    expect(def).toBeCloseTo(1.75, 2);
+    expect(20 * Math.log10(def)).toBeGreaterThan(4.5);
+    expect(busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 1 }).music).toBeCloseTo(2.3, 5);
+    expect(busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 0 }).music).toBe(0);
   });
 
   it('AUD-16: sound effects still play with Music off, and do not play under Mute all', () => {

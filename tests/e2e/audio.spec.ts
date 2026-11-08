@@ -91,3 +91,17 @@ test('AUD-13 AUD-16: the score rendered through the real graph is louder with th
   expect(off.peak).toBeLessThan(0.0001);
   expect(errors).toEqual([]);
 });
+
+test('AUD-8 AUD-10: the idle soundscape (ambience and every movement loop at full count) rendered through the real graph carries no hiss: almost no energy above 2 kHz', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=classic');
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
+  const r = (await page.evaluate('window.__shardfall.audioSoundscape(3)')) as { rms: number; peak: number; highRms: number; highFraction: number };
+  expect(r.rms).toBeGreaterThan(0.001);
+  expect(r.highFraction).toBeLessThan(0.05);
+  expect(r.highRms).toBeLessThan(0.005);
+  // A constant low rumble must not drone or mask the music: the full-count idle soundscape stays quiet.
+  expect(r.rms).toBeLessThanOrEqual(0.025);
+  expect(errors).toEqual([]);
+});

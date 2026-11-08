@@ -307,13 +307,67 @@ const MOVE_CLASS: Readonly<Record<string, MoveClass>> = {
 /** The movement sound class of a unit kind, or null for kinds that make none. */
 export const moveClass = (kind: string): MoveClass | null => MOVE_CLASS[kind] ?? null;
 
-/** How one class's loop sounds: a filtered noise bed pulsed at the gait's rate (tracks clatter, footfalls, steps, scuttle). */
-export const MOVE_LOOPS: Readonly<Record<MoveClass, { filter: FilterSpec; rate: number; depth: number; level: number }>> = {
-  vehicle: { filter: { type: 'lowpass', f: 320, q: 0.9 }, rate: 17, depth: 0.45, level: 0.1 },
-  walker: { filter: { type: 'lowpass', f: 170, q: 1.2 }, rate: 1.6, depth: 0.95, level: 0.2 },
-  infantry: { filter: { type: 'bandpass', f: 900, q: 0.9 }, rate: 3.4, depth: 0.9, level: 0.07 },
-  swarm: { filter: { type: 'bandpass', f: 2600, q: 2.5 }, rate: 11, depth: 0.8, level: 0.05 },
+/**
+ * How one class's loop sounds (AUD-8): a short generated sample that repeats, never noise. Movement is low and soft: a rumble for
+ * vehicles, discrete footfall thumps for walkers and heroes, soft low-mid steps for infantry, sparse low patters for swarms.
+ * `filter` is a final low-pass that keeps every class well below the hiss band; `period` is the sample's length in seconds.
+ */
+export const MOVE_LOOPS: Readonly<Record<MoveClass, { filter: FilterSpec; period: number; level: number }>> = {
+  vehicle: { filter: { type: 'lowpass', f: 300, q: 0.7 }, period: 1, level: 0.05 },
+  walker: { filter: { type: 'lowpass', f: 220, q: 0.7 }, period: 1.2, level: 0.1 },
+  infantry: { filter: { type: 'lowpass', f: 700, q: 0.7 }, period: 1.6, level: 0.025 },
+  swarm: { filter: { type: 'lowpass', f: 800, q: 0.7 }, period: 1.4, level: 0.04 },
 };
+
+/** A decaying sine thump added into `d` at time `at` s: its pitch falls from `f0` to `f1`, it dies over `dur` s. */
+function thump(d: Float32Array, rate: number, at: number, f0: number, f1: number, dur: number, gain: number): void {
+  const n = Math.min(d.length, Math.floor(dur * rate * 1.5));
+  const start = Math.floor(at * rate);
+  let ph = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / rate;
+    const f = f1 + (f0 - f1) * Math.exp(-t / (dur * 0.25));
+    ph += (2 * Math.PI * f) / rate;
+    const atk = Math.min(1, t / 0.004);
+    const idx = (start + i) % d.length;
+    d[idx] = (d[idx] as number) + Math.sin(ph) * Math.exp(-t / (dur * 0.35)) * atk * gain;
+  }
+}
+
+/**
+ * The samples of one class's movement loop (AUD-8), mono, `MOVE_LOOPS[cls].period` seconds long, seamless. No noise, all
+ * thumps, rumble and patters well below 1 kHz. Pure and deterministic, so a test can look at it without any audio device.
+ */
+export function moveLoopSamples(cls: MoveClass, rate: number): Float32Array {
+  const period = MOVE_LOOPS[cls].period;
+  const d = new Float32Array(Math.round(period * rate));
+  switch (cls) {
+    case 'vehicle': {
+      // An engine and track rumble: low harmonics of 40 Hz (whole cycles per loop), chugging at 6 Hz.
+      for (let i = 0; i < d.length; i++) {
+        const t = i / rate;
+        const chug = 0.65 + 0.35 * Math.sin(2 * Math.PI * 6 * t);
+        const v = Math.sin(2 * Math.PI * 40 * t) + 0.6 * Math.sin(2 * Math.PI * 80 * t + 0.7) + 0.35 * Math.sin(2 * Math.PI * 120 * t + 1.9) + 0.2 * Math.sin(2 * Math.PI * 160 * t + 0.3);
+        d[i] = v * chug * 0.5;
+      }
+      break;
+    }
+    case 'walker':
+      // Heavy footfalls: two low thumps a loop, the second a little lighter and lower.
+      thump(d, rate, 0, 78, 42, 0.22, 1);
+      thump(d, rate, 0.6, 70, 38, 0.22, 0.8);
+      break;
+    case 'infantry':
+      // Soft low-mid steps, short and sparse: alternating feet.
+      for (let k = 0; k < 4; k++) thump(d, rate, k * 0.4, k % 2 ? 230 : 280, 130, 0.07, k % 2 ? 0.55 : 0.7);
+      break;
+    case 'swarm':
+      // Soft low patters: little clusters of clicks with gaps between.
+      for (const at of [0, 0.07, 0.15, 0.7, 0.78, 0.84, 0.92]) thump(d, rate, at, 330, 190, 0.035, 0.5);
+      break;
+  }
+  return d;
+}
 
 export interface MovingUnit {
   kind: string;
@@ -342,7 +396,6 @@ export function movementMix(moving: readonly MovingUnit[], vw: number, vh: numbe
 // Ambience (AUD-10)
 // ---------------------------------------------------------------------------------------------------------------
 export interface AmbienceMix {
-  wind: number;
   water: number;
   rumble: number;
 }
@@ -350,9 +403,9 @@ export interface AmbienceMix {
 /** Water sample points on screen at which lapping reaches full level. */
 export const WATER_FULL = 24;
 
-/** Ambience levels (0..1): wind always, water by how much is on screen, rumble by the off-screen fight level. */
+/** Ambience levels (0..1): lapping water by how much is on screen, a distant rumble by the off-screen fight level. No wind (AUD-10). */
 export function ambienceMix(waterOnScreen: number, fight: number): AmbienceMix {
-  return { wind: 1, water: clamp(waterOnScreen / WATER_FULL, 0, 1), rumble: clamp(fight, 0, 1) };
+  return { water: clamp(waterOnScreen / WATER_FULL, 0, 1), rumble: clamp(fight, 0, 1) };
 }
 
 /** The off-screen fight level after `dtSec` with `n` of the player's units shooting or dying off-screen: it dies away in a few seconds. */

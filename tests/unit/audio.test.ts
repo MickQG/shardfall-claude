@@ -13,6 +13,8 @@ import {
   mostNumerousKind,
   movementMix,
   moveClass,
+  moveLoopSamples,
+  MOVE_LOOPS,
   MOVE_CLASSES,
   paletteOf,
   panGain,
@@ -203,6 +205,44 @@ describe('movement loops', () => {
     expect(movementMix([at('nothing', 500, 300)], 1000, 600)).toEqual(none);
   });
 
+  it('AUD-8: movement loops are generated low and soft (rumble, thumps, patters), seamless, and carry no energy in the hiss band', () => {
+    const rate = 44100;
+    for (const c of MOVE_CLASSES) {
+      const d = moveLoopSamples(c, rate);
+      expect(d.length, c).toBe(Math.round(MOVE_LOOPS[c].period * rate));
+      expect(MOVE_LOOPS[c].filter.type, c).toBe('lowpass');
+      expect(MOVE_LOOPS[c].filter.f, c).toBeLessThanOrEqual(800);
+      let peak = 0;
+      let sum = 0;
+      let diff = 0;
+      for (let i = 0; i < d.length; i++) {
+        const v = d[i] as number;
+        peak = Math.max(peak, Math.abs(v));
+        sum += v * v;
+        diff += (v - (d[Math.max(0, i - 1)] as number)) ** 2;
+      }
+      expect(peak, c).toBeGreaterThan(0.05);
+      expect(peak, c).toBeLessThanOrEqual(1);
+      // A first difference measures the energy in the highs: smooth low tones keep it far below the signal's own.
+      expect(diff / sum, `${c} is smooth, not hissy`).toBeLessThan(0.05);
+    }
+    // Vehicles rumble below 300 Hz, so the vehicle filter sits there.
+    expect(MOVE_LOOPS.vehicle.filter.f).toBeLessThanOrEqual(300);
+  });
+
+  it('AUD-8: the loops are balanced by class: steps are the quietest, heavy walkers the loudest, all soft', () => {
+    const loud = (c: (typeof MOVE_CLASSES)[number]): number => {
+      const d = moveLoopSamples(c, 22050);
+      let s = 0;
+      for (const v of d) s += v * v;
+      return Math.sqrt(s / d.length) * MOVE_LOOPS[c].level;
+    };
+    const l = Object.fromEntries(MOVE_CLASSES.map((c) => [c, loud(c)])) as Record<(typeof MOVE_CLASSES)[number], number>;
+    expect(l.infantry).toBe(Math.min(...Object.values(l)));
+    expect(l.walker).toBe(Math.max(...Object.values(l)));
+    expect(l.walker).toBeLessThan(0.03);
+  });
+
   it('AUD-8: moving units come from successive snapshots (their position changed)', () => {
     const u = (id: number, x: number, y: number): UnitSnap => ({ id, owner: 0, kind: 'hum_tank', x, y, hp: 1, rank: 0, target: -1, dest: null, load: 0 });
     const moved = movingUnits([u(1, 0, 0), u(2, 5, 5), u(3, 9, 9)], [u(1, 0, 0), u(2, 6, 5), u(3, 9, 8), u(4, 1, 1)]);
@@ -232,13 +272,13 @@ describe('position on screen', () => {
 });
 
 describe('ambience', () => {
-  it('AUD-10: wind is always on, water follows how much is on screen, and rumble follows the off-screen fight', () => {
-    expect(ambienceMix(0, 0)).toEqual({ wind: 1, water: 0, rumble: 0 });
+  it('AUD-10: there is no wind bed; water follows how much is on screen, and rumble follows the off-screen fight', () => {
+    expect(ambienceMix(0, 0)).toEqual({ water: 0, rumble: 0 });
     expect(ambienceMix(WATER_FULL / 2, 0).water).toBeCloseTo(0.5, 5);
     expect(ambienceMix(WATER_FULL * 5, 0).water).toBe(1);
     expect(ambienceMix(0, 0.6).rumble).toBeCloseTo(0.6, 5);
     expect(ambienceMix(0, 4).rumble).toBe(1);
-    expect(ambienceMix(0, 0).wind).toBe(1);
+    expect('wind' in ambienceMix(0, 0)).toBe(false);
   });
 
   it('AUD-10: the off-screen fight level rises with the player\'s units fighting out of view and dies away within seconds', () => {
@@ -253,10 +293,10 @@ describe('ambience', () => {
   });
 
   it('AUD-10: the soundscape drives the loops and beds from snapshots, the camera and the water on screen', () => {
-    const calls: { movement: Record<string, number>; ambience: { wind: number; water: number; rumble: number } }[] = [];
+    const calls: { movement: Record<string, number>; ambience: { water: number; rumble: number } }[] = [];
     const bed = {
-      setMovement: (m: Record<string, number>) => calls.push({ movement: m, ambience: { wind: 0, water: 0, rumble: 0 } }),
-      setAmbience: (a: { wind: number; water: number; rumble: number }) => (calls[calls.length - 1]!.ambience = a),
+      setMovement: (m: Record<string, number>) => calls.push({ movement: m, ambience: { water: 0, rumble: 0 } }),
+      setAmbience: (a: { water: number; rumble: number }) => (calls[calls.length - 1]!.ambience = a),
     };
     const W = 40;
     const heights = new Array(W * W).fill(0) as number[];
@@ -275,7 +315,6 @@ describe('ambience', () => {
     sc.update(snap(1, 20), snap(2, 20.5), proj, { width: 400, height: 400 } as never, 0);
     const first = calls[0]!;
     expect(first.movement.vehicle).toBeGreaterThan(0);
-    expect(first.ambience.wind).toBe(1);
     expect(first.ambience.water).toBe(1);
     // Too soon for another update.
     sc.update(snap(1, 20), snap(2, 20.5), proj, { width: 400, height: 400 } as never, 50);
@@ -313,7 +352,7 @@ describe('UI sounds', () => {
       for (const n of UI_SOUNDS) e.play(n);
       e.ack('hum_tank', 'select');
       e.setMovement({ vehicle: 1, walker: 1, infantry: 1, swarm: 1 });
-      e.setAmbience({ wind: 1, water: 1, rumble: 1 });
+      e.setAmbience({ water: 1, rumble: 1 });
     }).not.toThrow();
     expect(e.stats.requested.hover).toBe(1);
     expect(e.stats.started).toBe(0);
