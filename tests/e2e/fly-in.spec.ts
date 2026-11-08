@@ -99,13 +99,23 @@ test('CAM-4 CAM-5: the sweep holds the game at its first tick with the HUD hidde
   expect(errors).toEqual([]);
 });
 
-// The skip tests use the classic view: the software GPU draws the 3D sweep so slowly that a test's own key press could land after it.
+// The skip tests use the classic view, and skip from inside the page in one step: on CI's software GPU a frame can take
+// hundreds of milliseconds, so a key press sent from the test could otherwise land after the fly-in had ended by itself.
+/** Sends a key press or a click to the page while the fly-in plays, and reports whether it was playing and whether it ended. */
+const skipNow = (page: Page, input: 'key' | 'click'): Promise<{ before: string | undefined; after: string | undefined; flyMs: number }> =>
+  page.evaluate((input) => {
+    const before = document.body.dataset.ready;
+    if (input === 'key') window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    else document.elementFromPoint(300, 300)?.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: 300, clientY: 300, bubbles: true }));
+    return { before, after: document.body.dataset.ready, flyMs: Number(document.body.dataset.flyMs) };
+  }, input);
 test('CAM-6 CAM-5: in single-player a key press skips the fly-in and the game starts at once', async ({ page }) => {
   await open(page, 'renderer=classic');
   expect((await sample(page)).tick).toBe(0);
-  await page.keyboard.press('Space');
-  await ready(page, 2000);
-  expect(await flyMs(page)).toBeLessThan(3000);
+  const r = await skipNow(page, 'key');
+  expect(r.before).not.toBe('true');
+  expect(r.after).toBe('true');
+  expect(r.flyMs).toBeLessThan(4000);
   const s = await sample(page);
   expect(s.flying).toBe(false);
   expect(s.drawn).toEqual(s.cam);
@@ -115,9 +125,10 @@ test('CAM-6 CAM-5: in single-player a key press skips the fly-in and the game st
 
 test('CAM-6: in single-player a click skips the fly-in too', async ({ page }) => {
   await open(page, 'renderer=classic');
-  await page.mouse.click(300, 300);
-  await ready(page, 2000);
-  expect(await flyMs(page)).toBeLessThan(3000);
+  const r = await skipNow(page, 'click');
+  expect(r.before).not.toBe('true');
+  expect(r.after).toBe('true');
+  expect(r.flyMs).toBeLessThan(4000);
   await expect.poll(async () => (await sample(page)).tick, { timeout: 3000 }).toBeGreaterThan(0);
 });
 
@@ -160,7 +171,8 @@ for (const [name, query, emulate] of [
 test('CAM-8 CAM-6: with reduced motion a single-player key press skips the fade', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await open(page, 'renderer=classic');
-  await page.keyboard.press('a');
-  await ready(page, 2000);
-  expect(await flyMs(page)).toBeLessThan(3000);
+  const r = await skipNow(page, 'key');
+  expect(r.before).not.toBe('true');
+  expect(r.after).toBe('true');
+  expect(r.flyMs).toBeLessThan(4000);
 });
