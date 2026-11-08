@@ -64,8 +64,12 @@ test('MENU-12: each faction card keeps its own frame, whichever faction is picke
     const human = page.locator('#menu .card[data-faction="human"]');
     await expect(human.locator('.trim')).toHaveCount(1);
     await expect(human.locator('.tag')).toHaveCount(1);
-    expect(await human.locator('.trim').evaluate((el) => getComputedStyle(el).backgroundImage.match(/linear-gradient/g)?.length)).toBeGreaterThanOrEqual(7);
-    expect((aegis.clip.match(/,/g) ?? []).length).toBeGreaterThanOrEqual(7);
+    // Two brackets (four strokes) in the un-chamfered corners, two chamfers (a six-point polygon), the label, no grid and no tick rule.
+    expect(await human.locator('.trim').evaluate((el) => getComputedStyle(el).backgroundImage.match(/linear-gradient/g)?.length)).toBe(4);
+    expect(aegis.clip.match(/,/g) ?? []).toHaveLength(5);
+    await expect(human.locator('.tag')).toHaveText(/AEG-01 \/\/ COMBINED ARMS/i);
+    expect(await human.evaluate((el) => getComputedStyle(el, '::after').display)).toBe('none');
+    expect(await human.locator('h3').evaluate((el) => getComputedStyle(el, '::after').content)).toBe('none');
     await expect(page.locator('#menu .card[data-faction="alien"] .trim, #menu .card[data-faction="alien"] .tag')).toHaveCount(0);
   }
 });
