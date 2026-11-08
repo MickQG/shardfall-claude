@@ -36,5 +36,5 @@ test('UX-1 UX-2 VIS-3 SCR-3 UI-20: pause stops the game, and finishing the enemy
 
   // UX-2: the result screen also leads back to the main menu.
   await page.locator('#result #menu-btn').click();
-  await expect(page.locator('#menu h1')).toHaveText('SHARDFALL');
+  await expect(page.locator('#menu h1 svg[role="img"]')).toHaveAttribute('aria-label', 'Shardfall');
 });

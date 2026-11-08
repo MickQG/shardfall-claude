@@ -14,15 +14,19 @@ const store = (init: Record<string, string> = {}): { getItem: (k: string) => str
 const files = (dir: string): string[] => readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : [join(dir, f)]));
 
 describe('front-end and HUD', () => {
-  it('MENU-8: the wordmark is inline SVG with a shard emblem of polygons, SHARDFALL text with a gradient fill, and the accessible name Shardfall', () => {
+  it('MENU-8: the wordmark is flat inline SVG named Shardfall, with a two-polygon emblem and two clipped text copies, no gradient or filter', () => {
     const svg = wordmarkSvg();
     expect(svg).toMatch(/^<svg[^>]*role="img"[^>]*aria-label="Shardfall"/);
-    expect((svg.match(/<polygon /g) ?? []).length).toBeGreaterThanOrEqual(4);
-    expect(svg).toContain('SHARDFALL');
-    expect(svg).toMatch(/<linearGradient id="wm-metal"/);
-    expect(svg).toContain('fill="url(#wm-metal)"');
+    expect((svg.match(/<polygon /g) ?? []).length - (svg.match(/<clipPath[^>]*><polygon /g) ?? []).length).toBe(2);
+    expect((svg.match(/<text /g) ?? []).length).toBe(2);
+    expect((svg.match(/<clipPath /g) ?? []).length).toBe(2);
+    expect((svg.match(/clip-path="url\(#/g) ?? []).length).toBe(2);
+    expect(svg).toContain('SHARD');
+    expect(svg).not.toMatch(/linearGradient|radialGradient|filter|stroke/i);
     expect(svg).toContain('var(--font-head)');
     expect(svg).not.toMatch(/<image|href=|url\(['"]?data:/);
+    expect(wordmarkSvg('a')).toContain('id="a-up"');
+    expect(wordmarkSvg('a')).not.toContain('id="wm-up"');
   });
 
   it('MENU-9: headings use the condensed stack, body text the Segoe stack, and the build adds no font files', () => {

@@ -11,7 +11,7 @@ const painted = (page: Page): Promise<number> =>
 
 test('INF-1 INF-2 INF-3 INF-4: the unit sheet lists the picked faction, explains each unit in plain words and switches faction', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('#menu h1')).toHaveText('SHARDFALL');
+  await expect(page.locator('#menu h1 svg[role="img"]')).toHaveAttribute('aria-label', 'Shardfall');
   const panel = page.locator('#unit-info');
   await expect(panel).toBeHidden();
 
@@ -39,7 +39,7 @@ test('INF-1 INF-2 INF-3 INF-4: the unit sheet lists the picked faction, explains
 
 test('INF-6 INF-7 INF-8: the sheet shows each unit as a moving 3D model with pictures in the list, bars, and loads 3D only when opened', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('#menu h1')).toHaveText('SHARDFALL');
+  await expect(page.locator('#menu h1 svg[role="img"]')).toHaveAttribute('aria-label', 'Shardfall');
   const chunks = (): Promise<string[]> => page.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name).filter((n) => /preview3d/.test(n)));
   expect(await chunks()).toEqual([]);
 

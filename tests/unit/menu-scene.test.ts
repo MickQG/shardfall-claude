@@ -2,29 +2,74 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { UNIT_DEFS } from '../../src/data/defs';
 import { BUILDING_RIGS } from '../../src/render3d/buildings3d';
-import { buttonKinds, DOLLY_FAR, DOLLY_NEAR, DOLLY_PASS_S, dollyAt, dollyDistance, FADE_IN_MS, FADE_OUT_MS, heroScreenX, heroShift, holdStill, IconCache, iconKey, panelRight, SCENE_CAST, sceneKinds } from '../../src/render/menuPlan';
+import { buttonKinds, DOLLY_FAR, DOLLY_NEAR, DOLLY_PASS_S, dollyAt, dollyDistance, FADE_IN_MS, FADE_OUT_MS, heroScreenX, HAULER_SPOT, HERO_CLEAR, HERO_SPOT, heroShift, holdStill, IconCache, iconKey, panelRight, SCENE_CAST, sceneKinds, sceneSlots, shardPlan } from '../../src/render/menuPlan';
 import { FOG_FAR, FOG_NEAR, GROUND_RADIUS, HAZE, SKY_TOP_SHADE } from '../../src/render3d/menuScene3d';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
 
 describe('menu faction scene (MENU-10, MENU-11)', () => {
-  it('MENU-10: the Aegis scene is the Paladin with a tank, a rocketeer and a rifleman before the Command Hub', () => {
-    expect(sceneKinds('human')).toEqual(['hum_paladin', 'hum_tank', 'hum_rocketeer', 'hum_rifleman', 'hum_hq']);
+  it('MENU-10: the Aegis scene is every Aegis unit kind with the Paladin as hero and the hauler at the shard field, before the Command Hub', () => {
+    expect(sceneKinds('human').slice().sort()).toEqual([...Object.keys(UNIT_DEFS).filter((k) => UNIT_DEFS[k]!.faction === 'human'), 'hum_hq'].sort());
+    for (const k of ['hum_paladin', 'hum_tank', 'hum_artillery', 'hum_buggy', 'hum_rocketeer', 'hum_rifleman', 'hum_hauler']) expect(sceneKinds('human')).toContain(k);
+    expect(sceneKinds('human')[0]).toBe('hum_paladin');
   });
 
-  it('MENU-10: the Vrax scene is the Dreadstrider with a brute, a spitter and a skitterer before the Hive Heart', () => {
-    expect(sceneKinds('alien')).toEqual(['ali_strider', 'ali_brute', 'ali_spitter', 'ali_skitter', 'ali_hq']);
+  it('MENU-10: the Vrax scene is every Vrax unit kind with the Dreadstrider as hero and the Gorger at the shard field, before the Hive Heart', () => {
+    expect(sceneKinds('alien').slice().sort()).toEqual([...Object.keys(UNIT_DEFS).filter((k) => UNIT_DEFS[k]!.faction === 'alien'), 'ali_hq'].sort());
+    for (const k of ['ali_strider', 'ali_brute', 'ali_lobber', 'ali_stalker', 'ali_spitter', 'ali_skitter', 'ali_gorger']) expect(sceneKinds('alien')).toContain(k);
+    expect(sceneKinds('alien')[0]).toBe('ali_strider');
   });
 
-  it('MENU-10: every kind in a scene has an in-game model and belongs to that faction, the hero being a hero', () => {
+  it('MENU-10: the hauler is placed at the shard field, and units stand apart from each other and clear of the hero', () => {
+    for (const f of ['human', 'alien'] as const) {
+      const slots = sceneSlots(f);
+      const cast = SCENE_CAST[f];
+      expect(slots[cast.hauler]).toEqual(HAULER_SPOT);
+      const field = shardPlan(f).field;
+      const near = field.filter((c) => Math.hypot(c.x - HAULER_SPOT.x, c.z - HAULER_SPOT.z) < 5).length;
+      expect(near).toBeGreaterThanOrEqual(10);
+      expect(sceneSlots(f)).toEqual(slots);
+      const kinds = Object.keys(slots);
+      expect(kinds.sort()).toEqual([cast.hero, ...cast.others, cast.hauler].sort());
+      for (const a of kinds) {
+        if (a !== cast.hero) expect(Math.hypot(slots[a]!.x - HERO_SPOT.x, slots[a]!.z - HERO_SPOT.z), a).toBeGreaterThan(HERO_CLEAR);
+        for (const b of kinds) if (a < b) expect(Math.hypot(slots[a]!.x - slots[b]!.x, slots[a]!.z - slots[b]!.z), `${a} ${b}`).toBeGreaterThan(1.8);
+      }
+    }
+  });
+
+  it('MENU-10: the scene has a shard field of at least 20 crystals and loose shards, placed the same on every call', () => {
+    for (const f of ['human', 'alien'] as const) {
+      const p = shardPlan(f);
+      expect(p.field.length).toBeGreaterThanOrEqual(20);
+      expect(p.field.length).toBeLessThanOrEqual(40);
+      expect(p.loose.length).toBeGreaterThanOrEqual(3);
+      expect(shardPlan(f)).toEqual(p);
+      for (const c of [...p.field, ...p.loose]) {
+        expect(c.level).toBeGreaterThanOrEqual(1);
+        expect(c.level).toBeLessThanOrEqual(4);
+        expect([0, 1, 2]).toContain(c.variant);
+      }
+    }
+    expect(shardPlan('human')).not.toEqual(shardPlan('alien'));
+  });
+
+  it('MENU-10: no crystal falls within the hero footprint', () => {
+    for (const f of ['human', 'alien'] as const) {
+      for (const c of [...shardPlan(f).field, ...shardPlan(f).loose]) expect(Math.hypot(c.x - HERO_SPOT.x, c.z - HERO_SPOT.z)).toBeGreaterThan(HERO_CLEAR);
+    }
+  });
+
+  it('MENU-10: every kind in a scene has an in-game model and belongs to that faction, the hero being a hero and the hauler a harvester', () => {
     for (const f of ['human', 'alien'] as const) {
       const c = SCENE_CAST[f];
       expect(UNIT_DEFS[c.hero]!.hero).toBeTruthy();
-      for (const k of [c.hero, ...c.others]) {
+      expect(UNIT_DEFS[c.hauler]!.role).toBe('harvester');
+      for (const k of [c.hero, c.hauler, ...c.others]) {
         expect(UNIT_RIGS[k], k).toBeDefined();
         expect(UNIT_DEFS[k]!.faction).toBe(f);
       }
       expect(BUILDING_RIGS[c.hq]).toBeDefined();
-      expect(c.others).toHaveLength(3);
+      expect(c.others).toHaveLength(5);
     }
   });
 

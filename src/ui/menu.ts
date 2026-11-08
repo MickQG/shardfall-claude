@@ -139,7 +139,7 @@ export function showMenu(): void {
   root.dataset.faction = 'human';
   const factionCards = FACTIONS.map((f) => {
     const info = FACTION_INFO[f.id];
-    return `<button class="card" data-faction="${f.id}" style="--c:${info.color}"><h3>${info.name}</h3><div class="sub">${f.sub}</div><p>${f.text}</p><div class="hero">Hero: <b>${f.hero}</b></div></button>`;
+    return `<button class="card skin" data-faction="${f.id}" style="--c:${info.color}"><h3>${info.name}</h3><div class="sub">${f.sub}</div><p>${f.text}</p><div class="hero">Hero: <b>${f.hero}</b></div></button>`;
   }).join('');
   root.innerHTML = `
     <div class="bg"></div><div class="grid"></div><div class="scene"></div>

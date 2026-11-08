@@ -7,9 +7,10 @@ test('MENU-8 MENU-9: the rail title is an inline SVG wordmark with a shard emble
   await page.goto('/');
   const mark = page.locator('#menu h1 svg[role="img"]');
   await expect(mark).toHaveAttribute('aria-label', 'Shardfall');
-  expect(await mark.locator('polygon').count()).toBeGreaterThanOrEqual(4);
-  await expect(mark.locator('linearGradient')).toHaveCount(1);
-  expect(await mark.locator('text').evaluate((t) => t.getAttribute('fill'))).toMatch(/^url\(#/);
+  await expect(mark.locator('g:not([clip-path]) > polygon')).toHaveCount(2);
+  await expect(mark.locator('linearGradient, filter')).toHaveCount(0);
+  await expect(mark.locator('text')).toHaveCount(2);
+  await expect(mark.locator('g[clip-path]')).toHaveCount(2);
   const heading = await page.locator('#menu .nav').first().evaluate((el) => getComputedStyle(el).fontFamily);
   expect(heading).toBe('Bahnschrift, "DIN Condensed", "DIN Alternate", "Roboto Condensed", "Arial Narrow", sans-serif');
   const body = await page.locator('#menu .note').first().evaluate((el) => getComputedStyle(el).fontFamily);
@@ -44,6 +45,22 @@ test('MENU-12: the menu wears the picked faction skin and switches with the pick
   expect(vrax.radius).toBe('10px');
   await page.locator('#menu .card[data-faction="human"]').click();
   await expect(menu).toHaveAttribute('data-faction', 'human');
+});
+
+test('MENU-12: each faction card keeps its own frame, whichever faction is picked', async ({ page }) => {
+  await page.goto('/');
+  for (const pick of ['human', 'alien']) {
+    await page.locator(`#menu .card[data-faction="${pick}"]`).click();
+    await expect(page.locator('#menu')).toHaveAttribute('data-faction', pick);
+    const frame = (f: string): Promise<{ clip: string; radius: string }> =>
+      page.locator(`#menu .card[data-faction="${f}"]`).evaluate((el) => ({ clip: getComputedStyle(el).clipPath, radius: getComputedStyle(el).borderTopLeftRadius }));
+    const aegis = await frame('human');
+    expect(aegis.clip).toContain('polygon');
+    expect(aegis.radius).toBe('0px');
+    const vrax = await frame('alien');
+    expect(vrax.clip).toBe('none');
+    expect(parseFloat(vrax.radius)).toBeGreaterThan(0);
+  }
 });
 
 test('MENU-13: panels change with a short fade and slide, and START fades the menu out before the game loads', async ({ page }) => {

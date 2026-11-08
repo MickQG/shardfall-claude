@@ -29,10 +29,6 @@ export const SKINS: Record<SkinId, Record<string, string>> = {
     '--edge-hi': '#a9c2d6',
     '--btn-bg': 'linear-gradient(#6fd3ff, #3da8d8)',
     '--btn-lo': '#3da8d8',
-    '--wm-1': '#f2f7fb',
-    '--wm-2': '#b9cddd',
-    '--wm-3': '#5f7f99',
-    '--wm-4': '#d3e4f0',
     // Angular frames: a 10 px chamfer on the top-left and bottom-right corners, and a 1 px top bevel.
     '--r': '0',
     '--r-s': '0',
@@ -57,10 +53,6 @@ export const SKINS: Record<SkinId, Record<string, string>> = {
     '--edge-hi': '#8c9a4a',
     '--btn-bg': 'linear-gradient(#b6ff5c, #7bc22a)',
     '--btn-lo': '#7bc22a',
-    '--wm-1': '#f4ffd9',
-    '--wm-2': '#c8f070',
-    '--wm-3': '#7da832',
-    '--wm-4': '#e0a43a',
     // Organic chitin frames: asymmetric corners and a faint inner glow.
     '--r': '18px 6px 18px 6px',
     '--r-s': '10px 4px 10px 4px',
@@ -79,7 +71,6 @@ export const CONTRAST_PAIRS: readonly { fg: string; bg: string; large?: boolean 
   { fg: '--warn', bg: '--badge-bg' },
   { fg: '--accent-ink', bg: '--accent' },
   { fg: '--accent-ink', bg: '--btn-lo' },
-  { fg: '--wm-2', bg: '--void', large: true },
 ];
 
 /** WCAG relative luminance of a `#rrggbb` colour. */
@@ -126,17 +117,21 @@ export function ensureTheme(): void {
 }
 
 /**
- * The Shardfall wordmark (MENU-8): a faceted shard emblem from four polygons beside SHARDFALL in the heading face with a
- * metallic gradient fill. Its text is fitted with `textLength`, so it fills the same width whichever face the device has.
+ * The Shardfall wordmark (MENU-8): a flat shard emblem split by a diagonal fracture into two pieces (the upper one shifted
+ * up and right), beside SHARDFALL in the heading face. A hairline fracture at 4 degrees slices the letters: the word is drawn
+ * twice, clipped above and below the line, with the upper half nudged along it. Flat fills only. The text is fitted with
+ * `textLength`, so it fills the same width whichever face the device has. `idPrefix` keeps clip ids unique per instance.
  */
 export function wordmarkSvg(idPrefix = 'wm'): string {
-  const g = `${idPrefix}-metal`;
-  const facets: [string, number][] = [
-    ['22,2 6,20 20,22', 0.95],
-    ['22,2 20,22 38,16', 0.62],
-    ['6,20 18,46 20,22', 0.45],
-    ['20,22 18,46 38,16', 0.8],
-  ];
-  const poly = facets.map(([p, o]) => `<polygon points="${p}" style="fill:var(--accent,#6fd3ff);fill-opacity:${o};stroke:var(--edge-hi,#a9c2d6);stroke-width:1;stroke-linejoin:round"/>`).join('');
-  return `<svg class="wordmark" viewBox="0 0 252 48" role="img" aria-label="Shardfall" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="${g}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--wm-1,#f2f7fb)"/><stop offset=".48" style="stop-color:var(--wm-2,#b9cddd)"/><stop offset=".52" style="stop-color:var(--wm-3,#5f7f99)"/><stop offset="1" style="stop-color:var(--wm-4,#d3e4f0)"/></linearGradient></defs>${poly}<text x="50" y="37" textLength="200" lengthAdjust="spacingAndGlyphs" fill="url(#${g})" style="font-family:var(--font-head);font-stretch:87.5%;font-weight:700;font-size:38px;letter-spacing:.06em" aria-hidden="true">SHARDFALL</text></svg>`;
+  const up = `${idPrefix}-up`;
+  const lo = `${idPrefix}-lo`;
+  // Fracture line through the word: y = 23.5 - 0.0699 (x - 142), 4 degrees; the clips leave a 1 px gap around it.
+  const y = (x: number, d: number): string => (23.5 - 0.0699 * (x - 142) + d).toFixed(2);
+  const band = (d: number, edge: number): string => `0,${edge} 252,${edge} 252,${y(252, d)} 0,${y(0, d)}`;
+  const text = (extra: string): string =>
+    `<text${extra} x="32" y="37" textLength="220" lengthAdjust="spacingAndGlyphs" style="fill:var(--ink,#eef4f8);font-family:var(--font-head);font-stretch:87.5%;font-weight:700;font-size:38px;letter-spacing:.05em" aria-hidden="true">SHARD<tspan style="fill:var(--accent,#6fd3ff)">FALL</tspan></text>`;
+  // Emblem: a 20 x 48 diamond cut along y = 29 - 0.6x; the upper piece moves up and right, leaving a gap of about 1.5 px.
+  return `<svg class="wordmark" viewBox="0 0 252 48" role="img" aria-label="Shardfall" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="${up}"><polygon points="${band(-0.5, 0)}"/></clipPath><clipPath id="${lo}"><polygon points="${band(0.5, 48)}"/></clipPath></defs>`
+    + `<g transform="translate(2 5) scale(.87)"><polygon points="10,0 18.21,18.07 2.19,27.69 0,22" transform="translate(.95 -2.3)" style="fill:var(--accent,#6fd3ff)"/><polygon points="18.21,18.07 20,22 10,48 2.19,27.69" style="fill:var(--ink,#eef4f8);fill-opacity:.85"/></g>`
+    + `<g clip-path="url(#${up})"><g transform="translate(1.5 -.1)">${text('')}</g></g><g clip-path="url(#${lo})">${text('')}</g></svg>`;
 }

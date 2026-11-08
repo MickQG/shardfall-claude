@@ -153,7 +153,7 @@ test('AI-10 UI: the start screen picks faction and difficulty, and starts a game
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/');
-  await expect(page.locator('#menu h1')).toHaveText('SHARDFALL');
+  await expect(page.locator('#menu h1 svg[role="img"]')).toHaveAttribute('aria-label', 'Shardfall');
   await page.locator('#menu [data-faction="alien"]').click();
   await page.locator('#menu [data-diff="hard"]').click();
   await page.locator('#menu #go').click();

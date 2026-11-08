@@ -4,8 +4,9 @@ import { UNIT_DEFS } from '../data/defs';
 import { OWNER_COLORS } from '../render/colors';
 import { BUILDING_RIGS, crystalShape } from './buildings3d';
 import { addEnvironment, configureRenderer, configureSunShadow, createComposer, glowLevels, matchLights } from './lighting3d';
-import { dollyDistance, FADE_IN_MS, FADE_OUT_MS, heroShift, SCENE_CAST, type SceneFaction } from '../render/menuPlan';
+import { dollyDistance, FADE_IN_MS, FADE_OUT_MS, HERO_SPOT, HQ_SPOT, heroShift, SCENE_CAST, sceneSlots, shardPlan, type SceneFaction, type SceneSlot } from '../render/menuPlan';
 import { bodyPose, restingMotion } from './motion';
+import { Instancer } from './instancer';
 import { PR_MAX } from './resolution';
 import { poseRig, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
 import { newMember, rand, stepSquad, type Member } from './squad3d';
@@ -55,34 +56,8 @@ export const FOG_FAR = 66;
 export const GROUND_RADIUS = 120;
 const GROUND: Record<SceneFaction, readonly [number, number, number]> = { human: [92, 90, 72], alien: [84, 70, 72] };
 
-/** Where each member of a scene stands (tiles; x right, z toward the camera), and which way it faces (radians, 0 = +x). */
-interface Slot {
-  x: number;
-  z: number;
-  heading: number;
-}
-const FACE = Math.PI / 2 - 0.4;
-const SLOTS: Record<SceneFaction, { hero: Slot; others: Slot[]; hq: Slot }> = {
-  human: {
-    hero: { x: 1.4, z: 1.2, heading: FACE },
-    others: [
-      { x: -0.9, z: 2.4, heading: FACE + 0.35 },
-      { x: -2.6, z: 0.6, heading: FACE + 0.6 },
-      { x: 3.8, z: 2.0, heading: FACE - 0.5 },
-    ],
-    hq: { x: 0.6, z: -4.2, heading: 0 },
-  },
-  alien: {
-    hero: { x: 1.4, z: 1.2, heading: FACE },
-    others: [
-      { x: -1.0, z: 2.4, heading: FACE + 0.35 },
-      { x: -2.8, z: 0.4, heading: FACE + 0.6 },
-      { x: 3.8, z: 2.2, heading: FACE - 0.5 },
-    ],
-    hq: { x: 0.6, z: -4.4, heading: 0 },
-  },
-};
-
+/** One mining cycle of the hauler, ms (as the unit sheet's preview). */
+const MINE_MS = 2400;
 const STILL: RigPose = { turret: 0, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: 0, stride: 0, dist: 0, turnRate: 0, time: 0, reach: 0, walker: false };
 
 interface Figure {
@@ -95,6 +70,8 @@ interface Figure {
   z: number;
   seed: number;
   building: boolean;
+  /** The hauler: mines the shard field (cutter turning, bed filling, a chomp for the Gorger). */
+  working?: boolean;
 }
 
 /** A vertical gradient from `horizon` (bottom) to a darker `top`, for the sky. */
@@ -156,6 +133,7 @@ class Scene3d implements MenuScene {
   /** Geometry owned by the ground (index 0) and by the current stage. */
   private geos: THREE.BufferGeometry[] = [];
   private figures: Figure[] = [];
+  private crystalGeo = new Map<string, { lit?: THREE.BufferGeometry | null; glow?: THREE.BufferGeometry | null }>();
   private target = new THREE.Vector3();
   private faction: SceneFaction;
   private still: boolean;
@@ -245,8 +223,8 @@ class Scene3d implements MenuScene {
     this.groundMat.map = groundTexture(GROUND[f]);
     this.groundMat.needsUpdate = true;
     const cast = SCENE_CAST[f];
-    const slots = SLOTS[f];
-    const add = (kind: string, s: Slot, i: number): Figure | null => {
+    const slots = sceneSlots(f);
+    const add = (kind: string, s: SceneSlot, i: number): Figure | null => {
       const building = !!BUILDING_RIGS[kind];
       const make = UNIT_RIGS[kind] ?? BUILDING_RIGS[kind];
       if (!make) return null;
@@ -269,26 +247,32 @@ class Scene3d implements MenuScene {
       this.figures.push(fig);
       return fig;
     };
-    add(cast.hq, slots.hq, 9);
-    const hero = add(cast.hero, slots.hero, 0);
-    cast.others.forEach((k, i) => add(k, slots.others[i]!, i + 1));
-    // A few shard crystals on the ground (the in-game decor), at fixed spots.
-    for (const [x, z, level, v] of [[-5.5, -1.5, 3, 1], [5.8, -2.2, 2, 2], [-6.5, 3.5, 2, 3], [7.5, 1.5, 3, 4]] as const) {
-      const b = crystalShape(level, v * 31 + level).build(0);
-      const g = new THREE.Group();
-      for (const geo of [b.lit, b.glow]) {
-        if (!geo) continue;
-        const m = new THREE.Mesh(geo, geo === b.lit ? this.crystal : this.glow);
-        m.castShadow = geo === b.lit;
-        g.add(m);
-        this.geos.push(geo);
+    const hq = HQ_SPOT[f];
+    add(cast.hq, { x: hq.x, z: hq.z, heading: 0 }, 9);
+    const hero = add(cast.hero, slots[cast.hero]!, 0);
+    cast.others.forEach((k, i) => add(k, slots[k]!, i + 1));
+    const hauler = add(cast.hauler, slots[cast.hauler]!, 8);
+    if (hauler) hauler.working = true;
+    // The shard field beside the HQ and loose crystals in front: the match's crystal models and material, instanced.
+    const inst = new Instancer(this.stage);
+    inst.begin();
+    const plan = shardPlan(f);
+    for (const c of [...plan.field, ...plan.loose]) {
+      const key = `crystal/${c.level}v${c.variant}`;
+      let b = this.crystalGeo.get(key);
+      if (!b) {
+        b = crystalShape(c.level, c.variant * 31 + c.level).build(0);
+        this.crystalGeo.set(key, b);
+        for (const g of [b.lit, b.glow]) if (g) this.geos.push(g);
       }
-      g.position.set(x, 0, z);
-      g.scale.setScalar(1.3);
-      this.stage.add(g);
+      const m = new THREE.Matrix4().makeRotationY(c.yaw).setPosition(c.x, 0, c.z);
+      if (b.lit) inst.push(`${key}|L`, b.lit, this.crystal, true, m);
+      if (b.glow) inst.push(`${key}|G`, b.glow, this.glow, false, m);
     }
+    inst.end();
+    this.crystalGeo.clear();
     const hh = hero ? hero.def.height * (hero.def.scale ?? 1) : 1.5;
-    this.target.set(slots.hero.x, hh * 0.5, slots.hero.z);
+    this.target.set(HERO_SPOT.x, hh * 0.5, HERO_SPOT.z);
     this.pose(0, 0.016);
   }
 
@@ -314,7 +298,8 @@ class Scene3d implements MenuScene {
           return;
         }
         const pose = bodyPose(def.move, m, 0, now, f.seed + i, mm ? undefined : def.walk);
-        poseRig(tree, { ...STILL, turret: 0.3 * Math.sin(now / 2600 + f.seed), pitch: pose.pitch, roll: pose.roll, bob: pose.bob, time: now, reach: def.radius * 0.25, walker, crouch: mm?.crouch ?? 0, phase: i * 1.7 });
+        const work = f.working ? { load: ((now + f.seed * 97) % MINE_MS) / MINE_MS, drum: (now / 1000) * 14, lunge: def.organic ? Math.max(0, Math.sin((now / 700) * Math.PI * 2)) : 0 } : null;
+        poseRig(tree, { ...STILL, turret: 0.3 * Math.sin(now / 2600 + f.seed), pitch: pose.pitch, roll: pose.roll, bob: pose.bob, time: now, reach: def.radius * 0.25, walker, crouch: mm?.crouch ?? 0, phase: i * 1.7, ...work });
       });
     }
   }
