@@ -41,22 +41,37 @@ export const HERO_CLEAR = 2.2;
 export const HQ_SPOT = { human: { x: 0.6, z: -4.2 }, alien: { x: 0.6, z: -4.4 } } as const;
 export const HAULER_SPOT: SceneSlot = { x: 3.7, z: -0.1, heading: 0.1 };
 
+/** The receding wedge the units stand in when the free strip is narrow (tiles): staggered left and right of the hero's line, ever deeper. */
+const WEDGE: readonly (readonly [number, number])[] = [
+  [-1.8, -0.9],
+  [1.8, -2.0],
+  [-1.9, -3.2],
+  [2.1, -3.8],
+  [-0.2, -5.6],
+];
+
+/** How far the army is squeezed into a wedge at screen width `w`: 0 from 1920 px up, 1 at 1600 px, blended between (MENU-11). */
+export const squeezeAt = (w: number): number => Math.min(1, Math.max(0, (1920 - w) / 320));
+
+/** The HQ's spot at a squeeze: it stands farther back so the wedge fits in front of it. */
+export const hqSpot = (f: SceneFaction, squeeze = 0): { x: number; z: number } => ({ x: HQ_SPOT[f].x, z: HQ_SPOT[f].z - 3.2 * squeeze });
+
 type Class = 'vehicle' | 'scout' | 'infantry';
 /** Formation slots by kind of unit: vehicles and artillery to the sides, scouts at the flanks, squads in front. */
 const FORMATION: Record<Class, readonly SceneSlot[]> = {
   vehicle: [
     { x: -3.0, z: 0.1, heading: FACE + 0.5 },
-    { x: -2.6, z: -2.0, heading: FACE + 0.3 },
-    { x: -4.6, z: -2.6, heading: FACE + 0.6 },
+    { x: -2.4, z: -2.0, heading: FACE + 0.3 },
+    { x: -3.9, z: -2.6, heading: FACE + 0.6 },
   ],
   scout: [
-    { x: -2.4, z: 2.3, heading: FACE + 0.7 },
-    { x: 6.2, z: 3.4, heading: FACE - 0.6 },
+    { x: -2.2, z: 2.3, heading: FACE + 0.7 },
+    { x: 5.2, z: 3.2, heading: FACE - 0.6 },
   ],
   infantry: [
     { x: 0.3, z: 3.9, heading: FACE + 0.35 },
     { x: 3.8, z: 3.7, heading: FACE - 0.5 },
-    { x: -3.6, z: 3.2, heading: FACE + 0.5 },
+    { x: -3.0, z: 3.2, heading: FACE + 0.5 },
   ],
 };
 
@@ -69,16 +84,21 @@ const classOf = (kind: string): Class => {
  * The slot of every unit kind in a faction's scene (hero, others, hauler). Seeded jitter of a few tenths of a tile keeps the
  * formation loose; a kind with no free slot in its class stands in a seeded spot on the ground behind the others.
  */
-export function sceneSlots(f: SceneFaction): Record<string, SceneSlot> {
+export function sceneSlots(f: SceneFaction, squeeze = 0): Record<string, SceneSlot> {
   const cast = SCENE_CAST[f];
   const r = stream(SHARD_SEEDS[f] ^ 0x51);
   const out: Record<string, SceneSlot> = { [cast.hero]: { x: HERO_SPOT.x, z: HERO_SPOT.z, heading: FACE }, [cast.hauler]: { ...HAULER_SPOT } };
   const used: Record<Class, number> = { vehicle: 0, scout: 0, infantry: 0 };
+  let wedge = 0;
   for (const k of cast.others) {
     const c = classOf(k);
     const base = FORMATION[c][used[c]++] ?? { x: -7 + r() * 14, z: -6 - r() * 2, heading: FACE };
-    out[k] = { x: base.x + (r() - 0.5) * 0.3, z: base.z + (r() - 0.5) * 0.3, heading: base.heading + (r() - 0.5) * 0.3 };
+    const wide = { x: base.x + (r() - 0.5) * 0.3, z: base.z + (r() - 0.5) * 0.3, heading: base.heading + (r() - 0.5) * 0.3 };
+    // A narrow free strip (MENU-11): the army forms a wedge that recedes from the camera behind the hero, deeper than wide.
+    const w = WEDGE[wedge++ % WEDGE.length]!;
+    out[k] = { x: wide.x + (w[0] - wide.x) * squeeze, z: wide.z + (w[1] - wide.z) * squeeze, heading: wide.heading + (FACE - wide.heading) * squeeze };
   }
+  out[cast.hauler] = { x: HAULER_SPOT.x - 2.6 * squeeze, z: HAULER_SPOT.z - 0.4 * squeeze, heading: HAULER_SPOT.heading };
   return out;
 }
 
@@ -111,13 +131,13 @@ function stream(seed: number): () => number {
 }
 
 /** Round zones (x, z, radius) crystals keep out of: the hero, every unit's formation slot and the HQ. */
-function keepClear(f: SceneFaction): (readonly [number, number, number])[] {
-  const slots = Object.entries(sceneSlots(f)).filter(([k]) => k !== SCENE_CAST[f].hauler);
+function keepClear(f: SceneFaction, squeeze: number): (readonly [number, number, number])[] {
+  const slots = Object.entries(sceneSlots(f, squeeze)).filter(([k]) => k !== SCENE_CAST[f].hauler);
   return [
     [HERO_SPOT.x, HERO_SPOT.z, HERO_CLEAR],
     ...slots.map(([, s]) => [s.x, s.z, 1.2] as const),
-    [HQ_SPOT[f].x, HQ_SPOT[f].z, 2.7],
-    [HAULER_SPOT.x, HAULER_SPOT.z, 1.3],
+    [hqSpot(f, squeeze).x, hqSpot(f, squeeze).z, 2.7],
+    [sceneSlots(f, squeeze)[SCENE_CAST[f].hauler]!.x, sceneSlots(f, squeeze)[SCENE_CAST[f].hauler]!.z, 1.3],
   ];
 }
 
@@ -125,9 +145,9 @@ function keepClear(f: SceneFaction): (readonly [number, number, number])[] {
  * The scene's crystals for a faction: a dense field right of the HQ, where the hauler works (higher crystals toward its
  * middle), and a few loose ones across the ground in front. Seeded, and clear of every unit and the HQ.
  */
-export function shardPlan(f: SceneFaction): { field: ShardSpot[]; loose: ShardSpot[] } {
+export function shardPlan(f: SceneFaction, squeeze = 0): { field: ShardSpot[]; loose: ShardSpot[] } {
   const r = stream(SHARD_SEEDS[f]);
-  const zones = keepClear(f);
+  const zones = keepClear(f, squeeze);
   const clear = (x: number, z: number): boolean => zones.every(([cx, cz, rad]) => Math.hypot(x - cx, z - cz) > rad);
   const spot = (x: number, z: number, level: number): ShardSpot => ({ x, z, level, variant: Math.floor(r() * 3), yaw: r() * Math.PI * 2 });
   const field: ShardSpot[] = [];
@@ -169,15 +189,85 @@ export const dollyDistance = (t: number): number => DOLLY_FAR + (DOLLY_NEAR - DO
 /** The menu panel's right edge at screen width `w`: the 300 px rail, the main area's padding and the 860 px panel (MENU-11). */
 export const panelRight = (w: number): number => 300 + Math.min(56, Math.max(20, 0.04 * w)) + 860;
 
-/**
- * Where the hero stands horizontally on screen, in px from the left (MENU-11). From 1600 px up, the middle of the free
- * strip to the right of the panel; on narrower screens the scene shows through the panel's glass, so the hero sits a
- * little right of centre.
- */
-export const heroScreenX = (w: number): number => (w >= 1600 ? (panelRight(w) + w) / 2 : w * 0.62);
+/** From this screen width up, the whole scene stands in the free strip right of the panel (MENU-11). */
+export const CLEAR_MIN_WIDTH = 1600;
+/** Room kept between the panel's edge (and the screen's right edge) and the nearest unit, px. */
+export const PANEL_MARGIN = 24;
 
-/** How far to shift the projection to the right so the hero (drawn at the middle) lands on `heroScreenX`, px. */
-export const heroShift = (w: number): number => heroScreenX(w) - w / 2;
+/** The scene camera's fixed angles (shared with the three.js scene): vertical field of view, pitch and azimuth. */
+export const SCENE_FOV = 32;
+export const SCENE_PITCH = 0.3;
+export const SCENE_AZIMUTH = 0.38;
+
+/** Ground radius, in tiles, that covers a kind's model and its squad's wander: a conservative footprint (MENU-11). */
+export function footprintOf(kind: string): number {
+  const d = UNIT_DEFS[kind];
+  if (!d) return 2.3; // buildings: the HQ is 3 x 3 tiles
+  if (d.hero) return 1.5;
+  if (d.role === 'scout') return 0.8;
+  if ((d.squad ?? 1) > 1) return 1.0;
+  return 1.1;
+}
+
+/** Horizontal screen extent of a sphere-ish footprint, px relative to the screen's middle, before any projection shift. */
+function spanAt(x: number, z: number, r: number, target: { x: number; z: number }, dist: number, h: number): [number, number] {
+  const az = SCENE_AZIMUTH;
+  // Camera's right vector and view depth along the ground plane (pitch only scales depth by cos): right = (cos az, -sin az).
+  const dx = x - target.x;
+  const dz = z - target.z;
+  const right = dx * Math.cos(az) - dz * Math.sin(az);
+  const toward = dx * Math.sin(az) + dz * Math.cos(az); // along the camera's horizontal offset: positive is nearer the camera
+  const depth = dist - toward * Math.cos(SCENE_PITCH);
+  const f = h / 2 / Math.tan((SCENE_FOV * Math.PI) / 360);
+  return [((right - r) / depth) * f, ((right + r) / depth) * f];
+}
+
+/** One member's projected x range at screen size `w` by `h`, camera `dist` tiles out, with the framing's projection shift applied, px. */
+export function projectedSpan(f: SceneFaction, kind: string, dist: number, h: number, shift: number, w = 1920): [number, number] {
+  const sq = squeezeAt(w);
+  const s = kind === SCENE_CAST[f].hq ? hqSpot(f, sq) : sceneSlots(f, sq)[kind]!;
+  const [lo, hi] = spanAt(s.x, s.z, footprintOf(kind), HERO_SPOT, dist, h);
+  return [lo + shift, hi + shift];
+}
+
+/** Every unit in a faction's scene: all of them must stand clear of the panel (MENU-11). The HQ behind them joins when it costs little. */
+export const castKinds = (f: SceneFaction): string[] => sceneKinds(f).filter((k) => k !== SCENE_CAST[f].hq);
+
+/**
+ * The scene's framing at screen `w` by `h` (MENU-11): how many times farther the camera stands (`zoomOut`, 1 or more) and how
+ * far the projection shifts right (`shift`, px). From 1600 px up the group, at both ends of the dolly, fits the free strip
+ * between the panel and the screen's right edge with PANEL_MARGIN to spare. Below that the scene shows through the glass
+ * and the hero sits a little right of centre. Pure.
+ */
+export function sceneFraming(f: SceneFaction, w: number, h: number): { zoomOut: number; shift: number } {
+  if (w < CLEAR_MIN_WIDTH) return { zoomOut: 1, shift: w * 0.62 - w / 2 };
+  const units = fitKinds(f, w, h, castKinds(f));
+  const all = fitKinds(f, w, h, sceneKinds(f));
+  // The HQ stands behind the units: frame it too unless that makes everything more than 8% smaller.
+  return all.zoomOut <= units.zoomOut * 1.08 ? all : units;
+}
+
+function fitKinds(f: SceneFaction, w: number, h: number, kinds: readonly string[]): { zoomOut: number; shift: number } {
+  const left = panelRight(w) + PANEL_MARGIN;
+  const right = w - PANEL_MARGIN;
+  for (let k = 1; k < 6; k += 0.01) {
+    let lo = -Infinity;
+    let hi = Infinity;
+    for (const dist of [DOLLY_NEAR * k, DOLLY_FAR * k]) {
+      let mn = Infinity;
+      let mx = -Infinity;
+      for (const kind of kinds) {
+        const [a, b] = projectedSpan(f, kind, dist, h, 0, w);
+        mn = Math.min(mn, a);
+        mx = Math.max(mx, b);
+      }
+      lo = Math.max(lo, left - w / 2 - mn);
+      hi = Math.min(hi, right - w / 2 - mx);
+    }
+    if (lo <= hi) return { zoomOut: k, shift: (lo + hi) / 2 };
+  }
+  return { zoomOut: 6, shift: (panelRight(w) + w) / 2 - w / 2 };
+}
 
 /** Whether the scene is drawn once and held still: Low quality, or the system asks for reduced motion (MENU-10). */
 export const holdStill = (quality: 'high' | 'low', reducedMotion: boolean): boolean => quality === 'low' || reducedMotion;

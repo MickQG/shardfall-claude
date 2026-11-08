@@ -29,7 +29,7 @@ export async function drawIcons(kinds: readonly string[], owner: number): Promis
         try {
           for (const kind of need) {
             try {
-              icons.set(kind, team, preview.picture(kind, owner, ICON_PX, ICON_PX, 0.52));
+              icons.set(kind, team, preview.picture(kind, owner, ICON_PX, ICON_PX));
             } catch {
               // no model for this kind
             }

@@ -8,6 +8,7 @@ import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigTree } from
 import { newMember, stepSquad, type Member } from './squad3d';
 import { BUILDING_RIGS } from './buildings3d';
 import { UNIT_RIGS } from './units3d';
+import { boxCorners, fitPicture, viewDir, type V3 } from './iconFit';
 
 /**
  * Unit previews for the unit sheet (INF-6, INF-8): one small three.js scene that shows a unit's in-game model on a
@@ -237,6 +238,18 @@ export class UnitPreview {
   private frame(aspect: number, margin: number): void {
     const m = this.model;
     if (!m) return;
+    const fit = this.pictureFit;
+    if (fit) {
+      // A button picture (UI-17): aimed and backed off to fit the model's own bounds.
+      const dir = viewDir(PREVIEW_PITCH);
+      this.camera.position.set(fit.target[0] + dir[0] * fit.dist, fit.target[1] + dir[1] * fit.dist, fit.target[2] + dir[2] * fit.dist);
+      this.camera.lookAt(fit.target[0], fit.target[1], fit.target[2]);
+      this.camera.near = fit.dist / 20;
+      this.camera.far = fit.dist * 6;
+      this.camera.aspect = aspect;
+      this.camera.updateProjectionMatrix();
+      return;
+    }
     const d = fitDistance(m.radius, aspect, margin);
     this.camera.position.set(Math.cos(PREVIEW_PITCH) * d * 0.72, m.centreY + Math.sin(PREVIEW_PITCH) * d, Math.cos(PREVIEW_PITCH) * d * 0.69);
     this.camera.lookAt(0, m.centreY, 0);
@@ -442,6 +455,9 @@ export class UnitPreview {
     s.missiles = later;
   }
 
+  /** Set while a button picture is drawn: the camera's aim and distance (UI-17). */
+  private pictureFit: { target: V3; dist: number } | null = null;
+
   private draw(canvas: HTMLCanvasElement, margin = 1.32): void {
     const w = Math.max(1, canvas.clientWidth || canvas.width);
     const h = Math.max(1, canvas.clientHeight || canvas.height);
@@ -460,8 +476,8 @@ export class UnitPreview {
     g.drawImage(this.renderer.domElement, 0, 0, canvas.width, canvas.height);
   }
 
-  /** A still picture of a unit (INF-6) or a building (UI-17), three-quarter view, as a PNG data URL of `w` by `h` CSS pixels. */
-  picture(kind: string, owner: number, w: number, h: number, margin = 0.86): string {
+  /** A still picture of a unit (INF-6) or a building (UI-17), three-quarter view, as a PNG data URL of `w` by `h` CSS pixels. With no `margin` the whole model is fitted with ICON_EDGE clear on every side; a `margin` is the older sphere fit. */
+  picture(kind: string, owner: number, w: number, h: number, margin?: number): string {
     const keep = this.model;
     const keepOwner = this.owner;
     const m = this.build(kind, owner);
@@ -473,7 +489,20 @@ export class UnitPreview {
     c.width = w;
     c.height = h;
     this.renderer.setPixelRatio(1);
-    this.draw(c, margin);
+    if (margin === undefined) {
+      m.group.updateMatrixWorld(true);
+      const b = new THREE.Box3().setFromObject(m.group);
+      // The plinth is a backdrop for the model, not part of it: keep it within the model's own footprint so it never reaches the edge.
+      const pr = Math.min(m.radius * 1.25, Math.hypot(b.max.x - b.min.x, b.max.z - b.min.z) / 2);
+      this.plinth.scale.set(pr, 1, pr);
+      this.rim.scale.set(pr, pr, 1);
+      this.pictureFit = fitPicture(boxCorners([b.min.x, b.min.y, b.min.z], [b.max.x, b.max.y, b.max.z]), viewDir(PREVIEW_PITCH), PREVIEW_FOV, w / h);
+    }
+    try {
+      this.draw(c, margin ?? 1);
+    } finally {
+      this.pictureFit = null;
+    }
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.fx.root.visible = true;
     this.scene.remove(m.group);
@@ -547,4 +576,29 @@ export class UnitPreview {
     this.renderer.dispose();
     this.renderer.forceContextLoss();
   }
+}
+
+/** A kind's bounding box at rest, tiles (squads in their preview formation), for the button-picture fit's test (UI-17). Needs no GPU. */
+export function restBounds(kind: string): { min: V3; max: V3 } {
+  const make = UNIT_RIGS[kind] ?? BUILDING_RIGS[kind];
+  if (!make) throw new Error(`no 3D model for ${kind}`);
+  const def = make();
+  const n = UNIT_DEFS[kind]?.squad ?? 1;
+  const group = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial();
+  for (let i = 0; i < n; i++) {
+    const tree = rigTree(def);
+    for (const d of tree.drawn) {
+      const b = def.shapes[d.geo]?.().build(0xffffff);
+      for (const g of [b?.lit, b?.glow]) if (g) d.obj.add(new THREE.Mesh(g, mat));
+    }
+    const slot = n > 1 ? (SQUAD_SLOTS[i] ?? [0, 0]) : [0, 0];
+    tree.root.position.set(slot[0]!, 0, slot[1]!);
+    tree.root.scale.setScalar(def.scale ?? 1);
+    group.add(tree.root);
+  }
+  group.rotation.y = -0.35;
+  group.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(group);
+  return { min: [box.min.x, box.min.y, box.min.z], max: [box.max.x, box.max.y, box.max.z] };
 }

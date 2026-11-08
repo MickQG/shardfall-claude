@@ -4,7 +4,7 @@ import { UNIT_DEFS } from '../data/defs';
 import { OWNER_COLORS } from '../render/colors';
 import { BUILDING_RIGS, crystalShape } from './buildings3d';
 import { addEnvironment, configureRenderer, configureSunShadow, createComposer, glowLevels, matchLights } from './lighting3d';
-import { dollyDistance, FADE_IN_MS, FADE_OUT_MS, HERO_SPOT, HQ_SPOT, heroShift, SCENE_CAST, sceneSlots, shardPlan, type SceneFaction, type SceneSlot } from '../render/menuPlan';
+import { dollyDistance, FADE_IN_MS, FADE_OUT_MS, hqSpot, HERO_SPOT, SCENE_AZIMUTH, SCENE_CAST, SCENE_FOV, SCENE_PITCH, sceneFraming, sceneSlots, shardPlan, squeezeAt, type SceneFaction, type SceneSlot } from '../render/menuPlan';
 import { bodyPose, restingMotion } from './motion';
 import { Instancer } from './instancer';
 import { PR_MAX } from './resolution';
@@ -41,9 +41,9 @@ export interface MenuScene {
 }
 
 const SEED = 4242;
-const FOV = 32;
-const PITCH = 0.3;
-const AZIMUTH = 0.38;
+const FOV = SCENE_FOV;
+const PITCH = SCENE_PITCH;
+const AZIMUTH = SCENE_AZIMUTH;
 /** The sun is lower than a match's, for long shadows. */
 const SUN_AT: readonly [number, number, number] = [-10, 8, 7];
 /** Distance haze and the horizon of the dusk sky, per faction: calm, close to a match's fog (0x2a2d44). */
@@ -148,6 +148,10 @@ class Scene3d implements MenuScene {
   private ro: ResizeObserver;
   private w = 0;
   private h = 0;
+  /** How many times farther the camera stands so the whole group clears the panel (MENU-11). */
+  private zoomOut = 1;
+  /** The squeeze the stage was built for; a resize across the narrow-strip range rebuilds it. */
+  private builtSqueeze = 0;
 
   constructor(private host: HTMLElement, o: MenuSceneOptions) {
     this.faction = o.faction;
@@ -223,7 +227,9 @@ class Scene3d implements MenuScene {
     this.groundMat.map = groundTexture(GROUND[f]);
     this.groundMat.needsUpdate = true;
     const cast = SCENE_CAST[f];
-    const slots = sceneSlots(f);
+    const squeeze = squeezeAt(this.w);
+    this.builtSqueeze = squeeze;
+    const slots = sceneSlots(f, squeeze);
     const add = (kind: string, s: SceneSlot, i: number): Figure | null => {
       const building = !!BUILDING_RIGS[kind];
       const make = UNIT_RIGS[kind] ?? BUILDING_RIGS[kind];
@@ -247,7 +253,7 @@ class Scene3d implements MenuScene {
       this.figures.push(fig);
       return fig;
     };
-    const hq = HQ_SPOT[f];
+    const hq = hqSpot(f, squeeze);
     add(cast.hq, { x: hq.x, z: hq.z, heading: 0 }, 9);
     const hero = add(cast.hero, slots[cast.hero]!, 0);
     cast.others.forEach((k, i) => add(k, slots[k]!, i + 1));
@@ -256,7 +262,7 @@ class Scene3d implements MenuScene {
     // The shard field beside the HQ and loose crystals in front: the match's crystal models and material, instanced.
     const inst = new Instancer(this.stage);
     inst.begin();
-    const plan = shardPlan(f);
+    const plan = shardPlan(f, squeeze);
     for (const c of [...plan.field, ...plan.loose]) {
       const key = `crystal/${c.level}v${c.variant}`;
       let b = this.crystalGeo.get(key);
@@ -316,16 +322,23 @@ class Scene3d implements MenuScene {
     this.composer.setPixelRatio(pr);
     this.composer.setSize(w, h);
     this.camera.aspect = w / h;
-    // The hero sits clear of the panel, to its right, from 1600 px up (MENU-11): shift the picture right.
-    this.camera.setViewOffset(w, h, -heroShift(w), 0, w, h);
-    this.camera.updateProjectionMatrix();
+    if (Math.abs(squeezeAt(w) - this.builtSqueeze) > 0.02) this.build(this.faction);
+    this.frameGroup();
     if (this.still || this.paused) this.draw(this.time);
+  }
+
+  /** Frame the whole group in the free strip right of the panel from 1600 px up (MENU-11): back off and shift the picture right. */
+  private frameGroup(): void {
+    const { zoomOut, shift } = sceneFraming(this.faction, this.w, this.h);
+    this.zoomOut = zoomOut;
+    this.camera.setViewOffset(this.w, this.h, -shift, 0, this.w, this.h);
+    this.camera.updateProjectionMatrix();
   }
 
   /** Place the camera `t` seconds into the dolly and draw. */
   private draw(t: number): void {
     if (this.gone) return;
-    const d = dollyDistance(t);
+    const d = dollyDistance(t) * this.zoomOut;
     const cp = Math.cos(PITCH);
     this.camera.position.set(this.target.x + Math.sin(AZIMUTH) * cp * d, this.target.y + Math.sin(PITCH) * d + 0.4, this.target.z + Math.cos(AZIMUTH) * cp * d);
     this.camera.lookAt(this.target);
@@ -360,6 +373,7 @@ class Scene3d implements MenuScene {
     const apply = (): void => {
       if (this.gone || token !== this.swap) return;
       this.build(f);
+      this.frameGroup();
       this.draw(this.time);
       this.canvas.style.opacity = '1';
     };

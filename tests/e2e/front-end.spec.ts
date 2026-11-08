@@ -7,10 +7,11 @@ test('MENU-8 MENU-9: the rail title is an inline SVG wordmark with a shard emble
   await page.goto('/');
   const mark = page.locator('#menu h1 svg[role="img"]');
   await expect(mark).toHaveAttribute('aria-label', 'Shardfall');
-  await expect(mark.locator('g:not([clip-path]) > polygon')).toHaveCount(2);
-  await expect(mark.locator('linearGradient, filter')).toHaveCount(0);
-  await expect(mark.locator('text')).toHaveCount(2);
-  await expect(mark.locator('g[clip-path]')).toHaveCount(2);
+  await expect(mark.locator('polygon')).toHaveCount(2);
+  await expect(mark.locator('linearGradient, filter, clipPath, [clip-path]')).toHaveCount(0);
+  await expect(mark.locator('text')).toHaveCount(1);
+  await expect(mark.locator('polygon').first()).toHaveCSS('fill', 'rgb(159, 252, 255)');
+  await expect(mark.locator('polygon').last()).toHaveCSS('fill', 'rgb(47, 199, 176)');
   const heading = await page.locator('#menu .nav').first().evaluate((el) => getComputedStyle(el).fontFamily);
   expect(heading).toBe('Bahnschrift, "DIN Condensed", "DIN Alternate", "Roboto Condensed", "Arial Narrow", sans-serif');
   const body = await page.locator('#menu .note').first().evaluate((el) => getComputedStyle(el).fontFamily);
@@ -60,6 +61,12 @@ test('MENU-12: each faction card keeps its own frame, whichever faction is picke
     const vrax = await frame('alien');
     expect(vrax.clip).toBe('none');
     expect(parseFloat(vrax.radius)).toBeGreaterThan(0);
+    const human = page.locator('#menu .card[data-faction="human"]');
+    await expect(human.locator('.trim')).toHaveCount(1);
+    await expect(human.locator('.tag')).toHaveCount(1);
+    expect(await human.locator('.trim').evaluate((el) => getComputedStyle(el).backgroundImage.match(/linear-gradient/g)?.length)).toBeGreaterThanOrEqual(7);
+    expect((aegis.clip.match(/,/g) ?? []).length).toBeGreaterThanOrEqual(7);
+    await expect(page.locator('#menu .card[data-faction="alien"] .trim, #menu .card[data-faction="alien"] .tag')).toHaveCount(0);
   }
 });
 
@@ -246,6 +253,28 @@ test('UI-17: in the 3D view every build and train button shows a picture of its 
   expect(first.img).toBeLessThanOrEqual(44);
   expect(first.h).toBeLessThanOrEqual(64);
   expect(first.name).toBeTruthy();
+  // Nothing is cropped (UI-17): the model keeps a margin, so the picture's outermost rows and columns hold no model. The ring is
+  // sampled for the pixels that differ from the corner (the background), and the model never reaches it.
+  const touching = await buttons.evaluateAll(async (els) => {
+    let bad = 0;
+    for (const e of els) {
+      const img = e.querySelector<HTMLImageElement>('img.ic')!;
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const g = c.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, c.width, c.height).data;
+      const at = (x: number, y: number): number[] => [...d.slice((y * c.width + x) * 4, (y * c.width + x) * 4 + 4)];
+      const ref = at(0, 0);
+      let diff = 0;
+      for (let i = 0; i < c.width; i++) for (const y of [0, c.height - 1]) diff += at(i, y).some((v, k) => Math.abs(v - ref[k]!) > 40) ? 1 : 0;
+      for (let j = 0; j < c.height; j++) for (const x of [0, c.width - 1]) diff += at(x, j).some((v, k) => Math.abs(v - ref[k]!) > 40) ? 1 : 0;
+      if (diff > 4) bad++;
+    }
+    return bad;
+  });
+  expect(touching).toBe(0);
   await page.goto('/?faction=human&renderer=classic');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 90_000 });
   await expect(page.locator('#sidebar button.item').first()).toBeVisible();

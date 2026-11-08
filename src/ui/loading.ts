@@ -24,7 +24,7 @@ export function showLoading(text = 'Preparing the battlefield…', faction: Skin
   el.style.cssText =
     'position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:24px;box-sizing:border-box;background:radial-gradient(ellipse at 50% 45%,var(--panel-top) 0%,var(--void) 70%);color:var(--ink);font:600 15px/1.3 var(--font-body);transition:opacity .35s ease-out';
   el.innerHTML =
-    `<div style="width:min(300px,80vw)">${wordmarkSvg('ld')}</div>` +
+    `<div style="width:min(300px,80vw)">${wordmarkSvg()}</div>` +
     '<div class="spin" style="width:38px;height:38px;border-radius:50%;border:3px solid var(--edge);border-top-color:var(--accent);animation:loadspin 0.9s linear infinite"></div>' +
     '<div class="msg" style="color:var(--ink-dim)"></div>' +
     '<div class="tip frame" style="max-width:min(520px,90vw);padding:10px 16px;font-weight:500;text-align:center;border-radius:var(--r-s);clip-path:var(--clip-s)"></div>' +
