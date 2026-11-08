@@ -59,7 +59,7 @@ describe('heroes turn slowly', () => {
     const firstShot: number[] = [];
     for (let t = 0; t < 200 && firstShot.length === 0; t++) {
       tick(g);
-      if (g.state.events.some((e: SimEvent) => e.t === 'shot' && e.owner === 0)) firstShot.push(t);
+      if (g.state.events.some((e: SimEvent) => e.t === 'shot' && e.owner === 0 && e.weapon !== 'missile')) firstShot.push(t); // the pods have a wider arc (HERO-8)
     }
     expect(firstShot).toHaveLength(1);
     // It had to turn about half a circle first, at 2 steps a tick.

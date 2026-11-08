@@ -198,7 +198,7 @@ export const flightAfterWait = (flightMs: number, waited: number): number => Mat
 
 
 /** The arc of a pod missile's flight, as a share of the distance flown (HERO-7). */
-export const MISSILE_ARC = 0.35;
+export const MISSILE_ARC = 0.6;
 /** How long the Paladin's pods take to open before the first missile leaves, and to close after the last, ms (HERO-7). */
 export const POD_OPEN_MS = 100;
 export const POD_CLOSE_MS = 350;

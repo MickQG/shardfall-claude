@@ -418,10 +418,10 @@ describe('heroes as meat shields', () => {
     }
   };
 
-  it('BAL-15: heroes have 4500 hit points and hit for 90; a hero in front keeps a line of artillery almost unharmed', () => {
+  it('BAL-15: heroes have 4500 hit points and the cannon hits for 90 (80 for the Paladin, HERO-8); a hero in front keeps a line of artillery almost unharmed', () => {
     for (const kind of ['hum_paladin', 'ali_strider']) {
       expect(unitDef(kind).hp).toBe(4500);
-      expect(unitDef(kind).weapon!.damage).toBe(90);
+      expect(unitDef(kind).weapon!.damage).toBe(kind === 'hum_paladin' ? 80 : 90);
       expect(unitDef(kind).cost).toBe(2000);
       expect(unitDef(kind).speed).toBe(20);
     }

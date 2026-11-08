@@ -24,6 +24,8 @@ export interface WeaponDef {
   indirect?: boolean;
   /** A salvo (HERO-7): `count` missiles per shot, one launched every `gap` ticks, each landing on its own. */
   salvo?: { count: number; gap: number };
+  /** Half-width of the firing cone in facing steps for a slow turner (default FIRE_ARC); the Paladin pods fire in a wide cone (HERO-8). */
+  arc?: number;
 }
 
 export interface UnitDef {
@@ -56,6 +58,8 @@ export interface UnitDef {
   hero?: boolean;
   /** A heavy vehicle that crushes enemy infantry squads it drives over (BAL-1). */
   crusher?: boolean;
+  /** How far from its centre a crusher flattens, fixed-point (default its radius); a hero crushes all under its body (BAL-16). */
+  crushRadius?: number;
   /**
    * Turns slowly (HERO-5): facing steps (of 256 a circle) a tick. Such a unit turns in place before it walks a new way,
    * fires only at what it faces, and is never shoved by smaller units.
@@ -160,10 +164,10 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // The Aegis hero (HERO-1): a giant four-legged assault walker whose cannons and missile pods engage ground and air alike; one at a
   // time, and it slowly repairs itself. Heroes fire slow, heavy shots that burst over an area (HERO-4).
   hum_paladin: {
-    faction: 'human', name: 'Paladin', speed: 20, hp: 4500, radius: 180, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, crusher: true, turnRate: 2, role: 'tank',
-    weapon: { damage: 90, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 5, splash: 0.9 },
+    faction: 'human', name: 'Paladin', speed: 20, hp: 4500, radius: 180, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, crusher: true, crushRadius: 256, turnRate: 2, role: 'tank',
+    weapon: { damage: 80, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 5, splash: 0.9 },
     // The shoulder missile pods (HERO-7): a salvo of four every 4 s at range 9, ground and air.
-    weapon2: { damage: 10, range: 9, cooldown: 80, type: 'rocket', antiAir: true, antiGround: true, flight: 8, splash: 1, indirect: true, salvo: { count: 4, gap: 3 } },
+    weapon2: { damage: 14, range: 9, cooldown: 80, type: 'rocket', antiAir: true, antiGround: true, flight: 14, splash: 1, indirect: true, arc: 43, salvo: { count: 4, gap: 3 } },
   },
 
   // ---- Aliens ----
@@ -191,7 +195,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // The Vrax hero (HERO-2): a towering six-legged bio-walker whose acid cannon hits ground and air; one at a time, and
   // it regenerates.
   ali_strider: {
-    faction: 'alien', name: 'Dreadstrider', speed: 20, hp: 4500, radius: 150, vision: 10, cost: 2000, buildTime: 900, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 3, hero: true, crusher: true, turnRate: 2, role: 'tank',
+    faction: 'alien', name: 'Dreadstrider', speed: 20, hp: 4500, radius: 150, vision: 10, cost: 2000, buildTime: 900, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 3, hero: true, crusher: true, crushRadius: 224, turnRate: 2, role: 'tank',
     weapon: { damage: 90, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 5, splash: 0.9 },
   },
 };

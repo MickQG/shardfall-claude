@@ -40,12 +40,12 @@ function run(g: Game, n: number): Missile[] {
 }
 
 describe('the Paladin missile pods (HERO-7)', () => {
-  it('HERO-7: the second weapon is a four-missile salvo every 80 ticks at range 9, 10 splash damage each, ground and air', () => {
-    expect(pod).toMatchObject({ damage: 10, range: 9, cooldown: 80, antiAir: true, antiGround: true });
+  it('HERO-7 HERO-8: the second weapon is a four-missile salvo every 80 ticks at range 9, 14 splash damage each, ground and air', () => {
+    expect(pod).toMatchObject({ damage: 14, range: 9, cooldown: 80, antiAir: true, antiGround: true });
     expect(pod.salvo?.count).toBe(4);
     expect(pod.splash).toBeGreaterThan(0);
     // The cannon and the hit points are as BAL-15 left them.
-    expect(unitDef('hum_paladin')).toMatchObject({ hp: 4500, weapon: { damage: 90, range: 7, cooldown: 36 } });
+    expect(unitDef('hum_paladin')).toMatchObject({ hp: 4500, weapon: { damage: 80, range: 7, cooldown: 36 } });
   });
 
   it('HERO-7: a salvo is four missiles launched a few ticks apart, and the next salvo comes 80 ticks after', () => {
@@ -133,7 +133,7 @@ describe('the Paladin missile pods in 3D (HERO-7)', () => {
     poseRig(tree, { ...STILL, pod: 0 });
     const closed = pods.map((p) => p.obj.rotation.z);
     poseRig(tree, { ...STILL, pod: 1 });
-    for (const [i, p] of pods.entries()) expect(p.obj.rotation.z).toBeGreaterThan(closed[i]! + 0.3);
+    for (const [i, p] of pods.entries()) expect(p.obj.rotation.z).toBeGreaterThan(closed[i]! + 0.2);
     poseRig(tree, { ...STILL, pod: 0 });
     for (const [i, p] of pods.entries()) expect(p.obj.rotation.z).toBeCloseTo(closed[i]!);
   });

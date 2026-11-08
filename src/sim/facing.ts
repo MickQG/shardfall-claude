@@ -26,6 +26,8 @@ const sinOf = (k: number): number => {
   return -(QUARTER[DIRS - a] as number);
 };
 const cosOf = (k: number): number => sinOf(k + Q);
+/** The unit vector of step `k`, scaled by 4096 (fixed so every browser agrees). */
+export const dirVec = (k: number): [number, number] => [cosOf(k), sinOf(k)];
 
 /** The step nearest the direction (dx, dy); ties go to the lower step. (0, 0) gives -1. */
 export function dirOf(dx: number, dy: number): number {
@@ -97,8 +99,8 @@ export function mayWalk(s: State, u: Unit): boolean {
 }
 
 /** Whether a slow turner faces `e` closely enough to fire at it; any other unit always does (HERO-5). */
-export function faces(u: Unit, e: Unit | Building): boolean {
+export function faces(u: Unit, e: Unit | Building, arc = FIRE_ARC): boolean {
   if (!turnsSlowly(u)) return true;
   const d = dirTo(u, e);
-  return d < 0 || Math.abs(dirDiff(u.facing, d)) <= FIRE_ARC;
+  return d < 0 || Math.abs(dirDiff(u.facing, d)) <= arc;
 }

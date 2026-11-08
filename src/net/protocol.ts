@@ -8,7 +8,7 @@ import type { Command } from '../sim';
  */
 
 /** Bumped whenever the protocol or the simulation changes in a way that would desync older clients. */
-export const NET_VERSION = 6;
+export const NET_VERSION = 7;
 /** Ticks per lockstep turn: 125 ms of real time at the online game speed of ×0.8 (UX-3). */
 export const TURN_TICKS = 2;
 export const TURN_MS = TURN_TICKS * tickMsAt(ONLINE_SPEED);
@@ -86,6 +86,10 @@ export function sanitizeCommand(raw: unknown, player: number): Command | null {
     case 'stop': {
       const u = ids(r.units);
       return u ? { type: 'stop', player, units: u } : null;
+    }
+    case 'scatter': {
+      const u = ids(r.units);
+      return u ? { type: 'scatter', player, units: u } : null;
     }
     case 'move':
     case 'harvest':

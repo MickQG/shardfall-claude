@@ -537,8 +537,10 @@ async function boot(): Promise<void> {
         selectedBuilding = null;
         if (!e.repeat && groupTap.press(k, performance.now())) centerOnUnits(sim.curr.units.filter((u) => ids.includes(u.id)));
       }
-    } else if (k === 'x') {
+    } else if (k === 'z') {
       if (selection.selected.length > 0) give({ type: 'stop', player: PLAYER, units: selection.selected });
+    } else if (k === 'x') {
+      if (selection.selected.length > 0) give({ type: 'scatter', player: PLAYER, units: selection.selected });
     } else if (k === ' ' && sim.curr) {
       centerOnUnits(sim.curr.units.filter((u) => selection.has(u.id)));
       e.preventDefault();

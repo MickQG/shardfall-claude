@@ -473,6 +473,8 @@ function hauler(): RigDef {
  */
 /** How far the Paladin's cannon cradle swivels under its hull either way, radians: clear of the front legs (AIM-2). */
 export const PALADIN_SWIVEL = 0.2;
+/** How steeply the Paladin's pods are cocked up at rest, radians: mortar tubes, mouths up and forward (HERO-8). */
+export const PALADIN_POD_TILT = 1.0;
 /** How far out the Paladin's hips sit from the hull's centre line: beside the hull, not under it (AIM-2). */
 const PALADIN_HIP = 0.38;
 
@@ -563,12 +565,16 @@ function paladin(): RigDef {
         return s;
       },
       pod: () => {
-        // A shoulder missile pod for aircraft, with glowing tube mouths; a part of its own, so it is blown off when the
-        // Paladin dies (HERO-3).
+        // A shoulder mortar-style missile pod: a cluster of four long launch tubes in a gold-banded frame, cocked up so
+        // the mouths point skyward and forward (HERO-8); a part of its own, so it is blown off when the Paladin dies (HERO-3).
         const s = shape();
-        s.box(0.3, 0.14, 0.13, GUN, { bevel: 0.15 });
-        s.box(0.3, 0.012, 0.135, GOLD, { at: [0, 0.075, 0], bevel: 0 });
-        for (const dy of [0.033, -0.033]) for (const dz of [0.032, -0.032]) s.cyl(0.02, 0.012, RED, { at: [0.155, dy, dz], rot: [0, 0, Math.PI / 2], seg: 6, glow: true });
+        s.box(0.34, 0.15, 0.15, GUN, { bevel: 0.15 });
+        for (const x of [-0.1, 0.06]) s.box(0.03, 0.17, 0.17, GOLD, { at: [x, 0, 0], bevel: 0 });
+        for (const dy of [0.034, -0.034])
+          for (const dz of [0.036, -0.036]) {
+            s.tube(0.03, 0.12, DARK, { at: [0.23, dy, dz], seg: 8 }); // centred: spans 0.17 to 0.29, flush with the frame
+            s.cyl(0.022, 0.012, RED, { at: [0.286, dy, dz], rot: [0, 0, Math.PI / 2], seg: 6, glow: true });
+          }
         return s;
       },
       cradle: () => {
@@ -601,8 +607,8 @@ function paladin(): RigDef {
               // target, and only the cannon cradle under the nose swivels a little to finish the aim.
               geo: 'hull',
               kids: [
-                { geo: 'pod', at: [-0.04, 0.17, 0.35], anim: { k: 'pod', open: 0.7 } },
-                { geo: 'pod', at: [-0.04, 0.17, -0.35], anim: { k: 'pod', open: 0.7 } },
+                { geo: 'pod', at: [-0.12, 0.2, 0.35], rot: [0, 0, PALADIN_POD_TILT], anim: { k: 'pod', open: 0.25 } },
+                { geo: 'pod', at: [-0.12, 0.2, -0.35], rot: [0, 0, PALADIN_POD_TILT], anim: { k: 'pod', open: 0.25 } },
                 {
                   geo: 'cradle',
                   at: [0.24, -0.18, 0],

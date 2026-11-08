@@ -1,7 +1,7 @@
 import { buildingDef, unitDef } from '../data/defs';
 import { fireSuperweapon, tickCombat } from './combat';
 import { crush, isCrusher } from './crush';
-import { mayWalk, turnUnit } from './facing';
+import { dirOf, dirVec, mayWalk, turnUnit } from './facing';
 import { isLowPower, regrow, tickHaulers, updatePower } from './economy';
 import { centerOf, FP, tileOf } from './fixed';
 import { recomputeVisible, SIGHT_LINGER, VISIBLE, type VisionSource } from './fog';
@@ -107,6 +107,8 @@ function applyCommand(s: State, cmd: Command): void {
         }
       }
       return;
+    case 'scatter':
+      return scatterUnits(s, cmd.player, cmd.units);
     case 'move':
       return moveUnits(s, cmd.player, cmd.units, cmd.x, cmd.y, 'move');
     case 'attackmove':
@@ -156,6 +158,35 @@ function applyCommand(s: State, cmd: Command): void {
       return setRally(s, cmd.player, cmd.building, cmd.x, cmd.y);
     default:
       return;
+  }
+}
+
+/** How far a scattering unit runs from the group's centre, in tiles (CTL-9). */
+export const SCATTER_TILES = 3;
+
+/**
+ * Scatter (CTL-9): each of the player's listed units is sent SCATTER_TILES straight away from the group's centre, so a
+ * bunched army spreads out (against splash and artillery). A unit at the centre runs off in a direction picked from its id.
+ * Integer only, so every browser agrees.
+ */
+function scatterUnits(s: State, player: number, ids: number[]): void {
+  const mine = s.units.filter((u) => u.owner === player && ids.includes(u.id) && u.hp > 0);
+  if (mine.length === 0) return;
+  let cx = 0;
+  let cy = 0;
+  for (const u of mine) {
+    cx += u.x;
+    cy += u.y;
+  }
+  cx = Math.floor(cx / mine.length);
+  cy = Math.floor(cy / mine.length);
+  const g = s.grid;
+  for (const u of mine) {
+    const d = dirOf(u.x - cx, u.y - cy);
+    const [vx, vy] = dirVec(d < 0 || Math.abs(u.x - cx) + Math.abs(u.y - cy) < FP / 4 ? (u.id * 61) % 256 : d);
+    const x = Math.max(FP / 2, Math.min(g.width * FP - FP / 2, u.x + Math.trunc((vx * SCATTER_TILES * FP) / 4096)));
+    const y = Math.max(FP / 2, Math.min(g.height * FP - FP / 2, u.y + Math.trunc((vy * SCATTER_TILES * FP) / 4096)));
+    moveUnits(s, player, [u.id], x, y, 'move');
   }
 }
 

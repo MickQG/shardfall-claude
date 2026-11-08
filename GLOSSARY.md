@@ -21,6 +21,7 @@
 - **Fog of war** – per-player visibility: hidden, explored (remembered), visible.
 - **Superweapon** – a faction's long-charging area-effect weapon.
 - **Control group** – a numbered (1–9) set of units the player can recall with one key.
+- **Scatter** – an order that sends each selected unit a few tiles straight away from the group's centre, spreading a bunched army.
 - **Attack-move** – an order to travel to a point and engage any enemy met on the way.
 - **Rally point** – where a production building sends newly built units.
 - **Combat unit** – any unit that can attack; haulers are not combat units.

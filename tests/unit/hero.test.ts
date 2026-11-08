@@ -123,7 +123,11 @@ describe('the Dreadstrider hero', () => {
     // A match for the Paladin.
     const p = unitDef('hum_paladin');
     expect(d.hp).toBe(p.hp);
-    expect(d.weapon!.damage / d.weapon!.cooldown).toBeCloseTo(p.weapon!.damage / p.weapon!.cooldown, 5);
+    // The Paladin's cannon gave way to its pods (HERO-8): together they match the Dreadstrider's acid cannon.
+    const pod = p.weapon2!;
+    const paladinDps = p.weapon!.damage / p.weapon!.cooldown + (pod.damage * pod.salvo!.count) / pod.cooldown;
+    expect(paladinDps).toBeGreaterThanOrEqual(d.weapon!.damage / d.weapon!.cooldown);
+    expect(paladinDps).toBeLessThanOrEqual(1.3 * (d.weapon!.damage / d.weapon!.cooldown));
     expect(d.cost).toBe(p.cost);
     // Neither faction fields aircraft any more.
     expect(Object.entries(UNIT_DEFS).filter(([k, u]) => u.air && !k.startsWith('test_'))).toEqual([]);
@@ -308,7 +312,10 @@ describe('hero looks and deaths', () => {
       expect(w.splash ?? 0, kind).toBeGreaterThan(0);
       expect(w.antiAir, kind).toBe(true);
       // The old weapon: 46 damage every 16 ticks; heroes are tanks now (BAL-15), so at least 85% of it.
-      expect(w.damage / w.cooldown, kind).toBeGreaterThanOrEqual((0.85 * 46) / 16);
+      // The Paladin counts its pods (HERO-8: its cannon hits less hard than the old numbers, its rockets harder).
+      const pod = unitDef(kind).weapon2;
+      const dps = w.damage / w.cooldown + (pod ? (pod.damage * (pod.salvo?.count ?? 1)) / pod.cooldown : 0);
+      expect(dps, kind).toBeGreaterThanOrEqual((0.85 * 46) / 16);
     }
   });
 
