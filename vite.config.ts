@@ -10,5 +10,6 @@ export default defineConfig({
   build: { target: 'es2022', sourcemap: false },
   // The preview (and so every e2e run) serves the build under the same headers as production.
   preview: { headers },
-  test: { include: ['tests/unit/**/*.test.ts'] },
+  // Locally leave the machine usable: at most 4 test workers (CI, which sets CI, keeps the default of one per core).
+  test: { include: ['tests/unit/**/*.test.ts'], ...(process.env.CI ? {} : { maxWorkers: 4 }) },
 });
