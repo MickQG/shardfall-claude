@@ -1,12 +1,12 @@
 /**
- * The camera fit of the build-button pictures (UI-17): each picture shows the whole model with the same breathing room on
- * every side, whatever its shape. The model's bounding box is projected through the preview camera and the camera backs
+ * The camera fit of the build-button pictures (UI-17): each picture shows the whole model filling most of the picture, with
+ * a small margin on its tighter sides, whatever its shape. The model's bounding box is projected through the preview camera and the camera backs
  * off, and aims at the middle of what it sees, until the projected bounds fill `1 - 2 * edge` of the picture's width or
  * height. Pure maths (no three.js), so it is unit-tested without a GPU.
  */
 export type V3 = readonly [number, number, number];
-/** The share of the picture kept clear on each side of the model (12 to 18%: a consistent amount for every kind). */
-export const ICON_EDGE = 0.15;
+/** The share of the picture kept clear on each side of the model at its tightest (about 5 to 6%: the model fills most of the picture). */
+export const ICON_EDGE = 0.055;
 /** The eight corners of an axis-aligned box. */
 export function boxCorners(min: V3, max: V3): V3[] {
   const out: V3[] = [];

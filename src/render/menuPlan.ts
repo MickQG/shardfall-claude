@@ -1,7 +1,7 @@
 import { structuresOf, UNIT_DEFS, type Faction } from '../data/defs';
 /**
  * The pure parts of the menu's live faction scene (MENU-10, MENU-11) and of the build-button pictures (UI-17): who stands
- * in the scene, the camera's dolly, where the hero sits on screen, when the scene holds still, and the picture cache's
+ * in the scene, the camera's orbit around the HQ, where the ring of units sits on screen, when the scene holds still, and the picture cache's
  * keys. No three.js here, so these are unit-tested without a GPU.
  */
 
@@ -32,76 +32,45 @@ export interface SceneSlot {
   heading: number;
 }
 
-/** Facing the camera, a little to the left. */
-export const FACE = Math.PI / 2 - 0.4;
-/** Where the hero stands (the same for both factions), and the radius kept clear of crystals and other units. */
-export const HERO_SPOT = { x: 1.4, z: 1.2 } as const;
+/** The HQ stands at the centre of the scene (tiles; x right, z toward the camera at the start). */
+export const HQ_SPOT = { x: 0, z: 0 } as const;
+/** Radius of the ring the units stand on around the HQ, tiles (MENU-10: 4.5 to 6; small enough that the ring fits the free strip). */
+export const RING_RADIUS = 4.8;
+/** The hero's place on the ring (radians from +x toward +z): toward the camera at the start, a little to the right. */
+export const HERO_ANGLE = Math.PI / 2 - 0.3;
+/** Width of the arc the shard field takes, radians (about 90 degrees). */
+export const FIELD_ARC = Math.PI / 2;
+/** Six slots, evenly spaced over the arc the field leaves free; offsets from the field's centre. */
+const SLOT_STEP = (Math.PI * 2 - FIELD_ARC) / 6;
+const slotOffset = (i: number): number => FIELD_ARC / 2 + SLOT_STEP * (i + 0.5);
+/** The slot the hero takes, and the order the other kinds take the rest (nearest the hero first, alternating sides). */
+const HERO_SLOT = 2;
+const OTHER_SLOTS: readonly number[] = [3, 1, 4, 0, 5];
+/** Where the shard field is centred around the HQ: opposite the hero, a little turned. */
+export const FIELD_ANGLE = HERO_ANGLE - slotOffset(HERO_SLOT);
+/** The hero's clear radius for crystals, and the HQ's. */
 export const HERO_CLEAR = 2.2;
-/** The HQ stands behind the hero; the hauler works at the near edge of the shard field, facing into it. */
-export const HQ_SPOT = { human: { x: 0.6, z: -4.2 }, alien: { x: 0.6, z: -4.4 } } as const;
-export const HAULER_SPOT: SceneSlot = { x: 3.7, z: -0.1, heading: 0.1 };
+export const HQ_CLEAR = 3.0;
+/** The hauler stands in the shard field, at this radius from the HQ, facing out into it. */
+export const HAULER_RADIUS = 4.7;
 
-/** The receding wedge the units stand in when the free strip is narrow (tiles): staggered left and right of the hero's line, ever deeper. */
-const WEDGE: readonly (readonly [number, number])[] = [
-  [-1.8, -0.9],
-  [1.8, -2.0],
-  [-1.9, -3.2],
-  [2.1, -3.8],
-  [-0.2, -5.6],
-];
-
-/** How far the army is squeezed into a wedge at screen width `w`: 0 from 1920 px up, 1 at 1600 px, blended between (MENU-11). */
-export const squeezeAt = (w: number): number => Math.min(1, Math.max(0, (1920 - w) / 320));
-
-/** The HQ's spot at a squeeze: it stands farther back so the wedge fits in front of it. */
-export const hqSpot = (f: SceneFaction, squeeze = 0): { x: number; z: number } => ({ x: HQ_SPOT[f].x, z: HQ_SPOT[f].z - 3.2 * squeeze });
-
-type Class = 'vehicle' | 'scout' | 'infantry';
-/** Formation slots by kind of unit: vehicles and artillery to the sides, scouts at the flanks, squads in front. */
-const FORMATION: Record<Class, readonly SceneSlot[]> = {
-  vehicle: [
-    { x: -3.0, z: 0.1, heading: FACE + 0.5 },
-    { x: -2.4, z: -2.0, heading: FACE + 0.3 },
-    { x: -3.9, z: -2.6, heading: FACE + 0.6 },
-  ],
-  scout: [
-    { x: -2.2, z: 2.3, heading: FACE + 0.7 },
-    { x: 5.2, z: 3.2, heading: FACE - 0.6 },
-  ],
-  infantry: [
-    { x: 0.3, z: 3.9, heading: FACE + 0.35 },
-    { x: 3.8, z: 3.7, heading: FACE - 0.5 },
-    { x: -3.0, z: 3.2, heading: FACE + 0.5 },
-  ],
-};
-
-const classOf = (kind: string): Class => {
-  const d = UNIT_DEFS[kind]!;
-  return d.role === 'scout' ? 'scout' : (d.squad ?? 1) > 1 ? 'infantry' : 'vehicle';
-};
-
-/**
- * The slot of every unit kind in a faction's scene (hero, others, hauler). Seeded jitter of a few tenths of a tile keeps the
- * formation loose; a kind with no free slot in its class stands in a seeded spot on the ground behind the others.
- */
-export function sceneSlots(f: SceneFaction, squeeze = 0): Record<string, SceneSlot> {
+/** The slot of every unit kind in a faction's scene (hero, others, hauler): evenly spaced around the HQ, facing outward (MENU-10). Seeded jitter of a few hundredths keeps it loose. */
+export function sceneSlots(f: SceneFaction): Record<string, SceneSlot> {
   const cast = SCENE_CAST[f];
   const r = stream(SHARD_SEEDS[f] ^ 0x51);
-  const out: Record<string, SceneSlot> = { [cast.hero]: { x: HERO_SPOT.x, z: HERO_SPOT.z, heading: FACE }, [cast.hauler]: { ...HAULER_SPOT } };
-  const used: Record<Class, number> = { vehicle: 0, scout: 0, infantry: 0 };
-  let wedge = 0;
-  for (const k of cast.others) {
-    const c = classOf(k);
-    const base = FORMATION[c][used[c]++] ?? { x: -7 + r() * 14, z: -6 - r() * 2, heading: FACE };
-    const wide = { x: base.x + (r() - 0.5) * 0.3, z: base.z + (r() - 0.5) * 0.3, heading: base.heading + (r() - 0.5) * 0.3 };
-    // A narrow free strip (MENU-11): the army forms a wedge that recedes from the camera behind the hero, deeper than wide.
-    const w = WEDGE[wedge++ % WEDGE.length]!;
-    out[k] = { x: wide.x + (w[0] - wide.x) * squeeze, z: wide.z + (w[1] - wide.z) * squeeze, heading: wide.heading + (FACE - wide.heading) * squeeze };
-  }
-  out[cast.hauler] = { x: HAULER_SPOT.x - 2.6 * squeeze, z: HAULER_SPOT.z - 0.4 * squeeze, heading: HAULER_SPOT.heading };
+  const at = (a: number, rad: number, jitter: boolean): SceneSlot => {
+    const aa = a + (jitter ? (r() - 0.5) * 0.1 : 0);
+    const rr = rad + (jitter ? (r() - 0.5) * 0.4 : 0);
+    return { x: HQ_SPOT.x + Math.cos(aa) * rr, z: HQ_SPOT.z + Math.sin(aa) * rr, heading: aa };
+  };
+  const out: Record<string, SceneSlot> = {};
+  out[cast.hero] = at(FIELD_ANGLE + slotOffset(HERO_SLOT), RING_RADIUS, false);
+  cast.others.forEach((k, i) => {
+    out[k] = at(FIELD_ANGLE + slotOffset(OTHER_SLOTS[i % OTHER_SLOTS.length]!), RING_RADIUS, true);
+  });
+  out[cast.hauler] = at(FIELD_ANGLE, HAULER_RADIUS, false);
   return out;
 }
-
 
 /** One shard crystal: the in-game crystal model of `level` (1..4) and `variant` (0..2), at ground (x, z), turned by `yaw`. */
 export interface ShardSpot {
@@ -112,11 +81,14 @@ export interface ShardSpot {
   yaw: number;
 }
 
-/** Crystals in the shard field beside the HQ, and loose ones scattered nearer the camera (MENU-10). */
+/** Crystals in the shard field beside the HQ, and loose ones scattered farther out (MENU-10). */
 export const SHARD_FIELD_COUNT = 32;
 export const SHARD_LOOSE_COUNT = 7;
 /** Seed of each faction's placement (pure, so a scene looks the same on every visit). */
 export const SHARD_SEEDS: Readonly<Record<SceneFaction, number>> = { human: 0x5ad1, alien: 0x7e0b };
+/** The shard field's reach from the HQ, tiles. */
+export const FIELD_INNER = 3.4;
+export const FIELD_OUTER = 8.2;
 
 /** A seeded stream of numbers in [0, 1). Pure. */
 function stream(seed: number): () => number {
@@ -130,74 +102,72 @@ function stream(seed: number): () => number {
   };
 }
 
-/** Round zones (x, z, radius) crystals keep out of: the hero, every unit's formation slot and the HQ. */
-function keepClear(f: SceneFaction, squeeze: number): (readonly [number, number, number])[] {
-  const slots = Object.entries(sceneSlots(f, squeeze)).filter(([k]) => k !== SCENE_CAST[f].hauler);
+/** Round zones (x, z, radius) crystals keep out of: the HQ, the hero and every other unit's slot, and the hauler. */
+function keepClear(f: SceneFaction): (readonly [number, number, number])[] {
+  const cast = SCENE_CAST[f];
   return [
-    [HERO_SPOT.x, HERO_SPOT.z, HERO_CLEAR],
-    ...slots.map(([, s]) => [s.x, s.z, 1.2] as const),
-    [hqSpot(f, squeeze).x, hqSpot(f, squeeze).z, 2.7],
-    [sceneSlots(f, squeeze)[SCENE_CAST[f].hauler]!.x, sceneSlots(f, squeeze)[SCENE_CAST[f].hauler]!.z, 1.3],
+    [HQ_SPOT.x, HQ_SPOT.z, HQ_CLEAR],
+    ...Object.entries(sceneSlots(f)).map(([k, s]) => [s.x, s.z, k === cast.hero ? HERO_CLEAR : k === cast.hauler ? 1.3 : 1.2] as const),
   ];
 }
 
 /**
- * The scene's crystals for a faction: a dense field right of the HQ, where the hauler works (higher crystals toward its
- * middle), and a few loose ones across the ground in front. Seeded, and clear of every unit and the HQ.
+ * The scene's crystals for a faction: a dense field over an arc of about 90 degrees beside the HQ, where the hauler works
+ * (higher crystals toward its middle), and a few loose ones scattered farther out. Seeded, and clear of every unit and the HQ.
  */
-export function shardPlan(f: SceneFaction, squeeze = 0): { field: ShardSpot[]; loose: ShardSpot[] } {
+export function shardPlan(f: SceneFaction): { field: ShardSpot[]; loose: ShardSpot[] } {
   const r = stream(SHARD_SEEDS[f]);
-  const zones = keepClear(f, squeeze);
+  const zones = keepClear(f);
   const clear = (x: number, z: number): boolean => zones.every(([cx, cz, rad]) => Math.hypot(x - cx, z - cz) > rad);
   const spot = (x: number, z: number, level: number): ShardSpot => ({ x, z, level, variant: Math.floor(r() * 3), yaw: r() * Math.PI * 2 });
   const field: ShardSpot[] = [];
   for (let guard = 0; field.length < SHARD_FIELD_COUNT && guard < 4000; guard++) {
-    const a = r() * Math.PI * 2;
-    const d = Math.sqrt(r());
-    const x = 4.4 + Math.cos(a) * d * 2.3;
-    const z = -2.3 + Math.sin(a) * d * 1.9;
+    const u = (r() - 0.5) * 2; // across the arc, -1..1
+    const a = FIELD_ANGLE + u * (FIELD_ARC / 2) * 0.96;
+    const d = FIELD_INNER + r() * (FIELD_OUTER - FIELD_INNER);
+    const x = HQ_SPOT.x + Math.cos(a) * d;
+    const z = HQ_SPOT.z + Math.sin(a) * d;
     if (!clear(x, z)) continue;
-    field.push(spot(x, z, d < 0.4 ? 3 + Math.floor(r() * 2) : d < 0.75 ? 2 + Math.floor(r() * 2) : 1 + Math.floor(r() * 2)));
+    const mid = Math.max(Math.abs(u), Math.abs((d - 5.8) / 2.4));
+    field.push(spot(x, z, mid < 0.4 ? 3 + Math.floor(r() * 2) : mid < 0.75 ? 2 + Math.floor(r() * 2) : 1 + Math.floor(r() * 2)));
   }
   const loose: ShardSpot[] = [];
   for (let guard = 0; loose.length < SHARD_LOOSE_COUNT && guard < 4000; guard++) {
-    const x = -6 + r() * 13;
-    const z = 2.5 + r() * 4.5;
+    const a = r() * Math.PI * 2;
+    const d = 8.6 + r() * 3.5;
+    const x = HQ_SPOT.x + Math.cos(a) * d;
+    const z = HQ_SPOT.z + Math.sin(a) * d;
     if (!clear(x, z)) continue;
     loose.push(spot(x, z, 1 + Math.floor(r() * 2)));
   }
   return { field, loose };
 }
 
-/** One pass of the camera's dolly, one way, seconds (MENU-10: 20 to 30 s). A full there-and-back takes two passes. */
-export const DOLLY_PASS_S = 24;
-/** Camera distance from its target at the two ends of the dolly, tiles (far, near). */
-export const DOLLY_FAR = 25;
-export const DOLLY_NEAR = 20.5;
-
-const ease = (x: number): number => x * x * (3 - 2 * x);
-
-/** The dolly's progress at `t` seconds, 0 (far) to 1 (near), eased at both ends and going back and forth. Pure. */
-export function dollyAt(t: number): number {
-  const phase = ((t / DOLLY_PASS_S) % 2 + 2) % 2;
-  return ease(phase < 1 ? phase : 2 - phase);
-}
-
-/** Camera distance at `t` seconds. */
-export const dollyDistance = (t: number): number => DOLLY_FAR + (DOLLY_NEAR - DOLLY_FAR) * dollyAt(t);
+/** One full turn of the camera around the HQ, seconds (MENU-10: 60 to 90 s), at constant speed. */
+export const ORBIT_PERIOD_S = 75;
+/** The camera's angle around the HQ (radians from +x toward +z) at `t` seconds: it starts with the hero in front, a little to the side, and turns at a constant rate. Pure. */
+export const orbitAngleAt = (t: number): number => HERO_ANGLE + 0.3 + (t / ORBIT_PERIOD_S) * Math.PI * 2;
+/** The angle the camera holds on Low quality or with reduced motion: the hero in front. */
+export const STILL_ANGLE = orbitAngleAt(0);
+/** The camera angle to use at `t` seconds: the orbit, or the flattering fixed angle when holding still. */
+export const cameraAngle = (t: number, still: boolean): number => (still ? STILL_ANGLE : orbitAngleAt(t));
 
 /** The menu panel's right edge at screen width `w`: the 300 px rail, the main area's padding and the 860 px panel (MENU-11). */
 export const panelRight = (w: number): number => 300 + Math.min(56, Math.max(20, 0.04 * w)) + 860;
 
-/** From this screen width up, the whole scene stands in the free strip right of the panel (MENU-11). */
+/** From this screen width up the HQ stands in the free strip right of the panel (MENU-11); from CLEAR_UNITS_WIDTH up the whole ring stays clear of the panel too. */
 export const CLEAR_MIN_WIDTH = 1600;
+export const CLEAR_UNITS_WIDTH = 1920;
 /** Room kept between the panel's edge (and the screen's right edge) and the nearest unit, px. */
-export const PANEL_MARGIN = 24;
+export const PANEL_MARGIN = 16;
 
-/** The scene camera's fixed angles (shared with the three.js scene): vertical field of view, pitch and azimuth. */
+/** The scene camera's fixed angles (shared with the three.js scene): vertical field of view and pitch (about 36 degrees). */
 export const SCENE_FOV = 32;
-export const SCENE_PITCH = 0.3;
-export const SCENE_AZIMUTH = 0.38;
+export const SCENE_PITCH = 0.63;
+/** Height of the point the camera looks at (tiles above the HQ's centre on the ground). */
+export const TARGET_HEIGHT = 1.2;
+/** The camera's distance per pixel of screen height where the scene is not fitted to the free strip (below 1920 px). */
+export const DIST_PER_HEIGHT = 0.0323;
 
 /** Ground radius, in tiles, that covers a kind's model and its squad's wander: a conservative footprint (MENU-11). */
 export function footprintOf(kind: string): number {
@@ -209,64 +179,52 @@ export function footprintOf(kind: string): number {
   return 1.1;
 }
 
-/** Horizontal screen extent of a sphere-ish footprint, px relative to the screen's middle, before any projection shift. */
-function spanAt(x: number, z: number, r: number, target: { x: number; z: number }, dist: number, h: number): [number, number] {
-  const az = SCENE_AZIMUTH;
-  // Camera's right vector and view depth along the ground plane (pitch only scales depth by cos): right = (cos az, -sin az).
-  const dx = x - target.x;
-  const dz = z - target.z;
-  const right = dx * Math.cos(az) - dz * Math.sin(az);
-  const toward = dx * Math.sin(az) + dz * Math.cos(az); // along the camera's horizontal offset: positive is nearer the camera
-  const depth = dist - toward * Math.cos(SCENE_PITCH);
-  const f = h / 2 / Math.tan((SCENE_FOV * Math.PI) / 360);
-  return [((right - r) / depth) * f, ((right + r) / depth) * f];
+/** Horizontal screen extent of a kind's footprint seen from camera `angle` and `dist` tiles out, px relative to the screen's middle, before the projection shift. */
+export function projectedSpan(f: SceneFaction, kind: string, angle: number, dist: number, h: number): [number, number] {
+  const s = kind === SCENE_CAST[f].hq ? HQ_SPOT : sceneSlots(f)[kind]!;
+  const r = footprintOf(kind);
+  const right = (s.x - HQ_SPOT.x) * Math.sin(angle) - (s.z - HQ_SPOT.z) * Math.cos(angle);
+  const toward = (s.x - HQ_SPOT.x) * Math.cos(angle) + (s.z - HQ_SPOT.z) * Math.sin(angle);
+  // Depth along the view: nearer units look bigger, so the footprint is measured at its nearest point.
+  const depth = dist - toward * Math.cos(SCENE_PITCH) + TARGET_HEIGHT * Math.sin(SCENE_PITCH) - r;
+  const fpx = h / 2 / Math.tan((SCENE_FOV * Math.PI) / 360);
+  return [((right - r) / depth) * fpx, ((right + r) / depth) * fpx];
 }
 
-/** One member's projected x range at screen size `w` by `h`, camera `dist` tiles out, with the framing's projection shift applied, px. */
-export function projectedSpan(f: SceneFaction, kind: string, dist: number, h: number, shift: number, w = 1920): [number, number] {
-  const sq = squeezeAt(w);
-  const s = kind === SCENE_CAST[f].hq ? hqSpot(f, sq) : sceneSlots(f, sq)[kind]!;
-  const [lo, hi] = spanAt(s.x, s.z, footprintOf(kind), HERO_SPOT, dist, h);
-  return [lo + shift, hi + shift];
-}
+/** The angles sampled around the orbit when fitting and testing the framing. */
+export const ORBIT_SAMPLES = 12;
 
-/** Every unit in a faction's scene: all of them must stand clear of the panel (MENU-11). The HQ behind them joins when it costs little. */
+/** Every unit in a faction's scene (the HQ stands at the middle). */
 export const castKinds = (f: SceneFaction): string[] => sceneKinds(f).filter((k) => k !== SCENE_CAST[f].hq);
 
 /**
- * The scene's framing at screen `w` by `h` (MENU-11): how many times farther the camera stands (`zoomOut`, 1 or more) and how
- * far the projection shifts right (`shift`, px). From 1600 px up the group, at both ends of the dolly, fits the free strip
- * between the panel and the screen's right edge with PANEL_MARGIN to spare. Below that the scene shows through the glass
- * and the hero sits a little right of centre. Pure.
+ * The scene's framing at screen `w` by `h` (MENU-11): the camera's distance from the HQ, tiles, and how far the projection
+ * shifts right, px. From 1600 px up the HQ sits in the middle of the free strip between the panel and the screen's right
+ * edge, and from 1920 px up the camera stands far enough out that the whole ring clears the panel at every angle of the
+ * orbit. Below 1600 px the scene shows through the glass, the HQ a little right of centre. Pure.
  */
-export function sceneFraming(f: SceneFaction, w: number, h: number): { zoomOut: number; shift: number } {
-  if (w < CLEAR_MIN_WIDTH) return { zoomOut: 1, shift: w * 0.62 - w / 2 };
-  const units = fitKinds(f, w, h, castKinds(f));
-  const all = fitKinds(f, w, h, sceneKinds(f));
-  // The HQ stands behind the units: frame it too unless that makes everything more than 8% smaller.
-  return all.zoomOut <= units.zoomOut * 1.08 ? all : units;
-}
-
-function fitKinds(f: SceneFaction, w: number, h: number, kinds: readonly string[]): { zoomOut: number; shift: number } {
+export function sceneFraming(f: SceneFaction, w: number, h: number): { dist: number; shift: number } {
+  const wide = h * DIST_PER_HEIGHT;
+  if (w < CLEAR_MIN_WIDTH) return { dist: wide, shift: w * 0.62 - w / 2 };
   const left = panelRight(w) + PANEL_MARGIN;
   const right = w - PANEL_MARGIN;
-  for (let k = 1; k < 6; k += 0.01) {
-    let lo = -Infinity;
-    let hi = Infinity;
-    for (const dist of [DOLLY_NEAR * k, DOLLY_FAR * k]) {
-      let mn = Infinity;
-      let mx = -Infinity;
-      for (const kind of kinds) {
-        const [a, b] = projectedSpan(f, kind, dist, h, 0, w);
-        mn = Math.min(mn, a);
-        mx = Math.max(mx, b);
+  const shift = (left + right) / 2 - w / 2;
+  const half = (right - left) / 2;
+  let dist = 80;
+  for (let d = 20; d < 80; d += 0.1) {
+    let reach = 0;
+    for (let i = 0; i < ORBIT_SAMPLES; i++) {
+      for (const k of castKinds(f)) {
+        const [lo, hi] = projectedSpan(f, k, (i / ORBIT_SAMPLES) * Math.PI * 2, d, h);
+        reach = Math.max(reach, -lo, hi);
       }
-      lo = Math.max(lo, left - w / 2 - mn);
-      hi = Math.min(hi, right - w / 2 - mx);
     }
-    if (lo <= hi) return { zoomOut: k, shift: (lo + hi) / 2 };
+    if (reach <= half) {
+      dist = d;
+      break;
+    }
   }
-  return { zoomOut: 6, shift: (panelRight(w) + w) / 2 - w / 2 };
+  return { dist: w < CLEAR_UNITS_WIDTH ? Math.min(dist, wide) : dist, shift };
 }
 
 /** Whether the scene is drawn once and held still: Low quality, or the system asks for reduced motion (MENU-10). */

@@ -476,7 +476,7 @@ export class UnitPreview {
     g.drawImage(this.renderer.domElement, 0, 0, canvas.width, canvas.height);
   }
 
-  /** A still picture of a unit (INF-6) or a building (UI-17), three-quarter view, as a PNG data URL of `w` by `h` CSS pixels. With no `margin` the whole model is fitted with ICON_EDGE clear on every side; a `margin` is the older sphere fit. */
+  /** A still picture of a unit (INF-6) or a building (UI-17), three-quarter view, as a PNG data URL of `w` by `h` CSS pixels. With no `margin` the whole model is fitted with ICON_EDGE clear on its tighter sides, with no plinth; a `margin` is the older sphere fit. */
   picture(kind: string, owner: number, w: number, h: number, margin?: number): string {
     const keep = this.model;
     const keepOwner = this.owner;
@@ -492,16 +492,17 @@ export class UnitPreview {
     if (margin === undefined) {
       m.group.updateMatrixWorld(true);
       const b = new THREE.Box3().setFromObject(m.group);
-      // The plinth is a backdrop for the model, not part of it: keep it within the model's own footprint so it never reaches the edge.
-      const pr = Math.min(m.radius * 1.25, Math.hypot(b.max.x - b.min.x, b.max.z - b.min.z) / 2);
-      this.plinth.scale.set(pr, 1, pr);
-      this.rim.scale.set(pr, pr, 1);
+      // No plinth or ring in these pictures: they would widen the fit and shrink the model.
+      this.plinth.visible = false;
+      this.rim.visible = false;
       this.pictureFit = fitPicture(boxCorners([b.min.x, b.min.y, b.min.z], [b.max.x, b.max.y, b.max.z]), viewDir(PREVIEW_PITCH), PREVIEW_FOV, w / h);
     }
     try {
       this.draw(c, margin ?? 1);
     } finally {
       this.pictureFit = null;
+      this.plinth.visible = true;
+      this.rim.visible = true;
     }
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.fx.root.visible = true;

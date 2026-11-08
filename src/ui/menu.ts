@@ -48,21 +48,16 @@ const CSS = `
 #menu .card { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; text-align: left; color: inherit; font: inherit; cursor: pointer; padding: 20px 20px 18px; border-radius: var(--r); clip-path: var(--clip); border: 1px solid var(--edge); background: var(--panel); box-shadow: var(--frame-shadow); transition: border-color .14s; }
 #menu .card::after { content: ''; position: absolute; right: -40px; top: -40px; width: 160px; height: 160px; border-radius: 50%; background: radial-gradient(circle, var(--c) 0%, transparent 70%); opacity: .12; }
 #menu .card:hover { border-color: var(--edge-hi); }
-/* The Aegis card is angular and technical (MENU-12): four chamfers (one large), corner brackets, a ticked rule under the title, a small tech label and a faint grid. Flat, no glow. */
-#menu .card[data-faction="human"] { --clip: polygon(24px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 8px 100%, 0 calc(100% - 8px), 0 24px); }
-#menu .card[data-faction="human"]::after { inset: 0; right: 0; top: 0; width: auto; height: auto; border-radius: 0; opacity: .05; background: repeating-linear-gradient(0deg, var(--c) 0 1px, transparent 1px 4px), repeating-linear-gradient(90deg, var(--c) 0 1px, transparent 1px 24px); pointer-events: none; }
+/* The Aegis card is angular and lightly technical (MENU-12): the two original chamfers, thin brackets in the other two corners and a small tech label. Flat, no glow. */
+#menu .card[data-faction="human"] { --clip: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+#menu .card[data-faction="human"]::after { display: none; }
 #menu .card .trim { position: absolute; inset: 7px; pointer-events: none; opacity: .6; --b: var(--c);
   background:
-    linear-gradient(135deg, transparent calc(50% - .5px), var(--b) calc(50% - .5px), var(--b) calc(50% + .5px), transparent calc(50% + .5px)) 0 0 / 23px 23px no-repeat,
     linear-gradient(var(--b), var(--b)) 100% 0 / 12px 1px no-repeat, linear-gradient(var(--b), var(--b)) 100% 0 / 1px 12px no-repeat,
-    linear-gradient(var(--b), var(--b)) 0 100% / 12px 1px no-repeat, linear-gradient(var(--b), var(--b)) 0 100% / 1px 12px no-repeat,
-    linear-gradient(var(--b), var(--b)) 100% 100% / 12px 1px no-repeat, linear-gradient(var(--b), var(--b)) 100% 100% / 1px 12px no-repeat; }
+    linear-gradient(var(--b), var(--b)) 0 100% / 12px 1px no-repeat, linear-gradient(var(--b), var(--b)) 0 100% / 1px 12px no-repeat; }
 #menu .card.sel .trim { opacity: 1; }
 #menu .card .tag { position: absolute; right: 18px; top: 11px; font-family: var(--font-head); font-stretch: 87.5%; font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-dim); opacity: .85; white-space: nowrap; pointer-events: none; }
 @container (max-width: 250px) { #menu .card .tag { display: none; } }
-#menu .card[data-faction="human"] h3 { position: relative; padding-bottom: 7px; margin-bottom: 8px; }
-#menu .card[data-faction="human"] h3::after { content: ''; position: absolute; left: 0; bottom: 0; width: 100%; max-width: 150px; height: 5px; background: linear-gradient(var(--c), var(--c)) 0 0 / 100% 1px no-repeat, repeating-linear-gradient(90deg, var(--c) 0 1px, transparent 1px 10px) 0 0 / 100% 5px no-repeat; opacity: .7; }
-#menu .card[data-faction="human"] .sub { margin-bottom: 8px; }
 #menu .card.sel { border-color: var(--c); box-shadow: inset 0 0 0 1px var(--c); }
 #menu .card h3 { margin: 0 0 2px; font-size: 25px; letter-spacing: .08em; color: var(--c); }
 #menu .card .sub { font-family: var(--font-head); font-stretch: 87.5%; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 10px; }
