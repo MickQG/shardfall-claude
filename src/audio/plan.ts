@@ -1,7 +1,9 @@
-import { Rng, type SimEvent } from '../sim';
+import type { Faction } from '../data/defs';
+import { FP, Rng, type SimEvent } from '../sim';
+import { explosionSize, factionOfKind, type WorldName } from './recipes';
 
 export interface Sound {
-  name: 'zap' | 'rocket' | 'cannon' | 'slash' | 'laser' | 'boom' | 'pop' | 'bigboom' | 'crunch' | 'sw_launch' | 'sw_strike';
+  name: WorldName;
   gain: number;
 }
 
@@ -22,6 +24,44 @@ export function soundFor(e: SimEvent, viewer: number): Sound {
       return { name: 'sw_launch', gain: 0.8 };
     case 'strike':
       return { name: 'sw_strike', gain: 1 };
+  }
+}
+
+/** A world sound with where it is and whose it is: what the engine needs to pick a palette, size, pan and falloff (AUD-5, AUD-6, AUD-9). */
+export interface WorldSound extends Sound {
+  faction: Faction;
+  /** Relative size for explosions (1 = a normal shell). */
+  size: number;
+  /** Where it happens, in tiles. */
+  at: { x: number; y: number };
+}
+
+/** What `worldSoundFor` needs to know about the snapshot. */
+export interface SoundWho {
+  /** The kind of the unit or building with this id, if it is known. */
+  kindOf(id: number): string | undefined;
+  /** The faction of a player. */
+  factionOf(owner: number): Faction;
+  /** The faction whose shell most likely made an explosion here. */
+  boomFaction(x: number, y: number): Faction;
+}
+
+/** `soundFor` plus the faction palette, size and place of the event. */
+export function worldSoundFor(e: SimEvent, viewer: number, who: SoundWho): WorldSound {
+  const base = soundFor(e, viewer);
+  const at = { x: e.x / FP, y: e.y / FP };
+  switch (e.t) {
+    case 'shot': {
+      const k = who.kindOf(e.src);
+      return { ...base, at, size: 1, faction: k ? factionOfKind(k) : who.factionOf(e.owner) };
+    }
+    case 'boom':
+      return { ...base, at, size: explosionSize(e.r), faction: who.boomFaction(at.x, at.y) };
+    case 'die':
+      return { ...base, at, size: 1, faction: factionOfKind(e.kind) };
+    case 'launch':
+    case 'strike':
+      return { ...base, at, size: 1, faction: e.kind ? factionOfKind(e.kind) : who.factionOf(e.owner) };
   }
 }
 

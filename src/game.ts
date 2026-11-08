@@ -2,7 +2,8 @@ import { DIFFICULTIES, resolvePersonality } from './ai/ai';
 import { duelConfig, mapIdOf, mapSeedOf, resolveMapSeed, rushConfig, showcaseConfig, skirmishConfig } from './data/maps';
 import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
-import { soundFor } from './audio/plan';
+import { worldSoundFor, type SoundWho } from './audio/plan';
+import { AckGate, mostNumerousKind, panGain, ShotTagger } from './audio/recipes';
 import { SimClient } from './host/client';
 import { activeMatch } from './net/lobby';
 import { OnlineWatch } from './net/watch';
@@ -11,7 +12,7 @@ import { GameView, type PlacementPreview } from './render/gameView';
 import type { WorldRenderer } from './render/worldRenderer';
 import { interpolate, type RenderUnit } from './render/interp';
 import { tileToScreen } from './render/iso';
-import { canPlace, FP, type Snapshot } from './sim';
+import { canPlace, FP, type SimEvent, type Snapshot } from './sim';
 import { ONLINE_SPEED, stepSpeed, tickMsAt } from './host/speed';
 import { AlertTracker } from './ui/alerts';
 import { countdownRows } from './ui/countdown';
@@ -31,6 +32,8 @@ import { effectsEnabled, loadSettings, personalityChoiceOf, safeStorage, saveSet
 import { placementLive } from './ui/production';
 import { FrameStats } from './ui/frameStats';
 import { Sidebar } from './ui/sidebar';
+import { Soundscape } from './ui/soundscape';
+import { wireUiSounds } from './ui/uiSounds';
 import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
 import { chooseRenderer, probeGpu } from './render/chooseRenderer';
 import { buttonKinds } from './render/menuPlan';
@@ -84,6 +87,11 @@ audio.setMuted(settings.muted);
 audio.setVolume(settings.volume);
 audio.setMusicOn(settings.musicOn);
 audio.setMusicVolume(settings.musicVolume);
+// Continuous sound (AUD-8, AUD-10), explosion factions (AUD-6), the acknowledgement limit (AUD-7) and button sounds (AUD-11).
+const soundscape = new Soundscape(map, audio);
+const tagger = new ShotTagger();
+const ackGate = new AckGate(150);
+wireUiSounds(document, audio);
 const alerts = new AlertTracker(PLAYER);
 let paused = false;
 /** Game speed (UX-3): the player's last choice, ×0.8 by default; online always ×0.8. */
@@ -243,6 +251,39 @@ function refuse(reason: string): void {
   audio.play('deny');
 }
 
+/**
+ * Play the world sounds of a tick's events (AUD-5, AUD-6, AUD-9): each in its faction's palette, panned and softened by
+ * where it is on screen. The player's own units fighting out of view feed the distant rumble (AUD-10).
+ */
+function playEvents(events: readonly SimEvent[], snap: Snapshot | null): void {
+  const proj = view.projector(cam);
+  const vp = view.viewport;
+  let kinds: Map<number, string> | null = null;
+  const who: SoundWho = {
+    kindOf: (id) => {
+      if (!snap) return undefined;
+      if (!kinds) {
+        kinds = new Map();
+        for (const u of snap.units) kinds.set(u.id, u.kind);
+        for (const b of snap.buildings) kinds.set(b.id, b.kind);
+      }
+      return kinds.get(id);
+    },
+    factionOf: (o) => snap?.players[o]?.faction ?? myFaction,
+    boomFaction: (x, y) => tagger.near(x, y, myFaction),
+  };
+  let away = 0;
+  for (const ev of events) {
+    const s = worldSoundFor(ev, PLAYER, who);
+    if (ev.t === 'shot') tagger.note(ev.tx / FP, ev.ty / FP, s.faction);
+    const p = proj.toScreen(s.at.x, s.at.y);
+    const pg = panGain(p.x, p.y, vp.width, vp.height);
+    audio.play(s.name, s.gain, { faction: s.faction, size: s.size, pan: pg.pan, near: pg.gain });
+    if ((ev.t === 'shot' || ev.t === 'die') && ev.owner === PLAYER && (p.x < 0 || p.y < 0 || p.x > vp.width || p.y > vp.height)) away++;
+  }
+  if (away > 0) soundscape.noteOffscreenFight(away);
+}
+
 /** What the pointer is over and the current input mode, for choosing the cursor. */
 function cursorState(): CursorState {
   const snap = sim.curr;
@@ -269,11 +310,9 @@ function frame(prevTime: number): (t: number) => void {
     if (keys.has('s') || keys.has('arrowdown') || (mouse.y > v.height - EDGE && mouse.y <= v.height)) dy += 1;
     if ((dx || dy) && allowed('w')) cam = pan(cam, dx * PAN_SPEED * dt, dy * PAN_SPEED * dt, bounds);
 
-    for (const ev of sim.events.splice(0)) {
-      view.spawn(ev, t);
-      const s = soundFor(ev, PLAYER);
-      audio.play(s.name, s.gain);
-    }
+    const events = sim.events.splice(0);
+    for (const ev of events) view.spawn(ev, t);
+    if (events.length > 0) playEvents(events, sim.curr);
     view.canvas.style.cursor = cursorCss(cursorFor(cursorState()));
     const curr = sim.curr;
     if (curr && curr.over && !resultShown) {
@@ -308,10 +347,15 @@ function frame(prevTime: number): (t: number) => void {
         lastAlertTick = curr.tick;
         for (const a of alerts.update(curr)) {
           hud.toast(a.text, a.level);
-          audio.play(a.level === 'info' ? 'ready' : 'alert');
+          audio.play(a.id === 'structure' ? 'built' : a.level === 'info' ? 'ready' : 'alert');
           if (a.at && minimap) minimap.ping(a.at.tx, a.at.ty, t, a.level === 'bad' ? '#ff5a4a' : '#ffd34a');
         }
       }
+      // Selecting own units answers with the sound of the most numerous kind (AUD-7); the world's loops and ambience follow the camera (AUD-8, AUD-10).
+      const sel = selection.selected;
+      if (sel.some((id) => !prevSelected.has(id))) ackSound(sel, 'select');
+      prevSelected = new Set(sel);
+      soundscape.update(sim.prev, curr, view.projector(cam), v, t);
       sidebar.update(curr, selectedBuilding, t, targeting?.building ?? null);
       hud.setCountdown(countdownRows(curr));
 
@@ -396,8 +440,26 @@ function acknowledgeCmd(cmd: Command, mini = false, foot?: { w: number; h: numbe
   const a: Acknowledgement | null = acknowledge(cmd, performance.now(), OWNER_COLORS[PLAYER] ?? 0x7ff5cd, foot);
   if (!a) return;
   acks.add(a);
-  audio.play(a.sound === 'attack' ? 'ackAttack' : 'ack');
+  // A command to units answers with their kind's sound (AUD-7, replacing the generic order sounds of UI-14, which stay for orders no unit takes).
+  if (!ackSound(a.units, 'command') && a.units.length === 0 && ackGate.allow(performance.now())) audio.play(a.sound === 'attack' ? 'ackAttack' : 'ack');
   if (mini && a.at && a.color !== null && minimap) minimap.ping(a.at.x, a.at.y, a.born, `#${a.color.toString(16).padStart(6, '0')}`);
+}
+
+/** Units selected last frame, to hear when the selection gains one (AUD-7). */
+let prevSelected = new Set<number>();
+
+/**
+ * The acknowledgement sound for `ids` (AUD-7): the kind with the most own units among them, at most once every 150 ms.
+ * Returns whether a kind was found.
+ */
+function ackSound(ids: readonly number[], mode: 'select' | 'command'): boolean {
+  const snap = sim.curr;
+  if (!snap || ids.length === 0) return false;
+  const set = new Set(ids);
+  const kind = mostNumerousKind(snap.units.filter((u) => u.owner === PLAYER && set.has(u.id)).map((u) => u.kind));
+  if (!kind) return false;
+  if (ackGate.allow(performance.now())) audio.ack(kind, mode);
+  return true;
 }
 
 /** Send a command and acknowledge it at once. */
@@ -682,6 +744,10 @@ async function boot(): Promise<void> {
 
   (window as unknown as { __shardfall: unknown }).__shardfall = {
     snapshot: () => sim.curr,
+    /** Sound counts (AUD-7, AUD-11) and the last movement and ambience mix (AUD-8, AUD-10), for tests. */
+    audio: () => ({ ...audio.stats, mix: soundscape.last }),
+    /** Renders a dense battle offline through the real engine graph and returns its peak sample (AUD-12). */
+    audioBurst: (n?: number) => import('./audio/offline').then((m) => m.renderBurst(n)),
     camera: () => cam,
     selected: () => selection.selected,
     select: (ids: number[]) => {
