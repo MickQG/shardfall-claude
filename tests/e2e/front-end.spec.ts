@@ -193,9 +193,10 @@ test('MENU-10: in the 3D view a live scene canvas sits behind the panel in place
   expect(await page.evaluate(() => document.elementFromPoint(100, 300)?.closest('.rail') !== null)).toBe(true);
   // Picking the other faction swaps the scene (one canvas throughout).
   await page.locator('#menu .card[data-faction="alien"]').click();
-  await expect(canvas).toHaveAttribute('data-faction', 'alien', { timeout: 5000 });
+  // Software GL (CI) builds the other faction's models and shaders slowly, so the swap gets room to finish.
+  await expect(canvas).toHaveAttribute('data-faction', 'alien', { timeout: 30_000 });
   await expect(canvas).toHaveCount(1);
-  await expect.poll(() => canvas.evaluate((c) => getComputedStyle(c).opacity), { timeout: 5000 }).toBe('1');
+  await expect.poll(() => canvas.evaluate((c) => getComputedStyle(c).opacity), { timeout: 30_000 }).toBe('1');
   await page.locator('#go').click();
   await page.waitForURL(/faction=alien/, { timeout: 30_000 });
   const gone = JSON.parse((await page.evaluate(() => sessionStorage.getItem('menuScene'))) ?? '{}') as { state: string; canvases: number };

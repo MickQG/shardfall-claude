@@ -270,8 +270,9 @@ export class View3D {
   readonly renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 400);
-  private sun = matchLights().sun;
-  private hemi = matchLights().hemi;
+  private lights = matchLights();
+  private sun = this.lights.sun;
+  private hemi = this.lights.hemi;
   private built = new Map<string, Built>();
   private metalMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.38 });
   private organicMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.05 });
