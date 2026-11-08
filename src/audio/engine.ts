@@ -1,5 +1,5 @@
 import type { Faction } from '../data/defs';
-import { battlePlan, menuPlan, menuThemePlan, musicPlan, stingerPlan, themePlan, type Note } from './plan';
+import { battlePlan, menuPlan, MUSIC_PATCHES, menuThemePlan, musicPlan, stingerPlan, themePlan, type Note } from './plan';
 import { busGains, layerGains } from './mix';
 import { ackRecipe, allocateVoice, MOVE_CLASSES, MOVE_LOOPS, moveLoopSamples, recipeFor, sizeMods, Variation, type AmbienceMix, type FilterSpec, type Layer, type MoveClass, type Recipe, type SoundName, type VoiceInfo } from './recipes';
 
@@ -646,7 +646,7 @@ export class AudioEngine {
       o.stop(t + dur + 0.05);
       return o;
     };
-    /** A lowpass whose cutoff sweeps from `a` to `b` over `over` seconds: the brass-like quick filter envelope. */
+    /** A lowpass whose cutoff sweeps from `a` to `b` over `over` seconds: a quick filter envelope. */
     const lowpass = (a: number, b: number, over: number, q: number, to: AudioNode): BiquadFilterNode => {
       const l = c.createBiquadFilter();
       l.type = 'lowpass';
@@ -665,11 +665,11 @@ export class AudioEngine {
         break;
       case 'arp':
         // A soft, low, muted pluck: a sawtooth whose cutoff closes quickly, so it never rings.
-        osc('sawtooth', f, lowpass(900, 300, dur, 0.7, env(0.04, 0.02, dest)));
+        osc('sawtooth', f, lowpass(...MUSIC_PATCHES.arp.lp!, dur, 0.7, env(0.04, 0.02, dest)));
         break;
       case 'ost':
         // A driving low pulse: a sawtooth with its cutoff closing on each eighth.
-        osc('sawtooth', f, lowpass(650, 220, dur, 1, env(0.085, 0.008, dest)));
+        osc('sawtooth', f, lowpass(...MUSIC_PATCHES.ost.lp!, dur, 1, env(0.085, 0.008, dest)));
         break;
       case 'kick':
         osc('sine', 120, env(0.2, 0.004, dest), 42, 0.14);
@@ -688,21 +688,19 @@ export class AudioEngine {
         s.stop(t + dur + 0.05);
         break;
       }
-      case 'stab': {
-        const g = env(0.05, 0.01, dest);
-        const l = lowpass(2200, 500, 0.3, 2, g);
-        osc('sawtooth', f, l);
-        const d = osc('sawtooth', f, l);
-        d.detune.value = 9;
+      case 'strings': {
+        // A soft, sustained pad swell: two triangles, a slow attack and a gentle low-pass, no bright transient.
+        const g = env(0.035, dur * 0.4, dest);
+        const l = lowpass(...MUSIC_PATCHES.strings.lp!, dur * 0.5, 0.7, g);
+        osc('triangle', f, l);
+        osc('triangle', f, l).detune.value = 7;
         break;
       }
-      case 'brass': {
-        // Aegis: a sawtooth swelling through a lowpass, like a horn section.
-        const g = env(0.06, 0.07, dest);
-        const l = lowpass(500, 1800, 0.18, 1.5, g);
-        osc('sawtooth', f, l);
-        const d = osc('sawtooth', f, l);
-        d.detune.value = 6;
+      case 'march': {
+        // Aegis: a low, muted square pulse with a short percussive envelope and a closing low-pass.
+        const g = env(0.05, 0.01, dest);
+        const l = lowpass(...MUSIC_PATCHES.march.lp!, dur, 0.7, g);
+        osc('square', f, l);
         break;
       }
       case 'hollow': {
@@ -718,16 +716,26 @@ export class AudioEngine {
         lfo.connect(lg).connect(trem.gain);
         lfo.start(t);
         lfo.stop(t + dur + 0.05);
-        const l = lowpass(700, 450, dur, 1.2, trem);
+        const l = lowpass(...MUSIC_PATCHES.hollow.lp!, dur, 1.2, trem);
         osc('square', f, l);
         const d = osc('square', f, l);
         d.detune.value = 11;
         break;
       }
       case 'swell':
-        // A rising brass swell: a long attack while the filter opens.
-        osc('sawtooth', f, lowpass(250, 2200, dur * 0.9, 0.8, env(0.1, dur * 0.85, dest)));
+        // A rising pad swell: a triangle with a long attack and a gentle, dark low-pass.
+        osc('triangle', f, lowpass(...MUSIC_PATCHES.swell.lp!, dur * 0.9, 0.7, env(0.09, dur * 0.85, dest)));
         break;
+      case 'riser':
+        // A low riser: a sine gliding up an octave, in key.
+        osc('sine', f, env(0.12, dur * 0.8, dest), f * 2, dur * 0.9);
+        break;
+      case 'tone': {
+        // A falling tone figure: a low-passed triangle with a soft attack.
+        const g = env(0.08, 0.03, dest);
+        osc('triangle', f, lowpass(...MUSIC_PATCHES.tone.lp!, dur, 0.7, g));
+        break;
+      }
       case 'hit': {
         // A low hit: a falling sine and a dull noise thud.
         osc('sine', 90, env(0.4, 0.005, dest), 32, dur * 0.8);

@@ -3,7 +3,7 @@ import { AudioEngine } from '../../src/audio/engine';
 import { BattleIntensity, DAMAGE_WINDOW_MS, intensityTarget } from '../../src/audio/intensity';
 import { busGains, layerGains } from '../../src/audio/mix';
 import { readFileSync } from 'node:fs';
-import { battlePlan, CHORD_ROOTS, menuPlan, menuThemePlan, motifFor, MUSIC_PARTIALS, musicPlan, SCALE_TONES, semitonesFromA, stingerPlan, themePlan, THEME_EVERY, type Note } from '../../src/audio/plan';
+import { battlePlan, CHORD_ROOTS, menuPlan, menuThemePlan, motifFor, MUSIC_PARTIALS, MUSIC_PATCHES, musicPlan, SCALE_TONES, semitonesFromA, stingerPlan, themePlan, THEME_EVERY, type Note } from '../../src/audio/plan';
 
 const scale = new Set(SCALE_TONES);
 const rel = (freq: number, root: number): number => ((((Math.round(semitonesFromA(freq)) - root) % 12) + 12) % 12);
@@ -20,16 +20,16 @@ describe('battle layer (AUD-13)', () => {
     expect(b).not.toEqual(musicPlan(7, 16));
   });
 
-  it('AUD-13: the battle layer has a low ostinato, a percussion pulse and brass-like stabs, all in key', () => {
+  it('AUD-13: the battle layer has a low ostinato, a percussion pulse and a soft pad swell, all in key', () => {
     const b = battlePlan(7, 16);
-    for (const v of ['ost', 'kick', 'perc', 'stab'] as const) expect(b.some((n) => n.voice === v), v).toBe(true);
+    for (const v of ['ost', 'kick', 'perc', 'strings'] as const) expect(b.some((n) => n.voice === v), v).toBe(true);
     for (const n of pitched(b)) {
       expect(inKey(n), `${n.voice} ${n.freq.toFixed(1)} Hz out of key`).toBe(true);
       expect(n.beat).toBeGreaterThanOrEqual(0);
       expect(n.dur).toBeGreaterThan(0);
     }
     // The ostinato sits on the chord root and fifth of its own bar.
-    for (const n of b.filter((x) => x.voice === 'ost' || x.voice === 'stab')) {
+    for (const n of b.filter((x) => x.voice === 'ost' || x.voice === 'strings')) {
       const root = CHORD_ROOTS[Math.floor(n.beat / 4) % CHORD_ROOTS.length] as number;
       expect([0, 7], `${n.voice} at beat ${n.beat}`).toContain(rel(n.freq, root));
     }
@@ -136,7 +136,7 @@ describe('faction themes (AUD-14)', () => {
       for (const n of m) expect(scale.has(rel(n.freq, 0)), `${n.freq.toFixed(1)} Hz`).toBe(true);
     }
     expect(aegis.map((n) => n.freq)).not.toEqual(vrax.map((n) => n.freq));
-    expect(aegis.every((n) => n.voice === 'brass')).toBe(true);
+    expect(aegis.every((n) => n.voice === 'march')).toBe(true);
     expect(vrax.every((n) => n.voice === 'hollow')).toBe(true);
   });
 
@@ -160,11 +160,11 @@ describe('faction themes (AUD-14)', () => {
     for (const seed of [4, 5]) {
       for (const plan of [themePlan(seed, 32, 'human'), menuThemePlan(seed, 32, 'human')]) {
         const motif = motifFor('human');
-        const starts = plan.filter((n) => n.freq === (motif[0] as Note).freq && n.voice === 'brass').map((n) => n.beat / 4);
+        const starts = plan.filter((n) => n.freq === (motif[0] as Note).freq && n.voice === 'march').map((n) => n.beat / 4);
         expect(starts.length).toBeGreaterThanOrEqual(3);
         expect(starts.length).toBeLessThanOrEqual(32 / THEME_EVERY);
         starts.slice(1).forEach((b, i) => expect(b - (starts[i] as number)).toBe(THEME_EVERY));
-        for (const n of plan) expect(inKey(n)).toBe(true);
+        for (const n of pitched(plan)) expect(inKey(n)).toBe(true);
       }
     }
     expect(themePlan(4, 32, 'alien')).toEqual(themePlan(4, 32, 'alien'));
@@ -177,7 +177,8 @@ describe('faction themes (AUD-14)', () => {
     const h = menuThemePlan(9, 24, 'human');
     const a = menuThemePlan(9, 24, 'alien');
     expect(h.map((n) => n.freq)).not.toEqual(a.map((n) => n.freq));
-    expect(h.every((n) => n.voice === 'brass')).toBe(true);
+    expect(h.every((n) => n.voice === 'march' || n.voice === 'perc')).toBe(true);
+    expect(h.some((n) => n.voice === 'perc')).toBe(true);
     expect(a.every((n) => n.voice === 'hollow')).toBe(true);
     expect(sameShape(h, h)).toBe(true);
     // The calm menu score underneath stays what AUD-4 says it is.
@@ -215,6 +216,37 @@ describe('no chimes in the music (AUD-14)', () => {
   });
 });
 
+describe('no brass in the music (AUD-14)', () => {
+  const used = (faction: 'human' | 'alien'): Set<string> => {
+    const v = new Set<string>();
+    for (const seed of [0, 1, 2, 3]) {
+      for (const n of [...musicPlan(seed, 32), ...battlePlan(seed, 32), ...themePlan(seed, 32, faction), ...menuThemePlan(seed, 32, faction), ...stingerPlan('launch', seed), ...stingerPlan('strike', seed)]) v.add(n.voice);
+    }
+    for (const n of motifFor(faction)) v.add(n.voice);
+    return v;
+  };
+
+  it('AUD-14: no music voice is brass-like', () => {
+    for (const faction of ['human', 'alien'] as const) {
+      const voices = used(faction);
+      expect(voices.size).toBeGreaterThan(8);
+      for (const voice of voices) {
+        expect(/brass|horn|trumpet|stab/i.test(voice), `${voice} is named like brass`).toBe(false);
+        const p = MUSIC_PATCHES[voice as keyof typeof MUSIC_PATCHES];
+        expect(p, `${voice} has a patch`).toBeDefined();
+        if (!p.lp) continue;
+        const [from, to] = p.lp;
+        expect(Math.max(from, to), `${voice} filter sweeps above 1.5 kHz`).toBeLessThanOrEqual(1500);
+        if (p.wave === 'sawtooth' || p.wave === 'square') expect(to, `${voice} cutoff rises during the attack`).toBeLessThanOrEqual(from);
+      }
+    }
+    // The engine reads its cutoffs from the patch table, so nothing in the synth can open a filter on its own.
+    const src = readFileSync(new URL('../../src/audio/engine.ts', import.meta.url), 'utf8');
+    const body = src.slice(src.indexOf('private note('), src.indexOf('Stops the score'));
+    expect(body).not.toMatch(/brass|lowpass\(\s*\d/i);
+  });
+});
+
 describe('stingers (AUD-15)', () => {
   it('AUD-15: launch and strike stingers are in key, deterministic per seed, and differ from each other', () => {
     for (const seed of [0, 1]) {
@@ -229,14 +261,16 @@ describe('stingers (AUD-15)', () => {
     }
   });
 
-  it('AUD-15: launch is a rising brass swell; strike is a low hit and a falling motif', () => {
+  it('AUD-15: launch is a rising pad swell over a low riser; strike is a low hit and a falling motif', () => {
     const launch = stingerPlan('launch', 0);
-    expect(launch.every((n) => n.voice === 'swell')).toBe(true);
-    expect(launch.map((n) => n.freq)).toEqual([...launch.map((n) => n.freq)].sort((x, y) => x - y));
+    expect(launch.some((n) => n.voice === 'riser')).toBe(true);
+    const swell = launch.filter((n) => n.voice === 'swell');
+    expect(swell.length).toBeGreaterThanOrEqual(3);
+    expect(swell.map((n) => n.freq)).toEqual([...swell.map((n) => n.freq)].sort((x, y) => x - y));
     const strike = stingerPlan('strike', 0);
     const hit = strike.find((n) => n.voice === 'hit') as Note;
     expect(hit.freq).toBeLessThan(80);
-    const fall = strike.filter((n) => n.voice === 'brass').map((n) => n.freq);
+    const fall = strike.filter((n) => n.voice === 'tone').map((n) => n.freq);
     expect(fall.length).toBeGreaterThanOrEqual(3);
     expect(fall).toEqual([...fall].sort((x, y) => y - x));
   });

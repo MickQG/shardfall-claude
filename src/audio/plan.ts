@@ -67,9 +67,10 @@ export function worldSoundFor(e: SimEvent, viewer: number, who: SoundWho): World
 
 /**
  * The voices of the score. Calm: pad, arp, bass. Battle (AUD-13): ost (low ostinato), kick, perc (a noise hit whose freq is its
- * band centre), stab. Themes (AUD-14): brass (Aegis), hollow (Vrax). Stingers (AUD-15): swell, hit, and brass.
+ * band centre), strings (a soft sustained pad swell). Themes (AUD-14): march (Aegis, a muted square pulse), hollow (Vrax).
+ * Stingers (AUD-15): swell (a filtered pad), riser, hit, and tone (a low-passed falling tone). No voice is brass-like (AUD-14).
  */
-export type MusicVoice = 'pad' | 'arp' | 'bass' | 'ost' | 'kick' | 'perc' | 'stab' | 'brass' | 'hollow' | 'swell' | 'hit';
+export type MusicVoice = 'pad' | 'arp' | 'bass' | 'ost' | 'kick' | 'perc' | 'strings' | 'march' | 'hollow' | 'swell' | 'riser' | 'hit' | 'tone';
 
 export interface Note {
   /** Start time in beats. */
@@ -86,7 +87,32 @@ export interface Note {
  * a chime. The engine builds each voice from oscillators at these ratios (detune only for width), through low-pass filters.
  */
 export const MUSIC_PARTIALS: Readonly<Record<MusicVoice, readonly number[]>> = {
-  pad: [1], arp: [1], bass: [1], ost: [1], kick: [1], perc: [], stab: [1], brass: [1], hollow: [1], swell: [1], hit: [1],
+  pad: [1], arp: [1], bass: [1], ost: [1], kick: [1], perc: [], strings: [1], march: [1], hollow: [1], swell: [1], riser: [1], hit: [1], tone: [1],
+};
+
+/**
+ * The synth patch of every music voice that the engine builds (AUD-14): its oscillator wave and, for a filtered voice, the
+ * low-pass cutoff at the start and the end of the note. The engine reads the cutoffs from here. No voice is brass-like: a
+ * sawtooth or square never has a cutoff that opens during its attack, and no cutoff goes above 1.5 kHz.
+ */
+export interface VoicePatch {
+  wave: OscillatorType | 'noise';
+  lp?: readonly [from: number, to: number];
+}
+export const MUSIC_PATCHES: Readonly<Record<MusicVoice, VoicePatch>> = {
+  pad: { wave: 'sine' },
+  arp: { wave: 'sawtooth', lp: [900, 300] },
+  bass: { wave: 'triangle' },
+  ost: { wave: 'sawtooth', lp: [650, 220] },
+  kick: { wave: 'sine' },
+  perc: { wave: 'noise' },
+  strings: { wave: 'triangle', lp: [450, 800] },
+  march: { wave: 'square', lp: [600, 300] },
+  hollow: { wave: 'square', lp: [700, 450] },
+  swell: { wave: 'triangle', lp: [300, 1100] },
+  riser: { wave: 'sine' },
+  hit: { wave: 'sine' },
+  tone: { wave: 'triangle', lp: [900, 400] },
 };
 
 /** A minor pentatonic over A: semitone offsets. */
@@ -128,7 +154,7 @@ export const noteHz = hz;
 
 /**
  * The battle layer (AUD-13): a driving low ostinato on the chord root and fifth, a percussion pulse (kick, and noise hits kept
- * below the highs) and brass-like stabs on chord tones. Same key and chord loop as the calm layer, its own stream of the seed.
+ * below the highs) and a soft, slow string-like pad swell on chord tones (no brass). Same key and chord loop as the calm layer, its own stream of the seed.
  * Intensity never reaches this function: it only sets the layer's level, so the notes are a pure function of the seed (AUD-2).
  */
 export function battlePlan(seed: number, bars: number): Note[] {
@@ -150,20 +176,15 @@ export function battlePlan(seed: number, bars: number): Note[] {
     if (r.int(100) < 20) notes.push({ beat: b0 + 1.5, freq: 55, dur: 0.4, voice: 'kick' });
     notes.push({ beat: b0 + 1, freq: 1500, dur: 0.22, voice: 'perc' }, { beat: b0 + 3, freq: 1500, dur: 0.22, voice: 'perc' });
     for (let i = 0; i < 4; i++) notes.push({ beat: b0 + i + 0.5, freq: 3200, dur: 0.1, voice: 'perc' });
-    // Stabs: on the downbeat of every other bar, plus a syncopated one now and then.
-    const hits = bar % 2 === 0 ? [0] : [];
-    if (r.int(100) < 55) hits.push(bar % 2 === 0 ? 2.5 : 1.5);
-    if (r.int(100) < 25) hits.push(3.5);
-    for (const h of hits) {
-      notes.push({ beat: b0 + h, freq: hz(root + 12), dur: 0.7, voice: 'stab' }, { beat: b0 + h, freq: hz(root + 19), dur: 0.7, voice: 'stab' });
-    }
+    // A sustained pad swell on the chord root and fifth every other bar: slow attack, no bright transient.
+    if (bar % 2 === 0) notes.push({ beat: b0, freq: hz(root + 12), dur: 7.5, voice: 'strings' }, { beat: b0, freq: hz(root + 19), dur: 7.5, voice: 'strings' });
   }
   return notes;
 }
 
 /**
- * The faction themes (AUD-14), beats from the motif's start, absolute pitches in A minor pentatonic. Aegis is martial and
- * brassy: dotted rhythms and rising fourths and fifths. Vrax is eerie and pulsing: a dark, hollow, amplitude-pulsed voice with a
+ * The faction themes (AUD-14), beats from the motif's start, absolute pitches in A minor pentatonic. Aegis is martial
+ * (a low, muted square pulse, never brass): dotted rhythms and rising fourths and fifths. Vrax is eerie and pulsing: a dark, hollow, amplitude-pulsed voice with a
  * falling contour, wide leaps and sparse timing.
  */
 export function motifFor(faction: Faction): Note[] {
@@ -172,7 +193,7 @@ export function motifFor(faction: Faction): Note[] {
     const semis = [12, 17, 24, 22, 19, 22, 24];
     const beats = [0, 1.5, 2, 3.5, 4, 5.5, 6];
     const durs = [1.5, 0.5, 1.5, 0.5, 1.5, 0.5, 2];
-    return semis.map((s, i) => ({ beat: beats[i] as number, freq: hz(s), dur: durs[i] as number, voice: 'brass' as const }));
+    return semis.map((s, i) => ({ beat: beats[i] as number, freq: hz(s), dur: durs[i] as number, voice: 'march' as const }));
   }
   // G C A E A, falling in leaps with gaps between them, in a mid register.
   const semis = [22, 15, 12, 7, 0];
@@ -193,22 +214,24 @@ export function themePlan(seed: number, bars: number, faction: Faction): Note[] 
   const notes: Note[] = [];
   for (let bar = 4 + (Math.abs(Math.floor(seed)) % 2) * 4; bar < bars; bar += THEME_EVERY) {
     for (const n of motif) notes.push({ ...n, beat: bar * 4 + n.beat });
+    // Aegis marches over a soft snare-like tick on every beat of the statement.
+    if (faction === 'human') for (let i = 0; i < 8; i++) notes.push({ beat: bar * 4 + i, freq: 1800, dur: 0.1, voice: 'perc' });
   }
   return notes;
 }
 
 /**
- * A musical stinger over the score (AUD-15), beats from its start, in key. Launch: a rising brass swell. Strike: a low hit
- * with a falling brass motif. The seed picks one of two voicings so repeats are not identical.
+ * A musical stinger over the score (AUD-15), beats from its start, in key. Launch: a rising, filtered pad swell over a low riser.
+ * Strike: a low hit with a falling, low-passed tone figure. No brass. The seed picks one of two voicings so repeats are not identical.
  */
 export function stingerPlan(kind: 'launch' | 'strike', seed: number): Note[] {
   const alt = Math.abs(Math.floor(seed)) % 2;
   if (kind === 'launch') {
     const semis = alt ? [0, 5, 12, 17] : [0, 7, 12, 19];
-    return semis.map((s, i) => ({ beat: i * 0.5, freq: hz(s + 12), dur: 3.2 - i * 0.4, voice: 'swell' as const }));
+    return [{ beat: 0, freq: hz(0), dur: 3, voice: 'riser' as const }, ...semis.map((s, i) => ({ beat: i * 0.5, freq: hz(s + 12), dur: 3.2 - i * 0.4, voice: 'swell' as const }))];
   }
   const fall = alt ? [31, 24, 19, 15] : [34, 27, 24, 19];
-  return [{ beat: 0, freq: 55, dur: 2, voice: 'hit' as const }, ...fall.map((s, i) => ({ beat: 0.25 + i * 0.5, freq: hz(s - 12), dur: 1.2, voice: 'brass' as const }))];
+  return [{ beat: 0, freq: 55, dur: 2, voice: 'hit' as const }, ...fall.map((s, i) => ({ beat: 0.25 + i * 0.5, freq: hz(s - 12), dur: 1.2, voice: 'tone' as const }))];
 }
 
 /** The main-menu score's theme (AUD-14): the faction's motif on the menu's own stream of the seed, like `menuPlan`. */
