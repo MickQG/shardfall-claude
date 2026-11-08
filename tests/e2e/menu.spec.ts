@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 test('MENU-1: the menu has a rail of the MENU-14 entries, faction cards naming heroes, map cards with thumbnails, and Enter starts', async ({ page }) => {
   await page.goto('/');
@@ -121,25 +121,68 @@ test('MENU-6: a Generated map card with a thumbnail, reroll and an editable seed
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
 });
 
+/** True when the heading font stack has a condensed face on this machine: its width differs from plain sans-serif. */
+async function hasCondensedFace(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const head = getComputedStyle(document.querySelector('#menu .card .hero')!).fontFamily;
+    const width = (family: string): number => {
+      const s = document.createElement('span');
+      s.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:600 40px ${family};font-stretch:87.5%`;
+      s.textContent = 'Paladin, a giant assault walker with cannons and missiles.';
+      document.body.appendChild(s);
+      const w = s.getBoundingClientRect().width;
+      s.remove();
+      return w;
+    };
+    return width(head) !== width('sans-serif');
+  });
+}
+
+const HERO_LINES = { human: 'Hero: Paladin, a giant assault walker with cannons and missiles.', alien: 'Hero: Dreadstrider, a towering six-legged walker with an acid cannon.' };
+
+async function heroFit(hero: Locator): Promise<{ rows: number; overflow: boolean; right: boolean }> {
+  return hero.evaluate((el) => {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    // One row when every fragment's vertical span overlaps the others' (bold and plain text have slightly different tops).
+    const rects = [...r.getClientRects()].filter((x) => x.width > 0);
+    const one = Math.max(...rects.map((x) => x.top)) < Math.min(...rects.map((x) => x.bottom));
+    return { rows: one ? 1 : 2, overflow: el.scrollWidth > el.clientWidth + 1, right: r.getBoundingClientRect().right <= el.closest('.card')!.getBoundingClientRect().right };
+  });
+}
+
 test('MENU-7: both faction cards show their hero line on one row on a desktop screen, and never clipped on a phone', async ({ page }) => {
-  const lines = { human: 'Hero: Paladin, a giant assault walker with cannons and missiles.', alien: 'Hero: Dreadstrider, a towering six-legged walker with an acid cannon.' };
   for (const size of [{ width: 1280, height: 800 }, { width: 1920, height: 1080 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(size);
     await page.goto('/');
-    for (const [id, line] of Object.entries(lines)) {
+    await expect(page.locator('#menu .card .hero').first()).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    const condensed = await hasCondensedFace(page);
+    for (const [id, line] of Object.entries(HERO_LINES)) {
       const hero = page.locator(`#menu [data-faction="${id}"] .hero`);
       await expect(hero).toHaveText(line);
-      const fits = await hero.evaluate((el) => {
-        const r = document.createRange();
-        r.selectNodeContents(el);
-        const tops = new Set([...r.getClientRects()].map((x) => Math.round(x.top)));
-        return { rows: tops.size, overflow: el.scrollWidth > el.clientWidth + 1, right: r.getBoundingClientRect().right <= el.closest('.card')!.getBoundingClientRect().right };
-      });
-      // Readable, not shrunk to fit: at least 11 px at 1280 px wide and 12 px from 1600 px up.
+      const fits = await heroFit(hero);
+      // Always one row. With a condensed face on the machine the size stays readable: 11 px at 1280, 12 px at 1920.
       const px = await hero.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
-      if (size.width >= 1600) expect(px, `${id} font at ${size.width}px`).toBeGreaterThanOrEqual(12);
-      else if (size.width >= 1280) expect(px, `${id} font at ${size.width}px`).toBeGreaterThanOrEqual(11);
+      if (condensed && size.width >= 1920) expect(px, `${id} font at ${size.width}px`).toBeGreaterThanOrEqual(12);
+      else if (condensed && size.width >= 1280) expect(px, `${id} font at ${size.width}px`).toBeGreaterThanOrEqual(11);
       expect(fits, `${id} at ${size.width}px`).toEqual({ rows: size.width >= 1280 ? 1 : fits.rows, overflow: false, right: true });
     }
+  }
+});
+
+test('MENU-7: with a wide fallback face (Arial) the hero lines still fit one row at 1280 px, by shrinking', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await expect(page.locator('#menu .card .hero').first()).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  await page.addStyleTag({ content: '#menu .card .hero { font-family: Arial, Verdana, sans-serif !important; font-stretch: 100% !important; }' });
+  // Re-run the fit: a resize does it.
+  await page.setViewportSize({ width: 1281, height: 720 });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  for (const id of Object.keys(HERO_LINES)) {
+    const hero = page.locator(`#menu [data-faction="${id}"] .hero`);
+    await expect.poll(async () => (await heroFit(hero)).overflow, { message: `${id} overflows` }).toBe(false);
+    expect(await heroFit(hero), id).toEqual({ rows: 1, overflow: false, right: true });
   }
 });

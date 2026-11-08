@@ -45,7 +45,14 @@ const PITCH = 0.3;
 const AZIMUTH = 0.38;
 /** The sun is lower than a match's, for long shadows. */
 const SUN_AT: readonly [number, number, number] = [-10, 8, 7];
-const BACKDROP: Record<SceneFaction, number> = { human: 0x0a131c, alien: 0x14120b };
+/** Distance haze and the horizon of the dusk sky, per faction: calm, close to a match's fog (0x2a2d44). */
+export const HAZE: Record<SceneFaction, number> = { human: 0x28304a, alien: 0x3a3042 };
+/** The sky above the horizon: the haze colour darkened toward the top. */
+export const SKY_TOP_SHADE = 0.35;
+/** Fog starts behind the stage (the camera is 18 to 23 tiles out) and has swallowed the ground well before its edge. */
+export const FOG_NEAR = 28;
+export const FOG_FAR = 66;
+export const GROUND_RADIUS = 120;
 const GROUND: Record<SceneFaction, readonly [number, number, number]> = { human: [92, 90, 72], alien: [84, 70, 72] };
 
 /** Where each member of a scene stands (tiles; x right, z toward the camera), and which way it faces (radians, 0 = +x). */
@@ -90,6 +97,23 @@ interface Figure {
   building: boolean;
 }
 
+/** A vertical gradient from `horizon` (bottom) to a darker `top`, for the sky. */
+function skyTexture(horizon: number): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 4;
+  c.height = 128;
+  const g = c.getContext('2d')!;
+  const base = new THREE.Color(horizon);
+  const grad = g.createLinearGradient(0, 0, 0, c.height);
+  grad.addColorStop(0, `#${base.clone().multiplyScalar(SKY_TOP_SHADE).getHexString()}`);
+  grad.addColorStop(1, `#${base.getHexString()}`);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, c.width, c.height);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 /** A ground texture of fine, seeded speckle around `rgb`. */
 function groundTexture(rgb: readonly [number, number, number]): THREE.DataTexture {
   const n = 128;
@@ -106,7 +130,7 @@ function groundTexture(rgb: readonly [number, number, number]): THREE.DataTextur
   }
   const t = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(9, 9);
+  t.repeat.set(27, 27);
   t.colorSpace = THREE.SRGBColorSpace;
   t.magFilter = THREE.LinearFilter;
   t.minFilter = THREE.LinearMipmapLinearFilter;
@@ -119,7 +143,7 @@ class Scene3d implements MenuScene {
   readonly canvas: HTMLCanvasElement;
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 90);
+  private camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 160);
   private composer: EffectComposer;
   private metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.38 });
   private organic = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.05 });
@@ -165,7 +189,7 @@ class Scene3d implements MenuScene {
     configureSunShadow(sun, 9, 1024, 40);
     this.scene.add(hemi, sun, sun.target, this.stage);
     addEnvironment(this.scene, this.renderer);
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 48).rotateX(-Math.PI / 2), this.groundMat);
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(GROUND_RADIUS, 64).rotateX(-Math.PI / 2), this.groundMat);
     ground.receiveShadow = true;
     this.geos.push(ground.geometry);
     this.scene.add(ground);
@@ -213,9 +237,10 @@ class Scene3d implements MenuScene {
   private build(f: SceneFaction): void {
     this.clearStage();
     this.canvas.dataset.faction = f;
-    const bg = BACKDROP[f];
-    this.scene.background = new THREE.Color(bg);
-    this.scene.fog = new THREE.Fog(bg, 26, 52);
+    const haze = HAZE[f];
+    (this.scene.background as THREE.Texture | null)?.dispose();
+    this.scene.background = skyTexture(haze);
+    this.scene.fog = new THREE.Fog(haze, FOG_NEAR, FOG_FAR);
     this.groundMat.map?.dispose();
     this.groundMat.map = groundTexture(GROUND[f]);
     this.groundMat.needsUpdate = true;
@@ -391,6 +416,7 @@ class Scene3d implements MenuScene {
     this.clearStage();
     for (const g of this.geos) g.dispose();
     this.groundMat.map?.dispose();
+    (this.scene.background as THREE.Texture | null)?.dispose();
     for (const m of [this.metal, this.organic, this.crystal, this.glow, this.hiveGlow, this.groundMat]) m.dispose();
     this.scene.environment?.dispose();
     this.composer.dispose();

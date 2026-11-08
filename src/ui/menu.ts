@@ -7,6 +7,7 @@ import { mountOnlinePanel, ONLINE_CSS } from './onlinePanel';
 import { createUnitSheet, FACTION_INFO } from './unitSheet';
 import { basicsHtml, controlsHtml } from './controlsHelp';
 import { ensureTheme, wordmarkSvg } from './theme';
+import { fitSize } from './fitText';
 import { chooseRenderer, probeGpu } from '../render/chooseRenderer';
 import { holdStill } from '../render/menuPlan';
 import type { MenuScene } from '../render3d/menuScene3d';
@@ -114,6 +115,19 @@ const FACTIONS = [
   { id: 'alien', sub: 'Aliens · speed and regeneration', text: 'Fast, organic swarms: skitterers, spitters and brutes that heal between fights.', hero: 'Dreadstrider, a towering six-legged walker with an acid cannon.' },
 ] as const;
 
+/** One-row rule (MENU-7): at 1100 px and wider the hero line does not wrap, so it shrinks until it fits its card, whatever face the device has. */
+export function fitHeroLines(root: HTMLElement): void {
+  const wide = matchMedia('(min-width: 1101px)').matches;
+  root.querySelectorAll<HTMLElement>('.card .hero').forEach((el) => {
+    el.style.fontSize = '';
+    if (!wide) return;
+    el.style.fontSize = `${fitSize((px) => {
+      el.style.fontSize = `${px}px`;
+      return el.scrollWidth;
+    }, el.clientWidth)}px`;
+  });
+}
+
 export function showMenu(): void {
   ensureTheme();
   const style = document.createElement('style');
@@ -182,6 +196,9 @@ export function showMenu(): void {
   // Listeners on the window end with the menu, so none is left behind when an online match starts in this page.
   const life = new AbortController();
   let scene: MenuScene | null = null;
+  fitHeroLines(root);
+  window.addEventListener('resize', () => fitHeroLines(root), { signal: life.signal });
+  void document.fonts?.ready.then(() => fitHeroLines(root));
   const sheet = createUnitSheet(life.signal, (open) => scene?.setPaused(open));
   let settings: Settings = loadSettings(safeStorage());
   const save = (patch: Partial<Settings>): void => {

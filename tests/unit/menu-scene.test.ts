@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { UNIT_DEFS } from '../../src/data/defs';
 import { BUILDING_RIGS } from '../../src/render3d/buildings3d';
 import { buttonKinds, DOLLY_FAR, DOLLY_NEAR, DOLLY_PASS_S, dollyAt, dollyDistance, FADE_IN_MS, FADE_OUT_MS, heroScreenX, heroShift, holdStill, IconCache, iconKey, panelRight, SCENE_CAST, sceneKinds } from '../../src/render/menuPlan';
+import { FOG_FAR, FOG_NEAR, GROUND_RADIUS, HAZE, SKY_TOP_SHADE } from '../../src/render3d/menuScene3d';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
 
 describe('menu faction scene (MENU-10, MENU-11)', () => {
@@ -90,6 +91,22 @@ describe('menu faction scene (MENU-10, MENU-11)', () => {
     expect(scene).not.toMatch(/Math\.random|Date\.now/);
     // The scene lets go of its WebGL context.
     expect(scene).toContain('forceContextLoss');
+  });
+
+  it('MENU-10: the scene fades into distance haze and a dusk sky: fog, a ground whose edge is inside the fog, and a non-black gradient background', () => {
+    const scene = readFileSync('src/render3d/menuScene3d.ts', 'utf8');
+    expect(scene).toContain('new THREE.Fog(haze, FOG_NEAR, FOG_FAR)');
+    expect(scene).toContain('this.scene.background = skyTexture(haze)');
+    expect(scene).not.toContain('Color(bg)');
+    // The camera is at most 23 tiles from the hero and the ground reaches GROUND_RADIUS from the stage: the edge is far inside solid fog.
+    expect(GROUND_RADIUS - DOLLY_FAR - 8).toBeGreaterThan(FOG_FAR);
+    expect(FOG_NEAR).toBeGreaterThan(DOLLY_FAR);
+    for (const f of ['human', 'alien'] as const) {
+      const c = HAZE[f];
+      expect(Math.max(c >> 16, (c >> 8) & 255, c & 255), `${f} horizon is not black`).toBeGreaterThan(0x20);
+      expect(Math.max(c >> 16, (c >> 8) & 255, c & 255) * SKY_TOP_SHADE, `${f} sky top is not black`).toBeGreaterThan(8);
+      expect(Math.max(c >> 16, (c >> 8) & 255, c & 255), `${f} haze is calm, not bright`).toBeLessThan(0x60);
+    }
   });
 
   it('MENU-10: the menu loads the scene with a dynamic import, only in the 3D view, and pauses it while the unit sheet is open', () => {
