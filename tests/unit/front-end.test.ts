@@ -20,24 +20,35 @@ describe('front-end and HUD', () => {
     expect(icon).toContain('points="10,0 18.21,18.07 2.19,27.69 0,22"');
     expect(icon).toContain('points="18.21,18.07 20,22 10,48 2.19,27.69"');
     expect(icon).toMatch(/<rect [^>]*rx=/);
+    expect(icon).toContain('#2fc7b0');
+    expect(icon).toContain('#9ffcff');
     expect(icon).not.toMatch(/Gradient|filter/);
     expect(readFileSync(join(__dirname, '../../index.html'), 'utf8')).toContain('href="./icon.svg"');
     expect(readFileSync(join(__dirname, '../../public/manifest.webmanifest'), 'utf8')).toContain('"src": "icon.svg"');
   });
 
-  it('MENU-8: the wordmark is flat inline SVG named Shardfall, with a two-polygon emblem and two clipped text copies, no gradient or filter', () => {
+  it('MENU-8: the wordmark is flat inline SVG named Shardfall: a two-polygon emblem and one text element, no clip path, no line through the letters, no gradient or filter', () => {
     const svg = wordmarkSvg();
     expect(svg).toMatch(/^<svg[^>]*role="img"[^>]*aria-label="Shardfall"/);
-    expect((svg.match(/<polygon /g) ?? []).length - (svg.match(/<clipPath[^>]*><polygon /g) ?? []).length).toBe(2);
-    expect((svg.match(/<text /g) ?? []).length).toBe(2);
-    expect((svg.match(/<clipPath /g) ?? []).length).toBe(2);
-    expect((svg.match(/clip-path="url\(#/g) ?? []).length).toBe(2);
-    expect(svg).toContain('SHARD');
+    expect((svg.match(/<polygon /g) ?? []).length).toBe(2);
+    expect((svg.match(/<text /g) ?? []).length).toBe(1);
+    expect(svg).not.toMatch(/clipPath|clip-path|<line|<path|<rect|stroke/i);
+    expect(svg).toContain('SHARD<tspan');
     expect(svg).not.toMatch(/linearGradient|radialGradient|filter|stroke/i);
     expect(svg).toContain('var(--font-head)');
     expect(svg).not.toMatch(/<image|href=|url\(['"]?data:/);
-    expect(wordmarkSvg('a')).toContain('id="a-up"');
-    expect(wordmarkSvg('a')).not.toContain('id="wm-up"');
+  });
+
+  it('MENU-8: the logo uses the shards own colours, the same in both skins, and FALL in shard teal is a large heading that reads on the rail', () => {
+    const svg = wordmarkSvg();
+    expect(svg).toContain('#2fc7b0');
+    expect(svg).toContain('#9ffcff');
+    expect(svg).not.toMatch(/--accent/);
+    expect(svg).toContain('<tspan style="fill:#2fc7b0">FALL</tspan>');
+    for (const skin of ['human', 'alien'] as SkinId[]) {
+      for (const bg of ['--panel-top', '--panel-bot']) expect(contrast(tokenOf(skin, '--shard'), tokenOf(skin, bg))).toBeGreaterThanOrEqual(3);
+    }
+    expect(CONTRAST_PAIRS.some((p) => p.fg === '--shard' && p.large)).toBe(true);
   });
 
   it('MENU-9: headings use the condensed stack, body text the Segoe stack, and the build adds no font files', () => {

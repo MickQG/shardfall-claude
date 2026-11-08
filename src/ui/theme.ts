@@ -10,7 +10,7 @@ export const FONT_HEAD = "'Bahnschrift', 'DIN Condensed', 'DIN Alternate', 'Robo
 /** Body text (MENU-9). */
 export const FONT_BODY = "'Bahnschrift', 'Segoe UI', system-ui, sans-serif";
 
-const SHARED: Record<string, string> = { '--ink': '#dfe8e2', '--ink-dim': '#9fb1c2', '--void': '#070b10', '--bad': '#ff9a8a', '--good': '#8fe0a8', '--badge-bg': '#3a2f12' };
+const SHARED: Record<string, string> = { '--ink': '#dfe8e2', '--ink-dim': '#9fb1c2', '--void': '#070b10', '--bad': '#ff9a8a', '--good': '#8fe0a8', '--badge-bg': '#3a2f12', '--shard': '#2fc7b0' };
 
 /** Colour tokens of each skin. Solid `--panel-top`/`--panel-bot` are the opaque equivalents of the panel gradient, for the contrast check (UI-21). */
 export const SKINS: Record<SkinId, Record<string, string>> = {
@@ -69,6 +69,8 @@ export const CONTRAST_PAIRS: readonly { fg: string; bg: string; large?: boolean 
   ...['--panel-top', '--panel-bot', '--field', '--sel-bg', '--void'].flatMap((bg) => ['--ink', '--ink-dim', '--accent'].map((fg) => ({ fg, bg }))),
   ...['--panel-top', '--panel-bot'].flatMap((bg) => ['--accent-2', '--warn', '--bad', '--good'].map((fg) => ({ fg, bg }))),
   { fg: '--warn', bg: '--badge-bg' },
+  // The logo's FALL in shard teal is a large heading on the rail (MENU-8): 3:1 is the floor.
+  ...['--panel-top', '--panel-bot'].map((bg) => ({ fg: '--shard', bg, large: true })),
   { fg: '--accent-ink', bg: '--accent' },
   { fg: '--accent-ink', bg: '--btn-lo' },
 ];
@@ -116,22 +118,21 @@ export function ensureTheme(): void {
   document.head.appendChild(s);
 }
 
+/** The in-game crystals' colours (`crystalShape`): the teal body and the pale cyan glowing core. The logo uses them in both skins (MENU-8). */
+export const SHARD_BODY = '#2fc7b0';
+export const SHARD_CORE = '#9ffcff';
+
 /**
- * The Shardfall wordmark (MENU-8): a flat shard emblem split by a diagonal fracture into two pieces (the upper one shifted
- * up and right), beside SHARDFALL in the heading face. A hairline fracture at 4 degrees slices the letters: the word is drawn
- * twice, clipped above and below the line, with the upper half nudged along it. Flat fills only. The text is fitted with
- * `textLength`, so it fills the same width whichever face the device has. `idPrefix` keeps clip ids unique per instance.
+ * The Shardfall wordmark (MENU-8): a flat shard emblem split by a diagonal fracture into two offset pieces (the smaller upper
+ * one, in the crystals' pale cyan core colour, shifted up and right of the larger teal body piece), beside SHARDFALL drawn
+ * once in the heading face: SHARD in the ink colour, FALL in shard teal. Nothing crosses the letters; no bevel, chrome or
+ * glow. The colours are the shards' own and do not change with the skin. The text is fitted with `textLength`, so it fills
+ * the same width whichever face the device has.
  */
-export function wordmarkSvg(idPrefix = 'wm'): string {
-  const up = `${idPrefix}-up`;
-  const lo = `${idPrefix}-lo`;
-  // Fracture line through the word: y = 23.5 - 0.0699 (x - 142), 4 degrees; the clips leave a 1 px gap around it.
-  const y = (x: number, d: number): string => (23.5 - 0.0699 * (x - 142) + d).toFixed(2);
-  const band = (d: number, edge: number): string => `0,${edge} 252,${edge} 252,${y(252, d)} 0,${y(0, d)}`;
-  const text = (extra: string): string =>
-    `<text${extra} x="32" y="37" textLength="220" lengthAdjust="spacingAndGlyphs" style="fill:var(--ink,#eef4f8);font-family:var(--font-head);font-stretch:87.5%;font-weight:700;font-size:38px;letter-spacing:.05em" aria-hidden="true">SHARD<tspan style="fill:var(--accent,#6fd3ff)">FALL</tspan></text>`;
+export function wordmarkSvg(): string {
+  const text = `<text x="32" y="37" textLength="220" lengthAdjust="spacingAndGlyphs" style="fill:var(--ink,#eef4f8);font-family:var(--font-head);font-stretch:87.5%;font-weight:700;font-size:38px;letter-spacing:.05em" aria-hidden="true">SHARD<tspan style="fill:${SHARD_BODY}">FALL</tspan></text>`;
   // Emblem: a 20 x 48 diamond cut along y = 29 - 0.6x; the upper piece moves up and right, leaving a gap of about 1.5 px.
-  return `<svg class="wordmark" viewBox="0 0 252 48" role="img" aria-label="Shardfall" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="${up}"><polygon points="${band(-0.5, 0)}"/></clipPath><clipPath id="${lo}"><polygon points="${band(0.5, 48)}"/></clipPath></defs>`
-    + `<g transform="translate(2 5) scale(.87)"><polygon points="10,0 18.21,18.07 2.19,27.69 0,22" transform="translate(.95 -2.3)" style="fill:var(--accent,#6fd3ff)"/><polygon points="18.21,18.07 20,22 10,48 2.19,27.69" style="fill:var(--ink,#eef4f8);fill-opacity:.85"/></g>`
-    + `<g clip-path="url(#${up})"><g transform="translate(1.5 -.1)">${text('')}</g></g><g clip-path="url(#${lo})">${text('')}</g></svg>`;
+  return `<svg class="wordmark" viewBox="0 0 252 48" role="img" aria-label="Shardfall" xmlns="http://www.w3.org/2000/svg">`
+    + `<g transform="translate(2 5) scale(.87)"><polygon points="10,0 18.21,18.07 2.19,27.69 0,22" transform="translate(.95 -2.3)" style="fill:${SHARD_CORE}"/><polygon points="18.21,18.07 20,22 10,48 2.19,27.69" style="fill:${SHARD_BODY}"/></g>`
+    + `${text}</svg>`;
 }

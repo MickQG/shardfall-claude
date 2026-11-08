@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { UNIT_DEFS } from '../../src/data/defs';
 import { BUILDING_RIGS } from '../../src/render3d/buildings3d';
-import { buttonKinds, DOLLY_FAR, DOLLY_NEAR, DOLLY_PASS_S, dollyAt, dollyDistance, FADE_IN_MS, FADE_OUT_MS, heroScreenX, HAULER_SPOT, HERO_CLEAR, HERO_SPOT, heroShift, holdStill, IconCache, iconKey, panelRight, SCENE_CAST, sceneKinds, sceneSlots, shardPlan } from '../../src/render/menuPlan';
+import { buttonKinds, DOLLY_FAR, DOLLY_NEAR, DOLLY_PASS_S, dollyAt, dollyDistance, FADE_IN_MS, FADE_OUT_MS, HAULER_SPOT, HERO_CLEAR, HERO_SPOT, holdStill, IconCache, iconKey, castKinds, PANEL_MARGIN, panelRight, projectedSpan, SCENE_CAST, sceneFraming, sceneKinds, sceneSlots, shardPlan } from '../../src/render/menuPlan';
 import { FOG_FAR, FOG_NEAR, GROUND_RADIUS, HAZE, SKY_TOP_SHADE } from '../../src/render3d/menuScene3d';
+import { boxCorners, fitPicture, ICON_EDGE, project, viewDir } from '../../src/render3d/iconFit';
+import { PREVIEW_FOV, PREVIEW_PITCH, restBounds } from '../../src/render3d/preview3d';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
 
 describe('menu faction scene (MENU-10, MENU-11)', () => {
@@ -113,14 +115,29 @@ describe('menu faction scene (MENU-10, MENU-11)', () => {
     expect(FADE_OUT_MS + FADE_IN_MS).toBeLessThanOrEqual(600);
   });
 
-  it('MENU-11: from 1600 px up the hero stands in the strip to the right of the panel, clear of it', () => {
-    for (const w of [1600, 1920, 2560]) {
-      const x = heroScreenX(w);
-      expect(x).toBeGreaterThan(panelRight(w) + 120);
-      expect(x).toBeLessThan(w - 120);
-      expect(heroShift(w)).toBeCloseTo(x - w / 2, 9);
+  it('MENU-11: from 1600 px up every unit and the HQ stand clear of the panel, to its right, at both ends of the dolly, with at least 24 px to spare', () => {
+    expect(PANEL_MARGIN).toBeGreaterThanOrEqual(24);
+    for (const f of ['human', 'alien'] as const) {
+      for (const w of [1600, 1920, 2560]) {
+        const h = 1080;
+        const { zoomOut, shift } = sceneFraming(f, w, h);
+        expect(zoomOut).toBeGreaterThanOrEqual(1);
+        for (const d of [DOLLY_NEAR, DOLLY_FAR]) {
+          for (const kind of castKinds(f)) {
+            const [lo, hi] = projectedSpan(f, kind, d * zoomOut, h, shift + w / 2);
+            expect(lo, `${f} ${kind} at ${w}, dolly ${d}`).toBeGreaterThanOrEqual(panelRight(w) + PANEL_MARGIN - 0.01);
+            expect(hi, `${f} ${kind} at ${w}, dolly ${d}`).toBeLessThanOrEqual(w - PANEL_MARGIN + 0.01);
+          }
+        }
+      }
     }
-    expect(panelRight(1920)).toBeLessThanOrEqual(300 + 56 + 860);
+  });
+
+  it('MENU-11: the hero stays the largest unit and the focal point, and below 1600 px the scene is not backed off', () => {
+    for (const f of ['human', 'alien'] as const) {
+      expect(sceneFraming(f, 1600, 900).zoomOut).toBeLessThan(2.2);
+      for (const w of [1280, 1440, 1599]) expect(sceneFraming(f, w, 800).zoomOut).toBe(1);
+    }
   });
 
   it('MENU-10: the lighting and post-processing are shared with the match view, with PCF shadows, and the scene uses no Math.random', () => {
@@ -165,6 +182,26 @@ describe('menu faction scene (MENU-10, MENU-11)', () => {
 });
 
 describe('build-button pictures (UI-17)', () => {
+  it('UI-17: for every unit and building kind the whole model lies inside its picture with a margin of at least 10% on each side, and none is cramped or tiny', () => {
+    expect(ICON_EDGE).toBeGreaterThanOrEqual(0.12);
+    expect(ICON_EDGE).toBeLessThanOrEqual(0.18);
+    for (const f of ['human', 'alien'] as const) {
+      for (const kind of buttonKinds(f)) {
+        const b = restBounds(kind);
+        const pts = boxCorners(b.min, b.max);
+        const { target, dist } = fitPicture(pts, viewDir(PREVIEW_PITCH), PREVIEW_FOV, 1);
+        const q = project(pts, target, viewDir(PREVIEW_PITCH), dist, PREVIEW_FOV, 1);
+        const xs = q.map((a) => a[0]);
+        const ys = q.map((a) => a[1]);
+        // NDC runs -1..1, so a 10% margin on each side means the bounds stay within +-0.8.
+        for (const v of [...xs, ...ys]) expect(Math.abs(v), kind).toBeLessThanOrEqual(0.8);
+        // And the model fills the picture: its larger side is at least 60% of it.
+        expect(Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2, kind).toBeGreaterThan(0.6);
+      }
+    }
+  });
+
+
   it('UI-17: a picture is cached per kind and per team colour', () => {
     expect(iconKey('hum_tank', 0x3fa0ff)).not.toBe(iconKey('hum_tank', 0xff8a2a));
     expect(iconKey('hum_tank', 0x3fa0ff)).not.toBe(iconKey('hum_rifleman', 0x3fa0ff));
