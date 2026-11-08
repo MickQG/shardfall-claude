@@ -4,9 +4,14 @@ import { DEFAULT_MAP, mapIdOf, mapSeedOf, type MapId } from '../data/maps';
 
 export interface Settings {
   quality: 'high' | 'low';
+  /** Mute all sound (MENU-15). */
   muted: boolean;
-  /** 0..1 */
+  /** Master volume, 0..1 (MENU-15). */
   volume: number;
+  /** Music on or off; sound effects are not affected (MENU-15). */
+  musicOn: boolean;
+  /** Music volume, 0..1; scales only the music (MENU-15). */
+  musicVolume: number;
   reducedMotion: boolean;
   /** The skirmish map last picked in the menu (MAP-4). */
   map: MapId;
@@ -22,19 +27,21 @@ export type PersonalityChoice = Personality | 'random';
 export const personalityChoiceOf = (v: unknown): PersonalityChoice => ((PERSONALITIES as readonly unknown[]).includes(v) ? (v as Personality) : 'random');
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
-/** v2 starts everyone on the high preset again (VIS-2); sound settings carry over from v1. */
-const KEY = 'shardfall.settings.v2';
+/** v3 adds the music settings (MENU-15); v2 starts everyone on the high preset again (VIS-2); sound settings carry over from v1. */
+const KEY = 'shardfall.settings.v3';
+const V2_KEY = 'shardfall.settings.v2';
 const OLD_KEY = 'shardfall.settings.v1';
 
 /** High quality by default for everyone; the reduced-motion preference only stops camera shake (VIS-2). */
-export const defaultSettings = (reducedMotion = false): Settings => ({ quality: 'high', muted: false, volume: 0.6, reducedMotion, map: DEFAULT_MAP, mapSeed: 1, personality: 'random', speed: DEFAULT_SPEED });
+export const defaultSettings = (reducedMotion = false): Settings => ({ quality: 'high', muted: false, volume: 0.6, musicOn: true, musicVolume: 0.6, reducedMotion, map: DEFAULT_MAP, mapSeed: 1, personality: 'random', speed: DEFAULT_SPEED });
 
 /** Loads saved settings. Storage can be missing, blocked or corrupt (private windows, tests): every failure falls back to defaults. */
 export function loadSettings(store: Store | null | undefined, prefersReducedMotion = false): Settings {
   const d = defaultSettings(prefersReducedMotion);
   try {
-    const raw = store?.getItem(KEY);
+    const raw = store?.getItem(KEY) || store?.getItem(V2_KEY);
     // Settings saved before v2 keep their sound choices; their quality is dropped so the default (high) applies.
+    // Settings saved before v3 keep their mute and volume (now Mute all and Master volume), with Music on at the default volume.
     const old = raw ? null : store?.getItem(OLD_KEY);
     if (!raw && !old) return d;
     const p = JSON.parse((raw ?? old) as string) as Partial<Settings>;
@@ -43,6 +50,8 @@ export function loadSettings(store: Store | null | undefined, prefersReducedMoti
       muted: typeof p.muted === 'boolean' ? p.muted : d.muted,
       volume: typeof p.volume === 'number' && p.volume >= 0 && p.volume <= 1 ? p.volume : d.volume,
       // The system preference always wins over a saved value.
+      musicOn: typeof p.musicOn === 'boolean' ? p.musicOn : d.musicOn,
+      musicVolume: typeof p.musicVolume === 'number' && p.musicVolume >= 0 && p.musicVolume <= 1 ? p.musicVolume : d.musicVolume,
       reducedMotion: prefersReducedMotion || d.reducedMotion,
       map: mapIdOf(p.map),
       mapSeed: mapSeedOf(p.mapSeed, d.mapSeed),

@@ -15,6 +15,7 @@ import { canPlace, FP, type Snapshot } from './sim';
 import { ONLINE_SPEED, stepSpeed, tickMsAt } from './host/speed';
 import { AlertTracker } from './ui/alerts';
 import { countdownRows } from './ui/countdown';
+import { tipOf, topBarText } from './ui/controlsHelp';
 import { READY_FRAMES, READY_TIMEOUT_MS, readyToStart, showLoading } from './ui/loading';
 import { createHud, resultText, type ScoreView } from './ui/hud';
 import { armyPath, mapSeedLine, opponentLine, replayMapSearch, scoreRows } from './ui/score';
@@ -37,9 +38,8 @@ import { boxSelect, Selection, selectKinds, selectSameKind, toScreenUnits } from
 const host = document.getElementById('app');
 if (!host) throw new Error('missing #app');
 // Up at once, before three.js loads and the battlefield is built: never a black screen (UI-12).
-const loading = showLoading();
-
 const params = new URLSearchParams(location.search);
+const loading = showLoading('Preparing the battlefield…', params.get('faction') === 'alien' ? 'alien' : 'human', tipOf(Date.now()));
 // An online match (NET-1) is handed over by the menu in this page; a reloaded online page has lost its connection, so
 // it goes back to the menu.
 const match = activeMatch();
@@ -88,23 +88,22 @@ const frameStats = new FrameStats();
 // The frame-time readout is for the showcase and for measuring (`?fps`), not for normal games.
 const showFrameTime = scenario === 'showcase' || params.has('fps');
 const selection = new Selection();
-const hud = createHud();
+const hud = createHud(myFaction);
 const settings = loadSettings(safeStorage(), matchMedia('(prefers-reduced-motion: reduce)').matches);
 const audio = new AudioEngine();
 audio.setMuted(settings.muted);
 audio.setVolume(settings.volume);
+audio.setMusicOn(settings.musicOn);
+audio.setMusicVolume(settings.musicVolume);
 const alerts = new AlertTracker(PLAYER);
 let paused = false;
 /** Game speed (UX-3): the player's last choice, ×0.8 by default; online always ×0.8. */
 let speed = match ? ONLINE_SPEED : settings.speed;
 if (!match) sim.setSpeed(speed);
 
+/** The top bar (UI-18): the F1 hint and the speed, or online the room code. */
 function topbar(): void {
-  if (match) {
-    hud.setTop(`Shardfall · online · room ${match.room} · Esc menu · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · E select same kind · F attack-move · F2 quality: ${settings.quality}`);
-    return;
-  }
-  hud.setTop(`Shardfall · ×${speed} · P pause · +/- speed · M ${settings.muted ? 'unmute' : 'mute'} · Q select combat · E select same kind · F attack-move · F2 quality: ${settings.quality}`);
+  hud.setTop(topBarText({ room: match?.room, speed }));
 }
 topbar();
 
@@ -236,7 +235,7 @@ const sidebar = new Sidebar({
     targeting = targeting?.building === id ? null : { building: id };
   },
   refused: (reason) => refuse(reason),
-});
+}, myFaction);
 
 const FACTION_NAME = { human: 'Aegis Union', alien: 'Vrax Hive' } as const;
 const FACTION_COLOR = { human: '#6fd3ff', alien: '#b6ff5c' } as const;
@@ -477,6 +476,16 @@ async function boot(): Promise<void> {
     audio.unlock();
     // S pans the map, so Ctrl + S must not reach the browser's save dialog.
     if (e.ctrlKey && k === 's') e.preventDefault();
+    // F1 shows the controls overlay and never the browser's own help; Esc closes the overlay before it does anything else (UI-18).
+    if (k === 'f1') {
+      e.preventDefault();
+      hud.showHelp(!hud.helpOpen());
+      return;
+    }
+    if (k === 'escape' && hud.helpOpen()) {
+      hud.showHelp(false);
+      return;
+    }
     if (!allowed(k)) return;
     keys.add(k);
     if (k === 'escape') {
@@ -495,7 +504,7 @@ async function boot(): Promise<void> {
       settings.muted = !settings.muted;
       audio.setMuted(settings.muted);
       saveSettings(safeStorage(), settings);
-      topbar();
+      hud.toast(settings.muted ? 'Sound muted' : 'Sound on', 'info');
     }
     if (k === 'q' && !e.ctrlKey && !e.repeat && sim.curr) {
       const army = sim.curr.units.filter((u) => u.owner === PLAYER && combatUnitIds([u], PLAYER).length > 0);
@@ -517,7 +526,7 @@ async function boot(): Promise<void> {
       e.preventDefault();
       settings.quality = settings.quality === 'high' ? 'low' : 'high';
       saveSettings(safeStorage(), settings);
-      topbar();
+      hud.toast(`Graphics quality: ${settings.quality}`, 'info');
     }
     if ((k === '+' || k === '=' || k === '-') && match) hud.toast('Online matches run at normal speed', 'info');
     else if (k === '+' || k === '=' || k === '-') {

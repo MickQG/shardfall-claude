@@ -94,7 +94,7 @@ test('NET-1 NET-2 NET-3 NET-4: two players host and join a room, play the same m
   for (const p of [a, b]) await p.waitForSelector('body[data-ready="true"]', { timeout: 90_000 });
   await expect(a).toHaveURL(/faction=alien.*map=riverbed.*online=ABC234/);
   await expect(b).toHaveURL(/faction=human.*map=riverbed.*online=ABC234/);
-  for (const p of [a, b]) await expect(p.locator('#topbar')).toContainText('online · room ABC234');
+  for (const p of [a, b]) await expect(p.locator('#topbar')).toContainText('room ABC234');
 
   // Each side orders its own units; the orders travel in lockstep turns.
   const order = async (p: Page, me: number): Promise<{ id: number; x: number; y: number }> =>

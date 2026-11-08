@@ -1,50 +1,50 @@
 import { buildingDef, hqOf, structuresOf, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
 import { cancelPlan } from './cancelPlan';
+import { ensureTheme, type SkinId } from './theme';
 import { fireState, queueRefusal, rallyHint, SellConfirm, superweaponRows } from './feedback';
 import { newestQueued, trainSource } from './production';
 import { QUEUE_MAX, TICKS_PER_SECOND, type BuildingSnap, type Snapshot } from '../sim';
 
 const CSS = `
-#sidebar { position: fixed; right: 12px; top: 12px; bottom: 12px; width: 232px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; font: 12px/1.25 system-ui, sans-serif; color: #dfe8e2; }
-#sidebar .box { background: rgba(8,12,17,.86); border: 1px solid #28405a; border-radius: 6px; padding: 8px; pointer-events: auto; }
-#sidebar .res { display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: 600; }
-#sidebar .res .cr { color: #7ff5cd; }
-#sidebar .power { height: 6px; background: #1a2733; border-radius: 3px; margin-top: 6px; overflow: hidden; }
-#sidebar .power > i { display: block; height: 100%; background: #4cd964; }
-#sidebar .power.low > i { background: #ff5a4a; }
-#sidebar .power-label { display: flex; justify-content: space-between; font-size: 11px; color: #9fb4c6; margin-top: 3px; }
-#sidebar .power-label.low { color: #ff8a7a; }
-#sidebar h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #8fa7bd; }
+#sidebar { position: fixed; right: 12px; top: 12px; bottom: 12px; width: 232px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; font: 12px/1.25 var(--font-body); color: var(--ink); }
+#sidebar .box { background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r); clip-path: var(--clip); box-shadow: var(--frame-shadow); padding: 8px 10px; pointer-events: auto; }
+#sidebar .res { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 600; font-family: var(--font-head); font-stretch: 87.5%; letter-spacing: .08em; text-transform: uppercase; }
+#sidebar .res .cr { color: var(--accent); }
+#sidebar .power { height: 6px; background: var(--field); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+#sidebar .power > i { display: block; height: 100%; background: var(--good); }
+#sidebar .power.low > i { background: var(--bad); }
+#sidebar .power-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-dim); margin-top: 3px; }
+#sidebar .power-label.low { color: var(--bad); }
+#sidebar h4 { margin: 0 0 8px; font-size: 12px; letter-spacing: .14em; color: var(--ink-dim); }
 #sidebar .list { overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 #sidebar .scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
-#sidebar button.item { position: relative; text-align: left; background: #14202c; color: inherit; border: 1px solid #2c4560; border-radius: 5px; padding: 5px 6px; cursor: pointer; overflow: hidden; font: inherit; }
-#sidebar button.item:hover:not(.off) { border-color: #7ff5cd; }
-#sidebar button.item.off { opacity: .45; cursor: not-allowed; }
-#sidebar button.item.ready { border-color: #ffd34a; box-shadow: 0 0 8px #ffd34a88; animation: pulse 1s infinite alternate; }
+#sidebar button.item { position: relative; text-align: left; background: var(--field); color: inherit; border: 1px solid var(--edge); border-radius: var(--r-s); clip-path: var(--clip-s); padding: 5px 6px; cursor: pointer; overflow: hidden; font: inherit; }
+#sidebar button.item:hover:not(.off) { border-color: var(--accent); }
+#sidebar button.item.off { opacity: .55; cursor: not-allowed; }
+#sidebar button.item.ready { border-color: var(--warn); animation: pulse 1.4s ease-in-out infinite alternate; }
 #sidebar button.item .n { display: block; font-weight: 600; }
-#sidebar button.item .c { color: #7ff5cd; font-size: 11px; }
-#sidebar button.item .q { position: absolute; right: 5px; top: 4px; font-size: 11px; color: #ffd34a; }
-#sidebar button.item .p { position: absolute; left: 0; bottom: 0; height: 3px; background: #7ff5cd; }
-#sidebar button.act { background: #1b2c3d; color: inherit; border: 1px solid #3a5a7a; border-radius: 4px; padding: 4px 8px; cursor: pointer; font: inherit; margin-right: 6px; }
-#sidebar button.act:hover { border-color: #7ff5cd; }
-#sidebar .sel-name { font-weight: 600; margin-bottom: 4px; }
-@keyframes pulse { from { box-shadow: 0 0 4px #ffd34a66; } to { box-shadow: 0 0 12px #ffd34acc; } }
-#sidebar .sw { border-color: #5a3f2c; }
+#sidebar button.item .c { color: var(--accent); font-size: 11px; }
+#sidebar button.item .q { position: absolute; right: 5px; top: 4px; font-size: 11px; color: var(--warn); }
+#sidebar button.item .p { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--accent); }
+#sidebar button.act { background: var(--sel-bg); color: inherit; border: 1px solid var(--edge); border-radius: var(--r-s); padding: 4px 8px; cursor: pointer; font: inherit; margin-right: 6px; }
+#sidebar button.act:hover { border-color: var(--accent); }
+#sidebar .sel-name { font-weight: 600; margin-bottom: 4px; font-family: var(--font-head); font-stretch: 87.5%; letter-spacing: .08em; text-transform: uppercase; font-size: 14px; }
+@keyframes pulse { from { box-shadow: 0 0 2px rgba(224,176,64,.15); } to { box-shadow: 0 0 6px rgba(224,176,64,.3); } }
+@media (prefers-reduced-motion: reduce) { #sidebar button.item.ready, #sidebar .sw-row.ready button.fire { animation: none; } }
+#sidebar .sw { border-color: var(--warn); }
 #sidebar .sw-row { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; align-items: center; }
 #sidebar .sw-row + .sw-row { margin-top: 8px; }
 #sidebar .sw-name { font-weight: 600; }
-#sidebar .sw-state { font-size: 11px; color: #9fb4c6; }
-#sidebar .sw-bar { grid-column: 1 / -1; height: 5px; background: #1a2733; border-radius: 3px; overflow: hidden; }
+#sidebar .sw-state { font-size: 11px; color: var(--ink-dim); }
+#sidebar .sw-bar { grid-column: 1 / -1; height: 5px; background: var(--field); border-radius: 3px; overflow: hidden; }
 #sidebar .sw-bar > i { display: block; height: 100%; background: linear-gradient(90deg, #a0582a, #ff9a3a); }
-#sidebar button.fire { grid-row: 1 / span 2; grid-column: 2; min-width: 66px; padding: 9px 10px; border-radius: 5px; border: 1px solid #4a3a30; background: #20160f; color: #b0907a; font: 700 12px/1 system-ui, sans-serif; letter-spacing: .1em; cursor: not-allowed; }
-#sidebar .sw-row.ready .sw-bar > i { background: #ffd34a; }
-#sidebar .sw-row.ready button.fire { cursor: pointer; color: #1a0d05; background: linear-gradient(#ffe27a, #ff8a3a); border-color: #ffd34a; animation: swpulse .8s infinite alternate; }
-#sidebar .sw.alien .sw-row.ready .sw-bar > i { background: #b6ff5c; }
-#sidebar .sw.alien .sw-row.ready button.fire { background: linear-gradient(#e2ff9a, #6ad02a); border-color: #b6ff5c; animation-name: swpulse-g; }
-#sidebar .sw-row.armed button.fire { cursor: pointer; background: #3a1010; color: #ff9a8a; border-color: #ff5a4a; animation: none; }
-#sidebar .sw-row.armed .sw-state { color: #ff9a8a; }
-@keyframes swpulse { from { box-shadow: 0 0 4px #ff8a3a66; } to { box-shadow: 0 0 16px #ffb04add; } }
-@keyframes swpulse-g { from { box-shadow: 0 0 4px #6ad02a66; } to { box-shadow: 0 0 16px #b6ff5cdd; } }
+#sidebar button.fire { grid-row: 1 / span 2; grid-column: 2; min-width: 66px; padding: 9px 10px; border-radius: var(--r-s); border: 1px solid var(--edge); background: var(--field); color: var(--ink-dim); font: 700 12px/1 var(--font-head); letter-spacing: .1em; text-transform: uppercase; cursor: not-allowed; }
+#sidebar .sw-row.ready .sw-bar > i { background: var(--warn); }
+#sidebar .sw-row.ready button.fire { cursor: pointer; color: var(--accent-ink); background: var(--btn-bg); border-color: var(--accent); animation: swpulse .9s ease-in-out infinite alternate; }
+#sidebar .sw.alien .sw-row.ready .sw-bar > i { background: var(--accent); }
+#sidebar .sw-row.armed button.fire { cursor: pointer; background: #3a1010; color: var(--bad); border-color: var(--bad); animation: none; }
+#sidebar .sw-row.armed .sw-state { color: var(--bad); }
+@keyframes swpulse { from { box-shadow: 0 0 2px rgba(255,138,58,.15); } to { box-shadow: 0 0 7px rgba(255,176,74,.3); } }
 `;
 
 interface ItemData {
@@ -112,11 +112,14 @@ export class Sidebar {
   private lastAt = 0;
   private sellConfirm = new SellConfirm(3000);
 
-  constructor(private actions: SidebarActions) {
+  constructor(private actions: SidebarActions, faction: SkinId = 'human') {
+    ensureTheme();
     const style = document.createElement('style');
     style.textContent = CSS;
     document.head.appendChild(style);
     this.root.id = 'sidebar';
+    this.root.className = 'skin';
+    this.root.dataset.faction = faction;
     this.root.innerHTML = '<div class="box" id="sb-res"></div><div class="box sw" id="sb-sw" style="display:none"><h4>Superweapon</h4><div id="sb-sw-rows"></div></div><div class="scroll"><div class="box" id="sb-sel" style="display:none"></div><div class="box"><h4>Structures</h4><div class="list" id="sb-build"></div></div><div class="box"><h4>Units</h4><div class="list" id="sb-train"></div></div></div>';
     document.body.appendChild(this.root);
     this.resEl = this.root.querySelector('#sb-res') as HTMLElement;
@@ -329,8 +332,8 @@ export class Sidebar {
     const sellable = !d.hq;
     const fs = fireState(b.charge, low);
     const fire = d.superweapon ? `<button class="act${fs.ready ? '' : ' off'}" data-act="fire" data-src="${b.id}" data-why="${fs.label}" ${fs.ready ? '' : 'style="opacity:.4"'}>${fs.label}</button>` : '';
-    const sell = sellable ? `<button class="act" data-act="sell" data-src="${b.id}" ${sellArmed ? 'style="border-color:#ff5a4a;color:#ff9a8a"' : ''}>${sellArmed ? 'Confirm sell?' : 'Sell'}</button>` : '';
-    const rally = rallyHint(b.kind) ? '<div style="margin-top:6px;color:#7f93a6">Right-click ground to set rally</div>' : '';
-    this.selEl.innerHTML = `<div class="sel-name">${d.name}</div><div style="color:#9fb4c6;margin-bottom:6px">HP ${b.hp}/${d.hp}${d.superweapon ? ` · charge ${b.charge}%` : ''}</div>${fire}${sell}<button class="act" data-act="repair" data-src="${b.id}" data-on="${b.repairing ? 0 : 1}">${b.repairing ? 'Stop repair' : 'Repair'}</button>${rally}`;
+    const sell = sellable ? `<button class="act" data-act="sell" data-src="${b.id}" ${sellArmed ? 'style="border-color:var(--bad);color:var(--bad)"' : ''}>${sellArmed ? 'Confirm sell?' : 'Sell'}</button>` : '';
+    const rally = rallyHint(b.kind) ? '<div style="margin-top:6px;color:var(--ink-dim)">Right-click ground to set rally</div>' : '';
+    this.selEl.innerHTML = `<div class="sel-name">${d.name}</div><div style="color:var(--ink-dim);margin-bottom:6px">HP ${b.hp}/${d.hp}${d.superweapon ? ` · charge ${b.charge}%` : ''}</div>${fire}${sell}<button class="act" data-act="repair" data-src="${b.id}" data-on="${b.repairing ? 0 : 1}">${b.repairing ? 'Stop repair' : 'Repair'}</button>${rally}`;
   }
 }

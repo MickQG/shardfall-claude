@@ -3,14 +3,15 @@ import { hpFraction } from '../../src/render/gfx';
 import type { Snapshot } from '../../src/sim';
 import { AlertTracker } from '../../src/ui/alerts';
 import { resultText } from '../../src/ui/hud';
-import { HELP_TEXT } from '../../src/ui/menu';
+import { CONTROLS } from '../../src/ui/controlsHelp';
 import { placementLive } from '../../src/ui/production';
 
 describe('HUD correctness', () => {
-  it('UI-2: the menu help names F then right-click for attack-move and E for select-same-kind, not A', () => {
-    expect(HELP_TEXT).toContain('F then right-click attack-move');
-    expect(HELP_TEXT).toContain('E select same kind');
-    expect(HELP_TEXT).not.toMatch(/\bA attack-move/);
+  it('UI-2: the How to play page names F then right-click for attack-move and E for select-same-kind, not A', () => {
+    const rows = CONTROLS.flatMap((g) => g.rows);
+    expect(rows.find((r) => /attack-move/i.test(r.action))?.input).toBe('F, then right-click');
+    expect(rows.find((r) => r.input === 'E')?.action).toMatch(/same kind|of the selected kind/);
+    expect(rows.some((r) => r.input === 'A' && /attack-move/i.test(r.action))).toBe(false);
   });
 
   it('UI-6: placement stays armed only while its structure is ready at the head of an own building queue', () => {

@@ -111,7 +111,7 @@ describe('choosing, sharing and replaying a generated map', () => {
     saveSettings(store, { ...loadSettings(store), map: 'generated', mapSeed: 4242 });
     expect(loadSettings(store).map).toBe('generated');
     expect(loadSettings(store).mapSeed).toBe(4242);
-    store.setItem('shardfall.settings.v2', JSON.stringify({ map: 'generated', mapSeed: -5 }));
+    store.setItem('shardfall.settings.v3', JSON.stringify({ map: 'generated', mapSeed: -5 }));
     expect(loadSettings(store).mapSeed).toBe(1);
     expect(mapIdOf('generated')).toBe('generated');
     expect(mapSeedOf('123')).toBe(123);

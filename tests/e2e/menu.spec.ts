@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 
-test('MENU-1: the menu has a rail of four modes, faction cards naming heroes, map cards with thumbnails, and Enter starts', async ({ page }) => {
+test('MENU-1: the menu has a rail of the MENU-14 entries, faction cards naming heroes, map cards with thumbnails, and Enter starts', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('#menu h1')).toHaveText('SHARDFALL');
-  await expect(page.locator('#menu .rail .nav')).toHaveText([/Single player/, /Multiplayer/, /Units/, /Settings/]);
+  await expect(page.locator('#menu h1 svg[role="img"]')).toHaveAttribute('aria-label', 'Shardfall');
+  await expect(page.locator('#menu .rail .nav')).toHaveText([/Single player/, /Multiplayer/, /Units/, /How to play/, /Settings/]);
   await expect(page.locator('#menu [data-faction="human"]')).toContainText('Paladin');
   await expect(page.locator('#menu [data-faction="alien"]')).toContainText('Dreadstrider');
   await expect(page.locator('#menu [data-map] canvas')).toHaveCount(4);
@@ -14,6 +14,14 @@ test('MENU-1: the menu has a rail of four modes, faction cards naming heroes, ma
   await expect(page.locator('#menu [data-panel="multi"]')).toBeVisible();
   await page.keyboard.press('ArrowUp');
   await expect(page.locator('#menu [data-panel="single"]')).toBeVisible();
+  // Down past Units reaches How to play, then Settings.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#menu [data-panel="howto"]')).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#menu [data-panel="settings"]')).toBeVisible();
+  await page.locator('#menu [data-mode="single"]').click();
   // Enter starts the chosen game.
   await page.locator('#menu [data-faction="alien"]').click();
   await page.locator('#menu [data-map="riverbed"]').click();
@@ -35,7 +43,7 @@ test('MENU-2 NET-1: where the website has no game server, Multiplayer says onlin
   await expect(page.locator('#menu [data-panel="single"]')).toBeHidden();
 });
 
-test('MENU-3: settings are saved at once and the next game uses them; Units opens the unit sheet', async ({ page }) => {
+test('MENU-3: settings (quality, sound and music) are saved at once and the next game uses them; Units opens the unit sheet', async ({ page }) => {
   await page.goto('/');
   await page.locator('#menu [data-mode="settings"]').click();
   await page.locator('#menu [data-quality="low"]').click();
@@ -47,7 +55,9 @@ test('MENU-3: settings are saved at once and the next game uses them; Units open
   await page.locator('#menu [data-mode="single"]').click();
   await page.locator('#menu #go').click();
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
-  await expect(page.locator('#topbar')).toContainText('quality: low');
+  // The game started on Low: F2 flips it to High.
+  await page.keyboard.press('F2');
+  await expect(page.getByText('Graphics quality: high')).toBeVisible();
   await page.goto('/');
   await page.locator('#info-btn').click();
   await expect(page.locator('#unit-info')).toHaveClass(/open/);
