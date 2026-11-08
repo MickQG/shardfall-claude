@@ -29,5 +29,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `023-ai-personalities.md` | AI personalities (Raider, Balanced, Doomsday); match-length script | 23 |
 | `024-map-generator.md` | Seeded map generator, Generated map card, replay a seed | 24 |
 | `025-front-end-hud.md` | Front-end and HUD: menu faction scene, wordmark, faction skins, model build icons, How to play, sound settings | 25 |
+| `026-audio.md` | Synthesized audio: layered combat sounds, unit acknowledgement sounds, movement, ambience and UI sounds, positional mix, adaptive music, faction themes, stingers | 26 |
 
 Umbrella spec: GitHub issue #1.
