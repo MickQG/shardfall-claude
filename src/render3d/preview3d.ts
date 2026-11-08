@@ -8,7 +8,7 @@ import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigTree } from
 import { newMember, stepSquad, type Member } from './squad3d';
 import { BUILDING_RIGS } from './buildings3d';
 import { UNIT_RIGS } from './units3d';
-import { boxCorners, fitPicture, viewDir, type V3 } from './iconFit';
+import { extremePoints, fitPicture, viewDir, type V3 } from './iconFit';
 
 /**
  * Unit previews for the unit sheet (INF-6, INF-8): one small three.js scene that shows a unit's in-game model on a
@@ -476,7 +476,7 @@ export class UnitPreview {
     g.drawImage(this.renderer.domElement, 0, 0, canvas.width, canvas.height);
   }
 
-  /** A still picture of a unit (INF-6) or a building (UI-17), three-quarter view, as a PNG data URL of `w` by `h` CSS pixels. With no `margin` the whole model is fitted with ICON_EDGE clear on every side; a `margin` is the older sphere fit. */
+  /** A still picture of a unit (INF-6) or a building (UI-17), three-quarter view, as a PNG data URL of `w` by `h` CSS pixels. With no `margin` the whole model is fitted with ICON_EDGE clear on its tighter sides, with no plinth; a `margin` is the older sphere fit. */
   picture(kind: string, owner: number, w: number, h: number, margin?: number): string {
     const keep = this.model;
     const keepOwner = this.owner;
@@ -491,17 +491,17 @@ export class UnitPreview {
     this.renderer.setPixelRatio(1);
     if (margin === undefined) {
       m.group.updateMatrixWorld(true);
-      const b = new THREE.Box3().setFromObject(m.group);
-      // The plinth is a backdrop for the model, not part of it: keep it within the model's own footprint so it never reaches the edge.
-      const pr = Math.min(m.radius * 1.25, Math.hypot(b.max.x - b.min.x, b.max.z - b.min.z) / 2);
-      this.plinth.scale.set(pr, 1, pr);
-      this.rim.scale.set(pr, pr, 1);
-      this.pictureFit = fitPicture(boxCorners([b.min.x, b.min.y, b.min.z], [b.max.x, b.max.y, b.max.z]), viewDir(PREVIEW_PITCH), PREVIEW_FOV, w / h);
+      // No plinth or ring in these pictures, and the fit uses the model's visible vertices only (never a hidden object or a box around it).
+      this.plinth.visible = false;
+      this.rim.visible = false;
+      this.pictureFit = fitPicture(fitPoints(m.group), viewDir(PREVIEW_PITCH), PREVIEW_FOV, w / h);
     }
     try {
       this.draw(c, margin ?? 1);
     } finally {
       this.pictureFit = null;
+      this.plinth.visible = true;
+      this.rim.visible = true;
     }
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.fx.root.visible = true;
@@ -578,8 +578,29 @@ export class UnitPreview {
   }
 }
 
-/** A kind's bounding box at rest, tiles (squads in their preview formation), for the button-picture fit's test (UI-17). Needs no GPU. */
-export function restBounds(kind: string): { min: V3; max: V3 } {
+/**
+ * The points a button picture is fitted to (UI-17): the extreme vertices, in world space, of every visible mesh under `root`.
+ * Objects that are hidden, or sit under a hidden parent, and anything that is not a mesh (sprites, helpers, lights) count for nothing.
+ */
+export function fitPoints(root: THREE.Object3D): V3[] {
+  root.updateMatrixWorld(true);
+  const xyz: number[] = [];
+  const v = new THREE.Vector3();
+  root.traverseVisible((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const pos = mesh.geometry.getAttribute('position');
+    if (!pos) return;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+      xyz.push(v.x, v.y, v.z);
+    }
+  });
+  return extremePoints(xyz);
+}
+
+/** A kind's fit points at rest, tiles (squads in their preview formation), for the button-picture fit's test (UI-17). Needs no GPU. */
+export function restFitPoints(kind: string): V3[] {
   const make = UNIT_RIGS[kind] ?? BUILDING_RIGS[kind];
   if (!make) throw new Error(`no 3D model for ${kind}`);
   const def = make();
@@ -598,7 +619,5 @@ export function restBounds(kind: string): { min: V3; max: V3 } {
     group.add(tree.root);
   }
   group.rotation.y = -0.35;
-  group.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(group);
-  return { min: [box.min.x, box.min.y, box.min.z], max: [box.max.x, box.max.y, box.max.z] };
+  return fitPoints(group);
 }

@@ -1,12 +1,39 @@
 /**
- * The camera fit of the build-button pictures (UI-17): each picture shows the whole model with the same breathing room on
- * every side, whatever its shape. The model's bounding box is projected through the preview camera and the camera backs
+ * The camera fit of the build-button pictures (UI-17): each picture shows the whole model filling most of the picture, with
+ * a small margin on its tighter sides, whatever its shape. The model's bounding box is projected through the preview camera and the camera backs
  * off, and aims at the middle of what it sees, until the projected bounds fill `1 - 2 * edge` of the picture's width or
  * height. Pure maths (no three.js), so it is unit-tested without a GPU.
  */
 export type V3 = readonly [number, number, number];
-/** The share of the picture kept clear on each side of the model (12 to 18%: a consistent amount for every kind). */
-export const ICON_EDGE = 0.15;
+/** The share of the picture kept clear on each side of the model at its tightest (about 5 to 6%: the model fills most of the picture). */
+export const ICON_EDGE = 0.055;
+/**
+ * The points that bound a model's silhouette from every side: for each of `dirs` evenly spread directions, the vertex
+ * farthest along it (`xyz` is a flat list of vertex positions). The projected hull of these is the model's real outline, so
+ * a round or tapering model is not fitted by the corners of an empty box around it.
+ */
+export function extremePoints(xyz: ArrayLike<number>, dirs = 160): V3[] {
+  const out = new Map<number, V3>();
+  const n = Math.floor(xyz.length / 3);
+  for (let k = 0; k < dirs; k++) {
+    const y = 1 - (2 * (k + 0.5)) / dirs;
+    const r = Math.sqrt(1 - y * y);
+    const a = k * 2.399963229728653;
+    const dx = Math.cos(a) * r;
+    const dz = Math.sin(a) * r;
+    let best = -Infinity;
+    let at = -1;
+    for (let i = 0; i < n; i++) {
+      const d = xyz[i * 3]! * dx + xyz[i * 3 + 1]! * y + xyz[i * 3 + 2]! * dz;
+      if (d > best) {
+        best = d;
+        at = i;
+      }
+    }
+    if (at >= 0) out.set(at, [xyz[at * 3]!, xyz[at * 3 + 1]!, xyz[at * 3 + 2]!]);
+  }
+  return [...out.values()];
+}
 /** The eight corners of an axis-aligned box. */
 export function boxCorners(min: V3, max: V3): V3[] {
   const out: V3[] = [];

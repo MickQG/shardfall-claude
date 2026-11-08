@@ -4,7 +4,7 @@ import { UNIT_DEFS } from '../data/defs';
 import { OWNER_COLORS } from '../render/colors';
 import { BUILDING_RIGS, crystalShape } from './buildings3d';
 import { addEnvironment, configureRenderer, configureSunShadow, createComposer, glowLevels, matchLights } from './lighting3d';
-import { dollyDistance, FADE_IN_MS, FADE_OUT_MS, hqSpot, HERO_SPOT, SCENE_AZIMUTH, SCENE_CAST, SCENE_FOV, SCENE_PITCH, sceneFraming, sceneSlots, shardPlan, squeezeAt, type SceneFaction, type SceneSlot } from '../render/menuPlan';
+import { aimPoint, cameraAngle, FADE_IN_MS, FADE_OUT_MS, HQ_SPOT, SCENE_CAST, SCENE_FOV, SCENE_PITCH, sceneFraming, sceneSlots, shardPlan, TARGET_HEIGHT, type SceneFaction, type SceneSlot } from '../render/menuPlan';
 import { bodyPose, restingMotion } from './motion';
 import { Instancer } from './instancer';
 import { PR_MAX } from './resolution';
@@ -13,9 +13,9 @@ import { newMember, rand, stepSquad, type Member } from './squad3d';
 import { UNIT_RIGS } from './units3d';
 
 /**
- * The live faction scene behind the menu (MENU-10, MENU-11): the picked faction's hero and three other units standing in
- * front of its HQ on a patch of ground, in the in-game models with render-only idle motion, lit like a match (late
- * afternoon sun, cool ambient light, bloom). The camera dollies slowly back and forth. Loaded with a dynamic import so
+ * The live faction scene behind the menu (MENU-10, MENU-11): the picked faction's hero and every other unit kind standing in
+ * a ring around its HQ on a patch of ground, in the in-game models with render-only idle motion, lit like a match (late
+ * afternoon sun, cool ambient light, bloom). The camera circles the HQ slowly and close, one turn every 75 s, so each unit in turn stands large in front. Loaded with a dynamic import so
  * the menu appears before three.js arrives. Render-only: no sim, no unseeded randomness (a seeded hash makes the ground and the
  * idle wander), nothing is read from the game.
  */
@@ -43,17 +43,17 @@ export interface MenuScene {
 const SEED = 4242;
 const FOV = SCENE_FOV;
 const PITCH = SCENE_PITCH;
-const AZIMUTH = SCENE_AZIMUTH;
 /** The sun is lower than a match's, for long shadows. */
 const SUN_AT: readonly [number, number, number] = [-10, 8, 7];
 /** Distance haze and the horizon of the dusk sky, per faction: calm, close to a match's fog (0x2a2d44). */
 export const HAZE: Record<SceneFaction, number> = { human: 0x28304a, alien: 0x3a3042 };
 /** The sky above the horizon: the haze colour darkened toward the top. */
 export const SKY_TOP_SHADE = 0.35;
-/** Fog starts behind the stage (the camera is 18 to 23 tiles out) and has swallowed the ground well before its edge. */
-export const FOG_NEAR = 28;
-export const FOG_FAR = 66;
-export const GROUND_RADIUS = 120;
+/** The farthest the camera stands from the HQ (a wide screen backs it off), tiles. Fog starts behind the stage and has swallowed the ground well before its edge. */
+export const CAMERA_MAX_DIST = 30;
+export const FOG_NEAR = 34;
+export const FOG_FAR = 80;
+export const GROUND_RADIUS = 160;
 const GROUND: Record<SceneFaction, readonly [number, number, number]> = { human: [92, 90, 72], alien: [84, 70, 72] };
 
 /** One mining cycle of the hauler, ms (as the unit sheet's preview). */
@@ -148,10 +148,10 @@ class Scene3d implements MenuScene {
   private ro: ResizeObserver;
   private w = 0;
   private h = 0;
-  /** How many times farther the camera stands so the whole group clears the panel (MENU-11). */
-  private zoomOut = 1;
-  /** The squeeze the stage was built for; a resize across the narrow-strip range rebuilds it. */
-  private builtSqueeze = 0;
+  /** How far the camera stands from the HQ so the ring clears the panel (MENU-11), tiles. */
+  private dist = 30;
+  /** A camera angle forced by a test (radians), or null to follow the orbit. */
+  private forced: number | null = null;
 
   constructor(private host: HTMLElement, o: MenuSceneOptions) {
     this.faction = o.faction;
@@ -167,8 +167,8 @@ class Scene3d implements MenuScene {
     sun.color.setHex(0xffcf9c);
     sun.intensity = 2.7;
     hemi.intensity = 0.8;
-    // One small shadow map: the stage is about 16 tiles across.
-    configureSunShadow(sun, 9, 1024, 40);
+    // One shadow map: the ring of units and the shard field are about 24 tiles across.
+    configureSunShadow(sun, 12, 1024, 40);
     this.scene.add(hemi, sun, sun.target, this.stage);
     addEnvironment(this.scene, this.renderer);
     const ground = new THREE.Mesh(new THREE.CircleGeometry(GROUND_RADIUS, 64).rotateX(-Math.PI / 2), this.groundMat);
@@ -177,6 +177,11 @@ class Scene3d implements MenuScene {
     this.scene.add(ground);
     this.composer = createComposer(this.renderer, this.scene, this.camera);
     this.build(this.faction);
+    // A test hook: dispatch `shardfall-orbit` with an angle in `detail` (radians), or null to follow the orbit again.
+    this.canvas.addEventListener('shardfall-orbit', (e) => {
+      this.forced = (e as CustomEvent<number | null>).detail;
+      this.draw(this.time);
+    });
     this.ro = new ResizeObserver(() => this.fit());
     this.ro.observe(host);
     this.fit();
@@ -227,9 +232,7 @@ class Scene3d implements MenuScene {
     this.groundMat.map = groundTexture(GROUND[f]);
     this.groundMat.needsUpdate = true;
     const cast = SCENE_CAST[f];
-    const squeeze = squeezeAt(this.w);
-    this.builtSqueeze = squeeze;
-    const slots = sceneSlots(f, squeeze);
+    const slots = sceneSlots(f);
     const add = (kind: string, s: SceneSlot, i: number): Figure | null => {
       const building = !!BUILDING_RIGS[kind];
       const make = UNIT_RIGS[kind] ?? BUILDING_RIGS[kind];
@@ -253,16 +256,15 @@ class Scene3d implements MenuScene {
       this.figures.push(fig);
       return fig;
     };
-    const hq = hqSpot(f, squeeze);
-    add(cast.hq, { x: hq.x, z: hq.z, heading: 0 }, 9);
-    const hero = add(cast.hero, slots[cast.hero]!, 0);
+    add(cast.hq, { x: HQ_SPOT.x, z: HQ_SPOT.z, heading: 0 }, 9);
+    add(cast.hero, slots[cast.hero]!, 0);
     cast.others.forEach((k, i) => add(k, slots[k]!, i + 1));
     const hauler = add(cast.hauler, slots[cast.hauler]!, 8);
     if (hauler) hauler.working = true;
     // The shard field beside the HQ and loose crystals in front: the match's crystal models and material, instanced.
     const inst = new Instancer(this.stage);
     inst.begin();
-    const plan = shardPlan(f, squeeze);
+    const plan = shardPlan(f);
     for (const c of [...plan.field, ...plan.loose]) {
       const key = `crystal/${c.level}v${c.variant}`;
       let b = this.crystalGeo.get(key);
@@ -277,8 +279,7 @@ class Scene3d implements MenuScene {
     }
     inst.end();
     this.crystalGeo.clear();
-    const hh = hero ? hero.def.height * (hero.def.scale ?? 1) : 1.5;
-    this.target.set(HERO_SPOT.x, hh * 0.5, HERO_SPOT.z);
+    this.target.set(HQ_SPOT.x, TARGET_HEIGHT, HQ_SPOT.z);
     this.pose(0, 0.016);
   }
 
@@ -322,25 +323,28 @@ class Scene3d implements MenuScene {
     this.composer.setPixelRatio(pr);
     this.composer.setSize(w, h);
     this.camera.aspect = w / h;
-    if (Math.abs(squeezeAt(w) - this.builtSqueeze) > 0.02) this.build(this.faction);
     this.frameGroup();
     if (this.still || this.paused) this.draw(this.time);
   }
 
   /** Frame the whole group in the free strip right of the panel from 1600 px up (MENU-11): back off and shift the picture right. */
   private frameGroup(): void {
-    const { zoomOut, shift } = sceneFraming(this.faction, this.w, this.h);
-    this.zoomOut = zoomOut;
+    const { dist, shift } = sceneFraming(this.w, this.h);
+    this.dist = Math.min(CAMERA_MAX_DIST, dist);
     this.camera.setViewOffset(this.w, this.h, -shift, 0, this.w, this.h);
     this.camera.updateProjectionMatrix();
   }
 
-  /** Place the camera `t` seconds into the dolly and draw. */
+  /** Place the camera `t` seconds into the orbit (or at the fixed angle while holding still) and draw. */
   private draw(t: number): void {
     if (this.gone) return;
-    const d = dollyDistance(t) * this.zoomOut;
+    const a = this.forced ?? cameraAngle(t, this.still);
+    const d = this.dist;
     const cp = Math.cos(PITCH);
-    this.camera.position.set(this.target.x + Math.sin(AZIMUTH) * cp * d, this.target.y + Math.sin(PITCH) * d + 0.4, this.target.z + Math.cos(AZIMUTH) * cp * d);
+    // Aim between the HQ and the unit nearest the camera, so that unit stands large in the middle with the HQ behind it.
+    const aim = aimPoint(this.faction, a);
+    this.target.set(aim.x, TARGET_HEIGHT, aim.z);
+    this.camera.position.set(this.target.x + Math.cos(a) * cp * d, this.target.y + Math.sin(PITCH) * d, this.target.z + Math.sin(a) * cp * d);
     this.camera.lookAt(this.target);
     this.sun.position.set(this.target.x + SUN_AT[0], SUN_AT[1], this.target.z + SUN_AT[2]);
     this.sun.target.position.set(this.target.x, 0, this.target.z);
