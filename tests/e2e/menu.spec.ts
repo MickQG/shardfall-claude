@@ -123,7 +123,7 @@ test('MENU-6: a Generated map card with a thumbnail, reroll and an editable seed
 
 test('MENU-7: both faction cards show their hero line on one row on a desktop screen, and never clipped on a phone', async ({ page }) => {
   const lines = { human: 'Hero: Paladin, a giant assault walker with cannons and missiles.', alien: 'Hero: Dreadstrider, a towering six-legged walker with an acid cannon.' };
-  for (const size of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+  for (const size of [{ width: 1280, height: 800 }, { width: 1920, height: 1080 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(size);
     await page.goto('/');
     for (const [id, line] of Object.entries(lines)) {
@@ -135,6 +135,10 @@ test('MENU-7: both faction cards show their hero line on one row on a desktop sc
         const tops = new Set([...r.getClientRects()].map((x) => Math.round(x.top)));
         return { rows: tops.size, overflow: el.scrollWidth > el.clientWidth + 1, right: r.getBoundingClientRect().right <= el.closest('.card')!.getBoundingClientRect().right };
       });
+      // Readable, not shrunk to fit: at least 11 px at 1280 px wide and 12 px from 1600 px up.
+      const px = await hero.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      if (size.width >= 1600) expect(px, `${id} font at ${size.width}px`).toBeGreaterThanOrEqual(12);
+      else if (size.width >= 1280) expect(px, `${id} font at ${size.width}px`).toBeGreaterThanOrEqual(11);
       expect(fits, `${id} at ${size.width}px`).toEqual({ rows: size.width >= 1280 ? 1 : fits.rows, overflow: false, right: true });
     }
   }

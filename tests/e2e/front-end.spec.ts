@@ -173,3 +173,75 @@ test('UI-19: the loading screen wears the player faction skin, shows the wordmar
   expect(seen.mark).toBe(true);
   expect(seen.tip).toMatch(/^Tip: .{20,}/);
 });
+
+test('MENU-10: in the 3D view a live scene canvas sits behind the panel in place of the backdrop, swaps with the faction pick and is gone after START', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.addInitScript(() => {
+    // Recorded as the page unloads for the game: whether the scene had stopped and let go by then.
+    window.addEventListener('beforeunload', () => sessionStorage.setItem('menuScene', JSON.stringify({ state: document.body.dataset.menuScene, canvases: document.querySelectorAll('#menu .scene canvas').length })));
+  });
+  await page.goto('/?renderer=3d');
+  await page.waitForFunction(() => document.body.dataset.menuScene === 'on', null, { timeout: 60_000 });
+  const canvas = page.locator('#menu .scene canvas');
+  await expect(canvas).toHaveCount(1);
+  await expect(canvas).toHaveAttribute('data-faction', 'human');
+  // The drifting backdrop is retired, and the canvas lies behind the rail and the panel (they take the clicks).
+  await expect(page.locator('#menu .bg')).toBeHidden();
+  const box = (await canvas.boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(1599);
+  expect(await page.evaluate(() => document.elementFromPoint(700, 300)?.closest('.panel') !== null)).toBe(true);
+  expect(await page.evaluate(() => document.elementFromPoint(100, 300)?.closest('.rail') !== null)).toBe(true);
+  // Picking the other faction swaps the scene (one canvas throughout).
+  await page.locator('#menu .card[data-faction="alien"]').click();
+  await expect(canvas).toHaveAttribute('data-faction', 'alien', { timeout: 5000 });
+  await expect(canvas).toHaveCount(1);
+  await expect.poll(() => canvas.evaluate((c) => getComputedStyle(c).opacity), { timeout: 5000 }).toBe('1');
+  await page.locator('#go').click();
+  await page.waitForURL(/faction=alien/, { timeout: 30_000 });
+  const gone = JSON.parse((await page.evaluate(() => sessionStorage.getItem('menuScene'))) ?? '{}') as { state: string; canvases: number };
+  expect(gone).toEqual({ state: 'off', canvases: 0 });
+});
+
+test('MENU-10: in the classic view the drifting backdrop stays and no scene canvas is made', async ({ page }) => {
+  await page.goto('/?renderer=classic');
+  await expect(page.locator('#menu .bg')).toBeVisible();
+  await page.waitForTimeout(800);
+  await expect(page.locator('#menu .scene canvas')).toHaveCount(0);
+  expect(await page.evaluate(() => document.body.dataset.menuScene)).toBeUndefined();
+});
+
+test('UI-17: in the 3D view every build and train button shows a picture of its model; in the classic view they are text only', async ({ page }) => {
+  await page.goto('/?faction=human&renderer=3d');
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 90_000 });
+  const buttons = page.locator('#sidebar button.item');
+  const n = await buttons.count();
+  expect(n).toBeGreaterThan(10);
+  const withPicture = await buttons.evaluateAll((els) => els.filter((e) => { const i = e.querySelector<HTMLImageElement>('img.ic'); return !!i && i.src.startsWith('data:image/png') && i.naturalWidth > 0; }).length);
+  expect(withPicture).toBe(n);
+  // Beside the name and cost, compactly.
+  const first = await buttons.first().evaluate((e) => ({ img: e.querySelector('img.ic')!.getBoundingClientRect().width, h: e.getBoundingClientRect().height, name: e.querySelector('.n')!.textContent }));
+  expect(first.img).toBeGreaterThanOrEqual(36);
+  expect(first.img).toBeLessThanOrEqual(44);
+  expect(first.h).toBeLessThanOrEqual(64);
+  expect(first.name).toBeTruthy();
+  await page.goto('/?faction=human&renderer=classic');
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 90_000 });
+  await expect(page.locator('#sidebar button.item').first()).toBeVisible();
+  await expect(page.locator('#sidebar img.ic')).toHaveCount(0);
+});
+
+test('MENU-1 MENU-11: #menu cannot be scrolled sideways at 1280 by 720, even after a faction card is clicked and focused', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await page.locator('#menu .card[data-faction="alien"]').click();
+  await page.locator('#menu .card[data-faction="human"]').focus();
+  await page.locator('#go').focus();
+  const state = await page.evaluate(() => {
+    const m = document.getElementById('menu')!;
+    m.scrollLeft = 120;
+    m.scrollTo({ left: 120 });
+    document.querySelector('#menu .card')!.scrollIntoView();
+    return { left: m.scrollLeft, overflowX: getComputedStyle(m).overflowX, rail: document.querySelector('#menu .rail')!.getBoundingClientRect().left };
+  });
+  expect(state).toEqual({ left: 0, overflowX: 'clip', rail: 0 });
+});

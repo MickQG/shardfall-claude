@@ -7,6 +7,9 @@ import { mountOnlinePanel, ONLINE_CSS } from './onlinePanel';
 import { createUnitSheet, FACTION_INFO } from './unitSheet';
 import { basicsHtml, controlsHtml } from './controlsHelp';
 import { ensureTheme, wordmarkSvg } from './theme';
+import { chooseRenderer, probeGpu } from '../render/chooseRenderer';
+import { holdStill } from '../render/menuPlan';
+import type { MenuScene } from '../render3d/menuScene3d';
 
 /**
  * Main menu (MENU-1..3, MENU-8..15): a full-screen layout with a left rail (wordmark, Single player, Multiplayer, Units,
@@ -15,13 +18,14 @@ import { ensureTheme, wordmarkSvg } from './theme';
  * picked faction's skin (MENU-12). Multiplayer is shown as work in progress.
  */
 const CSS = `
-#menu { position: fixed; inset: 0; display: grid; grid-template-columns: minmax(240px, 300px) 1fr; color: var(--ink); font: 15px/1.45 var(--font-body); background: var(--void); overflow: hidden; }
+#menu { position: fixed; inset: 0; display: grid; grid-template-columns: minmax(240px, 300px) 1fr; color: var(--ink); font: 15px/1.45 var(--font-body); background: var(--void); overflow: hidden; overflow: clip; }
 #menu .bg { position: absolute; inset: -20%; pointer-events: none; background:
   radial-gradient(40% 35% at 20% 30%, #0f3a3355, transparent 70%), radial-gradient(35% 30% at 80% 70%, #1d2f6655, transparent 70%),
   radial-gradient(30% 25% at 65% 20%, #3a1f4a44, transparent 70%); animation: menu-drift 26s ease-in-out infinite alternate; }
 #menu[data-faction="alien"] .bg { background: radial-gradient(40% 35% at 20% 30%, #3a4a1255, transparent 70%), radial-gradient(35% 30% at 80% 70%, #4a2f1255, transparent 70%), radial-gradient(30% 25% at 65% 20%, #2a3a1244, transparent 70%); }
 #menu .grid { position: absolute; inset: 0; pointer-events: none; opacity: .18; background-image: linear-gradient(var(--edge) 1px, transparent 1px), linear-gradient(90deg, var(--edge) 1px, transparent 1px); background-size: 48px 48px; mask-image: radial-gradient(ellipse at 60% 60%, #000 20%, transparent 75%); }
-#menu .scene { position: absolute; inset: 0; pointer-events: none; }
+#menu .scene { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+#menu.scene3d .bg, #menu.scene3d .grid { display: none; }
 @keyframes menu-drift { from { transform: translate(-3%, -2%) rotate(0deg); } to { transform: translate(3%, 2%) rotate(4deg); } }
 @keyframes panel-in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
 #menu .rail { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 36px 22px 24px; background: linear-gradient(90deg, rgba(5,9,13,.92), rgba(5,9,13,.7)); border-right: 1px solid var(--edge); overflow: auto; }
@@ -47,10 +51,9 @@ const CSS = `
 #menu .card h3 { margin: 0 0 2px; font-size: 25px; letter-spacing: .08em; color: var(--c); }
 #menu .card .sub { font-family: var(--font-head); font-stretch: 87.5%; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 10px; }
 #menu .card p { margin: 0; color: var(--ink); font-size: 13.5px; }
-#menu .card .hero { margin-top: 10px; font-size: min(12px, 2.4cqw); color: var(--ink); }
-#menu .card { container-type: inline-size; }
-#menu .card .hero { white-space: nowrap; }
-@media (max-width: 1100px) { #menu .card .hero { font-size: 11px; white-space: normal; } }
+#menu .card { container-type: inline-size; padding-left: 16px; padding-right: 16px; }
+#menu .card .hero { margin-top: 10px; font: 600 clamp(11px, 3.5cqw, 12px)/1.3 var(--font-head); font-stretch: 87.5%; letter-spacing: .01em; white-space: nowrap; color: var(--ink); }
+@media (max-width: 1100px) { #menu .card .hero { font-size: 12px; white-space: normal; } }
 @media (max-width: 480px) { #menu .card { padding: 16px 12px 14px; } }
 #menu .card .hero b { color: var(--c); }
 #menu .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -178,7 +181,8 @@ export function showMenu(): void {
   root.querySelectorAll<HTMLElement>('[data-map]:not([data-map="generated"])').forEach((b) => b.querySelector('.thumb')?.appendChild(thumbCanvas(skirmishMap(b.dataset.map as MapId), mapStarts(b.dataset.map as MapId))));
   // Listeners on the window end with the menu, so none is left behind when an online match starts in this page.
   const life = new AbortController();
-  const sheet = createUnitSheet(life.signal);
+  let scene: MenuScene | null = null;
+  const sheet = createUnitSheet(life.signal, (open) => scene?.setPaused(open));
   let settings: Settings = loadSettings(safeStorage());
   const save = (patch: Partial<Settings>): void => {
     settings = { ...loadSettings(safeStorage()), ...patch };
@@ -228,6 +232,25 @@ export function showMenu(): void {
   showSeed();
   seedBox.addEventListener('change', () => useSeed(mapSeedOf(seedBox.value, pick.mapSeed)));
   let mode: Mode = 'single';
+  // The live faction scene (MENU-10): in the 3D view only, loaded after the menu is up so three.js never delays it.
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let sceneClosed = false;
+  const closeScene = (): void => {
+    sceneClosed = true;
+    scene?.dispose();
+    scene = null;
+    document.body.dataset.menuScene = 'off';
+  };
+  if (chooseRenderer(new URLSearchParams(location.search).get('renderer'), probeGpu()) === '3d') {
+    void import('../render3d/menuScene3d')
+      .then((m) => {
+        if (sceneClosed) return;
+        scene = m.mountMenuScene(root.querySelector<HTMLElement>('.scene')!, { faction: pick.faction, still: holdStill(settings.quality, reduceMotion), onReady: () => root.classList.add('scene3d') });
+        document.body.dataset.menuScene = 'on';
+        if (sheet.isOpen()) scene.setPaused(true);
+      })
+      .catch(() => undefined); // no scene: the drifting backdrop stays
+  }
   const volume = root.querySelector<HTMLInputElement>('#set-volume')!;
   const musicBox = root.querySelector<HTMLInputElement>('#set-music')!;
   const musicVol = root.querySelector<HTMLInputElement>('#set-music-volume')!;
@@ -263,6 +286,7 @@ export function showMenu(): void {
     setActiveMatch(m);
     music.stopMusic(0.8);
     life.abort();
+    closeScene();
     sheet.close();
     root.remove();
     document.getElementById('unit-info')?.remove();
@@ -283,12 +307,17 @@ export function showMenu(): void {
     starting = true;
     music.stopMusic(0.8);
     const search = `?faction=${pick.faction}&difficulty=${pick.difficulty}&personality=${pick.personality}&map=${pick.map}${pick.map === 'generated' ? `&mapseed=${pick.mapSeed}` : ''}`;
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (reduceMotion) {
+      closeScene();
       location.search = search;
       return;
     }
     root.classList.add('leaving');
-    setTimeout(() => (location.search = search), LEAVE_MS);
+    // The scene stops and lets go of its WebGL context under the black fade, just before the game loads.
+    setTimeout(() => {
+      closeScene();
+      location.search = search;
+    }, LEAVE_MS);
   };
   root.addEventListener('click', (e) => {
     const t = (e.target as HTMLElement).closest('[data-mode],[data-faction],[data-diff],[data-pers],[data-map],[data-quality],#go,#info-btn,#units-btn,#reroll') as HTMLElement | null;
@@ -300,6 +329,7 @@ export function showMenu(): void {
     if (t.dataset.mode) mode = t.dataset.mode as Mode;
     else if (t.dataset.faction) {
       pick.faction = t.dataset.faction as Pick['faction'];
+      scene?.setFaction(pick.faction);
       online.refresh();
     }
     else if (t.dataset.diff) pick.difficulty = t.dataset.diff as Pick['difficulty'];
@@ -307,7 +337,10 @@ export function showMenu(): void {
       pick.personality = personalityChoiceOf(t.dataset.pers);
       save({ personality: pick.personality });
     }
-    else if (t.dataset.quality) save({ quality: t.dataset.quality === 'low' ? 'low' : 'high' });
+    else if (t.dataset.quality) {
+      save({ quality: t.dataset.quality === 'low' ? 'low' : 'high' });
+      scene?.setStill(holdStill(settings.quality, reduceMotion));
+    }
     else if (t.dataset.map) {
       pick.map = t.dataset.map === 'generated' ? 'generated' : (MAPS.find((m) => m.id === t.dataset.map)?.id ?? pick.map);
       save({ map: pick.map });

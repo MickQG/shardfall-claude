@@ -32,7 +32,9 @@ import { placementLive } from './ui/production';
 import { FrameStats } from './ui/frameStats';
 import { Sidebar } from './ui/sidebar';
 import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
-import { chooseRenderer, type GpuProbe } from './render/chooseRenderer';
+import { chooseRenderer, probeGpu } from './render/chooseRenderer';
+import { buttonKinds } from './render/menuPlan';
+import { drawIcons } from './render3d/icons3d';
 import { boxSelect, Selection, selectKinds, selectSameKind, toScreenUnits } from './ui/selection';
 
 const host = document.getElementById('app');
@@ -59,19 +61,6 @@ const personality = resolvePersonality(params.get('personality'), seed);
 const cfg = match
   ? skirmishConfig(match.setup.seed, { factions: match.setup.factions, bonuses: [0, 0], map: match.setup.map, mapSeed: match.setup.mapSeed })
   : scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0), myFaction) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
-/** What this browser's WebGL2 is: missing, software-rendered, or on a graphics chip. */
-function probeGpu(): GpuProbe {
-  try {
-    const gl = document.createElement('canvas').getContext('webgl2');
-    if (!gl) return { webgl2: false, renderer: '' };
-    const info = gl.getExtension('WEBGL_debug_renderer_info');
-    const renderer = String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
-    gl.getExtension('WEBGL_lose_context')?.loseContext();
-    return { webgl2: true, renderer };
-  } catch {
-    return { webgl2: false, renderer: '' };
-  }
-}
 /** The world view (ADR 0005, R3D-1), chosen once here and never part of the simulation. */
 const use3d = chooseRenderer(params.get('renderer'), probeGpu()) === '3d';
 const map = cfg.map;
@@ -452,6 +441,13 @@ async function boot(): Promise<void> {
     poll();
   });
   await view.mount(host as HTMLElement, first, { blocked: map.blocked, shards: map.shards });
+  // Pictures for the build and train buttons, from the 3D models in the player's colour (UI-17): drawn once, here, inside
+  // the loading screen, with a temporary renderer that is disposed at once. The classic view keeps text-only buttons.
+  if (use3d) {
+    const t0 = performance.now();
+    sidebar.setIcons(await drawIcons(buttonKinds(myFaction), PLAYER));
+    document.body.dataset.iconMs = String(Math.round(performance.now() - t0));
+  }
   if (scenario === 'showcase') {
     // Both armies march into each other's base so the fight and its effects can be seen, whichever side is watched.
     const army = (p: number): number[] => first.units.filter((u) => u.owner === p).map((u) => u.id);

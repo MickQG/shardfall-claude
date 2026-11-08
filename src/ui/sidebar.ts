@@ -6,7 +6,7 @@ import { newestQueued, trainSource } from './production';
 import { QUEUE_MAX, TICKS_PER_SECOND, type BuildingSnap, type Snapshot } from '../sim';
 
 const CSS = `
-#sidebar { position: fixed; right: 12px; top: 12px; bottom: 12px; width: 232px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; font: 12px/1.25 var(--font-body); color: var(--ink); }
+#sidebar { position: fixed; right: 12px; top: 12px; bottom: 12px; width: 248px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; font: 12px/1.25 var(--font-body); color: var(--ink); }
 #sidebar .box { background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r); clip-path: var(--clip); box-shadow: var(--frame-shadow); padding: 8px 10px; pointer-events: auto; }
 #sidebar .res { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 600; font-family: var(--font-head); font-stretch: 87.5%; letter-spacing: .08em; text-transform: uppercase; }
 #sidebar .res .cr { color: var(--accent); }
@@ -23,6 +23,11 @@ const CSS = `
 #sidebar button.item.off { opacity: .55; cursor: not-allowed; }
 #sidebar button.item.ready { border-color: var(--warn); animation: pulse 1.4s ease-in-out infinite alternate; }
 #sidebar button.item .n { display: block; font-weight: 600; }
+#sidebar button.item.has-ic { display: grid; grid-template-columns: 40px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 5px; align-content: center; align-items: center; min-height: 50px; padding: 4px 5px; }
+#sidebar button.item.has-ic .ic { grid-row: 1 / span 2; width: 40px; height: 40px; display: block; object-fit: contain; pointer-events: none; }
+#sidebar button.item.has-ic .n { font-family: var(--font-head); font-stretch: 87.5%; font-size: 11.5px; line-height: 1.1; align-self: end; }
+#sidebar button.item.has-ic .c { align-self: start; }
+#sidebar button.item.has-ic .q { left: 6px; right: auto; top: 5px; padding: 0 3px; border-radius: 3px; background: rgba(0,0,0,.6); line-height: 1.3; }
 #sidebar button.item .c { color: var(--accent); font-size: 11px; }
 #sidebar button.item .q { position: absolute; right: 5px; top: 4px; font-size: 11px; color: var(--warn); }
 #sidebar button.item .p { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--accent); }
@@ -69,6 +74,7 @@ interface ItemRef {
   c: HTMLElement;
   q: HTMLElement;
   p: HTMLElement;
+  kind: string;
 }
 
 export interface SidebarActions {
@@ -256,6 +262,33 @@ export class Sidebar {
   }
 
   private refs = new Map<string, ItemRef>();
+  /** Pictures of the buttons' units and buildings from their 3D models, by kind (UI-17); none in the classic view. */
+  private icons = new Map<string, string>();
+
+  /** Give the buttons their pictures: those made so far and any made later (UI-17). */
+  setIcons(icons: ReadonlyMap<string, string>): void {
+    this.icons = new Map(icons);
+    for (const r of this.refs.values()) this.showIcon(r);
+  }
+
+  private showIcon(r: ItemRef): void {
+    const src = this.icons.get(r.kind);
+    let img = r.el.querySelector<HTMLImageElement>('img.ic');
+    if (!src) {
+      img?.remove();
+      r.el.classList.remove('has-ic');
+      return;
+    }
+    if (!img) {
+      img = document.createElement('img');
+      img.className = 'ic';
+      img.alt = '';
+      img.width = img.height = 40;
+      r.el.prepend(img);
+    }
+    if (img.src !== src) img.src = src;
+    r.el.classList.add('has-ic');
+  }
 
   /** Create the button once per list/kind, then update it in place so clicks are never lost to a re-render. */
   private item(list: HTMLElement, a: ItemData): void {
@@ -266,7 +299,8 @@ export class Sidebar {
       el.className = 'item';
       el.innerHTML = '<span class="n"></span><span class="c"></span><span class="q"></span><span class="p"></span>';
       list.appendChild(el);
-      r = { el, n: el.querySelector('.n') as HTMLElement, c: el.querySelector('.c') as HTMLElement, q: el.querySelector('.q') as HTMLElement, p: el.querySelector('.p') as HTMLElement };
+      r = { el, n: el.querySelector('.n') as HTMLElement, c: el.querySelector('.c') as HTMLElement, q: el.querySelector('.q') as HTMLElement, p: el.querySelector('.p') as HTMLElement, kind: a.kind };
+      this.showIcon(r);
       r.n.textContent = a.name;
       r.c.textContent = `◈ ${a.cost}`;
       el.dataset.kind = a.kind;

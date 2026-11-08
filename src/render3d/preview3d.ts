@@ -6,6 +6,7 @@ import { CombatFx } from './fx3d';
 import { bodyPose, missileLaunchAt, podOpen, salvoOf, POD_OPEN_MS, follow, heroHeave, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, turnToward, turretOnBody, TURRET_RATE, walkerFacing, type Follow, type MotionState } from './motion';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigTree } from './rig';
 import { newMember, stepSquad, type Member } from './squad3d';
+import { BUILDING_RIGS } from './buildings3d';
 import { UNIT_RIGS } from './units3d';
 
 /**
@@ -189,7 +190,7 @@ export class UnitPreview {
   }
 
   private build(kind: string, owner: number): Model {
-    const make = UNIT_RIGS[kind];
+    const make = UNIT_RIGS[kind] ?? BUILDING_RIGS[kind];
     if (!make) throw new Error(`no 3D model for ${kind}`);
     const def = make();
     const team = OWNER_COLORS[owner] ?? 0xffffff;
@@ -459,8 +460,8 @@ export class UnitPreview {
     g.drawImage(this.renderer.domElement, 0, 0, canvas.width, canvas.height);
   }
 
-  /** A still picture of a unit (INF-6), three-quarter view, as a PNG data URL of `w` by `h` CSS pixels. */
-  picture(kind: string, owner: number, w: number, h: number): string {
+  /** A still picture of a unit (INF-6) or a building (UI-17), three-quarter view, as a PNG data URL of `w` by `h` CSS pixels. */
+  picture(kind: string, owner: number, w: number, h: number, margin = 0.86): string {
     const keep = this.model;
     const keepOwner = this.owner;
     const m = this.build(kind, owner);
@@ -472,7 +473,7 @@ export class UnitPreview {
     c.width = w;
     c.height = h;
     this.renderer.setPixelRatio(1);
-    this.draw(c, 0.86);
+    this.draw(c, margin);
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.fx.root.visible = true;
     this.scene.remove(m.group);
@@ -530,5 +531,20 @@ export class UnitPreview {
   stop(): void {
     cancelAnimationFrame(this.raf);
     this.live = null;
+  }
+
+  /** Free the models and the WebGL context (a temporary preview that drew its pictures, UI-17). */
+  dispose(): void {
+    this.stop();
+    for (const g of this.geos.values()) {
+      g.lit?.dispose();
+      g.glow?.dispose();
+    }
+    this.geos.clear();
+    this.plinth.geometry.dispose();
+    this.rim.geometry.dispose();
+    for (const m of [this.metal, this.organic, this.glow]) m.dispose();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 }
