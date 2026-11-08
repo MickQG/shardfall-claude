@@ -5,5 +5,6 @@ import { defineConfig } from 'vitest/config';
  * of `npm test` so the fast unit tests stay fast; CI runs these in parallel jobs when the simulation, AI or data change.
  */
 export default defineConfig({
-  test: { include: ['tests/matches/**/*.test.ts'], testTimeout: 900_000 },
+  // Each match is a long, CPU-bound simulation: locally run at most 3 at once so the machine stays usable (CI keeps the default).
+  test: { include: ['tests/matches/**/*.test.ts'], testTimeout: 900_000, ...(process.env.CI ? {} : { maxWorkers: 3 }) },
 });

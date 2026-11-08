@@ -10,7 +10,7 @@ Shardfall: an original RTS (Humans vs Aliens) for the browser, drawn in real-tim
 - Original IP only; no secrets in the repo.
 
 ## Commands
-`npm run dev` · `npm run build` · `npm test` · `npm run test:matches` · `npm run lint` · `npm run typecheck` · `npm run trace` · `npm run bench` · `npm run e2e` · `npm run desktop` · `npm run desktop:dist`
+`npm run dev` · `npm run build` · `npm test` · `npm run test:watch` · `npm run test:changed` · `npm run check` (lint, typecheck, tests, trace in one go) · `npm run test:matches` · `npm run lint` · `npm run typecheck` · `npm run trace` · `npm run bench` · `npm run e2e` · `npm run desktop` · `npm run desktop:dist`
 
 ## Layout
 `src/sim` deterministic core · `src/ai` AI client · `src/render3d` three.js renderer (default) · `src/render` classic PixiJS renderer and the shared projector · `src/ui` HUD and input · `src/data` factions, units, maps · `scripts` tooling · `specs` requirements · `docs/adr` decisions
