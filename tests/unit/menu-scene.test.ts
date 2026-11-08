@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
 import { UNIT_DEFS } from '../../src/data/defs';
 import { BUILDING_RIGS } from '../../src/render3d/buildings3d';
 import { buttonKinds, cameraAngle, castKinds, FADE_IN_MS, FADE_OUT_MS, FIELD_ANGLE, FIELD_ARC, FIELD_INNER, footprintOf, HERO_CLEAR, HQ_SPOT, holdStill, IconCache, iconKey, ORBIT_PERIOD_S, ORBIT_SAMPLES, orbitAngleAt, PANEL_MARGIN, panelRight, projectedSpan, RING_RADIUS, SCENE_CAST, sceneFraming, sceneKinds, sceneSlots, shardPlan, STILL_ANGLE } from '../../src/render/menuPlan';
 import { CAMERA_MAX_DIST, FOG_FAR, FOG_NEAR, GROUND_RADIUS, HAZE, SKY_TOP_SHADE } from '../../src/render3d/menuScene3d';
-import { boxCorners, fitPicture, ICON_EDGE, project, viewDir } from '../../src/render3d/iconFit';
-import { PREVIEW_FOV, PREVIEW_PITCH, restBounds } from '../../src/render3d/preview3d';
+import { fitPicture, ICON_EDGE, project, viewDir } from '../../src/render3d/iconFit';
+import { fitPoints, PREVIEW_FOV, PREVIEW_PITCH, restFitPoints } from '../../src/render3d/preview3d';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
 
 const heroAngle = (): number => {
@@ -214,8 +215,7 @@ describe('build-button pictures (UI-17)', () => {
     expect(ICON_EDGE).toBeLessThanOrEqual(0.06);
     for (const f of ['human', 'alien'] as const) {
       for (const kind of buttonKinds(f)) {
-        const b = restBounds(kind);
-        const pts = boxCorners(b.min, b.max);
+        const pts = restFitPoints(kind);
         const { target, dist } = fitPicture(pts, viewDir(PREVIEW_PITCH), PREVIEW_FOV, 1);
         const q = project(pts, target, viewDir(PREVIEW_PITCH), dist, PREVIEW_FOV, 1);
         const xs = q.map((a) => a[0]);
@@ -227,6 +227,20 @@ describe('build-button pictures (UI-17)', () => {
       }
     }
   }, 60_000);
+
+  it('UI-17: the fit sees only visible meshes: hidden objects, objects under a hidden parent and sprites do not widen it', () => {
+    const root = new THREE.Group();
+    const box = (s: number, x = 0): THREE.Mesh => new THREE.Mesh(new THREE.BoxGeometry(s, s, s), new THREE.MeshBasicMaterial()).translateX(x);
+    root.add(box(1));
+    const hidden = box(40, 30);
+    hidden.visible = false;
+    const parent = new THREE.Group();
+    parent.visible = false;
+    parent.add(box(40, -30));
+    root.add(hidden, parent, new THREE.Sprite(new THREE.SpriteMaterial()).translateX(50));
+    const pts = fitPoints(root);
+    expect(Math.max(...pts.map((p) => Math.abs(p[0])))).toBeCloseTo(0.5, 6);
+  });
 
   it('UI-17: a picture is cached per kind and per team colour', () => {
     expect(iconKey('hum_tank', 0x3fa0ff)).not.toBe(iconKey('hum_tank', 0xff8a2a));
