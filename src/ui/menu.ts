@@ -59,12 +59,12 @@ const CSS = `
 #menu .card .hero b { color: var(--c); }
 #menu .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 #menu .row .seg { align-self: auto; }
-#menu .row .seg[aria-label="Personality"] button { padding: 10px 14px; }
-#menu #units-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: var(--r-s); clip-path: var(--clip-s); border: 1px solid var(--edge); background: var(--sel-bg); color: var(--accent); font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
+#menu .row .seg[aria-label="Personality"] button { padding: 10px 11px; }
+#menu #units-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: var(--r-s); clip-path: var(--clip-s); border: 1px solid var(--edge); background: var(--sel-bg); color: var(--accent); font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
 #menu #units-btn:hover, #menu #units-btn:focus-visible { border-color: var(--accent); outline: none; }
 #menu #units-btn svg { width: 18px; height: 18px; }
 #menu .seg { display: inline-flex; align-self: flex-start; border: 1px solid var(--edge); border-radius: var(--r-s); clip-path: var(--clip-s); overflow: hidden; background: var(--field); }
-#menu .seg button { padding: 10px 22px; border: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
+#menu .seg button { padding: 10px 18px; border: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
 #menu .seg button + button { border-left: 1px solid var(--edge); }
 #menu .seg button:hover { background: var(--sel-bg); }
 #menu .seg button.sel { background: var(--sel-bg); color: var(--accent); }

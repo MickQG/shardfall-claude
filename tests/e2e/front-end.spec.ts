@@ -175,6 +175,10 @@ test('UI-19: the loading screen wears the player faction skin, shows the wordmar
 });
 
 test('MENU-10: in the 3D view a live scene canvas sits behind the panel in place of the backdrop, swaps with the faction pick and is gone after START', async ({ page }) => {
+  test.slow();
+  // CI renders in software, where an animated scene starves the page: there the scene draws once and holds (the
+  // reduced-motion rule, MENU-10), which still exercises mounting, the swap and the release on START.
+  if (process.env.CI) await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.addInitScript(() => {
     // Recorded as the page unloads for the game: whether the scene had stopped and let go by then.

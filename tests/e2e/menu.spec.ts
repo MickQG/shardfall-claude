@@ -64,6 +64,8 @@ test('MENU-3: settings (quality, sound and music) are saved at once and the next
 });
 
 test('MENU-4: a View units button sits at the right-hand end of the opponent row and opens the sheet for the picked faction', async ({ page }) => {
+  // Layout only: without the panel's slide-in (MENU-13), the boxes below are measured at rest.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
   const btn = page.locator('#menu [data-panel="single"] #units-btn');
   await expect(btn).toBeVisible();
