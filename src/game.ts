@@ -763,6 +763,8 @@ async function boot(): Promise<void> {
     audioBurst: (n?: number) => import('./audio/offline').then((m) => m.renderBurst(n)),
     /** Renders the score offline through the real engine graph at a battle level and returns its loudness (AUD-13, AUD-16). */
     audioMusic: (level: number, musicOn = true) => import('./audio/offline').then((m) => m.renderMusic(level, musicOn)),
+    /** Renders the idle soundscape offline and returns its energy above 2 kHz (AUD-8, AUD-10). */
+    audioSoundscape: (seconds?: number) => import('./audio/offline').then((m) => m.renderSoundscape(seconds)),
     camera: () => cam,
     selected: () => selection.selected,
     select: (ids: number[]) => {

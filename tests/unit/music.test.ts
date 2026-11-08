@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { AudioEngine } from '../../src/audio/engine';
 import { BattleIntensity, DAMAGE_WINDOW_MS, intensityTarget } from '../../src/audio/intensity';
 import { busGains, layerGains } from '../../src/audio/mix';
-import { battlePlan, CHORD_ROOTS, menuPlan, menuThemePlan, motifFor, musicPlan, SCALE_TONES, semitonesFromA, stingerPlan, themePlan, THEME_EVERY, type Note } from '../../src/audio/plan';
+import { readFileSync } from 'node:fs';
+import { battlePlan, CHORD_ROOTS, menuPlan, menuThemePlan, motifFor, MUSIC_PARTIALS, musicPlan, SCALE_TONES, semitonesFromA, stingerPlan, themePlan, THEME_EVERY, type Note } from '../../src/audio/plan';
 
 const scale = new Set(SCALE_TONES);
 const rel = (freq: number, root: number): number => ((((Math.round(semitonesFromA(freq)) - root) % 12) + 12) % 12);
@@ -136,7 +137,7 @@ describe('faction themes (AUD-14)', () => {
     }
     expect(aegis.map((n) => n.freq)).not.toEqual(vrax.map((n) => n.freq));
     expect(aegis.every((n) => n.voice === 'brass')).toBe(true);
-    expect(vrax.every((n) => n.voice === 'glass')).toBe(true);
+    expect(vrax.every((n) => n.voice === 'hollow')).toBe(true);
   });
 
   it('AUD-14: Aegis is martial (dotted rhythm, rising fourths and fifths) and Vrax falls in wide leaps with sparse timing', () => {
@@ -177,10 +178,40 @@ describe('faction themes (AUD-14)', () => {
     const a = menuThemePlan(9, 24, 'alien');
     expect(h.map((n) => n.freq)).not.toEqual(a.map((n) => n.freq));
     expect(h.every((n) => n.voice === 'brass')).toBe(true);
-    expect(a.every((n) => n.voice === 'glass')).toBe(true);
+    expect(a.every((n) => n.voice === 'hollow')).toBe(true);
     expect(sameShape(h, h)).toBe(true);
     // The calm menu score underneath stays what AUD-4 says it is.
     expect(menuPlan(9, 24)).toEqual(menuPlan(9, 24));
+  });
+});
+
+describe('no chimes in the music (AUD-14)', () => {
+  const all = (): Note[] => [
+    ...[1, 2, 3, 4].flatMap((seed) => [...musicPlan(seed, 32), ...menuPlan(seed, 32), ...battlePlan(seed, 32), ...themePlan(seed, 32, 'human'), ...themePlan(seed, 32, 'alien'), ...stingerPlan('launch', seed), ...stingerPlan('strike', seed)]),
+    ...motifFor('human'),
+    ...motifFor('alien'),
+  ];
+
+  it('AUD-14: every music voice patch is harmonic: whole-number partial ratios only, and no inharmonic partial in the synth', () => {
+    for (const [voice, ratios] of Object.entries(MUSIC_PARTIALS)) for (const r of ratios) expect(Number.isInteger(r), `${voice} partial ${r}`).toBe(true);
+    const src = readFileSync(new URL('../../src/audio/engine.ts', import.meta.url), 'utf8');
+    const start = src.indexOf('private note(');
+    const body = src.slice(start, src.indexOf('Stops the score', start));
+    expect(body).not.toMatch(/2.76|5.4|8.93|INHARMONIC|'glass'/);
+    // Every voice the plans use has a patch.
+    for (const n of all()) expect(n.voice in MUSIC_PARTIALS, n.voice).toBe(true);
+  });
+
+  it('AUD-14: no music note is above 1.2 kHz, so nothing in the score is high enough to chime', () => {
+    for (const n of all().filter((x) => x.voice !== 'perc')) expect(n.freq, `${n.voice} ${n.freq.toFixed(0)} Hz`).toBeLessThanOrEqual(1200);
+    // The calm layer's arpeggio is soft and low: one octave over the chord root at most.
+    for (const n of musicPlan(3, 32).filter((x) => x.voice === 'arp')) expect(n.freq).toBeLessThan(450);
+  });
+
+  it('AUD-14: the Vrax theme stays eerie, pulsing and falling, in a non-bell voice in the mid register', () => {
+    const v = motifFor('alien');
+    expect(v.every((n) => n.voice === 'hollow')).toBe(true);
+    expect(v.every((n) => n.freq >= 100 && n.freq <= 500)).toBe(true);
   });
 });
 
@@ -317,7 +348,8 @@ describe('music settings (AUD-16)', () => {
   it('AUD-16: Music off or music volume 0 zeroes the music bus only; effects and master are untouched', () => {
     const r = rig();
     const master = gainOf(r.master);
-    expect(gainOf(r.music)).toBe(1);
+    // The default music volume (0.75) sits about 5 dB above the original score (1.75 times its gain).
+    expect(gainOf(r.music)).toBeCloseTo(1.75, 2);
     r.e.setMusicOn(false);
     expect(gainOf(r.music)).toBe(0);
     expect(gainOf(r.master)).toBe(master);
@@ -332,10 +364,10 @@ describe('music settings (AUD-16)', () => {
   it('AUD-16: music volume scales only the music bus, and Mute all zeroes the master and so everything', () => {
     const r = rig();
     r.e.setMusicVolume(0.3);
-    expect(gainOf(r.music)).toBeCloseTo(0.5, 5);
+    expect(gainOf(r.music)).toBeCloseTo(2.3 * 0.3 ** 0.95, 5);
     expect(gainOf(r.sfx)).toBe(1);
     r.e.setMusicVolume(1);
-    expect(gainOf(r.music)).toBeGreaterThan(1);
+    expect(gainOf(r.music)).toBeCloseTo(2.3, 5);
     r.e.setMuted(true);
     expect(gainOf(r.master)).toBe(0);
     expect(r.e.gains().master).toBe(0);
@@ -343,7 +375,11 @@ describe('music settings (AUD-16)', () => {
     expect(gainOf(r.master)).toBeGreaterThan(0);
     expect(busGains({ muted: true, volume: 1, musicOn: true, musicVolume: 1 }).master).toBe(0);
     expect(busGains({ muted: false, volume: 1, musicOn: false, musicVolume: 1 })).toMatchObject({ music: 0 });
-    expect(busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 0.6 }).music).toBe(1);
+    const def = busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 0.75 }).music;
+    expect(def).toBeCloseTo(1.75, 2);
+    expect(20 * Math.log10(def)).toBeGreaterThan(4.5);
+    expect(busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 1 }).music).toBeCloseTo(2.3, 5);
+    expect(busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 0 }).music).toBe(0);
   });
 
   it('AUD-16: sound effects still play with Music off, and do not play under Mute all', () => {

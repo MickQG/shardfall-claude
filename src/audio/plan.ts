@@ -67,9 +67,9 @@ export function worldSoundFor(e: SimEvent, viewer: number, who: SoundWho): World
 
 /**
  * The voices of the score. Calm: pad, arp, bass. Battle (AUD-13): ost (low ostinato), kick, perc (a noise hit whose freq is its
- * band centre), stab. Themes (AUD-14): brass (Aegis), glass (Vrax). Stingers (AUD-15): swell, hit, and brass.
+ * band centre), stab. Themes (AUD-14): brass (Aegis), hollow (Vrax). Stingers (AUD-15): swell, hit, and brass.
  */
-export type MusicVoice = 'pad' | 'arp' | 'bass' | 'ost' | 'kick' | 'perc' | 'stab' | 'brass' | 'glass' | 'swell' | 'hit';
+export type MusicVoice = 'pad' | 'arp' | 'bass' | 'ost' | 'kick' | 'perc' | 'stab' | 'brass' | 'hollow' | 'swell' | 'hit';
 
 export interface Note {
   /** Start time in beats. */
@@ -81,6 +81,14 @@ export interface Note {
   voice: MusicVoice;
 }
 
+/**
+ * The partials of every music voice as ratios of its fundamental (AUD-14): all whole numbers, so no voice rings like a bell or
+ * a chime. The engine builds each voice from oscillators at these ratios (detune only for width), through low-pass filters.
+ */
+export const MUSIC_PARTIALS: Readonly<Record<MusicVoice, readonly number[]>> = {
+  pad: [1], arp: [1], bass: [1], ost: [1], kick: [1], perc: [], stab: [1], brass: [1], hollow: [1], swell: [1], hit: [1],
+};
+
 /** A minor pentatonic over A: semitone offsets. */
 export const SCALE_TONES = [0, 3, 5, 7, 10];
 /** Chord roots (semitones from A) of the four-bar loop. */
@@ -88,7 +96,7 @@ export const CHORD_ROOTS = [0, -4, -2, -5];
 const A2 = 110;
 const hz = (semi: number): number => A2 * 2 ** (semi / 12);
 
-/** Deterministic ambient score: slow pads and bass on a four-chord loop, with a sparse arpeggio on top. Same seed, same music. */
+/** Deterministic ambient score: slow pads and bass on a four-chord loop, with a sparse, soft, low arpeggio (one octave above the pad's root, never higher). Same seed, same music. */
 export function musicPlan(seed: number, bars: number): Note[] {
   const r = new Rng(seed * 2654435 + 17);
   const notes: Note[] = [];
@@ -100,7 +108,7 @@ export function musicPlan(seed: number, bars: number): Note[] {
     for (let i = 0; i < 8; i++) {
       if (r.int(100) < 45) continue; // rests keep it sparse
       const deg = SCALE_TONES[r.int(SCALE_TONES.length)] as number;
-      notes.push({ beat: b0 + i * 0.5, freq: hz(root + 24 + deg), dur: 0.5, voice: 'arp' });
+      notes.push({ beat: b0 + i * 0.5, freq: hz(root + 12 + deg), dur: 0.5, voice: 'arp' });
     }
   }
   return notes;
@@ -155,7 +163,7 @@ export function battlePlan(seed: number, bars: number): Note[] {
 
 /**
  * The faction themes (AUD-14), beats from the motif's start, absolute pitches in A minor pentatonic. Aegis is martial and
- * brassy: dotted rhythms and rising fourths and fifths. Vrax is eerie and pulsing: a glassy, amplitude-pulsed voice with a
+ * brassy: dotted rhythms and rising fourths and fifths. Vrax is eerie and pulsing: a dark, hollow, amplitude-pulsed voice with a
  * falling contour, wide leaps and sparse timing.
  */
 export function motifFor(faction: Faction): Note[] {
@@ -166,11 +174,11 @@ export function motifFor(faction: Faction): Note[] {
     const durs = [1.5, 0.5, 1.5, 0.5, 1.5, 0.5, 2];
     return semis.map((s, i) => ({ beat: beats[i] as number, freq: hz(s), dur: durs[i] as number, voice: 'brass' as const }));
   }
-  // G C A E A, falling in leaps with gaps between them.
-  const semis = [34, 27, 24, 19, 12];
+  // G C A E A, falling in leaps with gaps between them, in a mid register.
+  const semis = [22, 15, 12, 7, 0];
   const beats = [0, 2, 3.5, 5, 7];
   const durs = [1.5, 1.2, 1, 1.5, 2.5];
-  return semis.map((s, i) => ({ beat: beats[i] as number, freq: hz(s), dur: durs[i] as number, voice: 'glass' as const }));
+  return semis.map((s, i) => ({ beat: beats[i] as number, freq: hz(s), dur: durs[i] as number, voice: 'hollow' as const }));
 }
 
 /** Bars between the theme's appearances: it recurs every eight bars, never constantly. */

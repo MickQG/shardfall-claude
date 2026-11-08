@@ -33,7 +33,7 @@ const EVERY_MS = 100;
 
 /**
  * The continuous sound of the world (AUD-8, AUD-10): movement loops that follow the units moving on screen, and the
- * ambience: wind, water on screen, and a rumble while the player's forces fight off-screen. It reads snapshots and the
+ * ambience: water on screen, and a rumble while the player's forces fight off-screen. It reads snapshots and the
  * camera, makes no nodes per unit, and runs a few times a second.
  */
 export class Soundscape {
@@ -44,7 +44,7 @@ export class Soundscape {
   private moving: UnitSnap[] = [];
   private movingTick = -1;
   /** The last mixes sent, for tests and the debug hook. */
-  last: { movement: Record<MoveClass, number>; ambience: AmbienceMix } = { movement: { vehicle: 0, walker: 0, infantry: 0, swarm: 0 }, ambience: { wind: 1, water: 0, rumble: 0 } };
+  last: { movement: Record<MoveClass, number>; ambience: AmbienceMix } = { movement: { vehicle: 0, walker: 0, infantry: 0, swarm: 0 }, ambience: { water: 0, rumble: 0 } };
 
   constructor(map: { width: number; height: number; heights: readonly number[]; blocked?: readonly number[] }, private bed: Bed) {
     this.water = waterPoints(map);
