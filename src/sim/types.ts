@@ -37,6 +37,8 @@ export interface PlayerSetup {
 export type Command =
   | { type: 'noop'; player: number }
   | { type: 'stop'; player: number; units: number[] }
+  /** Scatter (CTL-9): every unit moves a few tiles straight away from the group's centre. */
+  | { type: 'scatter'; player: number; units: number[] }
   /** x, y in fixed-point world units. */
   | { type: 'move'; player: number; units: number[]; x: number; y: number }
   /** Haulers: resume the harvest loop (optionally toward the shard tile at x, y). */

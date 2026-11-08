@@ -83,7 +83,7 @@ const CSS = `
 
 /** Controls summary on the main menu; names the current bindings. */
 export const HELP_TEXT =
-  'Left-click select · drag to box-select · right-click move/attack · F then right-click attack-move · E select same kind · Q select army · X stop · Ctrl+1-9 groups · WASD/edges scroll · wheel zoom. Harvest shards, build up the tech tree, destroy the enemy base.';
+  'Left-click select · drag to box-select · right-click move/attack · F then right-click attack-move · E select same kind · Q select army · Z stop · X scatter · Ctrl+1-9 groups · WASD/edges scroll · wheel zoom. Harvest shards, build up the tech tree, destroy the enemy base.';
 
 type Pick = { faction: 'human' | 'alien'; difficulty: 'easy' | 'medium' | 'hard'; personality: PersonalityChoice };
 type Mode = 'single' | 'multi' | 'settings';

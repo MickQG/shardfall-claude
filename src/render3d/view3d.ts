@@ -923,8 +923,11 @@ export class View3D {
         m.src.drawn = this.frame;
       }
       if (pod) {
-        pod.obj.getWorldPosition(this.v);
-        this.v2.set(0, 1, 0);
+        // The missile leaves the tube mouths, along the tubes' own (upward) line (HERO-8).
+        this.v.set(0.3, 0, 0);
+        pod.obj.localToWorld(this.v);
+        pod.obj.getWorldPosition(this.v2);
+        this.v2.negate().add(this.v).normalize();
         this.fx.muzzle('missile', this.v, this.v2, now);
         this.fx.shot('missile', this.v, m.to, m.flightMs - (now - m.at), now, m.elite);
       } else {

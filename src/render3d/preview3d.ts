@@ -3,7 +3,7 @@ import { UNIT_DEFS, type UnitDef } from '../data/defs';
 import { OWNER_COLORS } from '../render/colors';
 import { FP, TICKS_PER_SECOND } from '../sim';
 import { CombatFx } from './fx3d';
-import { bodyPose, follow, heroHeave, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, turnToward, turretOnBody, TURRET_RATE, walkerFacing, type Follow, type MotionState } from './motion';
+import { bodyPose, missileLaunchAt, podOpen, salvoOf, POD_OPEN_MS, follow, heroHeave, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, turnToward, turretOnBody, TURRET_RATE, walkerFacing, type Follow, type MotionState } from './motion';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigTree } from './rig';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { UNIT_RIGS } from './units3d';
@@ -103,6 +103,9 @@ interface Live {
   nextShot: number;
   muzzleTurn: number;
   pending: { at: number; figure: number }[];
+  /** The Paladin's pods in the preview (HERO-8): when the salvo started and the missiles still to leave, ms. */
+  podSince: number;
+  missiles: number[];
   load: number;
   tip: number;
   drum: number;
@@ -359,6 +362,7 @@ export class UnitPreview {
         load: harvester ? s.load : 1,
         tip: s.tip,
         drum: s.drum,
+        pod: UNIT_DEFS[m.kind]?.weapon2 ? podOpen(now - s.podSince, salvoOf(m.kind, 1000 / TICKS_PER_SECOND)) : 0,
       });
     });
     m.group.rotation.y = -0.6 + (t / 1000) * SPIN;
@@ -396,8 +400,45 @@ export class UnitPreview {
         this.fx.shot(look, this.v, to, flight, now);
       } else this.fx.shot(look, tree.root.getWorldPosition(this.v).setY(0.3), to, flight, now);
       s.lastFire[p.figure] = now;
+      const pod = UNIT_DEFS[m.kind]?.weapon2;
+      if (pod && now - s.podSince > (pod.cooldown * 1000) / TICKS_PER_SECOND) {
+        // The pods open and send their salvo up out of the tubes with the cannon's shot (HERO-8, same as in a match).
+        const v = salvoOf(m.kind, 1000 / TICKS_PER_SECOND);
+        s.podSince = now;
+        s.missiles = Array.from({ length: v.count }, (_, i) => now + missileLaunchAt(v, i));
+      }
       return false;
     });
+    this.fireMissiles(now);
+  }
+
+  /** Launch the salvo missiles that are due from the tube mouths of the pods, one pod after the other (HERO-8). */
+  private fireMissiles(now: number): void {
+    const m = this.model;
+    const s = this.state;
+    if (!m || !s || s.missiles.length === 0) return;
+    const w = UNIT_DEFS[m.kind]?.weapon2;
+    const tree = m.trees[0];
+    if (!w || !tree) return;
+    const pods = tree.drawn.filter((d) => d.geo === 'pod');
+    const flightMs = Math.max(80, ((w.flight ?? 1) * 1000) / TICKS_PER_SECOND - POD_OPEN_MS);
+    const later: number[] = [];
+    for (const at of s.missiles) {
+      if (at > now) {
+        later.push(at);
+        continue;
+      }
+      const pod = pods[s.muzzleTurn++ % Math.max(1, pods.length)];
+      if (!pod) continue;
+      this.v.set(0.3, 0, 0);
+      pod.obj.localToWorld(this.v);
+      pod.obj.getWorldPosition(this.v2);
+      this.v2.negate().add(this.v).normalize();
+      const to = this.ahead(s.aim, Math.max(m.radius * 2, w.range), 0.05, new THREE.Vector3());
+      this.fx.muzzle('missile', this.v, this.v2, now);
+      this.fx.shot('missile', this.v, to, flightMs - (now - at), now);
+    }
+    s.missiles = later;
   }
 
   private draw(canvas: HTMLCanvasElement, margin = 1.32): void {
@@ -462,6 +503,8 @@ export class UnitPreview {
       nextShot: Infinity,
       muzzleTurn: 0,
       pending: [],
+      podSince: -1e9,
+      missiles: [],
       load: 0,
       tip: 0,
       drum: 0,

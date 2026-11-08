@@ -19,7 +19,7 @@ export function crush(s: State, moved: ReadonlySet<number>): void {
   const dead = new Set<number>();
   for (const c of s.units) {
     if (!moved.has(c.id) || c.hp <= 0) continue;
-    const r = unitDef(c.kind).radius;
+    const r = unitDef(c.kind).crushRadius ?? unitDef(c.kind).radius;
     for (const v of s.units) {
       if (dead.has(v.id) || v.hp <= 0 || !crushable(c, v)) continue;
       const dx = v.x - c.x;

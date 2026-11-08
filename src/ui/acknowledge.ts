@@ -61,6 +61,7 @@ export function acknowledge(cmd: Command, now: number, rallyColor: number, foot?
       return { ...base, at: { x: cmd.tx + f.w / 2, y: cmd.ty + f.h / 2 }, color: ACK_COLORS.place, sound: 'order', r: Math.max(f.w, f.h) * 0.6 };
     }
     case 'stop':
+    case 'scatter':
       return { ...base, color: null, sound: 'order' };
     default:
       return null;

@@ -68,7 +68,7 @@ describe('input while paused or over', () => {
 
   it('CTL-16: paused accepts only camera input (including Space and H), Escape and P', () => {
     for (const k of ['w', 'a', 's', 'd', 'arrowup', 'arrowleft', ' ', 'h', 'wheel', 'minimap-camera', 'escape', 'p']) expect(inputAllowed(k, paused)).toBe(true);
-    for (const k of ['q', 'e', 'f', 'x', '1', 'm', '+', 'click', 'sidebar', 'minimap-order']) expect(inputAllowed(k, paused)).toBe(false);
+    for (const k of ['q', 'e', 'f', 'x', 'z', '1', 'm', '+', 'click', 'sidebar', 'minimap-order']) expect(inputAllowed(k, paused)).toBe(false);
   });
 
   it('CTL-16: after the game is over nothing reaches the game; while running everything does', () => {

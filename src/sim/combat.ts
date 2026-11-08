@@ -95,7 +95,7 @@ function fire(s: State, shooter: { x: number; y: number; owner: number; id: numb
  * the missiles arc over buildings. Nothing random: tick counts and the hit list decide everything.
  */
 function firePod(s: State, u: Unit, w: WeaponDef, t: Entity): void {
-  if (u.cooldown2 > 0 || t.owner === u.owner || !canHit(w, t) || distTo(u.x, u.y, t) > rangeFp(w) || !faces(u, t)) return;
+  if (u.cooldown2 > 0 || t.owner === u.owner || !canHit(w, t) || distTo(u.x, u.y, t) > rangeFp(w) || !faces(u, t, w.arc)) return;
   const tp = pos(t);
   const { count, gap } = w.salvo ?? { count: 1, gap: 0 };
   const air = armorOf(t) === 'air';
