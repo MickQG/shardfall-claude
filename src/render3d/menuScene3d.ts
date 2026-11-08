@@ -4,7 +4,7 @@ import { UNIT_DEFS } from '../data/defs';
 import { OWNER_COLORS } from '../render/colors';
 import { BUILDING_RIGS, crystalShape } from './buildings3d';
 import { addEnvironment, configureRenderer, configureSunShadow, createComposer, glowLevels, matchLights } from './lighting3d';
-import { cameraAngle, FADE_IN_MS, FADE_OUT_MS, HQ_SPOT, SCENE_CAST, SCENE_FOV, SCENE_PITCH, sceneFraming, sceneSlots, shardPlan, TARGET_HEIGHT, type SceneFaction, type SceneSlot } from '../render/menuPlan';
+import { aimPoint, cameraAngle, FADE_IN_MS, FADE_OUT_MS, HQ_SPOT, SCENE_CAST, SCENE_FOV, SCENE_PITCH, sceneFraming, sceneSlots, shardPlan, TARGET_HEIGHT, type SceneFaction, type SceneSlot } from '../render/menuPlan';
 import { bodyPose, restingMotion } from './motion';
 import { Instancer } from './instancer';
 import { PR_MAX } from './resolution';
@@ -15,7 +15,7 @@ import { UNIT_RIGS } from './units3d';
 /**
  * The live faction scene behind the menu (MENU-10, MENU-11): the picked faction's hero and every other unit kind standing in
  * a ring around its HQ on a patch of ground, in the in-game models with render-only idle motion, lit like a match (late
- * afternoon sun, cool ambient light, bloom). The camera circles the HQ slowly, one turn every 75 s. Loaded with a dynamic import so
+ * afternoon sun, cool ambient light, bloom). The camera circles the HQ slowly and close, one turn every 75 s, so each unit in turn stands large in front. Loaded with a dynamic import so
  * the menu appears before three.js arrives. Render-only: no sim, no unseeded randomness (a seeded hash makes the ground and the
  * idle wander), nothing is read from the game.
  */
@@ -50,9 +50,9 @@ export const HAZE: Record<SceneFaction, number> = { human: 0x28304a, alien: 0x3a
 /** The sky above the horizon: the haze colour darkened toward the top. */
 export const SKY_TOP_SHADE = 0.35;
 /** The farthest the camera stands from the HQ (a wide screen backs it off), tiles. Fog starts behind the stage and has swallowed the ground well before its edge. */
-export const CAMERA_MAX_DIST = 46;
-export const FOG_NEAR = 52;
-export const FOG_FAR = 92;
+export const CAMERA_MAX_DIST = 30;
+export const FOG_NEAR = 34;
+export const FOG_FAR = 80;
 export const GROUND_RADIUS = 160;
 const GROUND: Record<SceneFaction, readonly [number, number, number]> = { human: [92, 90, 72], alien: [84, 70, 72] };
 
@@ -329,7 +329,7 @@ class Scene3d implements MenuScene {
 
   /** Frame the whole group in the free strip right of the panel from 1600 px up (MENU-11): back off and shift the picture right. */
   private frameGroup(): void {
-    const { dist, shift } = sceneFraming(this.faction, this.w, this.h);
+    const { dist, shift } = sceneFraming(this.w, this.h);
     this.dist = Math.min(CAMERA_MAX_DIST, dist);
     this.camera.setViewOffset(this.w, this.h, -shift, 0, this.w, this.h);
     this.camera.updateProjectionMatrix();
@@ -341,6 +341,9 @@ class Scene3d implements MenuScene {
     const a = this.forced ?? cameraAngle(t, this.still);
     const d = this.dist;
     const cp = Math.cos(PITCH);
+    // Aim between the HQ and the unit nearest the camera, so that unit stands large in the middle with the HQ behind it.
+    const aim = aimPoint(this.faction, a);
+    this.target.set(aim.x, TARGET_HEIGHT, aim.z);
     this.camera.position.set(this.target.x + Math.cos(a) * cp * d, this.target.y + Math.sin(PITCH) * d, this.target.z + Math.sin(a) * cp * d);
     this.camera.lookAt(this.target);
     this.sun.position.set(this.target.x + SUN_AT[0], SUN_AT[1], this.target.z + SUN_AT[2]);

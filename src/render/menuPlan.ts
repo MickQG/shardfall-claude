@@ -143,31 +143,63 @@ export function shardPlan(f: SceneFaction): { field: ShardSpot[]; loose: ShardSp
   return { field, loose };
 }
 
-/** One full turn of the camera around the HQ, seconds (MENU-10: 60 to 90 s), at constant speed. */
+/** One full turn of the camera around the HQ, seconds (MENU-10: 60 to 90 s), at constant speed: about 10 s in front for each of the seven units. */
 export const ORBIT_PERIOD_S = 75;
-/** The camera's angle around the HQ (radians from +x toward +z) at `t` seconds: it starts with the hero in front, a little to the side, and turns at a constant rate. Pure. */
-export const orbitAngleAt = (t: number): number => HERO_ANGLE + 0.3 + (t / ORBIT_PERIOD_S) * Math.PI * 2;
+/** The camera's angle around the HQ (radians from +x toward +z) at `t` seconds: it starts with the hero in front and turns at a constant rate. Pure. */
+export const orbitAngleAt = (t: number): number => HERO_ANGLE + 0.1 + (t / ORBIT_PERIOD_S) * Math.PI * 2;
 /** The angle the camera holds on Low quality or with reduced motion: the hero in front. */
 export const STILL_ANGLE = orbitAngleAt(0);
-/** The camera angle to use at `t` seconds: the orbit, or the flattering fixed angle when holding still. */
+/** The camera angle to use at `t` seconds: the orbit, or the fixed angle when holding still. */
 export const cameraAngle = (t: number, still: boolean): number => (still ? STILL_ANGLE : orbitAngleAt(t));
 
 /** The menu panel's right edge at screen width `w`: the 300 px rail, the main area's padding and the 860 px panel (MENU-11). */
 export const panelRight = (w: number): number => 300 + Math.min(56, Math.max(20, 0.04 * w)) + 860;
 
-/** From this screen width up the HQ stands in the free strip right of the panel (MENU-11); from CLEAR_UNITS_WIDTH up the whole ring stays clear of the panel too. */
+/** From this screen width up the unit nearest the camera stands in the middle of the free strip right of the panel (MENU-11). */
 export const CLEAR_MIN_WIDTH = 1600;
-export const CLEAR_UNITS_WIDTH = 1920;
-/** Room kept between the panel's edge (and the screen's right edge) and the nearest unit, px. */
+/** Room kept between the panel's edge (and the screen's right edge) and the nearest unit's footprint, px. */
 export const PANEL_MARGIN = 16;
 
-/** The scene camera's fixed angles (shared with the three.js scene): vertical field of view and pitch (about 36 degrees). */
+/** The scene camera's fixed angles (shared with the three.js scene): vertical field of view and pitch (about 27 degrees, a low, cinematic angle). */
 export const SCENE_FOV = 32;
-export const SCENE_PITCH = 0.63;
-/** Height of the point the camera looks at (tiles above the HQ's centre on the ground). */
-export const TARGET_HEIGHT = 1.2;
-/** The camera's distance per pixel of screen height where the scene is not fitted to the free strip (below 1920 px). */
-export const DIST_PER_HEIGHT = 0.0323;
+export const SCENE_PITCH = 0.47;
+/** The camera looks at a point this far in front of the unit nearest it, toward the HQ (tiles): between the HQ and the ring's near side. */
+export const AIM_BEHIND = 1.7;
+export const TARGET_HEIGHT = 0.7;
+/** The camera's distance from that point per pixel of screen height: close, so the unit in front stands large. */
+export const DIST_PER_HEIGHT = 0.0118;
+
+/** How far (radians of camera angle) the aim point takes to pan from one unit to the next: it stays on a unit while the camera turns around it, then eases across to the next. */
+export const PAN_WINDOW = 0.3;
+
+const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
+
+/**
+ * The point the camera looks at for camera angle `angle`: on the ground just in front of the unit nearest the camera
+ * (`AIM_BEHIND` tiles toward the HQ along the view), so that unit stands in the middle of the picture with the HQ behind it
+ * while the camera turns around it; past the midway point to the next unit the aim eases across to that one. Pure.
+ */
+export function aimPoint(f: SceneFaction, angle: number): { x: number; z: number } {
+  const ds = Object.values(sceneSlots(f))
+    .map((s) => ({ s, d: Math.abs(wrap(Math.atan2(s.z - HQ_SPOT.z, s.x - HQ_SPOT.x) - angle)) }))
+    .sort((p, q) => p.d - q.d);
+  const first = ds[0]!;
+  const second = ds[1]!;
+  const t = Math.min(1, (second.d - first.d) / PAN_WINDOW);
+  const wgt = 0.5 + 0.5 * (t * t * (3 - 2 * t));
+  const at = (s: { x: number; z: number }): { x: number; z: number } => ({ x: s.x - AIM_BEHIND * Math.cos(angle), z: s.z - AIM_BEHIND * Math.sin(angle) });
+  const p = at(first.s);
+  const q = at(second.s);
+  return { x: wgt * p.x + (1 - wgt) * q.x, z: wgt * p.z + (1 - wgt) * q.z };
+}
+
+/** Whether the camera at `angle` is on a unit's plateau (not panning to the next one), so that unit stands dead centre. */
+export function settledOnUnit(f: SceneFaction, angle: number): boolean {
+  const ds = Object.values(sceneSlots(f))
+    .map((s) => Math.abs(wrap(Math.atan2(s.z - HQ_SPOT.z, s.x - HQ_SPOT.x) - angle)))
+    .sort((p, q) => p - q);
+  return ds[1]! - ds[0]! >= PAN_WINDOW;
+}
 
 /** Ground radius, in tiles, that covers a kind's model and its squad's wander: a conservative footprint (MENU-11). */
 export function footprintOf(kind: string): number {
@@ -179,52 +211,74 @@ export function footprintOf(kind: string): number {
   return 1.1;
 }
 
-/** Horizontal screen extent of a kind's footprint seen from camera `angle` and `dist` tiles out, px relative to the screen's middle, before the projection shift. */
-export function projectedSpan(f: SceneFaction, kind: string, angle: number, dist: number, h: number): [number, number] {
-  const s = kind === SCENE_CAST[f].hq ? HQ_SPOT : sceneSlots(f)[kind]!;
-  const r = footprintOf(kind);
-  const right = (s.x - HQ_SPOT.x) * Math.sin(angle) - (s.z - HQ_SPOT.z) * Math.cos(angle);
-  const toward = (s.x - HQ_SPOT.x) * Math.cos(angle) + (s.z - HQ_SPOT.z) * Math.sin(angle);
-  // Depth along the view: nearer units look bigger, so the footprint is measured at its nearest point.
-  const depth = dist - toward * Math.cos(SCENE_PITCH) + TARGET_HEIGHT * Math.sin(SCENE_PITCH) - r;
-  const fpx = h / 2 / Math.tan((SCENE_FOV * Math.PI) / 360);
-  return [((right - r) / depth) * fpx, ((right + r) / depth) * fpx];
+/** A kind's rough height, tiles, for judging how tall it appears. */
+export function heightOf(kind: string): number {
+  const d = UNIT_DEFS[kind];
+  if (!d) return 2.0;
+  if (d.hero) return 2.4;
+  if (d.role === 'scout') return 0.6;
+  if ((d.squad ?? 1) > 1) return 0.7;
+  return 1.0;
 }
 
-/** The angles sampled around the orbit when fitting and testing the framing. */
+const focalPx = (h: number): number => h / 2 / Math.tan((SCENE_FOV * Math.PI) / 360);
+
+/** Where a kind stands relative to the aim point seen from `angle`: across the view, and along it toward the camera (tiles). */
+function relative(f: SceneFaction, kind: string, angle: number): { right: number; toward: number } {
+  const s = kind === SCENE_CAST[f].hq ? HQ_SPOT : sceneSlots(f)[kind]!;
+  const a = aimPoint(f, angle);
+  const dx = s.x - a.x;
+  const dz = s.z - a.z;
+  return { right: dx * Math.sin(angle) - dz * Math.cos(angle), toward: dx * Math.cos(angle) + dz * Math.sin(angle) };
+}
+
+const depthOf = (toward: number, dist: number): number => dist - toward * Math.cos(SCENE_PITCH) + TARGET_HEIGHT * Math.sin(SCENE_PITCH);
+
+/** Horizontal screen extent of a kind's footprint seen from camera `angle` and `dist` tiles out, px relative to the screen's middle, before the projection shift. */
+export function projectedSpan(f: SceneFaction, kind: string, angle: number, dist: number, h: number): [number, number] {
+  const { right, toward } = relative(f, kind, angle);
+  const r = footprintOf(kind);
+  const depth = depthOf(toward, dist) - r;
+  return [((right - r) / depth) * focalPx(h), ((right + r) / depth) * focalPx(h)];
+}
+
+/** How tall a kind appears, px: its height and the depth of its footprint seen at the camera's pitch. */
+export function projectedHeight(f: SceneFaction, kind: string, angle: number, dist: number, h: number): number {
+  const { toward } = relative(f, kind, angle);
+  return ((heightOf(kind) * Math.cos(SCENE_PITCH) + 2 * footprintOf(kind) * Math.sin(SCENE_PITCH)) / depthOf(toward, dist)) * focalPx(h);
+}
+
+/** The angles sampled around the orbit when testing the framing. */
 export const ORBIT_SAMPLES = 12;
 
 /** Every unit in a faction's scene (the HQ stands at the middle). */
 export const castKinds = (f: SceneFaction): string[] => sceneKinds(f).filter((k) => k !== SCENE_CAST[f].hq);
 
-/**
- * The scene's framing at screen `w` by `h` (MENU-11): the camera's distance from the HQ, tiles, and how far the projection
- * shifts right, px. From 1600 px up the HQ sits in the middle of the free strip between the panel and the screen's right
- * edge, and from 1920 px up the camera stands far enough out that the whole ring clears the panel at every angle of the
- * orbit. Below 1600 px the scene shows through the glass, the HQ a little right of centre. Pure.
- */
-export function sceneFraming(f: SceneFaction, w: number, h: number): { dist: number; shift: number } {
-  const wide = h * DIST_PER_HEIGHT;
-  if (w < CLEAR_MIN_WIDTH) return { dist: wide, shift: w * 0.62 - w / 2 };
-  const left = panelRight(w) + PANEL_MARGIN;
-  const right = w - PANEL_MARGIN;
-  const shift = (left + right) / 2 - w / 2;
-  const half = (right - left) / 2;
-  let dist = 80;
-  for (let d = 20; d < 80; d += 0.1) {
-    let reach = 0;
-    for (let i = 0; i < ORBIT_SAMPLES; i++) {
-      for (const k of castKinds(f)) {
-        const [lo, hi] = projectedSpan(f, k, (i / ORBIT_SAMPLES) * Math.PI * 2, d, h);
-        reach = Math.max(reach, -lo, hi);
-      }
-    }
-    if (reach <= half) {
-      dist = d;
-      break;
+/** The unit nearest the camera at camera `angle` (the one standing in front): the one whose bearing from the HQ is closest to it. */
+export function nearestUnit(f: SceneFaction, angle: number): string {
+  let best = '';
+  let bestD = Infinity;
+  for (const [k, s] of Object.entries(sceneSlots(f))) {
+    const a = Math.atan2(s.z - HQ_SPOT.z, s.x - HQ_SPOT.x);
+    const d = Math.abs(Math.atan2(Math.sin(a - angle), Math.cos(a - angle)));
+    if (d < bestD) {
+      bestD = d;
+      best = k;
     }
   }
-  return { dist: w < CLEAR_UNITS_WIDTH ? Math.min(dist, wide) : dist, shift };
+  return best;
+}
+
+/**
+ * The scene's framing at screen `w` by `h` (MENU-11): the camera's distance from its aim point, tiles, and how far the
+ * projection shifts right, px. From 1600 px up the aim point sits in the middle of the free strip between the panel and the
+ * screen's right edge, so the unit nearest the camera stands large there with the HQ behind it. Below 1600 px the scene
+ * shows through the glass, the aim point a little right of centre. Pure.
+ */
+export function sceneFraming(w: number, h: number): { dist: number; shift: number } {
+  const dist = h * DIST_PER_HEIGHT;
+  if (w < CLEAR_MIN_WIDTH) return { dist, shift: w * 0.62 - w / 2 };
+  return { dist, shift: (panelRight(w) + w) / 2 - w / 2 };
 }
 
 /** Whether the scene is drawn once and held still: Low quality, or the system asks for reduced motion (MENU-10). */

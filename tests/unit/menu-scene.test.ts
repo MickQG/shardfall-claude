@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { UNIT_DEFS } from '../../src/data/defs';
 import { BUILDING_RIGS } from '../../src/render3d/buildings3d';
-import { buttonKinds, cameraAngle, castKinds, FADE_IN_MS, FADE_OUT_MS, FIELD_ANGLE, FIELD_ARC, FIELD_INNER, footprintOf, HERO_CLEAR, HQ_SPOT, holdStill, IconCache, iconKey, ORBIT_PERIOD_S, ORBIT_SAMPLES, orbitAngleAt, PANEL_MARGIN, panelRight, projectedSpan, RING_RADIUS, SCENE_CAST, sceneFraming, sceneKinds, sceneSlots, shardPlan, STILL_ANGLE } from '../../src/render/menuPlan';
+import { buttonKinds, cameraAngle, castKinds, FADE_IN_MS, FADE_OUT_MS, FIELD_ANGLE, FIELD_ARC, FIELD_INNER, footprintOf, HERO_CLEAR, HQ_SPOT, holdStill, IconCache, iconKey, ORBIT_PERIOD_S, nearestUnit, ORBIT_SAMPLES, orbitAngleAt, PAN_WINDOW, projectedHeight, settledOnUnit, PANEL_MARGIN, panelRight, projectedSpan, RING_RADIUS, SCENE_CAST, sceneFraming, sceneKinds, sceneSlots, shardPlan, STILL_ANGLE } from '../../src/render/menuPlan';
 import { CAMERA_MAX_DIST, FOG_FAR, FOG_NEAR, GROUND_RADIUS, HAZE, SKY_TOP_SHADE } from '../../src/render3d/menuScene3d';
 import { fitPicture, ICON_EDGE, project, viewDir } from '../../src/render3d/iconFit';
 import { fitPoints, PREVIEW_FOV, PREVIEW_PITCH, restFitPoints } from '../../src/render3d/preview3d';
@@ -133,39 +133,54 @@ describe('menu faction scene (MENU-10, MENU-11)', () => {
     expect(FADE_OUT_MS + FADE_IN_MS).toBeLessThanOrEqual(600);
   });
 
-  it('MENU-11: at 1920 and 2560 px wide, at 12 angles around the orbit, every unit stands right of the panel edge plus 16 px and inside the screen', () => {
+  it('MENU-11: from 1600 px up, at 12 angles around the orbit, the unit nearest the camera stands in the free strip right of the panel, with its footprint clear of the panel edge by 16 px from 1920 px, and about 220 to 320 px tall at 1920', () => {
     expect(PANEL_MARGIN).toBeGreaterThanOrEqual(16);
     for (const f of ['human', 'alien'] as const) {
-      for (const [w, h] of [[1920, 1080], [2560, 1080]] as const) {
-        const { dist, shift } = sceneFraming(f, w, h);
+      let settled = 0;
+      for (const [w, h] of [[1600, 900], [1920, 1080], [2560, 1080]] as const) {
+        const { dist, shift } = sceneFraming(w, h);
         expect(dist).toBeLessThanOrEqual(CAMERA_MAX_DIST);
         for (let i = 0; i < ORBIT_SAMPLES; i++) {
-          for (const kind of castKinds(f)) {
-            const [lo, hi] = projectedSpan(f, kind, (i / ORBIT_SAMPLES) * Math.PI * 2, dist, h);
-            expect(lo + shift + w / 2, `${f} ${kind} at ${w}, angle ${i}`).toBeGreaterThanOrEqual(panelRight(w) + 16 - 0.01);
-            expect(hi + shift + w / 2, `${f} ${kind} at ${w}, angle ${i}`).toBeLessThanOrEqual(w);
+          const a = (i / ORBIT_SAMPLES) * Math.PI * 2;
+          const kind = nearestUnit(f, a);
+          const [lo, hi] = projectedSpan(f, kind, a, dist, h);
+          const centre = (lo + hi) / 2 + shift + w / 2;
+          // Between two units the camera pans across and the unit passes toward the strip's edge (it may pass behind the glass).
+          if (!settledOnUnit(f, a)) continue;
+          if (w === 1920) settled++;
+          expect(centre, `${f} ${kind} at ${w}, angle ${i}`).toBeGreaterThan(panelRight(w) + 16);
+          expect(centre, `${f} ${kind} at ${w}, angle ${i}`).toBeLessThan(w - 16);
+          // At 1600 px the free strip is narrower than the hero, so only the centre is held there; from 1920 px the whole footprint is clear.
+          if (w >= 1920) expect(lo + shift + w / 2, `${f} ${kind} at ${w}, angle ${i}`).toBeGreaterThanOrEqual(panelRight(w) + 16 - 0.01);
+          if (w === 1920) {
+            const px = projectedHeight(f, kind, a, dist, h);
+            // A tank-sized unit is 220 to 320 px tall; the hero is larger, the smaller kinds a little less.
+            if (footprintOf(kind) === 1.1) expect(px, `${f} ${kind}`).toBeGreaterThanOrEqual(220);
+            if (footprintOf(kind) === 1.1) expect(px, `${f} ${kind}`).toBeLessThanOrEqual(320);
+            if (UNIT_DEFS[kind]!.hero) expect(px, `${f} ${kind}`).toBeGreaterThan(320);
+            expect(px, `${f} ${kind}`).toBeGreaterThanOrEqual(200);
           }
         }
       }
+      // Most of the orbit is spent settled on a unit; the pans between them are short.
+      expect(settled / ORBIT_SAMPLES).toBeGreaterThanOrEqual(0.4);
+      expect(PAN_WINDOW).toBeLessThanOrEqual(0.4);
     }
   });
 
-  it('MENU-11: at 1600 px wide the HQ centre projects into the free strip right of the panel, and below 1600 px the scene is not framed to it', () => {
+  it('MENU-11: every unit takes its turn in front as the camera circles, the hero being in front when holding still', () => {
     for (const f of ['human', 'alien'] as const) {
-      for (const [w, h] of [[1600, 900], [1680, 1050]] as const) {
-        const { dist, shift } = sceneFraming(f, w, h);
-        const [lo, hi] = projectedSpan(f, SCENE_CAST[f].hq, 0, dist, h);
-        const centre = (lo + hi) / 2 + shift + w / 2;
-        expect(centre, `${f} ${w}`).toBeGreaterThan(panelRight(w));
-        expect(centre, `${f} ${w}`).toBeLessThan(w);
-        expect(centre).toBeCloseTo((panelRight(w) + PANEL_MARGIN + w - PANEL_MARGIN) / 2, 0);
-        expect(dist).toBeLessThanOrEqual(CAMERA_MAX_DIST);
-      }
-      // Below 1600 px the scene shows through the glass: a fixed distance for the height and the HQ right of centre.
-      const narrow = sceneFraming(f, 1280, 720);
-      expect(narrow.dist).toBeCloseTo(720 * 0.0323, 6);
-      expect(narrow.shift).toBeGreaterThan(0);
+      const front = new Set<string>();
+      for (let t = 0; t < ORBIT_PERIOD_S; t += 0.5) front.add(nearestUnit(f, orbitAngleAt(t)));
+      expect([...front].sort()).toEqual(castKinds(f).sort());
+      expect(nearestUnit(f, STILL_ANGLE)).toBe(SCENE_CAST[f].hero);
     }
+  });
+
+  it('MENU-11: below 1600 px the scene is not framed to the free strip: the aim sits a little right of centre and the camera stands the same distance for the height', () => {
+    const narrow = sceneFraming(1280, 720);
+    expect(narrow.dist).toBeCloseTo(sceneFraming(1920, 720).dist, 6);
+    expect(narrow.shift).toBeCloseTo(1280 * 0.62 - 640, 6);
   });
 
   it('MENU-10: the lighting and post-processing are shared with the match view, with PCF shadows, and the scene uses no Math.random', () => {
