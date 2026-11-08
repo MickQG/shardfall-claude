@@ -24,6 +24,7 @@ export interface Pose {
 export function cameraPose(cam: Camera): Pose {
   const t = screenToTile(cam.x, cam.y);
   const d = BASE_DISTANCE / cam.zoom;
-  const len = Math.hypot(1, PITCH_RISE, 1);
-  return { position: [t.x + d / len, (d * PITCH_RISE) / len, t.y + d / len], target: [t.x, 0, t.y] };
+  const rise = cam.rise ?? PITCH_RISE;
+  const len = Math.hypot(1, rise, 1);
+  return { position: [t.x + d / len, (d * rise) / len, t.y + d / len], target: [t.x, 0, t.y] };
 }

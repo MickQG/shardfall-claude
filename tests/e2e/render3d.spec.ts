@@ -15,7 +15,7 @@ test('R3D-1 R3D-5 R3D-6 R3D-7: the showcase runs in 3D on both presets; clicking
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   // R3D-1: `?renderer=3d` forces the 3D view (CI renders WebGL in software, where the default is the classic view).
-  await page.goto('/?faction=human&scenario=showcase&seed=1&renderer=3d');
+  await page.goto('/?faction=human&scenario=showcase&seed=1&renderer=3d&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   await expect(page.locator('#frametime')).toContainText(/renderer 3d · \d+ fps/);
   expect((await page.locator('canvas').first().screenshot()).length).toBeGreaterThan(30_000);
@@ -27,7 +27,7 @@ test('R3D-1 R3D-5 R3D-6 R3D-7: the showcase runs in 3D on both presets; clicking
   await page.keyboard.press('F2');
 
   // R3D-5: in a calm scene (nothing moving), a click on an own unit selects it through the 3D projection.
-  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=3d');
+  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=3d&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   const tank = await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.snapshot()!.units.find((u) => u.owner === 0 && u.kind === 'hum_rifleman')!.id);
   const p = await page.evaluate((id) => (window as unknown as { __shardfall: Hook }).__shardfall.screenPos(id), tank);
@@ -41,10 +41,10 @@ test('R3D-1 R3D-5 R3D-6 R3D-7: the showcase runs in 3D on both presets; clicking
 
   // R3D-1: `?renderer=classic` uses the classic view; with no switch, 3D on a graphics chip, classic on a software
   // renderer (like CI's).
-  await page.goto('/?faction=human&scenario=showcase&seed=1&renderer=classic');
+  await page.goto('/?faction=human&scenario=showcase&seed=1&renderer=classic&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   await expect(page.locator('#frametime')).toContainText('renderer classic');
-  await page.goto('/?faction=human&scenario=showcase&seed=1');
+  await page.goto('/?faction=human&scenario=showcase&seed=1&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   const software = await page.evaluate(() => {
     const gl = document.createElement('canvas').getContext('webgl2');
@@ -59,7 +59,7 @@ test('R3D-9 R3D-12 R3D-13: a large battle in 3D keeps its draw calls flat and pl
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const draws = async (army: number): Promise<number> => {
-    await page.goto(`/?faction=human&scenario=showcase&seed=1&renderer=3d&army=${army}`);
+    await page.goto(`/?faction=human&scenario=showcase&seed=1&renderer=3d&army=${army}&flyin=0`);
     await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
     // Look at the whole army: select it and centre the camera on it.
     await page.evaluate(() => {

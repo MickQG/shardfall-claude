@@ -66,7 +66,7 @@ async function online(context: BrowserContext): Promise<void> {
 type Hook = { snapshot(): { tick: number; units: { id: number; owner: number; x: number; y: number }[] } | null; send(c: unknown): void };
 const tick = (p: Page): Promise<number> => p.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.snapshot()?.tick ?? 0);
 
-test('NET-1 NET-2 NET-3 NET-4: two players host and join a room, play the same match in lockstep, and the stayer wins when the other leaves', async ({ browser }) => {
+test('NET-1 NET-2 NET-3 NET-4 CAM-6: two players host and join a room, play the same match in lockstep, and the stayer wins when the other leaves', async ({ browser }) => {
   test.setTimeout(180_000);
   const context = await browser.newContext({ viewport: { width: 1100, height: 700 } });
   await online(context);
@@ -91,7 +91,20 @@ test('NET-1 NET-2 NET-3 NET-4: two players host and join a room, play the same m
   await b.locator('#mp-code').fill('abc-234');
   await b.locator('#mp-join').click();
 
-  for (const p of [a, b]) await p.waitForSelector('body[data-ready="true"]', { timeout: 90_000 });
+  // CAM-6: online the fly-in cannot be skipped: a key press changes nothing, both games sit at tick 0 through it, and it holds both exactly as long.
+  for (const p of [a, b]) await p.waitForSelector('body[data-fly]', { state: 'attached', timeout: 90_000 });
+  for (const p of [a, b]) await p.keyboard.press('Space');
+  // (Read together: a slow software GPU may have let the fly-in end before this line runs, and then ticks are fine.)
+  for (const p of [a, b]) {
+    const r = await p.evaluate(() => {
+      const h = (window as unknown as { __shardfall: Hook & { fly(): { flying: boolean } } }).__shardfall;
+      return { flying: h.fly().flying, tick: h.snapshot()?.tick ?? 0 };
+    });
+    if (r.flying) expect(r.tick).toBe(0);
+  }
+  for (const p of [a, b]) await p.waitForSelector('body[data-ready="true"]', { state: 'attached', timeout: 90_000 });
+  const held = await Promise.all([a, b].map((p) => p.evaluate(() => Number(document.body.dataset.flyMs))));
+  for (const ms of held) expect(ms).toBeGreaterThanOrEqual(4000);
   await expect(a).toHaveURL(/faction=alien.*map=riverbed.*online=ABC234/);
   await expect(b).toHaveURL(/faction=human.*map=riverbed.*online=ABC234/);
   for (const p of [a, b]) await expect(p.locator('#topbar')).toContainText('room ABC234');

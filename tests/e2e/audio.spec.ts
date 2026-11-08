@@ -17,7 +17,7 @@ const hook = <T>(page: import('@playwright/test').Page, f: (h: Hook) => T | Prom
 test('AUD-12: 200 overlapping shots, explosions and deaths rendered through the real engine graph never pass full scale', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=classic');
+  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=classic&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   const r = await hook(page, (h) => h.audioBurst(200));
   expect(r.requested).toBe(200);
@@ -44,7 +44,7 @@ test('AUD-11: hovering and clicking menu buttons plays UI sounds without page er
 test('AUD-11 AUD-7: HUD buttons play hover and click, and selecting and commanding a unit play its kind\'s own sound once each', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=classic');
+  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=classic&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   const count = (key: string): Promise<number> => page.evaluate((k) => (window as unknown as { __shardfall: Hook }).__shardfall.audio().requested[k] ?? 0, key);
   // A HUD button: hover then click.
@@ -78,7 +78,7 @@ test('AUD-11 AUD-7: HUD buttons play hover and click, and selecting and commandi
 test('AUD-13 AUD-16: the score rendered through the real graph is louder with the battle layer up, and silent with Music off', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=classic');
+  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=classic&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   const render = (level: number, on: boolean): Promise<{ rms: number; peak: number }> =>
     page.evaluate(`window.__shardfall.audioMusic(${level}, ${on})`) as Promise<{ rms: number; peak: number }>;

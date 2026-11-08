@@ -4,7 +4,7 @@ type Hook = { snapshot: () => { units: { id: number; owner: number; kind: string
 
 test('UI-10: on an ultrawide screen the game frame stays 16:9 and centred, with the console beside the view', async ({ page }) => {
   await page.setViewportSize({ width: 2560, height: 720 });
-  await page.goto('/?faction=human&scenario=calm&seed=3');
+  await page.goto('/?faction=human&scenario=calm&seed=3&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   const frame = (await page.locator('canvas').first().boundingBox())!;
   expect(Math.abs(frame.width - 1280)).toBeLessThan(2);
@@ -21,7 +21,7 @@ test('UI-10: on an ultrawide screen the game frame stays 16:9 and centred, with 
 
 test('UI-11: the minimap is 280 by 140 and, at 1280x720, clears the selection panel and the console', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto('/?faction=human&scenario=calm&seed=3');
+  await page.goto('/?faction=human&scenario=calm&seed=3&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   const mini = (await page.locator('#minimap-box canvas').boundingBox())!;
   expect(Math.round(mini.width)).toBe(280);

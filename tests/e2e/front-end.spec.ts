@@ -109,7 +109,7 @@ test('MENU-14: How to play sits between Units and Settings with the Controls tab
   await expect(panel.locator('[data-howto="basics"] li')).toHaveCount(6);
   // The same table is in the F1 overlay in a match (UI-18).
   const rows = await panel.locator('[data-howto="controls"] td.keys').allTextContents();
-  await page.goto('/?faction=human&scenario=duel&seed=5');
+  await page.goto('/?faction=human&scenario=duel&seed=5&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   await page.keyboard.press('F1');
   expect(await page.locator('#help td.keys').allTextContents()).toEqual(rows);
@@ -145,14 +145,14 @@ test('MENU-15: Settings has Sound (Mute all, Master volume) and Music (Music on,
 
 test('UI-16: the match HUD and sidebar wear the player faction skin', async ({ page }) => {
   const radius = (sel: string): Promise<string> => page.locator(sel).first().evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
-  await page.goto('/?faction=alien&scenario=duel&seed=5');
+  await page.goto('/?faction=alien&scenario=duel&seed=5&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   await expect(page.locator('#hud')).toHaveAttribute('data-faction', 'alien');
   await expect(page.locator('#sidebar')).toHaveAttribute('data-faction', 'alien');
   for (const sel of ['#topbar', '#minimap-box']) expect(await radius(sel), sel).toBe('10px');
   expect(await radius('#sidebar .box')).toBe('18px');
   expect(await page.locator('#sidebar .box').first().evaluate((el) => getComputedStyle(el).clipPath)).toBe('none');
-  await page.goto('/?faction=human&scenario=duel&seed=5');
+  await page.goto('/?faction=human&scenario=duel&seed=5&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   await expect(page.locator('#hud')).toHaveAttribute('data-faction', 'human');
   for (const sel of ['#topbar', '#minimap-box', '#sidebar .box']) expect(await radius(sel), sel).toBe('0px');
@@ -160,7 +160,7 @@ test('UI-16: the match HUD and sidebar wear the player faction skin', async ({ p
 });
 
 test('UI-18: the top bar shows F1 Help and the speed only; F1 opens the controls overlay, F1 or Esc closes it, the game keeps running', async ({ page }) => {
-  await page.goto('/?faction=human&scenario=duel&seed=5');
+  await page.goto('/?faction=human&scenario=duel&seed=5&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   await expect(page.locator('#topbar')).toHaveText(/^F1 Help · ×[\d.]+$/);
   const help = page.locator('#help');
@@ -190,7 +190,7 @@ test('UI-19: the loading screen wears the player faction skin, shows the wordmar
       if (el && !sessionStorage.getItem('loading')) sessionStorage.setItem('loading', JSON.stringify({ faction: el.dataset.faction, mark: !!el.querySelector('svg[role="img"][aria-label="Shardfall"]'), tip: el.querySelector('.tip')?.textContent ?? '' }));
     }).observe(document, { subtree: true, childList: true });
   });
-  await page.goto('/?faction=alien&difficulty=easy');
+  await page.goto('/?faction=alien&difficulty=easy&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
   const seen = JSON.parse((await page.evaluate(() => sessionStorage.getItem('loading'))) ?? '{}') as { faction: string; mark: boolean; tip: string };
   expect(seen.faction).toBe('alien');
@@ -208,7 +208,7 @@ test('MENU-10: in the 3D view a live scene canvas sits behind the panel in place
     // Recorded as the page unloads for the game: whether the scene had stopped and let go by then.
     window.addEventListener('beforeunload', () => sessionStorage.setItem('menuScene', JSON.stringify({ state: document.body.dataset.menuScene, canvases: document.querySelectorAll('#menu .scene canvas').length })));
   });
-  await page.goto('/?renderer=3d');
+  await page.goto('/?renderer=3d&flyin=0');
   await page.waitForFunction(() => document.body.dataset.menuScene === 'on', null, { timeout: 60_000 });
   const canvas = page.locator('#menu .scene canvas');
   await expect(canvas).toHaveCount(1);
@@ -232,7 +232,7 @@ test('MENU-10: in the 3D view a live scene canvas sits behind the panel in place
 });
 
 test('MENU-10: in the classic view the drifting backdrop stays and no scene canvas is made', async ({ page }) => {
-  await page.goto('/?renderer=classic');
+  await page.goto('/?renderer=classic&flyin=0');
   await expect(page.locator('#menu .bg')).toBeVisible();
   await page.waitForTimeout(800);
   await expect(page.locator('#menu .scene canvas')).toHaveCount(0);
@@ -240,7 +240,7 @@ test('MENU-10: in the classic view the drifting backdrop stays and no scene canv
 });
 
 test('UI-17: in the 3D view every build and train button shows a picture of its model; in the classic view they are text only', async ({ page }) => {
-  await page.goto('/?faction=human&renderer=3d');
+  await page.goto('/?faction=human&renderer=3d&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 90_000 });
   const buttons = page.locator('#sidebar button.item');
   const n = await buttons.count();
@@ -275,7 +275,7 @@ test('UI-17: in the 3D view every build and train button shows a picture of its 
     return bad;
   });
   expect(touching).toBe(0);
-  await page.goto('/?faction=human&renderer=classic');
+  await page.goto('/?faction=human&renderer=classic&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 90_000 });
   await expect(page.locator('#sidebar button.item').first()).toBeVisible();
   await expect(page.locator('#sidebar img.ic')).toHaveCount(0);

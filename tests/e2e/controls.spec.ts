@@ -12,7 +12,7 @@ interface Hook {
 test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CTL-11 CUR-1 CUR-3: Q selects combat units, F2 toggles quality, F then right-click attack-moves, Ctrl+S is blocked, cursors change', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/?faction=human&scenario=calm&seed=3');
+  await page.goto('/?faction=human&scenario=calm&seed=3&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
 
   // CTL-6: Q selects the three riflemen and not the hauler.
@@ -110,7 +110,7 @@ test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CTL-11 CUR-1 CUR-3: Q selects combat units,
 test('PRD-9: Ctrl-clicking a build item queues five of it', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/?faction=human&scenario=calm&seed=3');
+  await page.goto('/?faction=human&scenario=calm&seed=3&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
   const queued = (): Promise<number> =>
     page.evaluate(() => {
@@ -126,7 +126,7 @@ test('PRD-9: Ctrl-clicking a build item queues five of it', async ({ page }) => 
 test('PRD-10: right-click cancels one queued item, Ctrl + right-click cancels up to five', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/?faction=human&scenario=calm&seed=3');
+  await page.goto('/?faction=human&scenario=calm&seed=3&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
   const queued = (): Promise<number> =>
     page.evaluate(() => {
@@ -146,7 +146,7 @@ test('PRD-10: right-click cancels one queued item, Ctrl + right-click cancels up
 test('CUR-1 CUR-4: a selected harvester shows the harvest cursor over shards, riflemen do not', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/?faction=human&scenario=calm&seed=3');
+  await page.goto('/?faction=human&scenario=calm&seed=3&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
   const cursor = (): Promise<string> => page.locator('canvas').first().evaluate((c) => (c as HTMLCanvasElement).style.cursor);
   const hook = (): Promise<{ hauler: number; shard: { x: number; y: number }; ground: { x: number; y: number } }> =>
