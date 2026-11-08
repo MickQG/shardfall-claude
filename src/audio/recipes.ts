@@ -313,10 +313,10 @@ export const moveClass = (kind: string): MoveClass | null => MOVE_CLASS[kind] ??
  * `filter` is a final low-pass that keeps every class well below the hiss band; `period` is the sample's length in seconds.
  */
 export const MOVE_LOOPS: Readonly<Record<MoveClass, { filter: FilterSpec; period: number; level: number }>> = {
-  vehicle: { filter: { type: 'lowpass', f: 300, q: 0.7 }, period: 1, level: 0.14 },
-  walker: { filter: { type: 'lowpass', f: 220, q: 0.7 }, period: 1.2, level: 0.3 },
-  infantry: { filter: { type: 'lowpass', f: 700, q: 0.7 }, period: 1.6, level: 0.16 },
-  swarm: { filter: { type: 'lowpass', f: 800, q: 0.7 }, period: 1.4, level: 0.14 },
+  vehicle: { filter: { type: 'lowpass', f: 300, q: 0.7 }, period: 1, level: 0.05 },
+  walker: { filter: { type: 'lowpass', f: 220, q: 0.7 }, period: 1.2, level: 0.1 },
+  infantry: { filter: { type: 'lowpass', f: 700, q: 0.7 }, period: 1.6, level: 0.035 },
+  swarm: { filter: { type: 'lowpass', f: 800, q: 0.7 }, period: 1.4, level: 0.04 },
 };
 
 /** A decaying sine thump added into `d` at time `at` s: its pitch falls from `f0` to `f1`, it dies over `dur` s. */

@@ -101,5 +101,7 @@ test('AUD-8 AUD-10: the idle soundscape (ambience and every movement loop at ful
   expect(r.rms).toBeGreaterThan(0.001);
   expect(r.highFraction).toBeLessThan(0.05);
   expect(r.highRms).toBeLessThan(0.005);
+  // A constant low rumble must not drone or mask the music: the full-count idle soundscape stays quiet.
+  expect(r.rms).toBeLessThanOrEqual(0.025);
   expect(errors).toEqual([]);
 });

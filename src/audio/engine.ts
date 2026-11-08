@@ -449,8 +449,8 @@ export class AudioEngine {
       if (!c || !this.live()) return;
       if (!this.ambience) this.ambience = this.startAmbience();
       const now = c.currentTime;
-      this.ambience.water.gain.setTargetAtTime(mix.water * 0.1, now, 0.5);
-      this.ambience.rumble.gain.setTargetAtTime(mix.rumble * 0.16, now, 0.6);
+      this.ambience.water.gain.setTargetAtTime(mix.water * 0.035, now, 0.5);
+      this.ambience.rumble.gain.setTargetAtTime(mix.rumble * 0.055, now, 0.6);
     } catch {
       /* audio must never break the game */
     }

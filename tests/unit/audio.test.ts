@@ -230,6 +230,19 @@ describe('movement loops', () => {
     expect(MOVE_LOOPS.vehicle.filter.f).toBeLessThanOrEqual(300);
   });
 
+  it('AUD-8: the loops are balanced by class: steps are the quietest, heavy walkers the loudest, all soft', () => {
+    const loud = (c: (typeof MOVE_CLASSES)[number]): number => {
+      const d = moveLoopSamples(c, 22050);
+      let s = 0;
+      for (const v of d) s += v * v;
+      return Math.sqrt(s / d.length) * MOVE_LOOPS[c].level;
+    };
+    const l = Object.fromEntries(MOVE_CLASSES.map((c) => [c, loud(c)])) as Record<(typeof MOVE_CLASSES)[number], number>;
+    expect(l.infantry).toBe(Math.min(...Object.values(l)));
+    expect(l.walker).toBe(Math.max(...Object.values(l)));
+    expect(l.walker).toBeLessThan(0.03);
+  });
+
   it('AUD-8: moving units come from successive snapshots (their position changed)', () => {
     const u = (id: number, x: number, y: number): UnitSnap => ({ id, owner: 0, kind: 'hum_tank', x, y, hp: 1, rank: 0, target: -1, dest: null, load: 0 });
     const moved = movingUnits([u(1, 0, 0), u(2, 5, 5), u(3, 9, 9)], [u(1, 0, 0), u(2, 6, 5), u(3, 9, 8), u(4, 1, 1)]);
