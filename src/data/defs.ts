@@ -167,7 +167,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
     faction: 'human', name: 'Paladin', speed: 20, hp: 4500, radius: 180, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, crusher: true, crushRadius: 256, turnRate: 2, role: 'tank',
     weapon: { damage: 80, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 5, splash: 0.9 },
     // The shoulder missile pods (HERO-7): a salvo of four every 4 s at range 9, ground and air.
-    weapon2: { damage: 14, range: 9, cooldown: 80, type: 'rocket', antiAir: true, antiGround: true, flight: 14, splash: 1, indirect: true, arc: 43, salvo: { count: 4, gap: 3 } },
+    weapon2: { damage: 14, range: 9, cooldown: 80, type: 'rocket', antiAir: true, antiGround: true, flight: 12, splash: 1, indirect: true, arc: 43, salvo: { count: 4, gap: 3 } },
   },
 
   // ---- Aliens ----
