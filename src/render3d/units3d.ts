@@ -572,8 +572,8 @@ function paladin(): RigDef {
         for (const x of [-0.1, 0.06]) s.box(0.03, 0.17, 0.17, GOLD, { at: [x, 0, 0], bevel: 0 });
         for (const dy of [0.034, -0.034])
           for (const dz of [0.036, -0.036]) {
-            s.tube(0.03, 0.12, DARK, { at: [0.17, dy, dz], seg: 8 });
-            s.cyl(0.022, 0.012, RED, { at: [0.29, dy, dz], rot: [0, 0, Math.PI / 2], seg: 6, glow: true });
+            s.tube(0.03, 0.12, DARK, { at: [0.23, dy, dz], seg: 8 }); // centred: spans 0.17 to 0.29, flush with the frame
+            s.cyl(0.022, 0.012, RED, { at: [0.286, dy, dz], rot: [0, 0, Math.PI / 2], seg: 6, glow: true });
           }
         return s;
       },

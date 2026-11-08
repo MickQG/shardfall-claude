@@ -60,7 +60,7 @@ export const LOOKS: Record<WeaponLook, Look> = {
   howitzer: { color: 0xffb060, intensity: 2.2, speed: 0, len: 0.22, width: 0.035, arc: 0.38, flash: 0.8, flashColor: 0xffb050, smokeTrail: true, hit: 'blast', shake: 0.08 },
   rocket: { color: 0xffa040, intensity: 2.6, speed: 0, len: 0.14, width: 0.03, arc: 0.12, flash: 0.22, flashColor: 0xffb060, smokeTrail: true, hit: 'blast', shake: 0.02 },
   // The Paladin's pod missiles (HERO-7): small, quick rockets lobbed on a steep arc with a smoke trail.
-  missile: { color: 0xffc860, intensity: 2.4, speed: 0, len: 0.12, width: 0.024, arc: MISSILE_ARC, flash: 0.3, flashColor: 0xffb060, smokeTrail: true, hit: 'blast', shake: 0.02 },
+  missile: { color: 0xffc860, intensity: 2.4, speed: 0, len: 0.55, width: 0.028, arc: MISSILE_ARC, flash: 0.3, flashColor: 0xffb060, smokeTrail: true, hit: 'blast', shake: 0.02 },
   claw: { color: 0xd8ffb0, intensity: 2.5, speed: 0, len: 0, width: 0.02, arc: 0, flash: 0, flashColor: 0, smokeTrail: false, hit: 'slash', shake: 0, bio: true },
   acid: { color: 0xb8ff40, intensity: 2, speed: 0, len: 0.1, width: 0.05, arc: 0.28, flash: 0.16, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0, bio: true },
   acidBig: { color: 0xb8ff40, intensity: 2.4, speed: 0, len: 0.16, width: 0.09, arc: 0.45, flash: 0.35, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0.05, bio: true },
