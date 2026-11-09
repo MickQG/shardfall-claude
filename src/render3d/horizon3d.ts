@@ -16,8 +16,8 @@ export const SKY_TOP_COLOR = 0x39405e;
 /** How far the land reaches past the map edge, tiles: well beyond anything the camera can see at any zoom or pitch. */
 export const HORIZON_REACH = 300;
 /** Rings and points per ring of the skirt. */
-const RINGS = 18;
-const AROUND = 168;
+const RINGS = 40;
+const AROUND = 200;
 /** The hills start this far from the map edge, tiles, and are at most this high, tiles. */
 const HILLS_FROM = 14;
 const HILL_AMP = 5.5;
@@ -42,6 +42,8 @@ const srgbToLinear = (v: number): number => {
   const c = v / 255;
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 };
+/** The average tone of the map's ground, which distant land settles to. */
+const CALM = [84, 88, 60] as const;
 const smooth = (a: number, b: number, x: number): number => {
   const k = Math.max(0, Math.min(1, (x - a) / (b - a)));
   return k * k * (3 - 2 * k);
@@ -50,7 +52,7 @@ const smooth = (a: number, b: number, x: number): number => {
 /** Height of the land at (x, z) given its distance `out` outside the map rectangle: flat at the edge, then low hills. */
 export function horizonHeight(x: number, z: number, out: number): number {
   const ramp = smooth(HILLS_FROM, HILLS_FROM + 60, out);
-  const n = fbm(x * 0.035 + 311, z * 0.035 + 57) * 0.75 + fbm(x * 0.09 + 5, z * 0.09 + 77) * 0.25;
+  const n = fbm(x * 0.022 + 311, z * 0.022 + 57) * 0.8 + fbm(x * 0.06 + 5, z * 0.06 + 77) * 0.2;
   return ramp * HILL_AMP * Math.max(0, (n - 0.3) * 1.6);
 }
 
@@ -104,6 +106,9 @@ export function horizonMesh(width: number, height: number, heights: readonly num
       const gx = Math.floor(sx);
       const gz = Math.floor(sz);
       let c = groundRgb(gx, gz, sx - gx, sz - gz, { level: 0, water: false, shade: 0, shore: 0, shards: false });
+      // Far out, the colour settles to one calm average so the widening rings never smear the ground's patches into streaks.
+      const calm = 0.85 * smooth(8, 70, o);
+      c = [c[0] + (CALM[0] - c[0]) * calm, c[1] + (CALM[1] - c[1]) * calm, c[2] + (CALM[2] - c[2]) * calm];
       const far = smooth(20, HORIZON_REACH * 0.6, o);
       const rise = Math.min(1, Math.max(0, y) / HILL_AMP);
       const dim = (1 - 0.3 * far) * (0.94 + 0.1 * rise);

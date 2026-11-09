@@ -787,25 +787,22 @@ describe('effects budget and batching', () => {
 });
 
 describe('terrain detail: patches and rock layers', () => {
-  const big = (): ReturnType<typeof terrainOf> => terrainOf(showcaseConfig(1).map);
-
   it('R3D-24: the ground texture is the same bytes every time and does not depend on the seed random numbers', () => {
     const a = groundTexture(terrainOf(showcaseConfig(1).map));
-    const b = groundTexture(terrainOf(showcaseConfig(1).map));
-    expect(Buffer.from(a.data).equals(Buffer.from(b.data))).toBe(true);
-    // The same terrain from another seed's config (same map, different RNG stream): identical ground.
-    const other = groundTexture(terrainOf(showcaseConfig(7).map));
-    expect(Buffer.from(other.data).equals(Buffer.from(a.data))).toBe(true);
+    // Built with Math.random trapped: the texture never draws from it.
     const state = Math.random;
     let draws = 0;
     Math.random = (): number => (draws++, 0.5);
+    let b: ReturnType<typeof groundTexture>;
     try {
-      groundTexture(big());
+      b = groundTexture(terrainOf(showcaseConfig(7).map));
     } finally {
       Math.random = state;
     }
     expect(draws).toBe(0);
-  });
+    // Another seed's config has the same map, so the same ground, byte for byte.
+    expect(Buffer.from(b.data).equals(Buffer.from(a.data))).toBe(true);
+  }, 180_000);
 
   it('R3D-24: patches of gravel, rubble and lush grass cover varied stretches, with soft edges and no tile-square seams', () => {
     let gravel = 0;

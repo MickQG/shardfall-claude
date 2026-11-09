@@ -287,7 +287,7 @@ function shoreRgb(t: TerrainInput, tx: number, ty: number, fx: number, fy: numbe
   return c;
 }
 
-const GRAVEL = [126, 117, 103] as const;
+const GRAVEL = [118, 106, 84] as const;
 const RUBBLE = [94, 88, 82] as const;
 const PEBBLE = [150, 140, 124] as const;
 
@@ -297,28 +297,73 @@ const PEBBLE = [150, 140, 124] as const;
  * Pure, and a function of position alone.
  */
 export function groundPatches(x: number, y: number): { gravel: number; rubble: number; lush: number } {
-  const gravel = smooth(0.55, 0.7, fbm(x * 0.085 + 410, y * 0.085 + 130));
-  const rubble = smooth(0.6, 0.74, fbm(x * 0.15 + 60, y * 0.15 + 240)) * (1 - gravel * 0.7);
+  const gravel = smooth(0.62, 0.76, fbm(x * 0.085 + 410, y * 0.085 + 130));
+  const rubble = smooth(0.64, 0.78, fbm(x * 0.15 + 60, y * 0.15 + 240)) * (1 - gravel * 0.7);
   const lush = smooth(0.5, 0.72, fbm(x * 0.06 + 900, y * 0.06 + 20));
   return { gravel, rubble, lush };
 }
 
+/** Patch cover is smooth, so it is sampled on a lattice (this many steps per tile) and interpolated per texel. */
+const PATCH_STEPS = 4;
+
+/** The patch cover (gravel, rubble, lush) on a lattice over the map, for `patchAt`. */
+function patchLattice(w: number, h: number): Float32Array {
+  const nx = w * PATCH_STEPS + 2;
+  const ny = h * PATCH_STEPS + 2;
+  const g = new Float32Array(nx * ny * 3);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const p = groundPatches(i / PATCH_STEPS, j / PATCH_STEPS);
+      const k = (j * nx + i) * 3;
+      g[k] = p.gravel;
+      g[k + 1] = p.rubble;
+      g[k + 2] = p.lush;
+    }
+  }
+  return g;
+}
+
+/** Bilinear lookup in the lattice at tile position (x, y), into `out`. */
+function patchAt(g: Float32Array, w: number, x: number, y: number, out: number[]): void {
+  const nx = w * PATCH_STEPS + 2;
+  const u = x * PATCH_STEPS;
+  const v = y * PATCH_STEPS;
+  const i = Math.floor(u);
+  const j = Math.floor(v);
+  const fu = u - i;
+  const fv = v - j;
+  for (let c = 0; c < 3; c++) {
+    const a = g[(j * nx + i) * 3 + c]!;
+    const b = g[(j * nx + i + 1) * 3 + c]!;
+    const d = g[((j + 1) * nx + i) * 3 + c]!;
+    const e = g[((j + 1) * nx + i + 1) * 3 + c]!;
+    out[c] = a + (b - a) * fu + (d - a) * fv + (a - b - d + e) * fu * fv;
+  }
+}
+
+const cover = [0, 0, 0];
+
 /** The ground colour `c` with its patches painted in (R3D-24): gravel speckle, rubble stones, lush grass, fine grain. */
-function patched(c: readonly number[], x: number, y: number, texel: number): [number, number, number] {
-  const p = groundPatches(x, y);
-  let out = mixRgb(c, [c[0]! * 0.9, c[1]! * 1.1, c[2]! * 0.88], p.lush * 0.55);
-  // Gravel: a speckle of light and dark grains, fresh at every texel.
-  const grain = hashf(Math.floor(x * TEXELS), Math.floor(y * TEXELS), texel);
-  const speck = grain > 0.88 ? 1.3 : grain < 0.16 ? 0.7 : 0.9 + valueNoise(x * 9 + 3, y * 9) * 0.2;
-  out = mixRgb(out, GRAVEL.map((v) => v * speck), p.gravel * 0.8);
-  // Rubble: stones a few texels across, lit on their sunward side, over darker broken ground.
-  const stone = valueNoise(x * 13 + 21, y * 13 + 8);
-  const rock = smooth(0.58, 0.66, stone);
-  out = mixRgb(out, RUBBLE.map((v) => v * (0.8 + 0.3 * valueNoise(x * 5, y * 5 + 2))), p.rubble * 0.85);
-  out = mixRgb(out, PEBBLE.map((v) => v * (0.85 + 0.3 * stone)), p.rubble * rock * 0.7);
+function patched(c: readonly number[], x: number, y: number, lat: Float32Array, w: number): [number, number, number] {
+  patchAt(lat, w, x, y, cover);
+  const [gravel, rubble, lush] = cover as [number, number, number];
+  let out: readonly number[] = lush > 0.01 ? mixRgb(c, [c[0]! * 0.9, c[1]! * 1.1, c[2]! * 0.88], lush * 0.55) : c;
+  if (gravel > 0.01) {
+    // Gravel: a speckle of light and dark grains, fresh at every texel.
+    const grain = hashf(Math.floor(x * TEXELS), Math.floor(y * TEXELS), 3);
+    const speck = grain > 0.88 ? 1.3 : grain < 0.16 ? 0.7 : 0.9 + valueNoise(x * 9 + 3, y * 9) * 0.2;
+    out = mixRgb(out, GRAVEL.map((v) => v * speck), gravel * 0.7);
+  }
+  if (rubble > 0.01) {
+    // Rubble: stones a few texels across, lit on their sunward side, over darker broken ground.
+    const stone = valueNoise(x * 13 + 21, y * 13 + 8);
+    const rock = smooth(0.58, 0.66, stone);
+    out = mixRgb(out, RUBBLE.map((v) => v * (0.8 + 0.3 * valueNoise(x * 5, y * 5 + 2))), rubble * 0.85);
+    out = mixRgb(out, PEBBLE.map((v) => v * (0.85 + 0.3 * stone)), rubble * rock * 0.7);
+  }
   // Fine grain everywhere, so no stretch of ground is a flat colour up close.
   const g = 0.95 + 0.1 * valueNoise(x * 26 + 5, y * 26 + 15);
-  return [out[0] * g, out[1] * g, out[2] * g];
+  return [out[0]! * g, out[1]! * g, out[2]! * g];
 }
 
 /** RGBA ground texture, TEXELS per tile, row 0 at tile row 0. */
@@ -326,6 +371,7 @@ export function groundTexture(t: TerrainInput): { width: number; height: number;
   const w = t.width * TEXELS;
   const h = t.height * TEXELS;
   const data = new Uint8Array(w * h * 4);
+  const lattice = patchLattice(t.width, t.height);
   for (let ty = 0; ty < t.height; ty++) {
     for (let tx = 0; tx < t.width; tx++) {
       const lv = level(t, tx, ty);
@@ -345,7 +391,7 @@ export function groundTexture(t: TerrainInput): { width: number; height: number;
           // Patches of gravel and rubble stay off the shore and the shard fields (R3D-24).
           const dryK = shoreTile ? 1 - smooth(0.06, 0.18, wetness(t, tx + fx, ty + fy)) : 1;
           if (dryK > 0) {
-            const pc = patched(c, tx + fx, ty + fy, 3);
+            const pc = patched(c, tx + fx, ty + fy, lattice, t.width);
             c = mixRgb(c, pc, dryK);
           }
           if (nearShards) {

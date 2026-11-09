@@ -52,7 +52,7 @@ const METAL_COLOR = `#include <color_fragment>
     float edge = smoothstep( 0.25, 1.0, length( fwidth( sdN ) ) );
     sdWear = edge * 0.9 * fade;
     float ao = mix( 0.74, 1.0, smoothstep( -0.9, 0.35, sdN.y ) ) * mix( 0.78, 1.0, smoothstep( -0.05, 0.3, vSdPos.y ) );
-    vec3 c = diffuseColor.rgb * ( 1.0 - 0.34 * groove ) * ( 1.0 + ( cell - 0.5 ) * 0.07 * fade );
+    vec3 c = diffuseColor.rgb * ( 1.0 - 0.27 * groove ) * ( 1.0 + ( cell - 0.5 ) * 0.07 * fade );
     c = mix( c, c * 1.3 + 0.025, sdWear * 0.55 );
     diffuseColor.rgb = c * ao;
   }`;

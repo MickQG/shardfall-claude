@@ -70,7 +70,7 @@ describe('the horizon beyond the map edge', () => {
     expect(Array.from(a.positions)).toEqual(Array.from(b.positions));
     expect(Array.from(a.colors)).toEqual(Array.from(b.colors));
     // The first ring lies on the outline.
-    for (let j = 0; j < 168; j++) {
+    for (let j = 0; j < 200; j++) {
       const x = a.positions[j * 3]!;
       const y = a.positions[j * 3 + 1]!;
       const z = a.positions[j * 3 + 2]!;
@@ -85,16 +85,16 @@ describe('the horizon beyond the map edge', () => {
     expect(horizonHeight(-10, 40, 10)).toBe(0);
     // Every face looks up, and the land is one cheap mesh.
     for (let i = 1; i < a.normals.length; i += 3) expect(a.normals[i]!).toBeGreaterThan(0);
-    expect(a.indices.length / 3).toBeLessThan(8000);
+    expect(a.indices.length / 3).toBeLessThan(20000);
   });
 
   it('R3D-25: the land darkens and cools with distance, from the map\'s own ground tones', () => {
     const m = horizonMesh(96, 96);
     const lum = (v: number): number => m.colors[v * 3]! * 0.3 + m.colors[v * 3 + 1]! * 0.6 + m.colors[v * 3 + 2]! * 0.1;
     const near = lum(0);
-    const farIdx = 18 * 168;
+    const farIdx = 40 * 200;
     let far = 0;
-    for (let j = 0; j < 168; j++) far += lum(farIdx + j) / 168;
+    for (let j = 0; j < 200; j++) far += lum(farIdx + j) / 200;
     expect(far).toBeLessThan(near * 1.0);
     // The sky is a gradient that ends in the haze colour, which is also the fog colour (sky horizon equals fog).
     expect(HAZE_COLOR).not.toBe(SKY_TOP_COLOR);
