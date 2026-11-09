@@ -91,11 +91,16 @@ describe('the horizon beyond the map edge', () => {
   it('R3D-25: the land darkens and cools with distance, from the map\'s own ground tones', () => {
     const m = horizonMesh(96, 96);
     const lum = (v: number): number => m.colors[v * 3]! * 0.3 + m.colors[v * 3 + 1]! * 0.6 + m.colors[v * 3 + 2]! * 0.1;
+    const lum2 = (c: number[]): number => c[0]! * 0.3 + c[1]! * 0.6 + c[2]! * 0.1;
     const near = lum(0);
     const farIdx = 40 * 200;
     let far = 0;
     for (let j = 0; j < 200; j++) far += lum(farIdx + j) / 200;
-    expect(far).toBeLessThan(near * 1.0);
+    // Dim at the edge (never brighter than lit ground), and the far ring is the haze colour.
+    expect(near).toBeLessThan(0.06);
+    const lin = (v: number): number => ((v / 255 + 0.055) / 1.055) ** 2.4;
+    const hz = lum2([lin((HAZE_COLOR >> 16) & 255), lin((HAZE_COLOR >> 8) & 255), lin(HAZE_COLOR & 255)]);
+    expect(Math.abs(far - hz)).toBeLessThan(0.01);
     // The sky is a gradient that ends in the haze colour, which is also the fog colour (sky horizon equals fog).
     expect(HAZE_COLOR).not.toBe(SKY_TOP_COLOR);
   });
