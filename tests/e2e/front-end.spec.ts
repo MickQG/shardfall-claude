@@ -129,7 +129,7 @@ test('MENU-15: Settings has Sound (Mute all, Master volume) and Music (Music on,
   await expect(sound.getByLabel('Master volume')).toBeVisible();
   await expect(music.locator('h3')).toHaveText('Music');
   await expect(music.getByLabel('Music on')).toBeChecked();
-  await expect(music.getByLabel('Music volume')).toHaveValue('60');
+  await expect(music.getByLabel('Music volume')).toHaveValue('75');
   await music.getByLabel('Music on').uncheck();
   await music.getByLabel('Music volume').fill('30');
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('shardfall.settings.v3')!));

@@ -1,5 +1,6 @@
 import { MAP_SEED_MAX, MAPS, mapSeedOf, mapStarts, resolveMapSeed, skirmishMap, type MapId } from '../data/maps';
 import { AudioEngine } from '../audio/engine';
+import { wireUiSounds } from './uiSounds';
 import { thumbCanvas } from './mapThumb';
 import { loadSettings, personalityChoiceOf, safeStorage, saveSettings, type PersonalityChoice, type Settings } from './settings';
 import { setActiveMatch, type Match } from '../net/lobby';
@@ -223,6 +224,8 @@ export function showMenu(): void {
   music.setVolume(settings.volume);
   music.setMusicOn(settings.musicOn);
   music.setMusicVolume(settings.musicVolume);
+  // Hovering and clicking menu buttons (AUD-11).
+  wireUiSounds(root, music, life.signal);
   const musicSeed = Date.now() % 100000;
   const muteBox = root.querySelector<HTMLInputElement>('#set-mute')!;
   const showMuted = (): void => {
@@ -235,7 +238,7 @@ export function showMenu(): void {
   };
   const beginMusic = (): void => {
     music.unlock();
-    music.startMusic(musicSeed, true);
+    music.startMusic(musicSeed, true, pick.faction);
   };
   window.addEventListener('pointerdown', beginMusic, { signal: life.signal, once: true });
   window.addEventListener('keydown', beginMusic, { signal: life.signal, once: true });
@@ -358,6 +361,7 @@ export function showMenu(): void {
     else if (t.dataset.faction) {
       pick.faction = t.dataset.faction as Pick['faction'];
       scene?.setFaction(pick.faction);
+      music.setThemeFaction(pick.faction);
       online.refresh();
     }
     else if (t.dataset.diff) pick.difficulty = t.dataset.diff as Pick['difficulty'];

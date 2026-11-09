@@ -94,16 +94,16 @@ describe('front-end and HUD', () => {
   });
 
   it('MENU-15: settings v3 adds music on and music volume; settings saved before keep mute and volume with Music on at the default volume', () => {
-    expect(defaultSettings()).toMatchObject({ musicOn: true, musicVolume: 0.6, muted: false, volume: 0.6 });
+    expect(defaultSettings()).toMatchObject({ musicOn: true, musicVolume: 0.75, muted: false, volume: 0.6 });
     const v2 = store({ 'shardfall.settings.v2': JSON.stringify({ quality: 'low', muted: true, volume: 0.25 }) });
-    expect(loadSettings(v2)).toMatchObject({ quality: 'low', muted: true, volume: 0.25, musicOn: true, musicVolume: 0.6 });
+    expect(loadSettings(v2)).toMatchObject({ quality: 'low', muted: true, volume: 0.25, musicOn: true, musicVolume: 0.75 });
     const v1 = store({ 'shardfall.settings.v1': JSON.stringify({ muted: true, volume: 0.3 }) });
-    expect(loadSettings(v1)).toMatchObject({ quality: 'high', muted: true, volume: 0.3, musicOn: true, musicVolume: 0.6 });
+    expect(loadSettings(v1)).toMatchObject({ quality: 'high', muted: true, volume: 0.3, musicOn: true, musicVolume: 0.75 });
     const v3 = store();
     saveSettings(v3, { ...defaultSettings(), musicOn: false, musicVolume: 0.2, volume: 0.9 });
     expect([...v3.mem.keys()]).toEqual(['shardfall.settings.v3']);
     expect(loadSettings(v3)).toMatchObject({ musicOn: false, musicVolume: 0.2, volume: 0.9 });
-    expect(loadSettings(store({ 'shardfall.settings.v3': JSON.stringify({ musicOn: 'yes', musicVolume: 4 }) }))).toMatchObject({ musicOn: true, musicVolume: 0.6 });
+    expect(loadSettings(store({ 'shardfall.settings.v3': JSON.stringify({ musicOn: 'yes', musicVolume: 4 }) }))).toMatchObject({ musicOn: true, musicVolume: 0.75 });
   });
 
   it('MENU-15 AUD-3: the music controls never throw where audio does not exist', () => {
