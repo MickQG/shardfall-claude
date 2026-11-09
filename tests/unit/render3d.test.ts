@@ -103,7 +103,7 @@ describe('3D camera and projection', () => {
     expect(Math.hypot(near.position[0] - 10, near.position[1], near.position[2] - 10)).toBeLessThan(Math.hypot(p.position[0] - 10, p.position[1], p.position[2] - 10));
   });
 
-  it('R3D-28: the pitch is today's at zoom 1 and below, eases down to about 27 degrees at the closest zoom, and never rises with zoom', () => {
+  it('R3D-28: the pitch is the default at zoom 1 and below, eases down to about 27 degrees at the closest zoom, and never rises with zoom', () => {
     expect(riseFor(1)).toBe(PITCH_RISE);
     expect(riseFor(0.35)).toBe(PITCH_RISE);
     expect(riseFor(MAX_ZOOM)).toBeCloseTo(CLOSE_RISE, 10);

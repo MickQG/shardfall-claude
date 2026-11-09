@@ -39,7 +39,7 @@ describe('the fly-in camera sweep', () => {
     }
   });
 
-  it('CAM-4 R3D-28: the sweep ends exactly on a zoomed-in camera, its pitch easing to that zoom's pitch and cleared at the end', () => {
+  it('CAM-4 R3D-28: the sweep ends exactly on a zoomed-in camera, its pitch easing to the pitch for that zoom and cleared at the end', () => {
     const m = MAPS[0]!;
     const end: Camera = { ...startCam(m.width, m.height, 14.5, 40.5), zoom: 2.2 };
     expect(flyPose(1, m, end)).toEqual(end);
