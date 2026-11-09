@@ -19,7 +19,7 @@ for (const renderer of ['classic', '3d']) {
   test(`UI-13 UI-15: a right-click order is acknowledged on screen at once, with a marker and a ring flash (${renderer})`, async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    await page.goto(`/?faction=human&scenario=calm&seed=3&renderer=${renderer}`);
+    await page.goto(`/?faction=human&scenario=calm&seed=3&renderer=${renderer}&flyin=0`);
     await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
     const hook = (): Promise<ReturnType<Hook['acks']>> => page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.acks());
     const id = await page.evaluate(() => {

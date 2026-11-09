@@ -21,7 +21,7 @@ declare global {
 }
 
 async function ready(page: Page): Promise<void> {
-  await page.goto('/?faction=human&difficulty=easy&scenario=calm');
+  await page.goto('/?faction=human&difficulty=easy&scenario=calm&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
 }
 
@@ -134,7 +134,7 @@ test('DET-1 ECO-5: the sidebar shows credits and power and updates as the econom
 test('CMB-3 CMB-4 CMB-8: in the browser, opposing squads fight, take damage and die without errors', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/?faction=human&scenario=duel');
+  await page.goto('/?faction=human&scenario=duel&flyin=0');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 30_000 });
   await page.evaluate(() => window.__shardfall.setSpeed(4));
   const count = (): Promise<number> => page.evaluate(() => window.__shardfall.snapshot()!.units.filter((u) => u.kind !== 'hum_hauler').length);
@@ -167,7 +167,7 @@ test('AI-10 UI: the start screen picks faction and difficulty, and starts a game
 });
 
 test('UI-12: a loading screen covers the start, and the game begins at its first tick once it can be seen and played', async ({ page }) => {
-  await page.goto('/?faction=human&difficulty=easy');
+  await page.goto('/?faction=human&difficulty=easy&flyin=0');
   await expect(page.locator('#loading')).toBeAttached({ timeout: 10_000 });
   await expect(page.locator('#loading')).toContainText('Preparing the battlefield');
   await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });

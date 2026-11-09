@@ -36,6 +36,7 @@ import { Sidebar } from './ui/sidebar';
 import { Soundscape } from './ui/soundscape';
 import { wireUiSounds } from './ui/uiSounds';
 import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
+import { FLY_HUD_CSS, FlyIn, flyEnabled, flyPose, smootherstep } from './render/flyIn';
 import { chooseRenderer, probeGpu } from './render/chooseRenderer';
 import { buttonKinds } from './render/menuPlan';
 import { drawIcons } from './render3d/icons3d';
@@ -108,8 +109,33 @@ function topbar(): void {
 }
 topbar();
 
+/**
+ * The fly-in (CAM-4..8): the match opens with it, and until it ends game time is held and no command is accepted (CAM-5).
+ * It is only the camera and a hold: the simulation is released afterwards exactly as before (UI-12).
+ */
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const fly = new FlyIn({ online: !!match, reducedMotion, classic: !use3d, enabled: flyEnabled(params.get('flyin')) });
+/** The fly-in is playing: from the moment the battlefield is shown until it ends or is skipped. */
+let flying = true;
+/** The battlefield is on screen and the fly-in clock is running. */
+let flyStarted = false;
+let flyStartedAt = 0;
+/** A test hook: draw the fly-in at this fraction of its length and do not end it (for screenshots); null plays it normally. */
+let flyHold: number | null = null;
+/** The camera drawn this frame: the sweep's pose during the fly-in, otherwise the player's camera. */
+let drawCam: Camera = { x: 0, y: 0, zoom: 1 };
+// The HUD stays hidden until the fly-in ends, then fades in (CAM-5); a reduced-motion or classic fly-in fades the view in from black (CAM-8).
+document.body.classList.add('flyin');
+const flyStyle = document.createElement('style');
+flyStyle.textContent = FLY_HUD_CSS;
+document.head.appendChild(flyStyle);
+const flyFade = document.createElement('div');
+flyFade.id = 'flyfade';
+flyFade.style.cssText = 'position:fixed;inset:0;z-index:20;background:#000;pointer-events:none;opacity:1';
+// Only the fade needs it: the sweep draws no overlay at all, which keeps its frames cheap.
+if (fly.mode === 'fade') document.body.appendChild(flyFade);
 /** Whether an input reaches the game right now (CTL-16). */
-const allowed = (input: string): boolean => inputAllowed(input, { paused, over: !!sim.curr?.over });
+const allowed = (input: string): boolean => !flying && inputAllowed(input, { paused, over: !!sim.curr?.over });
 
 function setPaused(p: boolean): void {
   paused = p;
@@ -318,6 +344,14 @@ function frame(prevTime: number): (t: number) => void {
     if (keys.has('s') || keys.has('arrowdown') || (mouse.y > v.height - EDGE && mouse.y <= v.height)) dy += 1;
     if ((dx || dy) && allowed('w')) cam = pan(cam, dx * PAN_SPEED * dt, dy * PAN_SPEED * dt, bounds);
 
+    // The fly-in (CAM-4, CAM-8): its sweep is drawn instead of the player's camera; the player's camera is untouched, so the sweep ends exactly there.
+    drawCam = cam;
+    if (flying) {
+      const p = flyHold ?? fly.progress(performance.now());
+      if (flyStarted && p >= 1) endFly();
+      else if (fly.mode === 'sweep') drawCam = flyPose(p, map, cam, v.width / Math.max(1, v.height));
+      else flyFade.style.opacity = String(1 - smootherstep(p));
+    }
     const events = sim.events.splice(0);
     for (const ev of events) view.spawn(ev, t);
     if (events.length > 0) playEvents(events, sim.curr);
@@ -350,7 +384,7 @@ function frame(prevTime: number): (t: number) => void {
       if (targeting && !curr.buildings.some((b) => b.id === targeting?.building && b.owner === PLAYER)) targeting = null;
       const alpha = (performance.now() - sim.currAt) / tickMsAt(speed);
       const ru = interpolate(sim.prev.units, curr.units, alpha);
-      view.update(ru, cam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings), acks: acks.markers(performance.now(), (id) => locate(id, ru, curr)), flash: acks.flashing(performance.now()) }, curr);
+      view.update(ru, drawCam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings), acks: acks.markers(performance.now(), (id) => locate(id, ru, curr)), flash: acks.flashing(performance.now()) }, curr);
       if (curr.tick !== lastAlertTick) {
         lastAlertTick = curr.tick;
         for (const a of alerts.update(curr)) {
@@ -510,6 +544,22 @@ function order(tx: number, ty: number, mini = false): void {
   acknowledgeCmd({ type: haulers.length && onShards ? 'harvest' : 'move', player: PLAYER, units: ids, x, y }, mini);
 }
 
+/** The fly-in is over (CAM-5, CAM-6): the HUD fades in, commands are accepted, and the game is released to run its first tick (UI-12). */
+function endFly(): void {
+  if (!flying) return;
+  flying = false;
+  document.body.classList.remove('flyin');
+  document.body.dataset.fly = 'done';
+  // How long the fly-in really held the game, ms by the page clock (for tests).
+  document.body.dataset.flyMs = String(Math.round(performance.now() - flyStartedAt));
+  flyFade.style.opacity = '0';
+  setTimeout(() => flyFade.remove(), 800);
+  // The tick the game had reached when it was released: 0, as it waited (UI-12).
+  document.body.dataset.startTick = String(sim.curr?.tick ?? -1);
+  sim.start();
+  document.body.dataset.ready = 'true';
+}
+
 async function boot(): Promise<void> {
   const first = await new Promise<Snapshot>((resolve) => {
     const poll = (): void => (sim.curr ? resolve(sim.curr) : void setTimeout(poll, 10));
@@ -545,6 +595,11 @@ async function boot(): Promise<void> {
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     audio.unlock();
+    // During the fly-in a key only skips it, where that is allowed (CAM-5, CAM-6).
+    if (flying) {
+      if (fly.skip(performance.now())) endFly();
+      return;
+    }
     // S pans the map, so Ctrl + S must not reach the browser's save dialog.
     if (e.ctrlKey && k === 's') e.preventDefault();
     // F1 shows the controls overlay and never the browser's own help; Esc closes the overlay before it does anything else (UI-18).
@@ -657,6 +712,10 @@ async function boot(): Promise<void> {
   canvas.addEventListener('pointerdown', (e) => {
     audio.unlock();
     audio.startMusic(seed, false, myFaction);
+    if (flying) {
+      if (fly.skip(performance.now())) endFly();
+      return;
+    }
     if (!allowed('click')) return;
     if (amoveMode) {
       amoveMode = false;
@@ -766,6 +825,9 @@ async function boot(): Promise<void> {
     /** Renders the idle soundscape offline and returns its energy above 2 kHz (AUD-8, AUD-10). */
     audioSoundscape: (seconds?: number) => import('./audio/offline').then((m) => m.renderSoundscape(seconds)),
     camera: () => cam,
+    flyHold: (t: number | null) => (flyHold = t),
+    /** The fly-in (CAM-4..8): its mode, whether it is still playing, how far it is, and the camera drawn now. */
+    fly: () => ({ mode: fly.mode, flying, progress: fly.progress(performance.now()), cam: drawCam, fade: flyFade.isConnected ? Number(flyFade.style.opacity) : 0 }),
     selected: () => selection.selected,
     select: (ids: number[]) => {
       selectedBuilding = null;
@@ -808,11 +870,24 @@ async function boot(): Promise<void> {
   // The game begins only once the battlefield has been drawn and the controls are wired up (UI-12).
   // A background tab draws no frames: after a few seconds the game starts anyway (UI-12).
   await readyToStart(READY_FRAMES, READY_TIMEOUT_MS);
-  // The tick the game had reached when it was released: 0, as it waited (UI-12).
-  document.body.dataset.startTick = String(sim.curr?.tick ?? -1);
-  sim.start();
+  // The battlefield is drawn: the fly-in begins, and the game stays at its first tick until it ends (CAM-5). Online, both
+  // players hold for the same FLY_MS before releasing, and lockstep then starts when both have (CAM-6).
+  flyStarted = true;
+  flyStartedAt = performance.now();
+  fly.start(flyStartedAt);
+  document.body.dataset.fly = fly.mode;
   loading.done();
-  document.body.dataset.ready = 'true';
+  if (fly.finished(performance.now())) endFly();
+  else {
+    // A background tab draws no frames: the clock still runs out (UI-12 applies to the fly-in too).
+    const watchdog = setInterval(() => {
+      if (!flying) clearInterval(watchdog);
+      else if (flyHold === null && fly.finished(performance.now())) {
+        clearInterval(watchdog);
+        endFly();
+      }
+    }, 200);
+  }
 }
 
 void boot();

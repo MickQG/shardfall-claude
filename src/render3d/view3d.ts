@@ -922,7 +922,7 @@ export class View3D {
   /** A projector for `cam`, reused while the camera and viewport stay the same. */
   projector(cam: Camera): Projector {
     const vp = this.viewport;
-    const key = `${cam.x}|${cam.y}|${cam.zoom}|${vp.width}|${vp.height}`;
+    const key = `${cam.x}|${cam.y}|${cam.zoom}|${cam.rise ?? ''}|${vp.width}|${vp.height}`;
     if (this.proj?.key === key) return this.proj.p;
     // A separate camera at the asked-for pose, so projecting never moves the one being rendered.
     const cameraRef = this.camera.clone();
@@ -975,6 +975,12 @@ export class View3D {
     this.lastTime = t;
     this.fx.quality = { rich: vs.fx.particles };
     this.applyCamera(cam, t);
+    // The distance fog follows the camera out during the fly-in's sweep, so the whole map stays clear (CAM-4); at the normal pitch it is unchanged.
+    if (this.scene.fog instanceof THREE.Fog) {
+      const k = cam.rise === undefined ? 1 : Math.max(1, 1 / cam.zoom);
+      this.scene.fog.near = 38 * k;
+      this.scene.fog.far = 90 * k;
+    }
     if (snap) {
       if (snap.tick !== this.lastTick) {
         if (this.lastTick >= 0 && snap.tick > this.lastTick) {

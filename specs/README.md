@@ -30,5 +30,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `024-map-generator.md` | Seeded map generator, Generated map card, replay a seed | 24 |
 | `025-front-end-hud.md` | Front-end and HUD: menu faction scene, wordmark, faction skins, model build icons, How to play, sound settings | 25 |
 | `026-audio.md` | Synthesized audio: layered combat sounds, unit acknowledgement sounds, movement, ambience and UI sounds, positional mix, adaptive music, faction themes, stingers | 26 |
+| `027-fly-in.md` | Camera fly-in at match start: hold game time, skip in single-player, fixed online, fog, reduced motion | 27 |
 
 Umbrella spec: GitHub issue #1.

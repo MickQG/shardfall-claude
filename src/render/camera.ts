@@ -5,6 +5,8 @@ export interface Camera {
   x: number;
   y: number;
   zoom: number;
+  /** Pitch of the 3D view (height per unit of ground offset); set only during the fly-in's sweep (CAM-4), otherwise the normal pitch. */
+  rise?: number;
 }
 
 export interface Bounds {
