@@ -9,7 +9,7 @@ import { Instancer } from '../../src/render3d/instancer';
 import { Shape } from '../../src/render3d/kit';
 import { angleDiff, bodyPose, flightAfterWait, follow, gaitPhase, MAX_AIM_WAIT, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, type Follow } from '../../src/render3d/motion';
 import { muzzleCount, poseRig, recoil, rigTree, type RigDef, type RigPose } from '../../src/render3d/rig';
-import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, ROCK_AMP, rockOffset, scatter, shardCover, terrainMeshes, TEXELS, waterAlpha, wetness } from '../../src/render3d/terrain3d';
+import { contourWarp, EDGE_AMP, groundPatches, groundTexture, LEVEL_H, ROCK_AMP, rockOffset, scatter, shardCover, strataAt, terrainMeshes, TEXELS, waterAlpha, wetness } from '../../src/render3d/terrain3d';
 import { kneels, newMember, SQUAD_SPREAD, stepSquad, type Member, type SquadFrame } from '../../src/render3d/squad3d';
 import { demoMap, showcaseConfig, skirmishMap } from '../../src/data/maps';
 import type { MapDef } from '../../src/sim';
@@ -783,5 +783,80 @@ describe('effects budget and batching', () => {
     for (let i = 0; i < 400; i++) fx.explosion(new THREE.Vector3(i % 20, 0, 0), 1, 0);
     fx.update(100, 0.016);
     expect(fx.particleCount).toBeLessThanOrEqual(2560 + 2048);
+  });
+});
+
+describe('terrain detail: patches and rock layers', () => {
+  const big = (): ReturnType<typeof terrainOf> => terrainOf(showcaseConfig(1).map);
+
+  it('R3D-24: the ground texture is the same bytes every time and does not depend on the seed random numbers', () => {
+    const a = groundTexture(terrainOf(showcaseConfig(1).map));
+    const b = groundTexture(terrainOf(showcaseConfig(1).map));
+    expect(Buffer.from(a.data).equals(Buffer.from(b.data))).toBe(true);
+    // The same terrain from another seed's config (same map, different RNG stream): identical ground.
+    const other = groundTexture(terrainOf(showcaseConfig(7).map));
+    expect(Buffer.from(other.data).equals(Buffer.from(a.data))).toBe(true);
+    const state = Math.random;
+    let draws = 0;
+    Math.random = (): number => (draws++, 0.5);
+    try {
+      groundTexture(big());
+    } finally {
+      Math.random = state;
+    }
+    expect(draws).toBe(0);
+  });
+
+  it('R3D-24: patches of gravel, rubble and lush grass cover varied stretches, with soft edges and no tile-square seams', () => {
+    let gravel = 0;
+    let rubble = 0;
+    let n = 0;
+    let soft = 0;
+    for (let y = 0; y < 96; y += 0.5) {
+      for (let x = 0; x < 96; x += 0.5) {
+        const p = groundPatches(x, y);
+        n++;
+        if (p.gravel > 0.5) gravel++;
+        if (p.rubble > 0.5) rubble++;
+        if (p.gravel > 0.05 && p.gravel < 0.95) soft++;
+      }
+    }
+    expect(gravel / n).toBeGreaterThan(0.03);
+    expect(gravel / n).toBeLessThan(0.5);
+    expect(rubble / n).toBeGreaterThan(0.01);
+    expect(soft).toBeGreaterThan(0);
+    // Patch cover varies smoothly across a tile edge: a step of 1/64 tile never changes it by much.
+    for (let x = 10; x < 60; x += 1) {
+      const a = groundPatches(x - 1 / 128, 20.3);
+      const b = groundPatches(x + 1 / 128, 20.3);
+      expect(Math.abs(a.gravel - b.gravel)).toBeLessThan(0.1);
+      expect(Math.abs(a.rubble - b.rubble)).toBeLessThan(0.1);
+    }
+  });
+
+  it('R3D-24: the texture of the largest map stays under 24 MB with its mipmaps', () => {
+    const bytes = 128 * TEXELS * 128 * TEXELS * 4 * (4 / 3);
+    expect(bytes).toBeLessThan(24 * 1024 * 1024);
+  });
+
+  it('R3D-24: rock layers vary in tone and thickness with height, are the same for every wall, and sit in or out by a small ledge', () => {
+    const layers = new Map<number, ReturnType<typeof strataAt>>();
+    for (let y = 0; y < 3; y += 0.01) layers.set(strataAt(y).id, strataAt(y));
+    expect(layers.size).toBeGreaterThan(10);
+    const tones = [...layers.values()].map((l) => l.tone);
+    const thick = [...layers.values()].filter((l) => l.to < 3).map((l) => l.to - l.from);
+    expect(Math.max(...tones) - Math.min(...tones)).toBeGreaterThan(0.25);
+    expect(Math.max(...thick) / Math.min(...thick)).toBeGreaterThan(1.8);
+    expect(Math.min(...thick)).toBeGreaterThan(0.05);
+    expect([...layers.values()].some((l) => l.ledge > 0.3) && [...layers.values()].some((l) => l.ledge < -0.3)).toBe(true);
+    expect(strataAt(1.234)).toEqual(strataAt(1.234));
+    // The ledge never breaks the rock's reach limits or its watertightness at level heights (R3D-11).
+    let moved = 0;
+    for (let y = 0.02; y < 1.3; y += 0.05) {
+      const o = rockOffset(4.25, y, 9.5);
+      expect(Math.hypot(...o)).toBeLessThanOrEqual(ROCK_AMP * 2.2);
+      if (Math.hypot(...o) > 0.02) moved++;
+    }
+    expect(moved).toBeGreaterThan(5);
   });
 });
