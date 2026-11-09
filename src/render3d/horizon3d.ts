@@ -1,4 +1,4 @@
-import { fbm, groundRgb } from '../render/terrainNext';
+import { fbm } from '../render/terrainNext';
 import * as THREE from 'three';
 import { LEVEL_H, type MeshData } from './terrain3d';
 
@@ -42,8 +42,10 @@ const srgbToLinear = (v: number): number => {
   const c = v / 255;
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 };
-/** The average tone of the map's ground, which distant land settles to. */
-const CALM = [84, 88, 60] as const;
+/** Distant land's two dark tones at the map edge (sRGB), dimmer than the map's lit ground; and the haze in linear light. */
+const NEAR_A = [46, 50, 40] as const;
+const NEAR_B = [68, 64, 46] as const;
+const HAZE_LIN = [srgbToLinear((HAZE_COLOR >> 16) & 255), srgbToLinear((HAZE_COLOR >> 8) & 255), srgbToLinear(HAZE_COLOR & 255)] as const;
 const smooth = (a: number, b: number, x: number): number => {
   const k = Math.max(0, Math.min(1, (x - a) / (b - a)));
   return k * k * (3 - 2 * k);
@@ -98,24 +100,23 @@ export function horizonMesh(width: number, height: number, heights: readonly num
       pos[i] = x;
       pos[i + 1] = y;
       pos[i + 2] = z;
-      // The map's own ground colours, continued by the same noise; higher, farther land dries and cools, then dims.
-      // The ground's patch noise is stretched with distance, so colour does not alias across the widening rings.
-      const sc = 1 / (1 + o / 6);
-      const sx = x * sc;
-      const sz = z * sc;
-      const gx = Math.floor(sx);
-      const gz = Math.floor(sz);
-      let c = groundRgb(gx, gz, sx - gx, sz - gz, { level: 0, water: false, shade: 0, shore: 0, shards: false });
-      // Far out, the colour settles to one calm average so the widening rings never smear the ground's patches into streaks.
-      const calm = 0.85 * smooth(8, 70, o);
-      c = [c[0] + (CALM[0] - c[0]) * calm, c[1] + (CALM[1] - c[1]) * calm, c[2] + (CALM[2] - c[2]) * calm];
-      const far = smooth(20, HORIZON_REACH * 0.6, o);
+      // Dim, muted distant land: two dark tones blended by low-frequency world-space noise (isotropic, no per-ring colour),
+      // darkest at the map edge (close to explored-but-unseen ground) and melting into the haze colour with distance.
+      const n = fbm(x * 0.035 + 19, z * 0.035 + 83);
       const rise = Math.min(1, Math.max(0, y) / HILL_AMP);
-      const dim = (1 - 0.3 * far) * (0.94 + 0.1 * rise);
-      c = [c[0] * dim * (1 - 0.1 * far), c[1] * dim * (1 - 0.05 * far), c[2] * dim * (1 + 0.1 * far)];
-      col[i] = srgbToLinear(c[0]);
-      col[i + 1] = srgbToLinear(c[1]);
-      col[i + 2] = srgbToLinear(c[2]);
+      const t = Math.min(1, Math.max(0, (n - 0.25) * 1.8));
+      let r = NEAR_A[0] + (NEAR_B[0] - NEAR_A[0]) * t;
+      let g = NEAR_A[1] + (NEAR_B[1] - NEAR_A[1]) * t;
+      let bl2 = NEAR_A[2] + (NEAR_B[2] - NEAR_A[2]) * t;
+      const lift = 0.92 + 0.16 * rise;
+      r *= lift;
+      g *= lift;
+      bl2 *= lift;
+      const m = smooth(2, 110, o) ** 0.7;
+      const lin = [srgbToLinear(r), srgbToLinear(g), srgbToLinear(bl2)];
+      col[i] = lin[0]! + (HAZE_LIN[0] - lin[0]!) * m;
+      col[i + 1] = lin[1]! + (HAZE_LIN[1] - lin[1]!) * m;
+      col[i + 2] = lin[2]! + (HAZE_LIN[2] - lin[2]!) * m;
     }
   }
   const idx: number[] = [];

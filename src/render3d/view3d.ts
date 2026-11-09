@@ -560,7 +560,7 @@ export class View3D {
     const water = new THREE.Mesh(geometry(m.water), new THREE.MeshStandardMaterial({ color: 0x2a6a8a, vertexColors: true, depthWrite: false, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.82, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.45, 0.45) }));
     water.receiveShadow = true;
     // The land beyond the map edge (R3D-25): scenery, one mesh, no shadows, no fog of war, never picked.
-    const horizon = new THREE.Mesh(geometry(horizonMesh(W, snap.mapHeight, snap.heights)), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }));
+    const horizon = new THREE.Mesh(geometry(horizonMesh(W, snap.mapHeight, snap.heights)), new THREE.MeshBasicMaterial({ vertexColors: true }));
     horizon.matrixAutoUpdate = false;
     horizon.frustumCulled = false;
     this.scene.add(horizon, ground, cliffs, water);
