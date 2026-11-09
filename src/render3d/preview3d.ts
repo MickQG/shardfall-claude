@@ -8,6 +8,7 @@ import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigTree } from
 import { newMember, stepSquad, type Member } from './squad3d';
 import { BUILDING_RIGS } from './buildings3d';
 import { UNIT_RIGS } from './units3d';
+import { modelMaterials } from './surface3d';
 import { extremePoints, fitPicture, viewDir, type V3 } from './iconFit';
 
 /**
@@ -26,6 +27,8 @@ export const PREVIEW_FOV = 30;
 export const PREVIEW_PITCH = 0.42;
 /** Turntable speed, radians per second. */
 export const SPIN = 0.45;
+/** The yaw a unit starts the sheet's turn at: its front three-quarter faces the camera (the camera stands at azimuth about 0.76), so a hauler's cargo bed and a Gorger's claws show from the first moment. */
+export const START_YAW = -0.2;
 /** One cycle, ms: moving, coming to a stop, then working (firing, or mining and unloading). */
 export const MOVE_MS = 3400;
 export const SETTLE_MS = 500;
@@ -123,8 +126,9 @@ export class UnitPreview {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(PREVIEW_FOV, 1, 0.05, 100);
-  private metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.38 });
-  private organic = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.05 });
+  private mats = modelMaterials();
+  private metal = this.mats.metal;
+  private organic = this.mats.organic;
   private glow = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
   private plinth: THREE.Mesh;
   private rim: THREE.Mesh;
@@ -394,7 +398,7 @@ export class UnitPreview {
         pod: UNIT_DEFS[m.kind]?.weapon2 ? podOpen(now - s.podSince, salvoOf(m.kind, 1000 / TICKS_PER_SECOND)) : 0,
       });
     });
-    m.group.rotation.y = -0.6 + (t / 1000) * SPIN;
+    m.group.rotation.y = START_YAW + (t / 1000) * SPIN;
     m.group.updateMatrixWorld(true);
     this.firePending(now);
     this.fx.update(now, dt);

@@ -366,6 +366,29 @@ function patched(c: readonly number[], x: number, y: number, lat: Float32Array, 
   return [out[0]! * g, out[1]! * g, out[2]! * g];
 }
 
+/**
+ * A square of the match's ground look around a base colour `rgb` (R3D-24), for scenes with no map (the menu): `tiles` by
+ * `tiles` tiles at TEXELS per tile, patches of grass, gravel and rubble from `groundPatches`, fine grain on top. Pure.
+ */
+export function patchedGroundTexture(rgb: readonly [number, number, number], tiles: number): { width: number; height: number; data: Uint8Array } {
+  const n = tiles * TEXELS;
+  const data = new Uint8Array(n * n * 4);
+  const lattice = patchLattice(tiles, tiles);
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const x = (i + 0.5) / TEXELS;
+      const y = (j + 0.5) / TEXELS;
+      const c = patched(rgb, x, y, lattice, tiles);
+      const k = (j * n + i) * 4;
+      data[k] = Math.min(255, Math.round(c[0]));
+      data[k + 1] = Math.min(255, Math.round(c[1]));
+      data[k + 2] = Math.min(255, Math.round(c[2]));
+      data[k + 3] = 255;
+    }
+  }
+  return { width: n, height: n, data };
+}
+
 /** RGBA ground texture, TEXELS per tile, row 0 at tile row 0. */
 export function groundTexture(t: TerrainInput): { width: number; height: number; data: Uint8Array } {
   const w = t.width * TEXELS;

@@ -1,4 +1,4 @@
-import type * as THREE from 'three';
+import * as THREE from 'three';
 
 /**
  * Procedural surface detail for the model materials (R3D-23): no textures, no extra draw calls. Units and buildings are
@@ -91,4 +91,16 @@ export function setSurface(mat: THREE.Material, kind: SurfaceKind, on: boolean):
   if (on) return applySurface(mat, kind);
   mat.onBeforeCompile = () => {};
   mat.customProgramCacheKey = () => `plain-${kind}`;
+}
+
+/**
+ * The metal and organic model materials, one definition for the match, the menu scene and the unit sheet (R3D-31), so they
+ * cannot drift apart. `detail` is the surface detail of R3D-23 (High); Low gets the plain shaders.
+ */
+export function modelMaterials(detail = true): { metal: THREE.MeshStandardMaterial; organic: THREE.MeshStandardMaterial } {
+  const metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.38 });
+  const organic = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.05 });
+  setSurface(metal, 'metal', detail);
+  setSurface(organic, 'organic', detail);
+  return { metal, organic };
 }
