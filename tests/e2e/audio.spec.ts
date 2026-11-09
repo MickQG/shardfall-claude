@@ -75,6 +75,72 @@ test('AUD-11 AUD-7: HUD buttons play hover and click, and selecting and commandi
   expect(errors).toEqual([]);
 });
 
+test('AUD-11: in a match, a sidebar item sounds only when the pointer moves onto it and it can be bought; moving off it, over the sidebar background or onto an unavailable item is silent', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=classic&flyin=0');
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
+  const count = (key: string): Promise<number> => page.evaluate((k) => (window as unknown as { __shardfall: Hook }).__shardfall.audio().requested[k] ?? 0, key);
+  const settle = (): Promise<void> => page.waitForTimeout(300);
+  const centre = async (sel: string): Promise<{ x: number; y: number }> => {
+    const box = (await page.locator(sel).first().boundingBox())!;
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  };
+  const go = async (p: { x: number; y: number }): Promise<void> => {
+    await page.mouse.move(p.x, p.y, { steps: 1 });
+    await settle();
+  };
+  // A point inside the sidebar that is not on any button.
+  const bgPoint = await page.evaluate(() => {
+    const sb = document.getElementById('sidebar')!;
+    const r = sb.getBoundingClientRect();
+    for (let y = r.top + 4; y < r.bottom - 4; y += 4) {
+      for (let x = r.left + 4; x < r.right - 4; x += 4) {
+        const el = document.elementFromPoint(x, y);
+        if (el && sb.contains(el) && !el.closest('button')) return { x, y };
+      }
+    }
+    return null;
+  });
+  expect(bgPoint).not.toBeNull();
+  const away = { x: 600, y: 300 };
+  const avail = await centre('#sidebar button.item:not(.off)');
+  // Entering an item that can be bought: one hover.
+  await go(away);
+  const h0 = await count('hover');
+  await go(avail);
+  await expect.poll(() => count('hover')).toBe(h0 + 1);
+  // Moving off it onto the sidebar background: silent.
+  await go(bgPoint!);
+  expect(await count('hover')).toBe(h0 + 1);
+  // Moving off it altogether: silent.
+  await go(avail);
+  const h1 = await count('hover');
+  await go(away);
+  expect(await count('hover')).toBe(h1);
+  // A click on the background is silent.
+  const c0 = await count('click');
+  await page.mouse.click(bgPoint!.x, bgPoint!.y);
+  await settle();
+  expect(await count('click')).toBe(c0);
+  // Press on an available item, drag off and release on the background: no click.
+  await go(avail);
+  await page.mouse.down();
+  await go(bgPoint!);
+  await page.mouse.up();
+  await settle();
+  expect(await count('click')).toBe(c0);
+  // An item that cannot be bought now (locked, too dear or full) is silent for hover.
+  if ((await page.locator('#sidebar button.item.off').count()) > 0) {
+    const off = await centre('#sidebar button.item.off');
+    await go(away);
+    const h2 = await count('hover');
+    await go(off);
+    expect(await count('hover')).toBe(h2);
+  }
+  expect(errors).toEqual([]);
+});
+
 test('AUD-13 AUD-16: the score rendered through the real graph is louder with the battle layer up, and silent with Music off', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
