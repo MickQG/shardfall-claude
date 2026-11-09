@@ -93,14 +93,16 @@ describe('audio', () => {
     }
   });
 
-  it('AUD-4: the menu mute is saved and read back; the menu engine does not throw without audio', () => {
+  it('AUD-4: Mute all and Music off are saved and read back; the menu engine does not throw without audio', () => {
     const mem = new Map<string, string>();
     const store = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
-    saveSettings(store, { ...loadSettings(store), muted: true });
-    expect(loadSettings(store).muted).toBe(true);
+    saveSettings(store, { ...loadSettings(store), muted: true, musicOn: false });
+    expect(loadSettings(store)).toMatchObject({ muted: true, musicOn: false });
     const e = new AudioEngine();
     expect(() => {
       e.setMuted(true);
+      e.setMusicOn(false);
+      e.setMusicVolume(0.2);
       e.unlock();
       e.startMusic(3, true);
       e.stopMusic(0.8);

@@ -11,22 +11,22 @@ export const ONLINE_CSS = `
 #menu .mp [hidden] { display: none !important; }
 #menu .mp { display: flex; flex-direction: column; gap: 16px; max-width: 760px; }
 #menu .mp-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-#menu .mp-card { display: flex; flex-direction: column; gap: 10px; padding: 20px; border-radius: 12px; border: 1px solid #22384c; background: linear-gradient(160deg, rgba(16,28,40,.92), rgba(8,13,19,.92)); }
-#menu .mp-card h3 { margin: 0; font-size: 19px; color: #7ff5cd; }
-#menu .mp-card p { margin: 0; color: #b6c7d6; font-size: 13.5px; }
-#menu .mp-card b { color: #dfe8e2; }
-#menu .mp button.act { align-self: flex-start; padding: 11px 22px; border-radius: 10px; border: 0; cursor: pointer; font: inherit; font-weight: 700; letter-spacing: .06em; background: linear-gradient(#35e0a1, #1fa57a); color: #04130d; }
+#menu .mp-card { display: flex; flex-direction: column; gap: 10px; padding: 20px; border-radius: var(--r); border: 1px solid var(--edge); background: var(--panel); }
+#menu .mp-card h3 { margin: 0; font-size: 19px; color: var(--accent); }
+#menu .mp-card p { margin: 0; color: var(--ink); font-size: 13.5px; }
+#menu .mp-card b { color: var(--ink); }
+#menu .mp button.act { align-self: flex-start; padding: 11px 22px; border-radius: var(--r-s); border: 0; cursor: pointer; font: inherit; font-weight: 700; letter-spacing: .06em; background: var(--btn-bg); color: var(--accent-ink); }
 #menu .mp button.act:disabled { opacity: .45; cursor: default; }
-#menu .mp button.ghost { padding: 10px 18px; border-radius: 10px; border: 1px solid #28405a; background: #101c27; color: #dfe8e2; font: inherit; font-weight: 600; cursor: pointer; }
-#menu .mp input { width: 9ch; padding: 10px 12px; border-radius: 10px; border: 1px solid #28405a; background: #0b1218; color: #dfe8e2; font: 600 20px/1 ui-monospace, monospace; letter-spacing: .2em; text-transform: uppercase; }
+#menu .mp button.ghost { padding: 10px 18px; border-radius: var(--r-s); border: 1px solid var(--edge); background: var(--field); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
+#menu .mp input { width: 9ch; padding: 10px 12px; border-radius: var(--r-s); border: 1px solid var(--edge); background: var(--field); color: var(--ink); font: 600 20px/1 ui-monospace, monospace; letter-spacing: .2em; text-transform: uppercase; }
 #menu .mp .joinrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-#menu .mp-wait { padding: 22px; border-radius: 12px; border: 1px solid #2b6b55; background: rgba(18,51,41,.35); display: flex; flex-direction: column; gap: 12px; }
-#menu .mp-code { font: 800 44px/1 ui-monospace, monospace; letter-spacing: .3em; color: #7ff5cd; }
-#menu .mp-status { color: #b6c7d6; }
+#menu .mp-wait { padding: 22px; border-radius: var(--r); border: 1px solid var(--edge); background: var(--sel-bg); display: flex; flex-direction: column; gap: 12px; }
+#menu .mp-code { font: 800 44px/1 ui-monospace, monospace; letter-spacing: .3em; color: var(--accent); }
+#menu .mp-status { color: var(--ink); }
 #menu .mp-status::after { content: ''; display: inline-block; width: 1.2em; text-align: left; animation: mp-dots 1.2s steps(4) infinite; }
 @keyframes mp-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
-#menu .mp-err { margin: 0; color: #ff9a8a; min-height: 1.4em; }
-#menu .mp-off { padding: 18px 20px; border-radius: 12px; border: 1px dashed #6b5520; background: rgba(28,22,8,.55); color: #c9bfa4; }
+#menu .mp-err { margin: 0; color: var(--bad); min-height: 1.4em; }
+#menu .mp-off { padding: 18px 20px; border-radius: var(--r); border: 1px dashed var(--edge); background: var(--field); color: var(--ink); }
 @media (max-width: 860px) { #menu .mp-cards { grid-template-columns: 1fr; } }
 `;
 

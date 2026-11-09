@@ -45,7 +45,7 @@ describe('game speed', () => {
     saveSettings(store, { ...loadSettings(store), speed: 2 });
     expect(loadSettings(store).speed).toBe(2);
     for (const bad of [3, '2', -1, null]) {
-      m.set('shardfall.settings.v2', JSON.stringify({ speed: bad }));
+      m.set('shardfall.settings.v3', JSON.stringify({ speed: bad }));
       expect(loadSettings(store).speed).toBe(DEFAULT_SPEED);
     }
     expect(speedOf(1)).toBe(1);

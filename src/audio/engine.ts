@@ -9,6 +9,8 @@ type Name = Sound['name'] | 'alert' | 'ready' | 'click' | 'deny' | 'ack' | 'ackA
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  /** The music bus under the master (MENU-15): music on/off and music volume act here, so sound effects are not touched. */
+  private musicOut: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private recent = new Map<string, number[]>();
   private musicTimer: ReturnType<typeof setInterval> | null = null;
@@ -18,6 +20,8 @@ export class AudioEngine {
   private bus: GainNode | null = null;
   muted = false;
   volume = 0.6;
+  musicOn = true;
+  musicVolume = 0.6;
 
   /**
    * Set up audio ahead of time, suspended: opening the audio device takes the main thread a noticeable moment, so it
@@ -49,6 +53,8 @@ export class AudioEngine {
       this.ctx = new AudioContext();
       this.master = this.ctx.createGain();
       this.master.connect(this.ctx.destination);
+      this.musicOut = this.ctx.createGain();
+      this.musicOut.connect(this.master);
       const len = this.ctx.sampleRate;
       this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const d = this.noise.getChannelData(0);
@@ -71,8 +77,20 @@ export class AudioEngine {
     this.apply();
   }
 
+  setMusicOn(on: boolean): void {
+    this.musicOn = on;
+    this.apply();
+  }
+
+  setMusicVolume(v: number): void {
+    this.musicVolume = Math.max(0, Math.min(1, v));
+    this.apply();
+  }
+
   private apply(): void {
     if (this.master && this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : this.volume * 0.5, this.ctx.currentTime, 0.02);
+    // The default music volume (0.6) keeps the score at the level it always had.
+    if (this.musicOut && this.ctx) this.musicOut.gain.setTargetAtTime(this.musicOn ? this.musicVolume / 0.6 : 0, this.ctx.currentTime, 0.02);
   }
 
   private tone(freq: number, t0: number, dur: number, type: OscillatorType, gain: number, slideTo?: number, dest?: AudioNode): void {
@@ -204,11 +222,11 @@ export class AudioEngine {
       const lp = c.createBiquadFilter();
       lp.type = 'lowpass';
       lp.frequency.value = 1800;
-      bus.connect(lp).connect(this.master);
+      bus.connect(lp).connect(this.musicOut ?? this.master);
       this.bus = bus;
       const BEAT = 0.55;
       this.musicTimer = setInterval(() => {
-        if (!this.ctx || this.muted) {
+        if (!this.ctx || this.muted || !this.musicOn) {
           this.nextBeatTime = (this.ctx?.currentTime ?? 0) + 0.2;
           return;
         }

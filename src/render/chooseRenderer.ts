@@ -18,3 +18,17 @@ export function chooseRenderer(param: string | null, gpu: GpuProbe): '3d' | 'cla
   if (param === '3d') return '3d';
   return SOFTWARE.test(gpu.renderer) ? 'classic' : '3d';
 }
+
+/** What this browser's WebGL2 is: missing, software-rendered, or on a graphics chip. Shared by the menu and the game. */
+export function probeGpu(): GpuProbe {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    if (!gl) return { webgl2: false, renderer: '' };
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return { webgl2: true, renderer };
+  } catch {
+    return { webgl2: false, renderer: '' };
+  }
+}

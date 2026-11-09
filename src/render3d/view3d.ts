@@ -1,10 +1,5 @@
 import * as THREE from 'three';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import type { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { buildingDef, UNIT_DEFS, unitDef } from '../data/defs';
 import { FP, maxHpOf, squadAlive, TICKS_PER_SECOND, type SimEvent, type Snapshot } from '../sim';
 import type { Camera, Viewport } from '../render/camera';
@@ -29,6 +24,7 @@ import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } fro
 import { unexploredMask } from './unexplored';
 import { RallyMarker } from './rally3d';
 import { PR_MAX, ResolutionGovernor } from './resolution';
+import { addEnvironment, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights } from './lighting3d';
 
 /**
  * How damage shows on a building at health fraction `hp` (R3D-18): soot darkens it steadily; below half it throws
@@ -56,19 +52,13 @@ export function damageSmoke(hpFrac: number): { plumes: number; every: number; sc
   return { plumes: hpFrac <= 0.33 ? 3 : hpFrac < 0.5 ? 2 : 1, every: Math.round(100 - 40 * w), scale: 1.1 + 1.1 * w, fire: hpFrac <= 0.33 };
 }
 
-/** Brightness of Vrax buildings' bioluminescence under bloom: a touch brighter than other glows, so a hive reads alive. */
-export const HIVE_GLOW = 1.15;
+export { GLOW, glowLevels, HIVE_GLOW };
 /** Extra reach beyond the view, tiles, within which units are still posed (PERF-1). */
 export const POSE_MARGIN = 2;
 
 /** Frames per redraw of the sun's shadow map (PERF-1). */
 export const SHADOW_EVERY = 2;
 
-/** Brightness of other glowing parts under bloom: enough to bloom softly, not to blaze. */
-export const GLOW = 1;
-
-/** Glow brightness (other parts, Vrax buildings) with and without bloom. Applied from the first frame (R3D-12). */
-export const glowLevels = (bloom: boolean): { glow: number; hive: number } => (bloom ? { glow: GLOW, hive: HIVE_GLOW } : { glow: 1, hive: 0.9 });
 
 /** An aircraft's dive from the sky to the ground, ms, and how far its momentum carries it on, tiles (R3D-12). */
 export const CRASH_MS = 520;
@@ -280,8 +270,9 @@ export class View3D {
   readonly renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 400);
-  private sun = new THREE.DirectionalLight(0xffe2b8, 3.0);
-  private hemi = new THREE.HemisphereLight(0xa8b8ff, 0x4a3e2c, 0.95);
+  private lights = matchLights();
+  private sun = this.lights.sun;
+  private hemi = this.lights.hemi;
   private built = new Map<string, Built>();
   private metalMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.38 });
   private organicMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.05 });
@@ -367,13 +358,9 @@ export class View3D {
 
   constructor() {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoftShadowMap was removed in r186 (it silently switched over and recompiled everything)
+    configureRenderer(this.renderer);
     // The sun's shadows are redrawn every other frame (PERF-1): at 60 fps a shadow trailing its unit by one frame is invisible.
     this.renderer.shadowMap.autoUpdate = false;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.2;
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Count a whole frame (shadows, scene and post-processing passes), not just the last pass.
     this.renderer.info.autoReset = false;
     this.inst = new Instancer(this.scene);
@@ -410,14 +397,7 @@ export class View3D {
 
   async mount(host: HTMLElement, snap: Snapshot, look: MapLook = {}): Promise<void> {
     host.appendChild(this.renderer.domElement);
-    // Bloom works on a half-float (HDR) buffer; edges are smoothed by FXAA after tone mapping. (A multisampled HDR
-    // buffer looked the same but its resolve halved the frame rate on integrated graphics.)
-    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
-    this.composer = new EffectComposer(this.renderer, target);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.5, 1.0));
-    this.composer.addPass(new OutputPass());
-    this.composer.addPass(new FXAAPass());
+    this.composer = createComposer(this.renderer, this.scene, this.camera);
     this.host = host;
     this.fit();
     new ResizeObserver(() => this.fit()).observe(host);
@@ -427,23 +407,9 @@ export class View3D {
     const s = this.scene;
     s.background = new THREE.Color(0x1a1f2e);
     s.fog = new THREE.Fog(0x2a2d44, 38, 90);
-    // Soft studio reflections for painted metal and wet chitin, under the warm sun and cool sky.
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    s.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    s.environmentIntensity = 0.32;
-    pmrem.dispose();
+    addEnvironment(s, this.renderer);
     s.add(this.hemi);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
-    const sc = this.sun.shadow.camera;
-    sc.left = -22;
-    sc.right = 22;
-    sc.top = 22;
-    sc.bottom = -22;
-    sc.near = 1;
-    sc.far = 80;
-    this.sun.shadow.bias = -0.0005;
-    this.sun.shadow.normalBias = 0.025;
+    configureSunShadow(this.sun, 22, 2048);
     s.add(this.sun, this.sun.target, this.fx.root, this.scatterGroup);
     this.buildTerrain(snap, look);
     this.buildProps(snap, look);

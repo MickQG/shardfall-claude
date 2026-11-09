@@ -31,7 +31,7 @@ Bug and usability fixes found in a review of the player-facing controls and HUD.
 - **UI-3**: A refused action (blocked placement, unaffordable or unavailable item, superweapon fire before charge or on low power) shows a short toast naming the reason and plays a refusal sound.
 - **UI-4**: The first click on Sell turns the button into a confirmation for three seconds and a second click sells; the rally-point hint is shown only on buildings that train units.
 - **UI-5**: Superweapon charge and the Fire button refresh as the charge changes; Fire is unavailable and labelled "Low power" while its owner is on low power.
-- **UI-2**: The main-menu help text names the current bindings, including `F` then right-click for attack-move and `E` for select-same-kind.
+- **UI-2**: The How to play page (MENU-14) names the current bindings, including `F` then right-click for attack-move and `E` for select-same-kind.
 - **UI-6**: Placement mode ends as soon as the structure it is placing is no longer ready to place (cancelled, lost, or the next queued item is not ready), and no ghost is shown for an item that is not ready.
 - **UI-7**: A unit's health bar measures hit points against that kind's maximum, including enemy units first seen already damaged.
 - **UI-8**: A drawn game shows a draw message, not a defeat message.

@@ -29,9 +29,8 @@ test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CTL-11 CUR-1 CUR-3: Q selects combat units,
   expect([...(await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.selected()))].sort()).toEqual([...riflemen].sort());
 
   // CTL-7: F2 toggles quality; Q does not.
-  await expect(page.getByText(/F2 quality: high/)).toBeVisible();
   await page.keyboard.press('F2');
-  await expect(page.getByText(/F2 quality: low/)).toBeVisible();
+  await expect(page.getByText(/Graphics quality: low/)).toBeVisible();
 
   // CUR-1 / CUR-3: the canvas cursor is an inline SVG once units are selected and the pointer is over open ground.
   // An open-ground tile that shows well inside the view in either renderer (the 3D camera frames less below).

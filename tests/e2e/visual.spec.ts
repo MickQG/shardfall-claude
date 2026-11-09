@@ -15,7 +15,7 @@ test('GFX-1 GFX-2 GFX-3 GFX-4 GFX-5 GFX-6 GFX-7 GFX-8: a fight renders richly on
   expect(high.length).toBeGreaterThan(30_000);
 
   await page.keyboard.press('F2');
-  await expect(page.getByText(/F2 quality: low/)).toBeVisible();
+  await expect(page.getByText(/Graphics quality: low/)).toBeVisible();
   await page.waitForTimeout(1500);
   const low = await page.locator('canvas').first().screenshot(SHOTS ? { path: `${SHOTS}/low.png` } : {});
   expect(low.length).toBeGreaterThan(30_000);

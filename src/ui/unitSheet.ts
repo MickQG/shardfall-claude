@@ -94,7 +94,8 @@ export interface UnitSheet {
   isOpen(): boolean;
 }
 
-export function createUnitSheet(signal?: AbortSignal): UnitSheet {
+/** `onToggle` is told when the sheet opens or closes (the menu's 3D scene pauses while it is open, MENU-10). */
+export function createUnitSheet(signal?: AbortSignal, onToggle?: (open: boolean) => void): UnitSheet {
   const style = document.createElement('style');
   style.textContent = CSS;
   document.head.appendChild(style);
@@ -180,12 +181,15 @@ export function createUnitSheet(signal?: AbortSignal): UnitSheet {
       faction = f;
       index = 0;
       el.classList.add('open');
+      onToggle?.(true);
       render();
       el.querySelector<HTMLElement>('.u.sel')?.focus();
     },
     close() {
       preview?.stop();
+      const was = el.classList.contains('open');
       el.classList.remove('open');
+      if (was) onToggle?.(false);
     },
     isOpen: () => el.classList.contains('open'),
   };

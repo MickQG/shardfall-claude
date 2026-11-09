@@ -125,7 +125,7 @@ describe('choosing and revealing the personality', () => {
     expect(loadSettings(store).personality).toBe('random');
     saveSettings(store, { ...loadSettings(store), personality: 'raider' });
     expect(loadSettings(store).personality).toBe('raider');
-    store.setItem('shardfall.settings.v2', JSON.stringify({ personality: 'berserker' }));
+    store.setItem('shardfall.settings.v3', JSON.stringify({ personality: 'berserker' }));
     expect(loadSettings(store).personality).toBe('random');
     // Random resolves from the game seed, so both ends of a replay agree.
     expect(resolvePersonality('random', 77)).toBe(resolvePersonality('random', 77));
