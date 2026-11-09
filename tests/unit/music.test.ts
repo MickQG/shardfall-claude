@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AudioEngine } from '../../src/audio/engine';
 import { BattleIntensity, DAMAGE_WINDOW_MS, intensityTarget } from '../../src/audio/intensity';
-import { busGains, layerGains } from '../../src/audio/mix';
+import { busGains, layerGains, MUSIC_MAX } from '../../src/audio/mix';
 import { readFileSync } from 'node:fs';
 import { battlePlan, CHORD_ROOTS, menuPlan, menuThemePlan, motifFor, MUSIC_PARTIALS, MUSIC_PATCHES, musicPlan, SCALE_TONES, semitonesFromA, stingerPlan, themePlan, THEME_EVERY, type Note } from '../../src/audio/plan';
 
@@ -382,8 +382,8 @@ describe('music settings (AUD-16)', () => {
   it('AUD-16: Music off or music volume 0 zeroes the music bus only; effects and master are untouched', () => {
     const r = rig();
     const master = gainOf(r.master);
-    // The default music volume (0.75) sits about 5 dB above the original score (1.75 times its gain).
-    expect(gainOf(r.music)).toBeCloseTo(1.75, 2);
+    // The default music volume (0.75) sits about 2.5 dB above the original score (1.33 times its gain).
+    expect(gainOf(r.music)).toBeCloseTo(1.33, 2);
     r.e.setMusicOn(false);
     expect(gainOf(r.music)).toBe(0);
     expect(gainOf(r.master)).toBe(master);
@@ -398,10 +398,10 @@ describe('music settings (AUD-16)', () => {
   it('AUD-16: music volume scales only the music bus, and Mute all zeroes the master and so everything', () => {
     const r = rig();
     r.e.setMusicVolume(0.3);
-    expect(gainOf(r.music)).toBeCloseTo(2.3 * 0.3 ** 0.95, 5);
+    expect(gainOf(r.music)).toBeCloseTo(MUSIC_MAX * 0.3 ** 0.95, 5);
     expect(gainOf(r.sfx)).toBe(1);
     r.e.setMusicVolume(1);
-    expect(gainOf(r.music)).toBeCloseTo(2.3, 5);
+    expect(gainOf(r.music)).toBeCloseTo(MUSIC_MAX, 5);
     r.e.setMuted(true);
     expect(gainOf(r.master)).toBe(0);
     expect(r.e.gains().master).toBe(0);
@@ -410,9 +410,10 @@ describe('music settings (AUD-16)', () => {
     expect(busGains({ muted: true, volume: 1, musicOn: true, musicVolume: 1 }).master).toBe(0);
     expect(busGains({ muted: false, volume: 1, musicOn: false, musicVolume: 1 })).toMatchObject({ music: 0 });
     const def = busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 0.75 }).music;
-    expect(def).toBeCloseTo(1.75, 2);
-    expect(20 * Math.log10(def)).toBeGreaterThan(4.5);
-    expect(busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 1 }).music).toBeCloseTo(2.3, 5);
+    expect(def).toBeCloseTo(1.33, 2);
+    expect(20 * Math.log10(def)).toBeGreaterThan(2);
+    expect(20 * Math.log10(def)).toBeLessThan(3);
+    expect(busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 1 }).music).toBeCloseTo(MUSIC_MAX, 5);
     expect(busGains({ muted: false, volume: 0.5, musicOn: true, musicVolume: 0 }).music).toBe(0);
   });
 

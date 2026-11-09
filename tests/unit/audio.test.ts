@@ -358,7 +358,7 @@ describe('UI sounds', () => {
     expect(e.stats.started).toBe(0);
   });
 
-  it('AUD-11: hover plays only on moving onto a usable button, never on leaving it, on a background or on an unavailable one; click plays only on a usable button', () => {
+  it('AUD-11: hover plays only on moving onto a usable button, once, as soon as the raw pointer update arrives; never on leaving it, on a background or on an unavailable one; click plays only on a usable button', () => {
     const handlers = new Map<string, (e: unknown) => void>();
     const root = { addEventListener: (t: string, h: (e: unknown) => void) => handlers.set(t, h) } as unknown as EventTarget;
     const played: string[] = [];
@@ -423,6 +423,16 @@ describe('UI sounds', () => {
       click(child);
       click(bg);
       expect(played).toEqual(['hover', 'hover', 'click', 'click']);
+      // The raw pointer update (Chromium) sounds the hover first; the pointerover that follows for the same button does not repeat it.
+      const raw = (target: Fake): void => handlers.get('pointerrawupdate')!({ target });
+      raw(bg);
+      raw(b);
+      over(b, bg);
+      raw(child);
+      over(child, b);
+      raw(bg);
+      over(bg, child);
+      expect(played).toEqual(['hover', 'hover', 'click', 'click', 'hover']);
     } finally {
       if (typeof Elem === 'undefined') delete (globalThis as unknown as { Element?: unknown }).Element;
     }
