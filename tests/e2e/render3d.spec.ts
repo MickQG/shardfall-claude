@@ -79,3 +79,32 @@ test('R3D-9 R3D-12 R3D-13: a large battle in 3D keeps its draw calls flat and pl
   expect(many).toBeLessThan(few + 60);
   expect(errors).toEqual([]);
 });
+
+test('R3D-28 CTL-1: at the closest zoom (the lowest pitch) a click selects an own unit and a right-click moves it through the projection', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/?faction=human&scenario=calm&seed=3&renderer=3d&flyin=0');
+  await page.waitForSelector('body[data-ready="true"]', { timeout: 60_000 });
+  const hook = (): Promise<{ zoom: number }> => page.evaluate(() => (window as unknown as { __shardfall: { camera: () => { zoom: number } } }).__shardfall.camera());
+  const box = (await page.locator('canvas').first().boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let i = 0; i < 30; i++) await page.mouse.wheel(0, -300);
+  await expect.poll(async () => (await hook()).zoom).toBeGreaterThan(2.4);
+  const id = await page.evaluate(() => {
+    const h = (window as unknown as { __shardfall: Hook }).__shardfall;
+    return h.snapshot()!.units.find((u) => u.owner === 0 && u.kind === 'hum_rifleman')!.id;
+  });
+  // Centre on that unit, so it is on screen at this zoom.
+  await page.evaluate((id) => (window as unknown as { __shardfall: Hook & { camera: () => { x: number; y: number } } }).__shardfall.select([id]), id);
+  await page.keyboard.press(' ');
+  await page.waitForTimeout(600);
+  const p = await page.evaluate((id) => (window as unknown as { __shardfall: Hook }).__shardfall.screenPos(id), id);
+  expect(p).not.toBeNull();
+  await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.select([]));
+  await page.mouse.click(p!.x, p!.y);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.selected())).toContain(id);
+  const g = await page.evaluate(() => (window as unknown as { __shardfall: Hook }).__shardfall.tileScreen(14, 18));
+  await page.mouse.click(Math.min(box.x + box.width - 5, Math.max(box.x + 5, g.x)), Math.min(box.y + box.height - 5, Math.max(box.y + 5, g.y)), { button: 'right' });
+  await expect.poll(async () => (await page.evaluate((id) => (window as unknown as { __shardfall: Hook }).__shardfall.snapshot()!.units.find((u) => u.id === id)?.dest ?? null, id)) !== null).toBe(true);
+  expect(errors).toEqual([]);
+});

@@ -1,6 +1,6 @@
 import type { Camera } from './camera';
 import { screenToTile, tileToScreen } from './iso';
-import { BASE_DISTANCE, FOV, PITCH_RISE } from '../render3d/camera3d';
+import { BASE_DISTANCE, FOV, riseFor } from '../render3d/camera3d';
 
 /**
  * The fly-in (CAM-4..8, glossary): the camera sweep that opens every match, and the pure rules around it. Nothing here
@@ -10,7 +10,7 @@ import { BASE_DISTANCE, FOV, PITCH_RISE } from '../render3d/camera3d';
 /** How long the fly-in lasts, ms: the same for both players online, and for the fade of reduced motion and the classic view (CAM-4, CAM-6, CAM-8). */
 export const FLY_MS = 4000;
 
-/** Height per unit of ground offset at the top of the sweep (a steep, near top-down pitch of about 59 degrees), easing to the normal PITCH_RISE. */
+/** Height per unit of ground offset at the top of the sweep (a steep, near top-down pitch of about 59 degrees), easing to the pitch of the end camera's zoom (R3D-28). */
 export const START_RISE = 2.4;
 /** The whole map fits within this fraction of the half-view at the start of the sweep. */
 const FIT_MARGIN = 0.9;
@@ -144,7 +144,7 @@ export function flyPose(t01: number, map: MapSize, end: Camera, aspect = 16 / 9)
   const ty = map.height / 2 + (to.y - map.height / 2) * e;
   const p = tileToScreen(tx, ty);
   const zoom = Math.exp(Math.log(z0) + (Math.log(end.zoom) - Math.log(z0)) * e);
-  return { x: p.x, y: p.y, zoom, rise: START_RISE + (PITCH_RISE - START_RISE) * e };
+  return { x: p.x, y: p.y, zoom, rise: START_RISE + (riseFor(end.zoom) - START_RISE) * e };
 }
 
 /**

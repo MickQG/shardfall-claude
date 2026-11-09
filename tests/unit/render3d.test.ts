@@ -3,8 +3,9 @@ import * as THREE from 'three';
 import { buildingDef } from '../../src/data/defs';
 import { showcaseConfig } from '../../src/data/maps';
 import { isoProjector } from '../../src/render/projector';
+import { MAX_ZOOM } from '../../src/render/camera';
 import { cliffRgb, groundRgb } from '../../src/render/terrainNext';
-import { cameraPose, FOV, PITCH_RISE } from '../../src/render3d/camera3d';
+import { cameraPose, CLOSE_RISE, FOV, PITCH_RISE, riseFor } from '../../src/render3d/camera3d';
 import { LEVEL_H, terrainMeshes } from '../../src/render3d/terrain3d';
 import { createGame, hash, tick } from '../../src/sim';
 import { FrameStats } from '../../src/ui/frameStats';
@@ -100,6 +101,33 @@ describe('3D camera and projection', () => {
     expect((Math.atan(PITCH_RISE / Math.SQRT2) * 180) / Math.PI).toBeCloseTo(41.5, 0);
     const near = cameraPose({ x: 0, y: 320, zoom: 2 });
     expect(Math.hypot(near.position[0] - 10, near.position[1], near.position[2] - 10)).toBeLessThan(Math.hypot(p.position[0] - 10, p.position[1], p.position[2] - 10));
+  });
+
+  it('R3D-28: the pitch is today's at zoom 1 and below, eases down to about 27 degrees at the closest zoom, and never rises with zoom', () => {
+    expect(riseFor(1)).toBe(PITCH_RISE);
+    expect(riseFor(0.35)).toBe(PITCH_RISE);
+    expect(riseFor(MAX_ZOOM)).toBeCloseTo(CLOSE_RISE, 10);
+    expect((Math.atan(riseFor(MAX_ZOOM) / Math.SQRT2) * 180) / Math.PI).toBeCloseTo(26.3, 0);
+    let prev = Infinity;
+    for (let z = 0.35; z <= MAX_ZOOM + 1e-9; z += 0.05) {
+      const r = riseFor(z);
+      expect(r).toBeLessThanOrEqual(prev + 1e-12);
+      prev = r;
+    }
+    // Smooth at both ends of the ease: no kink at zoom 1 and at the closest zoom.
+    expect(PITCH_RISE - riseFor(1.01)).toBeLessThan(1e-3);
+    expect(riseFor(MAX_ZOOM - 0.01) - CLOSE_RISE).toBeLessThan(1e-3);
+  });
+
+  it('R3D-28: cameraPose follows the zoom-linked pitch, an explicit rise wins, and the heading never changes', () => {
+    for (const zoom of [0.35, 1, 1.5, 2, MAX_ZOOM]) {
+      const p = cameraPose({ x: 0, y: 320, zoom });
+      expect(p.position[0] - p.target[0]).toBeCloseTo(p.position[2] - p.target[2], 9);
+      const flat = Math.hypot(p.position[0] - p.target[0], p.position[2] - p.target[2]);
+      expect(p.position[1] / flat).toBeCloseTo(riseFor(zoom) / Math.SQRT2, 9);
+    }
+    const fixed = cameraPose({ x: 0, y: 320, zoom: 2, rise: 2 });
+    expect(fixed.position[1] / Math.hypot(fixed.position[0] - 10, fixed.position[2] - 10)).toBeCloseTo(2 / Math.SQRT2, 9);
   });
 
   it('R3D-5: a projector maps a tile to the screen and back to the same ground tile', () => {
