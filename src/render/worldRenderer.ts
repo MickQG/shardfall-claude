@@ -20,6 +20,8 @@ export interface WorldRenderer {
   spawn(e: SimEvent, now: number): void;
   /** Extra figures for the frame-time readout (draw calls, CPU time), if the renderer has any. */
   readout?(): string;
+  /** Measured figures for tests and the performance script (R3D-29), if the renderer has any. */
+  stats?(): { cpuMs: number; draws: number; tris: number; particles: { smoke: number; glow: number }; debris: number };
   /** Screen and ground mapping for the current camera (R3D-5). */
   projector(cam: Camera): Projector;
 }

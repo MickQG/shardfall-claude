@@ -315,3 +315,46 @@ export function showcaseConfig(seed = 1, extra = 0, side: Faction = 'human'): Ga
   const swap = <T extends { owner: number }>(x: T): T => ({ ...x, owner: 1 - x.owner });
   return { ...cfg, players: [cfg.players![1]!, cfg.players![0]!], buildings: cfg.buildings!.map(swap), units: cfg.units!.map(swap) };
 }
+
+/** The unit mix of each side of the brawl: infantry squads, anti-armour, scouts, tanks and artillery (R3D-29). */
+const BRAWL_MIX: Record<Faction, readonly string[]> = {
+  human: ['hum_rifleman', 'hum_rifleman', 'hum_tank', 'hum_rocketeer', 'hum_buggy', 'hum_tank', 'hum_artillery', 'hum_rifleman', 'hum_tank', 'hum_rocketeer'],
+  alien: ['ali_skitter', 'ali_skitter', 'ali_brute', 'ali_spitter', 'ali_stalker', 'ali_brute', 'ali_lobber', 'ali_skitter', 'ali_brute', 'ali_spitter'],
+};
+
+/**
+ * A 200-unit brawl for measuring the renderer (R3D-29): the showcase battlefield with `perSide` units of mixed kinds on
+ * each side, packed on open ground in the middle of the map so they are in contact at once. The game client sends both
+ * armies at each other's base; there is no AI. Unit stats and rules are the game's own.
+ */
+export function brawlConfig(seed = 1, perSide = 100, side: Faction = 'human'): GameConfig {
+  const base = showcaseConfig(seed, 0, 'human');
+  const W = base.map.width;
+  const blocked = base.map.blocked;
+  const taken = new Set<number>();
+  for (const b of base.buildings ?? []) {
+    const d = buildingDef(b.kind);
+    for (let y = b.ty; y < b.ty + d.h; y++) for (let x = b.tx; x < b.tx + d.w; x++) taken.add(y * W + x);
+  }
+  // Fill the free tiles outward from each army's centre, one unit per tile, the two blocks a few tiles apart.
+  const spiral = (cx: number, cy: number, n: number): [number, number][] => {
+    const out: [number, number][] = [];
+    for (let r = 0; r < W && out.length < n; r++)
+      for (let y = cy - r; y <= cy + r && out.length < n; y++)
+        for (let x = cx - r; x <= cx + r && out.length < n; x++) {
+          if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== r || x < 1 || y < 1 || x >= W - 1 || y >= W - 1) continue;
+          const i = y * W + x;
+          if (blocked?.[i] || taken.has(i)) continue;
+          taken.add(i);
+          out.push([x, y]);
+        }
+    return out;
+  };
+  const army = (owner: number, faction: Faction, cx: number, cy: number): UnitSpawn[] =>
+    spiral(cx, cy, perSide).map(([x, y], k) => ({ owner, kind: BRAWL_MIX[faction][k % BRAWL_MIX[faction].length]!, tx: x, ty: y }));
+  const units = [...army(0, 'human', 14, 18), ...army(1, 'alien', 21, 19)];
+  const cfg: GameConfig = { ...base, units };
+  if (side === 'human') return cfg;
+  const swap = <T extends { owner: number }>(x: T): T => ({ ...x, owner: 1 - x.owner });
+  return { ...cfg, players: [cfg.players![1]!, cfg.players![0]!], buildings: cfg.buildings!.map(swap), units: cfg.units!.map(swap) };
+}
