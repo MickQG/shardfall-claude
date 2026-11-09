@@ -18,6 +18,7 @@ import type { Built, Shape } from './kit';
 import { angleDiff, bodyPose, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
+import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
@@ -56,6 +57,9 @@ export { GLOW, glowLevels, HIVE_GLOW };
 /** Extra reach beyond the view, tiles, within which units are still posed (PERF-1). */
 export const POSE_MARGIN = 2;
 
+/** Distance fog, tiles from the camera at zoom 1 (it scales out as the camera pulls back, R3D-25). */
+const FOG_NEAR = 34;
+const FOG_FAR = 86;
 /** Frames per redraw of the sun's shadow map (PERF-1). */
 export const SHADOW_EVERY = 2;
 
@@ -405,8 +409,9 @@ export class View3D {
     this.mapH = snap.mapHeight;
     this.heights = snap.heights;
     const s = this.scene;
-    s.background = new THREE.Color(0x1a1f2e);
-    s.fog = new THREE.Fog(0x2a2d44, 38, 90);
+    // The sky gradient ends in the haze colour the distant land fades into (R3D-25).
+    s.background = skyTexture();
+    s.fog = new THREE.Fog(HAZE_COLOR, FOG_NEAR, FOG_FAR);
     addEnvironment(s, this.renderer);
     s.add(this.hemi);
     configureSunShadow(this.sun, 22, 2048);
@@ -536,7 +541,11 @@ export class View3D {
     this.waterNormal.repeat.set(W / 4, snap.mapHeight / 4);
     const water = new THREE.Mesh(geometry(m.water), new THREE.MeshStandardMaterial({ color: 0x2a6a8a, vertexColors: true, depthWrite: false, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.82, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.45, 0.45) }));
     water.receiveShadow = true;
-    this.scene.add(ground, cliffs, water);
+    // The land beyond the map edge (R3D-25): scenery, one mesh, no shadows, no fog of war, never picked.
+    const horizon = new THREE.Mesh(geometry(horizonMesh(W, snap.mapHeight, snap.heights)), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }));
+    horizon.matrixAutoUpdate = false;
+    horizon.frustumCulled = false;
+    this.scene.add(horizon, ground, cliffs, water);
     // Cliffs, water, props, plants and crystals on unexplored tiles fade into the fog's darkness (R3D-17).
     for (const mat of [cliffMat, water.material, this.propMat, this.crystalMat, this.glowMat, this.hiveGlowMat]) this.unexplored.apply(mat);
     if (snap.fog) {
@@ -975,11 +984,11 @@ export class View3D {
     this.lastTime = t;
     this.fx.quality = { rich: vs.fx.particles };
     this.applyCamera(cam, t);
-    // The distance fog follows the camera out during the fly-in's sweep, so the whole map stays clear (CAM-4); at the normal pitch it is unchanged.
+    // The distance fog follows the camera out as it pulls back, so the whole map stays clear (CAM-4) and only the land beyond fades into haze (R3D-25).
     if (this.scene.fog instanceof THREE.Fog) {
-      const k = cam.rise === undefined ? 1 : Math.max(1, 1 / cam.zoom);
-      this.scene.fog.near = 38 * k;
-      this.scene.fog.far = 90 * k;
+      const k = Math.max(1, 1 / cam.zoom);
+      this.scene.fog.near = FOG_NEAR * k;
+      this.scene.fog.far = FOG_FAR * k;
     }
     if (snap) {
       if (snap.tick !== this.lastTick) {
