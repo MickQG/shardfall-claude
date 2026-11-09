@@ -150,13 +150,16 @@ describe('R3D-31: the Gorger', () => {
     expect(rb.obj.rotation.z).toBeLessThan(rb.rot.z);
   });
 
-  it('R3D-31: mandibles and feeding tendrils reach out, close and draw back in a calm rhythm of 0.7 to 1 s', () => {
+  it('R3D-31: mandibles and the two claws reach out, close and draw back in a calm rhythm of 0.7 to 1 s', () => {
     const t = rigTree(def);
     const feeds = t.anims.filter((a) => a.anim.k === 'feed');
     const jaws = feeds.filter((a) => a.anim.k === 'feed' && a.anim.axis === 'y');
-    const tendrils = feeds.filter((a) => a.anim.k === 'feed' && a.anim.axis === 'z');
+    const joints = feeds.filter((a) => a.anim.k === 'feed' && a.anim.axis === 'z');
+    expect(t.drawn.filter((d) => d.geo === 'clawPalm').length, 'two claws').toBe(2);
+    expect(t.drawn.filter((d) => d.geo === 'clawFinger').length, 'a pincer of two fingers on each').toBe(4);
+    expect(t.drawn.some((d) => d.geo?.startsWith('tend'))).toBe(false);
     expect(jaws.length).toBeGreaterThanOrEqual(2);
-    expect(tendrils.length).toBeGreaterThanOrEqual(6); // two to four tendrils of several segments
+    expect(joints.length).toBeGreaterThanOrEqual(4); // a shoulder and an elbow in each of the two claws
     const period = (2 * Math.PI) / (feeds[0]!.anim as { rate: number }).rate;
     expect(period).toBeGreaterThanOrEqual(0.7);
     expect(period).toBeLessThanOrEqual(1);
@@ -175,15 +178,15 @@ describe('R3D-31: the Gorger', () => {
     expect(feedCycle(0, 7.4, 0)).toBeCloseTo(0, 9);
     expect(feedCycle(period * 500, 7.4, 0)).toBeCloseTo(1, 6);
     expect(feedCycle(period * 1000, 7.4, 0)).toBeCloseTo(0, 6);
-    // Reaching, the first tendril's tip is well out ahead of and below where it curls at rest.
+    // Reaching, the claw's wrist is well out and below where it folds at rest.
     const tipOf = (feed: number, ms: number): THREE.Vector3 => {
       poseRig(t, { ...STILL, walker, feed, time: ms });
       t.root.updateMatrixWorld(true);
-      return new THREE.Vector3(0.13, 0, 0).applyMatrix4(node(t, 'tendTip').obj.matrixWorld);
+      return new THREE.Vector3(0.1, 0, 0).applyMatrix4(node(t, 'clawPalm').obj.matrixWorld);
     };
     const curled = tipOf(0, 0);
     const reach = tipOf(1, (period * 1000) / 2);
-    expect(reach.x - curled.x).toBeGreaterThan(0.15);
+    expect(Math.hypot(reach.x - curled.x, reach.z - curled.z)).toBeGreaterThan(0.15);
     expect(curled.y - reach.y).toBeGreaterThan(0.2);
   });
 
@@ -437,5 +440,43 @@ describe('R3D-33: the Scout Buggy', () => {
     expect(pitch).toBeLessThan(0.04);
     expect(bob).toBeGreaterThan(0.003);
     expect(bob).toBeLessThan(0.03);
+  });
+});
+
+describe('R3D-23: vehicle colour schemes', () => {
+  /** The area-free mean colour of every non-glowing vertex whose colour does not change with the team. */
+  const meanPaint = (kind: string): THREE.Color => {
+    const def = UNIT_RIGS[kind]!();
+    const sum = new THREE.Color(0, 0, 0);
+    let n = 0;
+    for (const sh of Object.values(def.shapes)) {
+      const a = sh().build(0xff0000);
+      const b = sh().build(0x0000ff);
+      const ca = a.lit?.getAttribute('color');
+      const cb = b.lit?.getAttribute('color');
+      if (!ca || !cb) continue;
+      for (let i = 0; i < ca.count; i++) {
+        if (ca.getX(i) !== cb.getX(i) || ca.getY(i) !== cb.getY(i) || ca.getZ(i) !== cb.getZ(i)) continue;
+        sum.r += ca.getX(i);
+        sum.g += ca.getY(i);
+        sum.b += ca.getZ(i);
+        n++;
+      }
+    }
+    return sum.multiplyScalar(1 / n);
+  };
+
+  it('R3D-23: the tank, buggy and artillery each wear a distinct non-team colour scheme so they read apart at a distance', () => {
+    const tank = meanPaint('hum_tank');
+    const buggy = meanPaint('hum_buggy');
+    const arty = meanPaint('hum_artillery');
+    const dist = (x: THREE.Color, y: THREE.Color): number => Math.hypot(x.r - y.r, x.g - y.g, x.b - y.b);
+    expect(dist(tank, buggy)).toBeGreaterThan(0.025);
+    expect(dist(tank, arty)).toBeGreaterThan(0.025);
+    expect(dist(buggy, arty)).toBeGreaterThan(0.025);
+    // The tank is green-dominant, the buggy warm and light, the artillery pale.
+    expect(tank.g).toBeGreaterThan(tank.b);
+    expect(buggy.r).toBeGreaterThan(buggy.b + 0.05);
+    expect(arty.r + arty.g + arty.b).toBeGreaterThan(tank.r + tank.g + tank.b);
   });
 });
