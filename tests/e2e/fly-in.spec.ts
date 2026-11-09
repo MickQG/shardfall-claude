@@ -71,6 +71,7 @@ const flyMs = (page: Page): Promise<number> => page.evaluate(() => Number(docume
 const ready = (page: Page, timeout = 8000): Promise<unknown> => page.waitForSelector('body[data-ready="true"]', { state: 'attached', timeout });
 
 test('CAM-4 CAM-5: the sweep holds the game at its first tick with the HUD hidden for four seconds, then the game starts and the HUD fades in', async ({ page }) => {
+  test.slow();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page, 'renderer=3d');
@@ -88,7 +89,8 @@ test('CAM-4 CAM-5: the sweep holds the game at its first tick with the HUD hidde
     expect(s.hud).toBe(0);
     expect(s.cam).toEqual(first.cam);
   }
-  await ready(page);
+  // On CI's software GPU a 3D frame can take hundreds of milliseconds, so the page may answer late even once it is ready.
+  await ready(page, 30_000);
   const ms = await flyMs(page);
   expect(ms).toBeGreaterThanOrEqual(4000);
   // After it: the sweep ended exactly on the player's camera, the game runs and the HUD is up.
