@@ -252,3 +252,27 @@ export function salvoOf(kind: string, msPerTick: number): Salvo {
   const w = unitDef(kind).weapon2;
   return { count: w?.salvo?.count ?? 1, gapMs: (w?.salvo?.gap ?? 0) * msPerTick, flightMs: Math.max(80, (w?.flight ?? 1) * msPerTick - POD_OPEN_MS) };
 }
+
+/** Move `v` toward `target` at a steady rate: `riseMs` to cover 0..1 going up, `fallMs` going down; `dt` in seconds. */
+export function slew(v: number, target: number, dt: number, riseMs: number, fallMs: number): number {
+  const step = (dt * 1000) / (target > v ? riseMs : fallMs);
+  return target > v ? Math.min(target, v + step) : Math.max(target, v - step);
+}
+
+/** How long a harvesting head takes to lower to the ground or lift clear, ms (R3D-30). */
+export const HEAD_MS = 400;
+/** The howitzer's barrel: up over 0.6 s, back into its lock over 1 s, kept raised for 3 s after a shot (R3D-32). */
+export const ELEV_UP_MS = 600;
+export const ELEV_DOWN_MS = 1000;
+export const ELEV_HOLD_MS = 3000;
+export const elevTarget = (hasTarget: boolean, sinceFireMs: number): number => (hasTarget || sinceFireMs < ELEV_HOLD_MS ? 1 : 0);
+
+/** A fast scout car's calm ride over the ground (R3D-33): a little bob, pitch and roll that grow with speed (`stride` 0..1). */
+export function rideMotion(ride: number, stride: number, t: number, seed: number): BodyPose {
+  const k = ride * stride;
+  return { pitch: k * 0.5 * Math.sin(t * 0.0053 + seed), roll: k * Math.sin(t * 0.0037 + seed * 2), bob: k * 0.3 * Math.abs(Math.sin(t * 0.0079 + seed)) };
+}
+
+/** The hauler puffs exhaust when its throttle opens past this acceleration, tiles/s², and no more often than this, ms (R3D-30). */
+export const HAULER_PUFF_ACCEL = 0.6;
+export const HAULER_PUFF_MS = 450;
