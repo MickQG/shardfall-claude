@@ -10,12 +10,13 @@ const source = (): { vertexShader: string; fragmentShader: string } => ({
 });
 
 describe('procedural surface detail', () => {
-  it('R3D-23: metal gets panel grooves, edge wear that lowers roughness, and crevice darkening, from object-space position and normal', () => {
+  it('R3D-23: metal gets edge wear, no panel grid, that lowers roughness, and crevice darkening, from object-space position and normal', () => {
     const s = source();
     patchSurface(s, 'metal');
     expect(s.vertexShader).toContain('vSdPos = transformed');
     expect(s.vertexShader).toContain('vSdNrm = objectNormal');
-    expect(s.fragmentShader).toContain('float groove');
+    expect(s.fragmentShader).not.toContain('float groove');
+    expect(s.fragmentShader).not.toContain('fract( q');
     expect(s.fragmentShader).toContain('fwidth( q )');
     expect(s.fragmentShader).toContain('fwidth( sdN )');
     expect(s.fragmentShader).toContain('roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.55, sdWear )');
@@ -26,11 +27,12 @@ describe('procedural surface detail', () => {
     expect(s.vertexShader).toContain('#include <begin_vertex>');
   });
 
-  it('R3D-23: organic gets chitin plates with grooves and pores, and fades by screen-space derivatives so nothing shimmers zoomed out', () => {
+  it('R3D-23: organic gets crevice darkening only (no plates, pores or seams), and fades by screen-space derivatives so nothing shimmers zoomed out', () => {
     const s = source();
     patchSurface(s, 'organic');
-    expect(s.fragmentShader).toContain('float pore');
-    expect(s.fragmentShader).toContain('float groove');
+    expect(s.fragmentShader).not.toContain('float pore');
+    expect(s.fragmentShader).toContain('float ao');
+    expect(s.fragmentShader).not.toContain('floor( q');
     expect(s.fragmentShader).toMatch(/fade = 1\.0 - smoothstep/);
     expect(s.fragmentShader).not.toContain('sdWear');
     expect(surfaceChunks('metal').color).toMatch(/fade = 1\.0 - smoothstep/);

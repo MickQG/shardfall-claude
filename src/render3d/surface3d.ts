@@ -5,9 +5,9 @@ import type * as THREE from 'three';
  * instanced meshes whose vertices keep their object-space position and normal (the UVs are stripped in `Shape.build`),
  * so a few lines of shader chunk turn them into something with panels, wear and creases.
  *
- * Metal: thin dark panel grooves on a box-projected grid, edge wear (lighter, less rough) where the surface turns
- * sharply, and darker crevices (low on the model, under downward faces). Organic: chitin plates in offset rows, with
- * grooves between them and the odd pore. Every line is anti-aliased with screen-space derivatives and fades out where a
+ * Metal: edge wear (lighter, less rough) where the surface turns sharply, and darker crevices (low on the model, under
+ * downward faces). Organic: the same crevice darkening. There is deliberately no panel seam, grid, chequer or other
+ * repeating pattern on any unit or building: their markings are modelled. Every line is anti-aliased with screen-space derivatives and fades out where a
  * cell spans less than a couple of pixels, so nothing shimmers when zoomed out. The fog-of-war mask is not applied to
  * these materials, so their program keys stay distinct from the mask's.
  */
@@ -46,14 +46,10 @@ const METAL_COLOR = `#include <color_fragment>
     vec2 q = sdProject( vSdPos, sdN ) / ${PANEL.toFixed(3)};
     vec2 fw = fwidth( q );
     float fade = 1.0 - smoothstep( 0.22, 0.5, max( fw.x, fw.y ) );
-    vec2 d = abs( fract( q - 0.5 ) - 0.5 );
-    vec2 ln = 1.0 - smoothstep( vec2( 0.035 ), vec2( 0.035 ) + fw * 1.2, d );
-    float groove = max( ln.x, ln.y ) * fade;
-    float cell = sdHash( floor( q ) );
     float edge = smoothstep( 0.25, 1.0, length( fwidth( sdN ) ) );
     sdWear = edge * 0.9 * fade;
     float ao = mix( 0.74, 1.0, smoothstep( -0.9, 0.35, sdN.y ) ) * mix( 0.78, 1.0, smoothstep( -0.05, 0.3, vSdPos.y ) );
-    vec3 c = diffuseColor.rgb * ( 1.0 - 0.27 * groove ) * ( 1.0 + ( cell - 0.5 ) * 0.07 * fade );
+    vec3 c = diffuseColor.rgb;
     c = mix( c, c * 1.3 + 0.025, sdWear * 0.55 );
     diffuseColor.rgb = c * ao;
   }`;
@@ -63,22 +59,11 @@ const METAL_ROUGH = `#include <roughnessmap_fragment>
 const ORGANIC_COLOR = `#include <color_fragment>
   {
     vec3 sdN = normalize( vSdNrm );
-    vec2 q0 = sdProject( vSdPos, sdN ) / ${PLATE.toFixed(3)};
-    float fwq = max( fwidth( q0.x ), fwidth( q0.y ) );
+    vec2 pp = sdProject( vSdPos, sdN );
+    float fwq = max( fwidth( pp.x ), fwidth( pp.y ) ) / ${PLATE.toFixed(3)};
     float fade = 1.0 - smoothstep( 0.22, 0.5, fwq );
-    vec2 q = q0;
-    q.x += floor( q.y ) * 0.5;
-    vec2 f = fract( q );
-    vec2 cell = floor( q );
-    float border = min( min( f.x, 1.0 - f.x ), min( f.y, 1.0 - f.y ) );
-    float groove = ( 1.0 - smoothstep( 0.05, 0.05 + fwq * 1.2, border ) ) * fade;
-    float h = sdHash( cell );
-    float plate = 1.0 + ( h - 0.5 ) * 0.14 * fade;
-    float h2 = sdHash( cell + 17.0 );
-    vec2 pc = vec2( 0.3 + 0.4 * h2, 0.3 + 0.4 * sdHash( cell + 41.0 ) );
-    float pore = ( h < 0.2 ? 1.0 : 0.0 ) * ( 1.0 - smoothstep( 0.07, 0.07 + fwq * 0.9, length( f - pc ) ) ) * fade;
     float ao = mix( 0.78, 1.0, smoothstep( -0.9, 0.35, sdN.y ) ) * mix( 0.82, 1.0, smoothstep( -0.05, 0.3, vSdPos.y ) );
-    diffuseColor.rgb *= plate * ( 1.0 - 0.3 * groove ) * ( 1.0 - 0.45 * pore ) * ao;
+    diffuseColor.rgb *= ao;
   }`;
 
 /** The shader edits for a kind, as plain strings, so tests can see what is injected without a GL context. */
@@ -99,4 +84,11 @@ export function patchSurface(shader: { vertexShader: string; fragmentShader: str
 export function applySurface(mat: THREE.Material, kind: SurfaceKind): void {
   mat.onBeforeCompile = (shader) => patchSurface(shader, kind);
   mat.customProgramCacheKey = () => SURFACE_KEYS[kind];
+}
+
+/** Turn the surface detail on or off (Low drops it): off is the stock shader under a program key of its own. */
+export function setSurface(mat: THREE.Material, kind: SurfaceKind, on: boolean): void {
+  if (on) return applySurface(mat, kind);
+  mat.onBeforeCompile = () => {};
+  mat.customProgramCacheKey = () => `plain-${kind}`;
 }
