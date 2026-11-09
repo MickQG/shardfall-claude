@@ -143,8 +143,8 @@ export function shardPlan(f: SceneFaction): { field: ShardSpot[]; loose: ShardSp
   return { field, loose };
 }
 
-/** One full turn of the camera around the HQ, seconds (MENU-10: 60 to 90 s), at constant speed: about 10 s in front for each of the seven units. */
-export const ORBIT_PERIOD_S = 75;
+/** One full turn of the camera around the HQ, seconds (MENU-10: 45 to 60 s), at constant speed: about 7 s for each of the seven units. */
+export const ORBIT_PERIOD_S = 50;
 /** The camera's angle around the HQ (radians from +x toward +z) at `t` seconds: it starts with the hero in front and turns at a constant rate. Pure. */
 export const orbitAngleAt = (t: number): number => HERO_ANGLE + 0.1 + (t / ORBIT_PERIOD_S) * Math.PI * 2;
 /** The angle the camera holds on Low quality or with reduced motion: the hero in front. */
@@ -169,36 +169,68 @@ export const TARGET_HEIGHT = 0.7;
 /** The camera's distance from that point per pixel of screen height: close, so the unit in front stands large. */
 export const DIST_PER_HEIGHT = 0.0118;
 
-/** How far (radians of camera angle) the aim point takes to pan from one unit to the next: it stays on a unit while the camera turns around it, then eases across to the next. */
-export const PAN_WINDOW = 0.3;
+/**
+ * The share of each gap between two neighbouring units (in camera angle) that the aim holds on the unit at either end; the
+ * rest of the gap is one smooth pan to the next unit (MENU-10).
+ */
+export const PAN_HOLD = 0.2;
 
-const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
+const TAU = Math.PI * 2;
+/** An angle in [0, 2π). */
+const norm = (a: number): number => ((a % TAU) + TAU) % TAU;
 
 /**
- * The point the camera looks at for camera angle `angle`: on the ground just in front of the unit nearest the camera
- * (`AIM_BEHIND` tiles toward the HQ along the view), so that unit stands in the middle of the picture with the HQ behind it
- * while the camera turns around it; past the midway point to the next unit the aim eases across to that one. Pure.
+ * How far the aim has panned from one unit to the next, 0..1, at `s` (0..1) of the way across the gap between them in
+ * camera angle: held at 0 for the first `PAN_HOLD` of the gap, then one smootherstep ease, then held at 1. Speed and
+ * acceleration are zero where the pan starts and ends and it never pauses in between, so there is no stutter. Pure.
  */
-export function aimPoint(f: SceneFaction, angle: number): { x: number; z: number } {
-  const ds = Object.values(sceneSlots(f))
-    .map((s) => ({ s, d: Math.abs(wrap(Math.atan2(s.z - HQ_SPOT.z, s.x - HQ_SPOT.x) - angle)) }))
-    .sort((p, q) => p.d - q.d);
-  const first = ds[0]!;
-  const second = ds[1]!;
-  const t = Math.min(1, (second.d - first.d) / PAN_WINDOW);
-  const wgt = 0.5 + 0.5 * (t * t * (3 - 2 * t));
-  const at = (s: { x: number; z: number }): { x: number; z: number } => ({ x: s.x - AIM_BEHIND * Math.cos(angle), z: s.z - AIM_BEHIND * Math.sin(angle) });
-  const p = at(first.s);
-  const q = at(second.s);
-  return { x: wgt * p.x + (1 - wgt) * q.x, z: wgt * p.z + (1 - wgt) * q.z };
+export function panWeight(s: number): number {
+  const t = Math.min(1, Math.max(0, (s - PAN_HOLD) / (1 - 2 * PAN_HOLD)));
+  return t * t * t * (t * (t * 6 - 15) + 10);
 }
 
-/** Whether the camera at `angle` is on a unit's plateau (not panning to the next one), so that unit stands dead centre. */
+const RING_ORDER = new Map<SceneFaction, { s: SceneSlot; bearing: number }[]>();
+
+/** A faction's units in the order the turning camera meets them, each with its bearing from the HQ (radians, 0..2π). */
+function ringOrder(f: SceneFaction): { s: SceneSlot; bearing: number }[] {
+  let ring = RING_ORDER.get(f);
+  if (!ring) {
+    ring = Object.values(sceneSlots(f))
+      .map((s) => ({ s, bearing: norm(Math.atan2(s.z - HQ_SPOT.z, s.x - HQ_SPOT.x)) }))
+      .sort((p, q) => p.bearing - q.bearing);
+    RING_ORDER.set(f, ring);
+  }
+  return ring;
+}
+
+/** The two neighbouring units the camera at `angle` is between (the one it has passed, the one it turns toward) and how far across the gap it is, 0..1. Pure. */
+export function ringGap(f: SceneFaction, angle: number): { from: SceneSlot; to: SceneSlot; s: number } {
+  const ring = ringOrder(f);
+  const a = norm(angle);
+  let i = ring.length - 1;
+  for (let k = 0; k < ring.length; k++) if (ring[k]!.bearing <= a) i = k;
+  const from = ring[i]!;
+  const to = ring[(i + 1) % ring.length]!;
+  return { from: from.s, to: to.s, s: norm(a - from.bearing) / (norm(to.bearing - from.bearing) || TAU) };
+}
+
+/**
+ * The point the camera looks at for camera angle `angle`: on the ground just in front of a unit (`AIM_BEHIND` tiles toward
+ * the HQ along the view), so that unit stands in the middle of the picture with the HQ behind it. The aim holds on each
+ * unit while the camera turns past it, then glides to the next in one unbroken ease (`panWeight`). Pure.
+ */
+export function aimPoint(f: SceneFaction, angle: number): { x: number; z: number } {
+  const { from, to, s } = ringGap(f, angle);
+  const w = panWeight(s);
+  const bx = AIM_BEHIND * Math.cos(angle);
+  const bz = AIM_BEHIND * Math.sin(angle);
+  return { x: from.x + (to.x - from.x) * w - bx, z: from.z + (to.z - from.z) * w - bz };
+}
+
+/** Whether the camera at `angle` is holding on a unit (not panning to the next one), so that unit stands dead centre. */
 export function settledOnUnit(f: SceneFaction, angle: number): boolean {
-  const ds = Object.values(sceneSlots(f))
-    .map((s) => Math.abs(wrap(Math.atan2(s.z - HQ_SPOT.z, s.x - HQ_SPOT.x) - angle)))
-    .sort((p, q) => p - q);
-  return ds[1]! - ds[0]! >= PAN_WINDOW;
+  const w = panWeight(ringGap(f, angle).s);
+  return w === 0 || w === 1;
 }
 
 /** Ground radius, in tiles, that covers a kind's model and its squad's wander: a conservative footprint (MENU-11). */
