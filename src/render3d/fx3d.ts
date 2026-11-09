@@ -229,7 +229,7 @@ interface Flash {
   grow?: boolean;
 }
 
-const LIGHT_POOL = 6;
+const LIGHT_POOL = 4;
 /** Particle budgets: enough for a large battle; beyond them ambient effects thin out first (R3D-13). */
 
 export interface FxQuality {
@@ -265,6 +265,11 @@ export class CombatFx {
   /** Current camera shake amplitude (tiles), decays. */
   shake = 0;
   quality: FxQuality = { rich: true };
+  /** Muzzle and blast point lights: each visible one is a loop in every lit material's shader, so Low turns them all off (the count change rebuilds programs). */
+  setLights(on: boolean): void {
+    for (const l of this.lights) l.light.visible = on;
+  }
+
   /** Ground height under a point, so scorch marks lie on plateaus too; the view sets it. */
   groundAt: (x: number, z: number) => number = () => 0;
 

@@ -4,6 +4,8 @@
  * Pixel ratio stays within [PR_MIN, PR_MAX] device pixels per CSS pixel.
  */
 export const PR_MAX = 1.25;
+/** Low's ceiling: one device pixel per CSS pixel. */
+export const PR_MAX_LOW = 1;
 export const PR_MIN = 0.75;
 export const PR_STEP = 0.1;
 /** A frame slower than this counts as slow, ms (under 50 fps). */

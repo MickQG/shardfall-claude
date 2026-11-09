@@ -65,7 +65,7 @@ const seed = seedOf(params.get('seed'), Date.now() % 100000);
 const personality = resolvePersonality(params.get('personality'), seed);
 const cfg = match
   ? skirmishConfig(match.setup.seed, { factions: match.setup.factions, bonuses: [0, 0], map: match.setup.map, mapSeed: match.setup.mapSeed })
-  : scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0), myFaction) : scenario === 'brawl' ? brawlConfig(seed, 100, myFaction) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
+  : scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0), myFaction) : scenario === 'brawl' ? brawlConfig(seed, Math.min(100, Number(params.get('army') ?? 0) || 100), myFaction) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
 /** The world view (ADR 0005, R3D-1), chosen once here and never part of the simulation. */
 const use3d = chooseRenderer(params.get('renderer'), probeGpu()) === '3d';
 const map = cfg.map;
@@ -384,6 +384,7 @@ function frame(prevTime: number): (t: number) => void {
       if (targeting && !curr.buildings.some((b) => b.id === targeting?.building && b.owner === PLAYER)) targeting = null;
       const alpha = (performance.now() - sim.currAt) / tickMsAt(speed);
       const ru = interpolate(sim.prev.units, curr.units, alpha);
+      audio.lean = settings.quality === 'low';
       view.update(ru, drawCam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings), acks: acks.markers(performance.now(), (id) => locate(id, ru, curr)), flash: acks.flashing(performance.now()) }, curr);
       if (curr.tick !== lastAlertTick) {
         lastAlertTick = curr.tick;

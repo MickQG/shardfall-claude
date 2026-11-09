@@ -23,10 +23,10 @@ import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
-import { applySurface } from './surface3d';
+import { applySurface, setSurface } from './surface3d';
 import { unexploredMask } from './unexplored';
 import { RallyMarker } from './rally3d';
-import { PR_MAX, ResolutionGovernor } from './resolution';
+import { PR_MAX, PR_MAX_LOW, ResolutionGovernor } from './resolution';
 import { addEnvironment, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights } from './lighting3d';
 
 /**
@@ -315,6 +315,9 @@ export class View3D {
   private scatterGroup = new THREE.Group();
   private shadowsOn = true;
   private bloomOn = true;
+  private detailOn = true;
+  /** Low renders at no more than 1 device pixel per CSS pixel: a third fewer pixels than High's 1.25. */
+  private lowRes = false;
   private prepMs = 0;
   private proj: { key: string; p: Projector } | null = null;
   private ray = new THREE.Raycaster();
@@ -396,7 +399,7 @@ export class View3D {
   private fit(): void {
     const host = this.host;
     if (!host) return;
-    const max = Math.min(PR_MAX, window.devicePixelRatio || 1);
+    const max = Math.min(this.lowRes ? PR_MAX_LOW : PR_MAX, window.devicePixelRatio || 1);
     if (!this.res || this.res.max !== max) this.res = new ResolutionGovernor(max);
     const pr = this.res.ratio;
     this.renderer.setPixelRatio(pr);
@@ -1089,7 +1092,18 @@ export class View3D {
   /** The quality preset (R3D-12): shadows, bloom and decor follow it; programs rebuild when shadows change. */
   private applyQuality(vs: ViewState): void {
     this.scatterGroup.visible = vs.fx.decor;
-    const changed = vs.fx.bloom !== this.bloomOn || vs.fx.decor !== this.shadowsOn;
+    let changed = vs.fx.bloom !== this.bloomOn || vs.fx.decor !== this.shadowsOn;
+    // High quality is bloom, so it also stands for the other costly extras: surface detail and point lights.
+    if (vs.fx.bloom !== this.detailOn) {
+      this.detailOn = vs.fx.bloom;
+      setSurface(this.metalMat, 'metal', this.detailOn);
+      setSurface(this.organicMat, 'organic', this.detailOn);
+      this.metalMat.needsUpdate = this.organicMat.needsUpdate = true;
+      this.fx.setLights(this.detailOn);
+      this.lowRes = !this.detailOn;
+      this.fit();
+      changed = true;
+    }
     if (vs.fx.bloom !== this.bloomOn) {
       this.bloomOn = vs.fx.bloom;
       // Glowing parts are brighter than white with bloom, so the bloom pass picks them up; plain white without.
