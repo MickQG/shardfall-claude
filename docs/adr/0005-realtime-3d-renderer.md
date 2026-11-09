@@ -35,3 +35,7 @@ Amended 2026-10-31 (default): the owner approved the 3D view, so it is now the d
 - The VOX sprite specs keep describing the classic renderer until it is removed; new R3D requirements describe the 3D view.
 - The software GPU used in CI (SwiftShader) must run the 3D view without errors; shadows and effects scale down on the low preset.
 - Hard to reverse once the classic renderer is removed, which is why both run side by side until the owner approves the 3D view.
+
+## Amendment (2026-11-09, #145): pitch follows zoom
+
+The camera's pitch is no longer fixed. It follows zoom (R3D-28): at the default zoom it is the original pitch, zooming in lowers it smoothly toward a more cinematic angle, and zooming out returns it. The heading stays fixed at 45 degrees, so the map, minimap and controls keep their orientation, and there is still no free rotation. Picking, orders and the minimap go through the shared projection seam, which takes the pitch for the current zoom, so the classic view and the simulation are unaffected.
