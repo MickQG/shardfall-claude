@@ -34,6 +34,17 @@ const clamp1 = (v: number): number => Math.max(-1, Math.min(1, v));
 const LOOP_IDLE = 4;
 
 /** A soft knee just below full scale: nothing leaves the engine above 1.0, however many sounds pile up (AUD-12). */
+/** The limiter's settings (AUD-12): threshold, dB, and ratio, with a hard knee. */
+const LIMIT_DB = -6;
+const LIMIT_RATIO = 20;
+/**
+ * The make-up gain a DynamicsCompressor applies to everything it passes (Web Audio: the reciprocal of its gain at full
+ * scale, to the power 0.6). Hover and click skip the limiter (AUD-11), so they take this gain themselves and keep their level.
+ */
+export const LIMITER_MAKEUP = (1 / 10 ** ((LIMIT_DB - LIMIT_DB / LIMIT_RATIO) / 20)) ** 0.6;
+/** The UI sounds that answer the pointer itself and so must start at once (AUD-11). */
+const INSTANT: ReadonlySet<string> = new Set(['hover', 'click']);
+
 function limiterCurve(): Float32Array {
   const n = 2048;
   const c = new Float32Array(n);
@@ -58,6 +69,8 @@ export class AudioEngine {
   private musicOut: GainNode | null = null;
   /** The effects bus under the master, beside the music bus: every world, UI, movement and ambience sound goes through it. */
   private sfx: GainNode | null = null;
+  /** Hover and click (AUD-11): straight to the speakers after Master volume, past the limiter and its look-ahead, so they sound the instant the pointer arrives. */
+  private uiOut: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private recent = new Map<string, number[]>();
   private voices: Voice[] = [];
@@ -138,9 +151,9 @@ export class AudioEngine {
     this.ctx = ctx;
     this.master = ctx.createGain();
     const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -6;
+    limiter.threshold.value = LIMIT_DB;
     limiter.knee.value = 0;
-    limiter.ratio.value = 20;
+    limiter.ratio.value = LIMIT_RATIO;
     limiter.attack.value = 0.002;
     limiter.release.value = 0.12;
     const clip = ctx.createWaveShaper();
@@ -150,6 +163,9 @@ export class AudioEngine {
     this.musicOut.connect(this.master);
     this.sfx = ctx.createGain();
     this.sfx.connect(this.master);
+    this.uiOut = ctx.createGain();
+    this.uiOut.gain.value = LIMITER_MAKEUP;
+    this.uiOut.connect(ctx.destination);
     const len = ctx.sampleRate;
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = this.noise.getChannelData(0);
@@ -197,6 +213,8 @@ export class AudioEngine {
     // Mute all and Master volume act on the master (everything); Music off and Music volume act on the music bus only.
     if (this.master) this.master.gain.setTargetAtTime(g.master, this.ctx.currentTime, 0.02);
     if (this.musicOut) this.musicOut.gain.setTargetAtTime(g.music, this.ctx.currentTime, 0.02);
+    // The UI path skips the limiter, so it takes the limiter's make-up gain too and sounds as loud as before.
+    if (this.uiOut) this.uiOut.gain.setTargetAtTime(g.master * LIMITER_MAKEUP, this.ctx.currentTime, 0.02);
   }
 
   private count(key: string): void {
@@ -211,7 +229,7 @@ export class AudioEngine {
     try {
       this.count(name);
       const recipe = recipeFor(name, o.faction);
-      if (recipe) this.render(`${o.faction ?? 'ui'}:${name}`, recipe, gain, o, name === 'zap' || name === 'slash' || name === 'pop' ? 3 : 2);
+      if (recipe) this.render(`${o.faction ?? 'ui'}:${name}`, recipe, gain, o, name === 'zap' || name === 'slash' || name === 'pop' ? 3 : 2, INSTANT.has(name));
     } catch {
       /* audio must never break the game */
     }
@@ -229,7 +247,7 @@ export class AudioEngine {
   }
 
   /** Builds one play of a recipe: rate limit, voice budget, variation, then the nodes. */
-  private render(key: string, recipe: Recipe, gain: number, o: PlayOpts, perWindow: number): void {
+  private render(key: string, recipe: Recipe, gain: number, o: PlayOpts, perWindow: number, instant = false): void {
     const c = this.ctx;
     if (!c || this.muted || !this.live() || !this.sfx) return;
     const now = c.currentTime;
@@ -257,15 +275,17 @@ export class AudioEngine {
       const [victim] = this.voices.splice(al.index, 1);
       if (victim) this.silence(victim, now);
     }
-    const t0 = now + 0.001 + v.delay;
+    // Hover and click start now, with no variation delay, and skip the limiter's look-ahead (AUD-11).
+    const t0 = instant ? now : now + 0.001 + v.delay;
+    const out = instant && this.uiOut ? this.uiOut : this.sfx;
     const vg = c.createGain();
     vg.gain.value = loud;
     let pan: StereoPannerNode | null = null;
     if (typeof c.createStereoPanner === 'function') {
       pan = c.createStereoPanner();
       pan.pan.value = clamp1(o.pan ?? 0);
-      vg.connect(pan).connect(this.sfx);
-    } else vg.connect(this.sfx);
+      vg.connect(pan).connect(out);
+    } else vg.connect(out);
     const sources: AudioScheduledSourceNode[] = [];
     let end = t0;
     let last: AudioScheduledSourceNode | null = null;
