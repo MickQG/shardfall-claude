@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { UNIT_DEFS } from '../../src/data/defs';
 import { BUILDING_RIGS } from '../../src/render3d/buildings3d';
-import { buttonKinds, cameraAngle, castKinds, FADE_IN_MS, FADE_OUT_MS, FIELD_ANGLE, FIELD_ARC, FIELD_INNER, footprintOf, HERO_CLEAR, HQ_SPOT, holdStill, IconCache, iconKey, ORBIT_PERIOD_S, nearestUnit, ORBIT_SAMPLES, orbitAngleAt, PAN_WINDOW, projectedHeight, settledOnUnit, PANEL_MARGIN, panelRight, projectedSpan, RING_RADIUS, SCENE_CAST, sceneFraming, sceneKinds, sceneSlots, shardPlan, STILL_ANGLE } from '../../src/render/menuPlan';
+import { buttonKinds, cameraAngle, castKinds, FADE_IN_MS, FADE_OUT_MS, FIELD_ANGLE, FIELD_ARC, FIELD_INNER, footprintOf, HERO_CLEAR, HQ_SPOT, holdStill, IconCache, iconKey, ORBIT_PERIOD_S, nearestUnit, ORBIT_SAMPLES, orbitAngleAt, PAN_HOLD, panWeight, aimPoint, AIM_BEHIND, ringGap, projectedHeight, settledOnUnit, PANEL_MARGIN, panelRight, projectedSpan, RING_RADIUS, SCENE_CAST, sceneFraming, sceneKinds, sceneSlots, shardPlan, STILL_ANGLE } from '../../src/render/menuPlan';
 import { CAMERA_MAX_DIST, FOG_FAR, FOG_NEAR, GROUND_RADIUS, HAZE, SKY_TOP_SHADE } from '../../src/render3d/menuScene3d';
 import { fitPicture, ICON_EDGE, project, viewDir } from '../../src/render3d/iconFit';
 import { fitPoints, PREVIEW_FOV, PREVIEW_PITCH, restFitPoints } from '../../src/render3d/preview3d';
@@ -103,9 +103,9 @@ describe('menu faction scene (MENU-10, MENU-11)', () => {
     }
   });
 
-  it('MENU-10: the camera circles the HQ once every 60 to 90 seconds at a constant angular speed and a constant heading change rate', () => {
-    expect(ORBIT_PERIOD_S).toBeGreaterThanOrEqual(60);
-    expect(ORBIT_PERIOD_S).toBeLessThanOrEqual(90);
+  it('MENU-10: the camera circles the HQ once every 45 to 60 seconds at a constant angular speed and a constant heading change rate', () => {
+    expect(ORBIT_PERIOD_S).toBeGreaterThanOrEqual(45);
+    expect(ORBIT_PERIOD_S).toBeLessThanOrEqual(60);
     expect(orbitAngleAt(ORBIT_PERIOD_S) - orbitAngleAt(0)).toBeCloseTo(Math.PI * 2, 10);
     const rate = orbitAngleAt(1) - orbitAngleAt(0);
     expect(rate).toBeGreaterThan(0);
@@ -115,6 +115,60 @@ describe('menu faction scene (MENU-10, MENU-11)', () => {
       const h0 = Math.atan2(-Math.sin(orbitAngleAt(t)), -Math.cos(orbitAngleAt(t)));
       const h1 = Math.atan2(-Math.sin(orbitAngleAt(t + 0.5)), -Math.cos(orbitAngleAt(t + 0.5)));
       expect(Math.atan2(Math.sin(h1 - h0), Math.cos(h1 - h0)) / 0.5).toBeCloseTo(rate, 8);
+    }
+  });
+
+  it('MENU-10: between two units the view glides across in one smooth move: no jump, no pause or jerk midway, ending at rest on the next unit', () => {
+    // The ease itself: 0 to 1, never going back, at rest at both ends, and in the middle half never slower than half its top speed.
+    const ds = 1e-4;
+    const speed = (s: number): number => (panWeight(s + ds) - panWeight(s - ds)) / (2 * ds);
+    expect(panWeight(0)).toBe(0);
+    expect(panWeight(1)).toBe(1);
+    let top = 0;
+    for (let s = 0; s <= 1; s += 0.001) top = Math.max(top, speed(s));
+    for (let s = 0.001; s < 1; s += 0.001) {
+      expect(panWeight(s + 0.001)).toBeGreaterThanOrEqual(panWeight(s));
+      const t = (s - PAN_HOLD) / (1 - 2 * PAN_HOLD);
+      if (t > 0.25 && t < 0.75) expect(speed(s), `s=${s.toFixed(3)}`).toBeGreaterThan(0.5 * top);
+    }
+    for (const s of [PAN_HOLD, 1 - PAN_HOLD]) expect(Math.abs(speed(s))).toBeLessThan(1e-3);
+    // The real aim point, all the way round: it moves a little each step (no jump); across each gap its share of the way to the
+    // next unit only grows, and while it is between a quarter and three quarters of the way it keeps at least 40% of its top speed.
+    const checkGap = (shares: number[], label: string): void => {
+      const v = shares.slice(1).map((x, i) => x - shares[i]!);
+      const top = Math.max(...v);
+      if (top <= 0) return;
+      v.forEach((d, i) => {
+        if (shares[i]! > 0.25 && shares[i]! < 0.75) expect(d, `${label}: speed at share ${shares[i]!.toFixed(3)}`).toBeGreaterThan(0.4 * top);
+      });
+    };
+    for (const f of ['human', 'alien'] as const) {
+      const step = 0.0005;
+      let prev = aimPoint(f, 0);
+      let share = -1;
+      let to = ringGap(f, 0).to;
+      let shares: number[] = [];
+      for (let a = step; a < Math.PI * 2; a += step) {
+        const p = aimPoint(f, a);
+        expect(Math.hypot(p.x - prev.x, p.z - prev.z), `${f} at ${a.toFixed(4)}`).toBeLessThan(0.02);
+        prev = p;
+        const g = ringGap(f, a);
+        if (g.to !== to) {
+          checkGap(shares, `${f} gap before ${a.toFixed(3)}`);
+          to = g.to;
+          share = -1;
+          shares = [];
+        }
+        // Where the aim is, as a share of the way from the unit passed to the next, with the turning offset taken out.
+        const ax = p.x + AIM_BEHIND * Math.cos(a) - g.from.x;
+        const az = p.z + AIM_BEHIND * Math.sin(a) - g.from.z;
+        const dx = g.to.x - g.from.x;
+        const dz = g.to.z - g.from.z;
+        const now = (ax * dx + az * dz) / (dx * dx + dz * dz);
+        expect(now).toBeGreaterThanOrEqual(share - 1e-9);
+        share = now;
+        shares.push(now);
+      }
     }
   });
 
@@ -163,8 +217,9 @@ describe('menu faction scene (MENU-10, MENU-11)', () => {
         }
       }
       // Most of the orbit is spent settled on a unit; the pans between them are short.
-      expect(settled / ORBIT_SAMPLES).toBeGreaterThanOrEqual(0.4);
-      expect(PAN_WINDOW).toBeLessThanOrEqual(0.4);
+      expect(settled / ORBIT_SAMPLES).toBeGreaterThanOrEqual(0.3);
+      expect(PAN_HOLD).toBeGreaterThanOrEqual(0.15);
+      expect(PAN_HOLD).toBeLessThanOrEqual(0.3);
     }
   });
 

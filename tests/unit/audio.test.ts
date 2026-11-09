@@ -358,21 +358,30 @@ describe('UI sounds', () => {
     expect(e.stats.started).toBe(0);
   });
 
-  it('AUD-11: buttons play hover once on entering and click on pressing, and a refused or disabled one stays silent', () => {
+  it('AUD-11: hover plays only on moving onto a usable button, never on leaving it, on a background or on an unavailable one; click plays only on a usable button', () => {
     const handlers = new Map<string, (e: unknown) => void>();
     const root = { addEventListener: (t: string, h: (e: unknown) => void) => handlers.set(t, h) } as unknown as EventTarget;
     const played: string[] = [];
     wireUiSounds(root, { play: (n) => played.push(n) });
     const Elem = globalThis.Element;
-    // A tiny DOM stand-in: elements that know their closest button.
+    // A tiny DOM stand-in: elements that know their closest button and what they contain.
     class Fake {
+      parent: Fake | null = null;
       constructor(
         public btn: Fake | null,
         public cls: string[] = [],
         public disabled = false,
+        public aria: string | null = null,
       ) {}
       closest(): Fake | null {
         return this.btn ?? null;
+      }
+      contains(n: Fake | null): boolean {
+        for (let x = n; x; x = x.parent) if (x === this) return true;
+        return false;
+      }
+      getAttribute(name: string): string | null {
+        return name === 'aria-disabled' ? this.aria : null;
       }
       classList = { contains: (c: string): boolean => this.cls.includes(c) };
     }
@@ -380,18 +389,40 @@ describe('UI sounds', () => {
       (globalThis as unknown as { Element: unknown }).Element = Fake;
     }
     const E = globalThis.Element as unknown as typeof Fake;
+    const over = (target: Fake, relatedTarget: Fake | null): void => handlers.get('pointerover')!({ target, relatedTarget });
+    const click = (target: Fake): void => handlers.get('click')!({ target });
+    const self = (f: Fake): Fake => ((f.btn = f), f);
     try {
-      const b = new Fake(null);
-      b.btn = b;
+      const bg = new E(null) as unknown as Fake; // a panel background: no button around it
+      const b = self(new Fake(null));
       const child = new E(b) as unknown as Fake;
-      const off = new Fake(null, ['off']);
-      off.btn = off;
-      handlers.get('pointerover')!({ target: b, relatedTarget: null });
-      handlers.get('pointerover')!({ target: child, relatedTarget: b });
-      handlers.get('pointerover')!({ target: off, relatedTarget: null });
-      handlers.get('click')!({ target: b });
-      handlers.get('click')!({ target: off });
-      expect(played).toEqual(['hover', 'click']);
+      child.parent = b;
+      // A button inside a button-like tile, and the tile itself.
+      const tile = self(new Fake(null));
+      const inner = self(new Fake(null));
+      inner.parent = tile;
+      // Entering from the background plays hover once.
+      over(b, bg);
+      expect(played).toEqual(['hover']);
+      // Moving to its child, off it onto the background, or from an inner button onto its parent: silent.
+      over(child, b);
+      over(bg, b);
+      over(tile, inner);
+      expect(played).toEqual(['hover']);
+      // Entering from outside the page plays hover.
+      over(b, null);
+      expect(played).toEqual(['hover', 'hover']);
+      // Unavailable buttons: silent for hover and click.
+      for (const u of [self(new Fake(null, ['off'])), self(new Fake(null, [], true)), self(new Fake(null, [], false, 'true'))]) {
+        over(u, bg);
+        click(u);
+      }
+      expect(played).toEqual(['hover', 'hover']);
+      // A click on a usable button plays; a click on a background or a bare element plays nothing.
+      click(b);
+      click(child);
+      click(bg);
+      expect(played).toEqual(['hover', 'hover', 'click', 'click']);
     } finally {
       if (typeof Elem === 'undefined') delete (globalThis as unknown as { Element?: unknown }).Element;
     }
