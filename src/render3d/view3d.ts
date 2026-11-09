@@ -22,6 +22,7 @@ import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
+import { applySurface } from './surface3d';
 import { unexploredMask } from './unexplored';
 import { RallyMarker } from './rally3d';
 import { PR_MAX, ResolutionGovernor } from './resolution';
@@ -361,6 +362,9 @@ export class View3D {
   private res: ResolutionGovernor | null = null;
 
   constructor() {
+    // Panels, wear and creases on units and buildings, from the shader alone (R3D-23); compiled with the rest in prewarm.
+    applySurface(this.metalMat, 'metal');
+    applySurface(this.organicMat, 'organic');
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     configureRenderer(this.renderer);
     // The sun's shadows are redrawn every other frame (PERF-1): at 60 fps a shadow trailing its unit by one frame is invisible.
