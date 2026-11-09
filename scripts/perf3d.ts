@@ -8,6 +8,7 @@
  *   PERF_URL=http://localhost:5197 npm run perf3d   uses a running server
  *   PERF_SECONDS=15 PERF_SCENARIOS=showcase,brawl PERF_GL=swiftshader PERF_HEADED=1   tune a run
  *
+ * PERF_HEADED=1 opens the window off-screen (--window-position=-32000,-32000), so it never pops up on the desktop.
  * It uses the machine's real GPU by default; set PERF_GL=swiftshader to force the software renderer (slow, only to check
  * that the script works). The numbers are only meaningful on the hardware the target is measured on (Intel iGPU).
  */
@@ -43,7 +44,8 @@ async function main(): Promise<void> {
     server = spawn('npx', ['vite', '--port', String(PORT), '--strictPort'], { stdio: 'ignore', shell: true });
     for (let i = 0; i < 60 && !(await serverUp(base)); i++) await new Promise((r) => setTimeout(r, 500));
   }
-  const args = process.env.PERF_GL === 'swiftshader' ? ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] : ['--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
+  const args: string[] = process.env.PERF_GL === 'swiftshader' ? ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] : ['--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
+  if (process.env.PERF_HEADED === '1') args.push('--window-position=-32000,-32000');
   const browser = await chromium.launch({ args, headless: process.env.PERF_HEADED !== '1' });
   try {
     for (const scenario of SCENARIOS) {

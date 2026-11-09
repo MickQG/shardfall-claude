@@ -4,14 +4,14 @@
  * Pixel ratio stays within [PR_MIN, PR_MAX] device pixels per CSS pixel.
  */
 export const PR_MAX = 1.25;
-export const PR_MIN = 0.85;
+export const PR_MIN = 0.75;
 export const PR_STEP = 0.1;
 /** A frame slower than this counts as slow, ms (under 50 fps). */
 export const SLOW_MS = 20;
 /** A frame no slower than this counts as on time, ms (60 Hz with a little slack). */
 export const ON_TIME_MS = 17.5;
 /** Slow frames for this long, ms, before dropping a step. */
-export const DROP_AFTER_MS = 1500;
+export const DROP_AFTER_MS = 800;
 /** On-time frames for this long, ms, before raising a step. */
 export const RAISE_AFTER_MS = 8000;
 

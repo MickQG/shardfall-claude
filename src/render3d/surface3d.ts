@@ -31,9 +31,10 @@ const COMMON = `varying vec3 vSdPos;
 varying vec3 vSdNrm;
 vec2 sdProject( vec3 p, vec3 n ) {
   vec3 a = abs( n );
-  if ( a.x > a.y && a.x > a.z ) return p.zy + vec2( 3.1, 0.0 );
-  if ( a.y > a.z ) return p.xz + vec2( 0.0, 7.3 );
-  return p.xy + vec2( 5.7, 1.9 );
+  float ax = step( a.y, a.x ) * step( a.z, a.x );
+  float ay = ( 1.0 - ax ) * step( a.z, a.y );
+  float az = 1.0 - ax - ay;
+  return ax * ( p.zy + vec2( 3.1, 0.0 ) ) + ay * ( p.xz + vec2( 0.0, 7.3 ) ) + az * ( p.xy + vec2( 5.7, 1.9 ) );
 }
 float sdHash( vec2 c ) { return fract( sin( dot( c, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 ); }
 `;

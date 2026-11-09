@@ -315,6 +315,7 @@ export class View3D {
   private scatterGroup = new THREE.Group();
   private shadowsOn = true;
   private bloomOn = true;
+  private prepMs = 0;
   private proj: { key: string; p: Projector } | null = null;
   private ray = new THREE.Raycaster();
   private ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -1065,10 +1066,13 @@ export class View3D {
     this.debris.update(t, dt);
     this.applyQuality(vs);
     if (this.frame % SHADOW_EVERY === 0) this.renderer.shadowMap.needsUpdate = true;
+    // The governor needs the CPU's own work, not the time render() spends blocked behind a busy GPU.
+    const prep = performance.now() - cpu0;
+    this.prepMs += (prep - this.prepMs) * 0.05;
     if (this.bloomOn && this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
     this.cpuMs += (performance.now() - cpu0 - this.cpuMs) * 0.05;
-    if (this.res?.step(dt * 1000, this.cpuMs)) this.fit();
+    if (this.res?.step(dt * 1000, this.prepMs)) this.fit();
   }
 
   /** Render figures for tests and measurement (R3D-29): draws, triangles, CPU time, live particles and debris. */
@@ -1079,7 +1083,7 @@ export class View3D {
 
   /** Draw calls of the last frame and the smoothed CPU time of an update, for the frame-time readout. */
   readout(): string {
-    return `${this.renderer.info.render.calls} draws · ${Math.round(this.renderer.info.render.triangles / 1000)}k tris · cpu ${this.cpuMs.toFixed(1)} ms`;
+    return `${this.renderer.info.render.calls} draws · ${Math.round(this.renderer.info.render.triangles / 1000)}k tris · cpu ${this.cpuMs.toFixed(1)} ms · px ${this.res?.ratio ?? 1}`;
   }
 
   /** The quality preset (R3D-12): shadows, bloom and decor follow it; programs rebuild when shadows change. */
