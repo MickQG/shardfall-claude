@@ -13,7 +13,7 @@ import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, ROCK_AMP, rockOffset, sc
 import { kneels, newMember, SQUAD_SPREAD, stepSquad, type Member, type SquadFrame } from '../../src/render3d/squad3d';
 import { demoMap, showcaseConfig, skirmishMap } from '../../src/data/maps';
 import type { MapDef } from '../../src/sim';
-import { GORGER_NECK, UNIT_RIGS } from '../../src/render3d/units3d';
+import { GORGER_NECK, HAULER_HATCH, UNIT_RIGS } from '../../src/render3d/units3d';
 import { HIDE_FROM, HIDE_FULL, unexploredMask } from '../../src/render3d/unexplored';
 import { CRASH_MS, damageLook, GLOW, glowLevels, HIVE_GLOW } from '../../src/render3d/view3d';
 
@@ -190,7 +190,7 @@ describe('movement feel (render only)', () => {
     const buggy = rigTree(UNIT_RIGS.hum_buggy!());
     const wheels = buggy.anims.filter((x) => x.anim.k === 'wheel');
     expect(wheels.length).toBe(4);
-    poseRig(buggy, { ...STILL, dist: 0.11 });
+    poseRig(buggy, { ...STILL, dist: 0.125 });
     for (const w of wheels) expect(w.obj.rotation.z).toBeCloseTo(-1); // one radius travelled = one radian rolled
   });
 
@@ -297,7 +297,7 @@ describe('fog, damage, harvesters and deaths', () => {
     expect(fx.particleCount).toBeGreaterThan(3);
   });
 
-  it('R3D-22: docked on the pad, the hauler backs its tipping bed to the intake and the gorger bows its head into the maw', () => {
+  it('R3D-22: docked on the pad, the hauler backs its rear hatch to the intake and the gorger, level, nods its head into the maw', () => {
     for (const [ref, unit] of [['hum_refinery', 'hum_hauler'], ['ali_extractor', 'ali_gorger']] as const) {
       const d = buildingDef(ref);
       // A dock model exists for each refinery kind, with real detail.
@@ -320,11 +320,11 @@ describe('fog, damage, harvesters and deaths', () => {
         const intake = new THREE.Vector2(ix, iz);
         const ahead = new THREE.Vector2(x + Math.cos(yaw) * 0.5, z + Math.sin(yaw) * 0.5).distanceTo(intake);
         const behind = new THREE.Vector2(x - Math.cos(yaw) * 0.5, z - Math.sin(yaw) * 0.5).distanceTo(intake);
-        if (unit === 'hum_hauler') expect(behind, 'the bed tips out of the back, into the hopper').toBeLessThan(ahead);
+        if (unit === 'hum_hauler') expect(behind, 'the hatch opens at the back, into the hopper').toBeLessThan(ahead);
         else expect(ahead, 'the gorger faces the maw').toBeLessThan(behind);
       }
     }
-    // Unloading, the gorger's maw dips well down toward the pool, about its neck; the hauler's bed tips (R3D-19).
+    // Unloading, the gorger's maw dips a little toward the pool, about its neck, and its body stays level (R3D-31).
     const g = rigTree(UNIT_RIGS.ali_gorger!());
     const head = g.drawn.find((n) => n.geo === 'head')!;
     const maw = (tip: number): THREE.Vector3 => {
@@ -334,7 +334,8 @@ describe('fog, damage, harvesters and deaths', () => {
     };
     const up = maw(0);
     const down = maw(1);
-    expect(up.y - down.y).toBeGreaterThan(0.1);
+    expect(up.y - down.y).toBeGreaterThan(0.04);
+    expect(up.y - down.y).toBeLessThan(0.1); // a nod, not a bow
     const neck = (tip: number): THREE.Vector3 => {
       poseRig(g, { ...STILL, walker: true, tip });
       g.root.updateMatrixWorld(true);
@@ -352,23 +353,23 @@ describe('fog, damage, harvesters and deaths', () => {
       poseRig(t, { ...STILL, load: 1 });
       expect(cargo.obj.scale.y, kind).toBeGreaterThan(small + 0.2);
     }
-    // The hauler tips its bed back about the rear hinge to unload, and its cutter drum turns while mining.
+    // The hauler opens its rear hatch about the top hinge to unload, and its cutter drum turns while mining.
     const hauler = rigTree(UNIT_RIGS.hum_hauler!());
-    const bed = hauler.anims.find((a) => a.anim.k === 'tip')!;
+    const hatch = hauler.anims.find((a) => a.anim.k === 'tip')!;
     const drum = hauler.anims.find((a) => a.anim.k === 'drum')!;
     poseRig(hauler, { ...STILL, tip: 0, drum: 0 });
-    expect(bed.obj.rotation.z).toBe(0);
+    expect(hatch.obj.rotation.z).toBe(0);
     poseRig(hauler, { ...STILL, tip: 1, drum: 2 });
-    expect(bed.obj.rotation.z).toBeGreaterThan(0.5); // front up, so the load slides out of the back
+    expect(hatch.obj.rotation.z).toBeLessThan(-0.5); // the bottom swings out of the back, so the load spills out
     expect(drum.obj.rotation.z).toBeCloseTo(-2, 6);
-    // The hinge stays where it is while the bed swings up about it.
-    bed.obj.updateMatrix();
-    const hinge = new THREE.Vector3(-0.72, 0.3, 0).applyMatrix4(bed.obj.matrix);
-    expect(hinge.x).toBeCloseTo(-0.72, 6);
-    expect(hinge.y).toBeCloseTo(0.3, 6);
-    // ...and the front of the bed rises above its resting height.
-    const front = new THREE.Vector3(0.3, 0.52, 0).applyMatrix4(bed.obj.matrix);
-    expect(front.y).toBeGreaterThan(0.8);
+    // The hinge stays where it is while the hatch swings up about it...
+    hatch.obj.updateMatrix();
+    const hinge = new THREE.Vector3(...HAULER_HATCH).applyMatrix4(hatch.obj.matrix);
+    expect(hinge.x).toBeCloseTo(HAULER_HATCH[0], 6);
+    expect(hinge.y).toBeCloseTo(HAULER_HATCH[1], 6);
+    // ...and its lower edge, once at the hopper floor, swings out behind the hopper's back.
+    const edge = new THREE.Vector3(-0.8, 0.32, 0).applyMatrix4(hatch.obj.matrix);
+    expect(edge.x).toBeLessThan(-1);
     const fx = new CombatFx();
     const hopper = new THREE.Vector3(5, 0.6, 5);
     const crystal = new THREE.Vector3(6, 0.2, 5);

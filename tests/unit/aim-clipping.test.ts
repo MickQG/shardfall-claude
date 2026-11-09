@@ -128,6 +128,13 @@ describe('models do not clip', () => {
         ['lunge', { ...STILL, walker, lunge: 1, reach: def.radius * 0.25 }],
         ['kneel', { ...STILL, walker, crouch: 1 }],
         ['unload', { ...STILL, walker, tip: 1 }],
+        // The new harvesting and gun motions (R3D-30..32): head lowered and chewing, limbs reaching, a wave, barrel raised.
+        ['head down', { ...STILL, walker, head: 1, time: 100, drum: 1 }],
+        ['feeding', { ...STILL, walker, feed: 1, time: 450 }],
+        ['feeding, other beat', { ...STILL, walker, feed: 1, time: 150 }],
+        ['unload wave', { ...STILL, walker, tip: 1, time: 600 }],
+        ['barrel raised', { ...STILL, walker, elev: 1 }],
+        ['barrel raised and firing', { ...STILL, walker, elev: 1, kick: 1, turret: 1.2 }],
         ['turning', { ...STILL, walker, turnRate: 3, turned: 2, dist: 1 }],
         ['lean forward', { ...STILL, walker, pitch: hero ? 0.16 : lean, bob: hero ? -0.07 : 0 }],
         ['lean back', { ...STILL, walker, pitch: hero ? -0.16 : -lean, bob: hero ? -0.07 : 0 }],

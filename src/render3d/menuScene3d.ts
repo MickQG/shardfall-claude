@@ -5,7 +5,7 @@ import { OWNER_COLORS } from '../render/colors';
 import { BUILDING_RIGS, crystalShape } from './buildings3d';
 import { addEnvironment, configureRenderer, configureSunShadow, createComposer, glowLevels, matchLights } from './lighting3d';
 import { aimPoint, cameraAngle, FADE_IN_MS, FADE_OUT_MS, HQ_SPOT, SCENE_CAST, SCENE_FOV, SCENE_PITCH, sceneFraming, sceneSlots, shardPlan, TARGET_HEIGHT, type SceneFaction, type SceneSlot } from '../render/menuPlan';
-import { bodyPose, restingMotion } from './motion';
+import { bodyPose, restingMotion, rideMotion } from './motion';
 import { Instancer } from './instancer';
 import { PR_MAX } from './resolution';
 import { poseRig, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
@@ -305,7 +305,13 @@ class Scene3d implements MenuScene {
           return;
         }
         const pose = bodyPose(def.move, m, 0, now, f.seed + i, mm ? undefined : def.walk);
-        const work = f.working ? { load: ((now + f.seed * 97) % MINE_MS) / MINE_MS, drum: (now / 1000) * 14, lunge: def.organic ? Math.max(0, Math.sin((now / 700) * Math.PI * 2)) : 0 } : null;
+        const work = f.working ? { load: ((now + f.seed * 97) % MINE_MS) / MINE_MS, drum: (now / 1000) * 14, head: 1, feed: 1 } : null;
+        if (def.ride) {
+          const ride = rideMotion(def.ride, m.stride, now, f.seed + i);
+          pose.pitch += ride.pitch;
+          pose.roll += ride.roll;
+          pose.bob += ride.bob;
+        }
         poseRig(tree, { ...STILL, turret: 0.3 * Math.sin(now / 2600 + f.seed), pitch: pose.pitch, roll: pose.roll, bob: pose.bob, time: now, reach: def.radius * 0.25, walker, crouch: mm?.crouch ?? 0, phase: i * 1.7, ...work });
       });
     }

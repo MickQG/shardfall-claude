@@ -15,7 +15,7 @@ import { cameraPose, FOV, PX_PER_UNIT } from './camera3d';
 import { CombatFx } from './fx3d';
 import { Instancer } from './instancer';
 import type { Built, Shape } from './kit';
-import { angleDiff, bodyPose, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
+import { angleDiff, bodyPose, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HAULER_PUFF_ACCEL, HAULER_PUFF_MS, HEAD_MS, rideMotion, slew, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
@@ -203,6 +203,11 @@ interface UnitObj {
   /** How far the bed is tipped (or the belly squeezes), 0..1, and the cutter drum's angle (R3D-19). */
   tip: number;
   drum: number;
+  /** How far into its work a harvester is, 0..1, eased over 0.4 s: the hauler's head is lowered, the gorger feeds (R3D-30, R3D-31). */
+  work: number;
+  /** The howitzer's barrel elevation, 0 in its travel lock .. 1 raised (R3D-32), and when the hauler last puffed exhaust. */
+  elev: number;
+  lastPuff: number;
   alive: number;
   seed: number;
   dying: { t0: number; mode: 'wreck' | 'fall' | 'crash' | 'break' | 'crush'; side: number; boomed: boolean; pieces?: { pivot: THREE.Group; plan: Piece }[] } | null;
@@ -711,6 +716,9 @@ export class View3D {
       capacity: d.capacity ?? 0,
       tip: 0,
       drum: 0,
+      work: 0,
+      elev: 0,
+      lastPuff: 0,
       alive: size,
       seed,
       dying: null,
@@ -1167,6 +1175,12 @@ export class View3D {
         this.fx.dust(this.v.set(o.x - Math.cos(h) * def.radius * 0.6, 0, o.z - Math.sin(h) * def.radius * 0.6), def.radius * 1.2, t);
       }
       if (o.capacity > 0) this.harvestFx(u.id, o, t, dt);
+      // The hauler's stack puffs dark smoke as it throttles up (R3D-30), now and then.
+      if (o.kind === 'hum_hauler' && o.motion.accel > HAULER_PUFF_ACCEL && t - o.lastPuff > HAULER_PUFF_MS && this.inView(o.x, 0, o.z, 1)) {
+        o.lastPuff = t;
+        const h = o.motion.heading;
+        this.fx.burn(this.v.set(o.x + Math.cos(h) * 0.14 - Math.sin(h) * 0.3, o.groundY + 0.72, o.z + Math.sin(h) * 0.14 + Math.cos(h) * 0.3), false, 0.22, t);
+      }
       if (this.inView(o.x, o.root.position.y, o.z, def.radius + (o.members.length ? 0.5 : 0))) this.drawUnit(o, this.tint.setRGB(1, 1, 1), t);
     }
     for (const [id, o] of this.units) {
@@ -1233,15 +1247,16 @@ export class View3D {
     // The simulation says when it is docked and unloading (R3D-22); the bed stays up until it drives off.
     const unloading = !mining && o.docked;
     o.tip += ((unloading ? 1 : 0) - o.tip) * Math.min(1, dt * (unloading ? 9 : 3));
+    o.work = slew(o.work, mining ? 1 : 0, dt, HEAD_MS, HEAD_MS);
     if (mining) o.drum += dt * 14;
     if (mining && organic && t - o.lunge > 700) o.lunge = t; // a chomp
     const g = o.groundY;
     if (mining) {
-      const from = organic ? this.v.set(o.x + fx * 0.75, g + 0.06, o.z + fz * 0.75) : this.v.set(o.x + fx * 0.85, g + 0.1, o.z + fz * 0.85);
-      const into = organic ? this.v2.set(o.x + fx * 0.55, g + 0.32, o.z + fz * 0.55) : this.v2.set(o.x - fx * 0.2, g + 0.62, o.z - fz * 0.2);
+      const from = organic ? this.v.set(o.x + fx * 0.75, g + 0.06, o.z + fz * 0.75) : this.v.set(o.x + fx * 1.0, g + 0.1, o.z + fz * 1.0);
+      const into = organic ? this.v2.set(o.x + fx * 0.55, g + 0.32, o.z + fz * 0.55) : this.v2.set(o.x - fx * 0.1, g + 0.7, o.z - fz * 0.1);
       this.fx.harvest(id, from, into, organic, false, t);
     } else if (unloading && t - o.unloadAt < 300 && o.tip > 0.3) {
-      const from = organic ? this.v.set(o.x + fx * 0.6, g + 0.3, o.z + fz * 0.6) : this.v.set(o.x - fx * 0.95, g + 0.5, o.z - fz * 0.95);
+      const from = organic ? this.v.set(o.x + fx * 0.6, g + 0.3, o.z + fz * 0.6) : this.v.set(o.x - fx * 0.85, g + 0.5, o.z - fz * 0.85);
       const onto = organic ? this.v2.set(o.x + fx * 0.95, g + 0.05, o.z + fz * 0.95) : this.v2.set(o.x - fx * 1.35, g + 0.05, o.z - fz * 1.35);
       this.fx.harvest(id, from, onto, organic, true, t);
     }
@@ -1284,6 +1299,8 @@ export class View3D {
     }
     // Parts are posed only for units in or near the view (PERF-1); their walk and aim go on off screen, so nothing jumps.
     const posed = this.inView(o.x, o.root.position.y, o.z, def.radius + POSE_MARGIN);
+    // A howitzer raises its barrel while it has a target or has fired lately, and lowers it into the lock otherwise (R3D-32).
+    if (def.weapon === 'howitzer') o.elev = slew(o.elev, elevTarget(aiming, t - Math.max(...o.lastFire)), dt, ELEV_UP_MS, ELEV_DOWN_MS);
     o.figures.forEach((f, i) => {
       if (i >= o.alive) return;
       const mm = squad ? o.members[i]! : null;
@@ -1303,6 +1320,12 @@ export class View3D {
       }
       const phase = gaitPhase(mo.dist, def.stride ?? 1) + i * 1.7 + o.seed;
       const pose = bodyPose(def.move, mo, phase, t, o.seed + i, mm ? undefined : def.walk);
+      if (def.ride) {
+        const ride = rideMotion(def.ride, mo.stride, t, o.seed + i);
+        pose.pitch += ride.pitch;
+        pose.roll += ride.roll;
+        pose.bob += ride.bob;
+      }
       // A hero's whole body heaves with each heavy shot (HERO-4).
       const heave = heroHeave(def.weapon, t - (o.lastFire[i] ?? -1e9));
       poseRig(f, {
@@ -1324,6 +1347,9 @@ export class View3D {
         load: o.capacity > 0 ? o.load / o.capacity : 1,
         tip: o.tip,
         drum: o.drum,
+        head: o.work,
+        feed: o.work,
+        elev: o.elev,
         pod: podOpen(t - o.podSince, salvoOf(o.kind, this.msPerTick)),
       });
     });
