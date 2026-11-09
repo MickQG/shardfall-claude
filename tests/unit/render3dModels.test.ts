@@ -783,7 +783,7 @@ describe('effects budget and batching', () => {
     const fx = new CombatFx();
     for (let i = 0; i < 400; i++) fx.explosion(new THREE.Vector3(i % 20, 0, 0), 1, 0);
     fx.update(100, 0.016);
-    expect(fx.particleCount).toBeLessThanOrEqual(2560 + 2048);
+    expect(fx.particleCount).toBeLessThanOrEqual(8192 + 4096); // the GPU budgets (R3D-26)
   });
 });
 

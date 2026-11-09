@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { valueNoise } from '../render/terrainNext';
 import { MISSILE_ARC } from './motion';
+import { BUDGET, GpuParticleLayer, type HideUniforms } from './gpuParticles';
 import type { WeaponLook } from './rig';
 
 /**
@@ -119,55 +120,6 @@ export interface ParticleSpec {
   delay?: number;
 }
 
-const VERT = /* glsl */ `
-attribute float size;
-attribute vec4 pcolor;
-uniform float scale;
-varying vec4 vColor;
-void main() {
-  vColor = pcolor;
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  gl_PointSize = size * scale / max(0.1, -mv.z);
-  gl_Position = projectionMatrix * mv;
-}`;
-
-const FRAG = /* glsl */ `
-uniform sampler2D map;
-varying vec4 vColor;
-void main() {
-  float a = texture2D(map, gl_PointCoord).a * vColor.a;
-  if (a < 0.003) discard;
-  gl_FragColor = vec4(vColor.rgb, a);
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-}`;
-
-/** A sprite texture: a soft disc, or a lumpy smoke puff (seeded). */
-function puffTexture(lumpy: boolean): THREE.Texture {
-  const N = 64;
-  const data = new Uint8Array(N * N * 4);
-  const rng = new Rng(lumpy ? 7 : 3);
-  const blobs = lumpy ? Array.from({ length: 7 }, () => [rng.range(0.3, 0.7), rng.range(0.3, 0.7), rng.range(0.16, 0.3)] as const) : [[0.5, 0.5, 0.5] as const];
-  for (let y = 0; y < N; y++) {
-    for (let x = 0; x < N; x++) {
-      const u = (x + 0.5) / N;
-      const v = (y + 0.5) / N;
-      let a = 0;
-      for (const [bx, by, br] of blobs) a = Math.max(a, 1 - Math.hypot(u - bx, v - by) / br);
-      if (!lumpy) a = Math.pow(Math.max(0, a), 1.6);
-      else a = Math.max(0, Math.min(1, a * 1.4)) * Math.max(0, 1 - Math.hypot(u - 0.5, v - 0.5) * 2);
-      const k = (y * N + x) * 4;
-      data[k] = data[k + 1] = data[k + 2] = 255;
-      data[k + 3] = Math.round(a * 255);
-    }
-  }
-  const t = new THREE.DataTexture(data, N, N);
-  t.magFilter = THREE.LinearFilter;
-  t.minFilter = THREE.LinearFilter;
-  t.needsUpdate = true;
-  return t;
-}
-
 /**
  * A scorch mark: an uneven burnt blob that fades to nothing well inside its square (R3D-12). The value sits in every
  * channel because an alpha map reads green. `lobes` sets how uneven its edge is (acid puddles are rounder).
@@ -204,147 +156,6 @@ const scorchGeoFor = (): THREE.PlaneGeometry => {
   }
   return groundSquare;
 };
-
-/** One pooled particle layer drawn as camera-facing points (glowing = additive, else alpha-blended smoke). */
-class ParticleLayer {
-  readonly points: THREE.Points;
-  private n = 0;
-  private pos: Float32Array;
-  private vel: Float32Array;
-  private born: Float32Array;
-  private life: Float32Array;
-  private size: Float32Array;
-  private col: Float32Array;
-  private misc: Float32Array; // alpha, drag, gravity
-  private aPos: THREE.BufferAttribute;
-  private aSize: THREE.BufferAttribute;
-  private aCol: THREE.BufferAttribute;
-  readonly material: THREE.ShaderMaterial;
-  private c0 = new THREE.Color();
-  private c1 = new THREE.Color();
-  private overwrite = 0;
-
-  constructor(private readonly cap: number, glow: boolean) {
-    this.pos = new Float32Array(cap * 3);
-    this.vel = new Float32Array(cap * 3);
-    this.born = new Float32Array(cap);
-    this.life = new Float32Array(cap);
-    this.size = new Float32Array(cap * 2);
-    this.col = new Float32Array(cap * 6);
-    this.misc = new Float32Array(cap * 3);
-    const g = new THREE.BufferGeometry();
-    this.aPos = new THREE.BufferAttribute(new Float32Array(cap * 3), 3).setUsage(THREE.DynamicDrawUsage);
-    this.aSize = new THREE.BufferAttribute(new Float32Array(cap), 1).setUsage(THREE.DynamicDrawUsage);
-    this.aCol = new THREE.BufferAttribute(new Float32Array(cap * 4), 4).setUsage(THREE.DynamicDrawUsage);
-    g.setAttribute('position', this.aPos);
-    g.setAttribute('size', this.aSize);
-    g.setAttribute('pcolor', this.aCol);
-    g.setDrawRange(0, 0);
-    this.material = new THREE.ShaderMaterial({
-      uniforms: { map: { value: puffTexture(!glow) }, scale: { value: 600 } },
-      vertexShader: VERT,
-      fragmentShader: FRAG,
-      transparent: true,
-      depthWrite: false,
-      blending: glow ? THREE.AdditiveBlending : THREE.NormalBlending,
-    });
-    this.points = new THREE.Points(g, this.material);
-    this.points.frustumCulled = false;
-    this.points.renderOrder = glow ? 6 : 5;
-  }
-
-  get count(): number {
-    return this.n;
-  }
-
-  emit(p: ParticleSpec, now: number): void {
-    // Full: replace the oldest-born slot (slot 0 after compaction is the oldest).
-    // Full: overwrite a slot in rotation (the pool is large enough that this only thins the busiest moments).
-    const i = this.n < this.cap ? this.n++ : (this.overwrite = (this.overwrite + 1) % this.cap);
-    const i3 = i * 3;
-    this.pos[i3] = p.x;
-    this.pos[i3 + 1] = p.y;
-    this.pos[i3 + 2] = p.z;
-    this.vel[i3] = p.vx ?? 0;
-    this.vel[i3 + 1] = p.vy ?? 0;
-    this.vel[i3 + 2] = p.vz ?? 0;
-    this.born[i] = now + (p.delay ?? 0);
-    this.life[i] = p.life;
-    this.size[i * 2] = p.size0;
-    this.size[i * 2 + 1] = p.size1;
-    this.c0.setHex(p.color0);
-    this.c1.setHex(p.color1 ?? p.color0);
-    const i6 = i * 6;
-    this.col[i6] = this.c0.r;
-    this.col[i6 + 1] = this.c0.g;
-    this.col[i6 + 2] = this.c0.b;
-    this.col[i6 + 3] = this.c1.r;
-    this.col[i6 + 4] = this.c1.g;
-    this.col[i6 + 5] = this.c1.b;
-    this.misc[i3] = p.alpha;
-    this.misc[i3 + 1] = p.drag ?? 0;
-    this.misc[i3 + 2] = p.gravity ?? 0;
-  }
-
-  update(now: number, dt: number): void {
-    const P = this.aPos.array as Float32Array;
-    const S = this.aSize.array as Float32Array;
-    const C = this.aCol.array as Float32Array;
-    const pos = this.pos;
-    const vel = this.vel;
-    let i = 0;
-    while (i < this.n) {
-      const age = now - (this.born[i] as number);
-      const k = age / (this.life[i] as number);
-      if (k >= 1) {
-        // Dead: the last live particle takes its slot (order does not matter for these blends).
-        this.n--;
-        if (i !== this.n) this.copy(this.n, i);
-        continue;
-      }
-      const i3 = i * 3;
-      if (age >= 0) {
-        const drag = Math.exp(-(this.misc[i3 + 1] as number) * dt);
-        vel[i3] = (vel[i3] as number) * drag;
-        vel[i3 + 1] = (vel[i3 + 1] as number) * drag - (this.misc[i3 + 2] as number) * dt;
-        vel[i3 + 2] = (vel[i3 + 2] as number) * drag;
-        pos[i3] = (pos[i3] as number) + (vel[i3] as number) * dt;
-        pos[i3 + 1] = (pos[i3 + 1] as number) + (vel[i3 + 1] as number) * dt;
-        pos[i3 + 2] = (pos[i3 + 2] as number) + (vel[i3 + 2] as number) * dt;
-        if ((pos[i3 + 1] as number) < 0.01) {
-          pos[i3 + 1] = 0.01;
-          vel[i3 + 1] = Math.abs(vel[i3 + 1] as number) * 0.25;
-        }
-      }
-      const kk = Math.max(0, k);
-      P[i3] = pos[i3] as number;
-      P[i3 + 1] = pos[i3 + 1] as number;
-      P[i3 + 2] = pos[i3 + 2] as number;
-      S[i] = age < 0 ? 0 : (this.size[i * 2] as number) + ((this.size[i * 2 + 1] as number) - (this.size[i * 2] as number)) * kk;
-      const i6 = i * 6;
-      C[i * 4] = (this.col[i6] as number) + ((this.col[i6 + 3] as number) - (this.col[i6] as number)) * kk;
-      C[i * 4 + 1] = (this.col[i6 + 1] as number) + ((this.col[i6 + 4] as number) - (this.col[i6 + 1] as number)) * kk;
-      C[i * 4 + 2] = (this.col[i6 + 2] as number) + ((this.col[i6 + 5] as number) - (this.col[i6 + 2] as number)) * kk;
-      // Quick fade in, long fade out.
-      C[i * 4 + 3] = age < 0 ? 0 : (this.misc[i3] as number) * Math.min(1, kk * 12) * (1 - kk) ** 1.3;
-      i++;
-    }
-    this.points.geometry.setDrawRange(0, this.n);
-    this.aPos.needsUpdate = true;
-    this.aSize.needsUpdate = true;
-    this.aCol.needsUpdate = true;
-  }
-
-  private copy(from: number, to: number): void {
-    this.pos.copyWithin(to * 3, from * 3, from * 3 + 3);
-    this.vel.copyWithin(to * 3, from * 3, from * 3 + 3);
-    this.born[to] = this.born[from] as number;
-    this.life[to] = this.life[from] as number;
-    this.size.copyWithin(to * 2, from * 2, from * 2 + 2);
-    this.col.copyWithin(to * 6, from * 6, from * 6 + 6);
-    this.misc.copyWithin(to * 3, from * 3, from * 3 + 3);
-  }
-}
 
 /** Immediate-mode glowing streaks (tracers, projectile bodies, slashes): one instanced draw. */
 class Streaks {
@@ -420,8 +231,6 @@ interface Flash {
 
 const LIGHT_POOL = 6;
 /** Particle budgets: enough for a large battle; beyond them ambient effects thin out first (R3D-13). */
-const GLOW_CAP = 2560;
-const SMOKE_CAP = 2048;
 
 export interface FxQuality {
   /** Dust, debris and smoke density (0 = minimal). */
@@ -430,8 +239,11 @@ export interface FxQuality {
 
 export class CombatFx {
   readonly root = new THREE.Group();
-  private glow: ParticleLayer;
-  private smoke: ParticleLayer;
+  private glow: GpuParticleLayer;
+  private smoke: GpuParticleLayer;
+  private lastRich = true;
+  /** The clock of the latest update, for the busy signal and counts. */
+  private clock = 0;
   private streaks = new Streaks(512);
   private shots: Shot[] = [];
   private lights: { light: THREE.PointLight; until: number; power: number; born: number }[] = [];
@@ -457,8 +269,8 @@ export class CombatFx {
   groundAt: (x: number, z: number) => number = () => 0;
 
   constructor() {
-    this.glow = new ParticleLayer(GLOW_CAP, true);
-    this.smoke = new ParticleLayer(SMOKE_CAP, false);
+    this.glow = new GpuParticleLayer(BUDGET.high.glow, true);
+    this.smoke = new GpuParticleLayer(BUDGET.high.smoke, false);
     this.root.add(this.smoke.points, this.glow.points, this.streaks.mesh);
     for (let i = 0; i < LIGHT_POOL; i++) {
       const light = new THREE.PointLight(0xffa050, 0, 7, 1.6);
@@ -497,8 +309,8 @@ export class CombatFx {
   /** Show every pooled effect mesh (for shader compilation before the first frame), or restore them. */
   warm(on: boolean): void {
     for (const f of [...this.rings, ...this.scorches, ...this.puddles]) f.mesh.visible = on;
-    this.glow.points.geometry.setDrawRange(0, on ? 1 : 0);
-    this.smoke.points.geometry.setDrawRange(0, on ? 1 : 0);
+    this.glow.warm(on);
+    this.smoke.warm(on);
     this.streaks.mesh.count = on ? 1 : 0;
   }
 
@@ -508,13 +320,25 @@ export class CombatFx {
     this.smoke.material.uniforms.scale!.value = pixelsAtUnitDistance;
   }
 
+  /** Particles alive now, per layer (an estimate from the emission log; the GPU keeps the real ones). */
+  get particleCounts(): { smoke: number; glow: number } {
+    return { smoke: this.smoke.live(this.clock), glow: this.glow.live(this.clock) };
+  }
+
+  /** Live particle total. */
   get particleCount(): number {
-    return this.glow.count + this.smoke.count;
+    return this.smoke.live(this.clock) + this.glow.live(this.clock);
+  }
+
+  /** Make the particle layers follow the map's fog texture, so they hide over unexplored tiles (R3D-17, R3D-26). */
+  useHide(u: HideUniforms): void {
+    this.smoke.useHide(u);
+    this.glow.useHide(u);
   }
 
   /** True when the pools are nearly full: dust, steam and lingering smoke are skipped so combat effects keep room. */
   private get busy(): boolean {
-    return this.smoke.count > SMOKE_CAP * 0.7 || this.glow.count > GLOW_CAP * 0.7;
+    return this.smoke.live(this.clock) > this.smoke.capacity * 0.7 || this.glow.live(this.clock) > this.glow.capacity * 0.7;
   }
 
   /** Muzzle flash, light and (for heavy guns) a smoke puff at a muzzle pointing along `dir`. */
@@ -658,12 +482,21 @@ export class CombatFx {
     for (let i = 0; i < sparks; i++) {
       const a = r.range(0, Math.PI * 2);
       const sp = r.range(1.5, 4) * Math.sqrt(size);
-      this.glow.emit({ x: at.x, y: at.y + 0.1, z: at.z, vx: Math.cos(a) * sp, vy: r.range(1.5, 4), vz: Math.sin(a) * sp, life: r.range(350, 800), size0: 0.05, size1: 0.02, color0: 0xffe0a0, color1: 0xff6020, alpha: 1.6 * dim, gravity: 7, drag: 0.6 }, now);
+      this.glow.emit({ x: at.x, y: at.y + 0.1, z: at.z, vx: Math.cos(a) * sp, vy: r.range(1.5, 4), vz: Math.sin(a) * sp, life: r.range(450, 1000), size0: 0.045, size1: 0.015, color0: 0xffe0a0, color1: 0xff5018, alpha: 1.3 * dim, gravity: 6, drag: 0.5 }, now);
     }
-    const smoke = rich ? 6 : 3;
-    for (let i = 0; i < smoke; i++) {
+    // A dark column of smoke that billows up and spreads: puffs leave one after another, rise on their own heat and
+    // swell, with a low skirt rolling outward along the ground (R3D-26).
+    const column = rich ? 10 : 3;
+    for (let i = 0; i < column; i++) {
       const a = r.range(0, Math.PI * 2);
-      this.smoke.emit({ x: at.x + Math.cos(a) * size * 0.3, y: at.y + 0.2 * size, z: at.z + Math.sin(a) * size * 0.3, vx: Math.cos(a) * 0.4 * size, vy: r.range(0.3, 0.8) * size, vz: Math.sin(a) * 0.4 * size, life: r.range(1600, 2600) * (0.7 + size * 0.3), size0: size * 0.6, size1: size * 1.9, color0: 0x3a3632, color1: 0x55524e, alpha: 0.6, drag: 1.2, gravity: -0.1, delay: r.range(80, 250) }, now);
+      const k = i / column;
+      this.smoke.emit({ x: at.x + Math.cos(a) * size * 0.25, y: at.y + (0.15 + k * 0.5) * size, z: at.z + Math.sin(a) * size * 0.25, vx: Math.cos(a) * 0.3 * size, vy: r.range(0.9, 1.7) * size, vz: Math.sin(a) * 0.3 * size, life: r.range(2000, 3200) * (0.7 + size * 0.3), size0: size * (0.5 + k * 0.3), size1: size * (1.5 + k * 1.1), color0: k < 0.4 ? 0x24211e : 0x33302c, color1: 0x5c5853, alpha: 0.92, drag: 1.3, gravity: -0.45, delay: 60 + k * 600 + r.range(0, 120) }, now);
+    }
+    if (rich) {
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + r.range(-0.4, 0.4);
+        this.smoke.emit({ x: at.x, y: at.y + 0.08, z: at.z, vx: Math.cos(a) * 1.1 * size, vy: 0.12, vz: Math.sin(a) * 1.1 * size, life: r.range(1100, 1700), size0: size * 0.4, size1: size * 1.3, color0: 0x4a4540, color1: 0x6a655e, alpha: 0.6, drag: 1.8, delay: r.range(40, 160) }, now);
+      }
     }
     if (rich) {
       for (let i = 0; i < 8; i++) {
@@ -684,18 +517,19 @@ export class CombatFx {
   dust(at: Vec, amount: number, now: number): void {
     if (!this.quality.rich || this.busy) return;
     const r = this.rng;
-    this.smoke.emit({ x: at.x + r.range(-0.1, 0.1), y: 0.05, z: at.z + r.range(-0.1, 0.1), vx: r.range(-0.15, 0.15), vy: r.range(0.1, 0.3), vz: r.range(-0.15, 0.15), life: r.range(700, 1100), size0: 0.1 * amount, size1: 0.45 * amount, color0: 0x8a7a5e, color1: 0x9a8c72, alpha: 0.32, drag: 1.5 }, now);
+    this.smoke.emit({ x: at.x + r.range(-0.1, 0.1), y: 0.05, z: at.z + r.range(-0.1, 0.1), vx: r.range(-0.15, 0.15), vy: r.range(0.1, 0.3), vz: r.range(-0.15, 0.15), life: r.range(500, 850), size0: 0.1 * amount, size1: 0.5 * amount, color0: 0xb09a72, color1: 0x9c8a66, alpha: 0.3, drag: 1.8 }, now);
   }
 
   /** Smoke (and, when `fire`, flames) rising from a damaged building or wreck. */
   burn(at: Vec, fire: boolean, scale: number, now: number): void {
     if (this.busy && !fire) return;
     const r = this.rng;
-    this.smoke.emit({ x: at.x + r.range(-0.08, 0.08) * scale, y: at.y, z: at.z + r.range(-0.08, 0.08) * scale, vx: 0.15 + r.range(-0.05, 0.05), vy: r.range(0.4, 0.7), vz: 0.08 + r.range(-0.05, 0.05), life: r.range(2000, 3200), size0: 0.16 * scale, size1: 0.85 * scale, color0: fire ? 0x1c1a19 : 0x2c2a28, color1: 0x5a5753, alpha: 0.68, drag: 0.6, gravity: -0.05 }, now);
+    // A plume that climbs, widens and thins out.
+    this.smoke.emit({ x: at.x + r.range(-0.08, 0.08) * scale, y: at.y, z: at.z + r.range(-0.08, 0.08) * scale, vx: 0.1 + r.range(-0.06, 0.06), vy: r.range(0.5, 0.8), vz: 0.05 + r.range(-0.06, 0.06), life: r.range(2400, 3800), size0: 0.16 * scale, size1: r.range(0.9, 1.3) * scale, color0: fire ? 0x1c1a19 : 0x2c2a28, color1: 0x5f5b56, alpha: 0.62, drag: 0.7, gravity: -0.2 }, now);
     if (fire) {
       // A tongue of flame and a hot core, so a burning building reads at a glance.
-      this.glow.emit({ x: at.x + r.range(-0.12, 0.12) * scale, y: at.y, z: at.z + r.range(-0.12, 0.12) * scale, vy: r.range(0.5, 0.9), life: r.range(380, 650), size0: 0.28 * scale, size1: 0.07 * scale, color0: 0xffc060, color1: 0xff3a10, alpha: 1.3, drag: 1, gravity: -0.5 }, now);
-      this.glow.emit({ x: at.x, y: at.y - 0.05, z: at.z, life: 160, size0: 0.16 * scale, size1: 0.12 * scale, color0: 0xffe0a0, color1: 0xff7020, alpha: 0.9 }, now);
+      this.glow.emit({ x: at.x + r.range(-0.12, 0.12) * scale, y: at.y, z: at.z + r.range(-0.12, 0.12) * scale, vy: r.range(0.5, 0.9), life: r.range(260, 640), size0: r.range(0.18, 0.3) * scale, size1: 0.05 * scale, color0: 0xffc060, color1: 0xff3a10, alpha: 1, drag: 1.2, gravity: -0.7 }, now);
+      this.glow.emit({ x: at.x, y: at.y - 0.05, z: at.z, life: 160, size0: 0.16 * scale, size1: 0.12 * scale, color0: 0xffe0a0, color1: 0xff7020, alpha: 0.7 }, now);
     }
   }
 
@@ -1098,6 +932,13 @@ export class CombatFx {
   }
 
   update(now: number, dt: number): void {
+    this.clock = now;
+    if (this.quality.rich !== this.lastRich) {
+      this.lastRich = this.quality.rich;
+      const b = this.lastRich ? BUDGET.high : BUDGET.low;
+      this.smoke.setCapacity(b.smoke);
+      this.glow.setCapacity(b.glow);
+    }
     if (this.later.length) {
       const due = this.later.filter((l) => l.at <= now);
       this.later = this.later.filter((l) => l.at > now);
@@ -1185,8 +1026,8 @@ export class CombatFx {
       return true;
     });
     this.streaks.end();
-    this.glow.update(now, dt);
-    this.smoke.update(now, dt);
+    this.glow.update(now);
+    this.smoke.update(now);
     for (const l of this.lights) l.light.intensity = now < l.until ? l.power * (1 - (now - l.born) / Math.max(1, l.until - l.born)) ** 1.5 : 0;
     for (const f of this.rings) {
       const k = (now - f.born) / f.life;

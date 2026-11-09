@@ -13,6 +13,7 @@ import { crystalLevel, propAt, rockVariant } from '../render/voxel/props';
 import { BUILDING_RIGS, crystalShape, DOCK_RIGS, dockFrame, dockModelYaw, dockYaw, grassShape, propShape, reedShape } from './buildings3d';
 import { cameraPose, FOV, PX_PER_UNIT } from './camera3d';
 import { CombatFx } from './fx3d';
+import { Debris } from './debris3d';
 import { Instancer } from './instancer';
 import type { Built, Shape } from './kit';
 import { angleDiff, bodyPose, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HAULER_PUFF_ACCEL, HAULER_PUFF_MS, HEAD_MS, rideMotion, slew, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
@@ -296,6 +297,10 @@ export class View3D {
   private unexplored = unexploredMask();
   private inst: Instancer;
   private fx = new CombatFx();
+  /** Chunks thrown by destroyed vehicles and buildings (R3D-27). */
+  private debris = new Debris();
+  /** Shard-field tiles, where vehicles kick up no dust (R3D-26). */
+  private shardTiles: ArrayLike<number> | null = null;
   private units = new Map<number, UnitObj>();
   private buildings = new Map<number, BuildingObj>();
   private crystals: Static[] = [];
@@ -424,7 +429,7 @@ export class View3D {
     addEnvironment(s, this.renderer);
     s.add(this.hemi);
     configureSunShadow(this.sun, 22, 2048);
-    s.add(this.sun, this.sun.target, this.fx.root, this.scatterGroup);
+    s.add(this.sun, this.sun.target, this.fx.root, this.debris.root, this.scatterGroup);
     this.buildTerrain(snap, look);
     this.buildProps(snap, look);
     this.syncShards(snap);
@@ -498,6 +503,7 @@ export class View3D {
    */
   private compileAll(): void {
     this.fx.warm(true);
+    this.debris.warm(true);
     this.rally.warm(true); // its programs too, or the first rally point would stall a frame
     this.renderer.shadowMap.needsUpdate = true;
     if (this.bloomOn && this.composer) {
@@ -510,6 +516,7 @@ export class View3D {
       this.renderer.render(this.scene, this.camera);
     }
     this.fx.warm(false);
+    this.debris.warm(false);
     this.rally.warm(false);
   }
 
@@ -526,6 +533,8 @@ export class View3D {
     this.blocked = look.blocked ?? null;
     this.liveWarp = contourWarp(input, false);
     this.fx.groundAt = (x, z) => this.groundAt(x, z);
+    this.debris.groundAt = (x, z) => this.groundAt(x, z);
+    this.shardTiles = look.shards ?? null;
     const tex = groundTexture(input);
     const map = new THREE.DataTexture(tex.data, tex.width, tex.height);
     map.flipY = true;
@@ -556,7 +565,8 @@ export class View3D {
     horizon.frustumCulled = false;
     this.scene.add(horizon, ground, cliffs, water);
     // Cliffs, water, props, plants and crystals on unexplored tiles fade into the fog's darkness (R3D-17).
-    for (const mat of [cliffMat, water.material, this.propMat, this.crystalMat, this.glowMat, this.hiveGlowMat]) this.unexplored.apply(mat);
+    for (const mat of [cliffMat, water.material, this.propMat, this.crystalMat, this.glowMat, this.hiveGlowMat, this.debris.material]) this.unexplored.apply(mat);
+    this.fx.useHide(this.unexplored.uniforms);
     if (snap.fog) {
       // Fog of war: the same tile tops, darkened through a per-tile alpha texture (linear filtering softens the edges).
       this.fogData = new Uint8Array(W * snap.mapHeight * 4);
@@ -824,6 +834,10 @@ export class View3D {
           return;
         }
         if (mode === 'fall') this.fx.splatter(at.setY(at.y + 0.15), !!u.def.organic, now);
+        // Vehicles and big organic bodies throw chunks; infantry and raiders just fall (R3D-27).
+        const role = (e.kind ? UNIT_DEFS[e.kind] : undefined)?.role;
+        if (mode === 'wreck') this.debris.spawn('vehicle', at, e.id, u.def.radius, u.team, now);
+        else if (mode === 'fall' && (role === 'tank' || role === 'artillery' || role === 'harvester' || role === 'scout')) this.debris.spawn('organic', at, e.id, u.def.radius, u.team, now);
         if (mode === 'wreck') this.fx.explosion(at.setY(at.y + 0.2), e.big ? 0.75 : 0.5, now);
         if (mode === 'fall' && e.big) this.fx.explosion(at, 0.45, now, 0x80e020);
         return;
@@ -836,6 +850,7 @@ export class View3D {
           const off = new THREE.Vector3(((i * 0.37) % 1) * d.w - d.w / 2, 0.4 + (i % 2) * 0.4, ((i * 0.61) % 1) * d.h - d.h / 2);
           this.fx.explosion(new THREE.Vector3(b.x, b.y, b.z).add(off), 0.9 + (i === 0 ? 0.6 : 0), now + i * 140);
         }
+        this.debris.spawn('building', { x: b.x, y: b.y, z: b.z }, e.id, (d.w + d.h) / 2, b.team, now);
         this.fx.shake = Math.max(this.fx.shake, 0.12);
         return;
       }
@@ -1046,12 +1061,20 @@ export class View3D {
     const r = vs.rally;
     this.rally.update(r ? { from: r.from, to: { tx: r.to.tx + 0.5, ty: r.to.ty + 0.5 } } : null, OWNER_COLORS[vs.viewer] ?? 0x7ff5cd, t, (x, z) => this.groundAt(x, z));
     this.fx.update(t, dt);
+    this.debris.setQuality(vs.fx.particles);
+    this.debris.update(t, dt);
     this.applyQuality(vs);
     if (this.frame % SHADOW_EVERY === 0) this.renderer.shadowMap.needsUpdate = true;
     if (this.bloomOn && this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
     this.cpuMs += (performance.now() - cpu0 - this.cpuMs) * 0.05;
     if (this.res?.step(dt * 1000, this.cpuMs)) this.fit();
+  }
+
+  /** Render figures for tests and measurement (R3D-29): draws, triangles, CPU time, live particles and debris. */
+  stats(): { cpuMs: number; draws: number; tris: number; particles: { smoke: number; glow: number }; debris: number } {
+    const i = this.renderer.info.render;
+    return { cpuMs: this.cpuMs, draws: i.calls, tris: i.triangles, particles: this.fx.particleCounts, debris: this.debris.active };
   }
 
   /** Draw calls of the last frame and the smoothed CPU time of an update, for the frame-time readout. */
@@ -1182,7 +1205,7 @@ export class View3D {
         this.barAt(o.x, o.groundY + def.height * (def.scale ?? 1) + (air ? AIR_Y : 0) + 0.22, o.z, frac);
       }
       // Dust behind moving vehicles (R3D-12).
-      if ((def.move === 'tracked' || def.move === 'wheeled') && o.motion.speed > 0.4 && t - o.lastDust > 70 && this.inView(o.x, 0, o.z, 1)) {
+      if ((def.move === 'tracked' || def.move === 'wheeled') && o.motion.speed > 0.4 && t - o.lastDust > 70 && this.inView(o.x, 0, o.z, 1) && !(this.shardTiles?.[Math.floor(o.z) * this.mapW + Math.floor(o.x)])) {
         o.lastDust = t;
         const h = o.motion.heading;
         this.fx.dust(this.v.set(o.x - Math.cos(h) * def.radius * 0.6, 0, o.z - Math.sin(h) * def.radius * 0.6), def.radius * 1.2, t);
