@@ -6,7 +6,7 @@ import { CSP } from '../../desktop/paths.cjs';
 import { skirmishConfig } from '../../src/data/maps';
 import { poseRig, rigTree, type RigDef } from '../../src/render3d/rig';
 import { PR_MAX, PR_MIN, ResolutionGovernor } from '../../src/render3d/resolution';
-import { POSE_MARGIN, SHADOW_EVERY } from '../../src/render3d/view3d';
+import { POSE_MARGIN, SHADOW_EVERY, shadowEvery } from '../../src/render3d/view3d';
 import { createGame, snapshot } from '../../src/sim';
 import { seedOf } from '../../src/ui/params';
 
@@ -99,9 +99,41 @@ describe('performance', () => {
     expect(g.step(5000, 1)).toBe(false);
     expect(g.step(Number.NaN, 1)).toBe(false);
     // A screen whose own pixel ratio is below the floor never goes above it.
-    const low = new ResolutionGovernor(0.75);
+    const low = new ResolutionGovernor(0.6);
     for (let i = 0; i < 2000; i++) low.step(30, 2);
-    expect(low.ratio).toBe(0.75);
+    expect(low.ratio).toBe(0.6);
+  });
+
+  it('R3D-29: frames that hold 60 fps never lower the resolution, however long the GPU time reads', () => {
+    const g = new ResolutionGovernor(PR_MAX);
+    for (let i = 0; i < 3000; i++) expect(g.step(16.7, 3, 15)).toBe(false);
+    expect(g.ratio).toBe(PR_MAX);
+    expect(PR_MIN).toBe(0.85);
+  });
+
+  it('R3D-29: with a GPU reading, slow frames drop only when the GPU is the bottleneck, and a raise waits for headroom', () => {
+    const g = new ResolutionGovernor(1);
+    // Slow frames but the GPU is nearly idle (CPU-bound): no change, whatever the CPU heuristic would say.
+    for (let i = 0; i < 300; i++) expect(g.step(30, 3, 5)).toBe(false);
+    // Slow frames with the GPU taking most of the interval: one step after about 1.5 s.
+    let changes = 0;
+    for (let i = 0; i < 50; i++) if (g.step(30, 3, 25)) changes++;
+    expect(changes).toBe(1);
+    expect(g.ratio).toBeCloseTo(0.9);
+    // On-time frames raise it back only when the predicted GPU time one step up fits.
+    const h = new ResolutionGovernor(1, 0.9);
+    for (let i = 0; i < 2000; i++) h.step(16.7, 3, 16);
+    expect(h.ratio).toBe(0.9);
+    let raised = 0;
+    for (let i = 0; i < 600; i++) if (h.step(16.7, 3, 9)) raised++;
+    expect(raised).toBe(1);
+    expect(h.ratio).toBe(1);
+  });
+
+  it('R3D-29: shadows refresh less often only while the governor has lowered the resolution', () => {
+    expect(shadowEvery(1, 1)).toBe(SHADOW_EVERY);
+    expect(shadowEvery(0.95, 1)).toBe(SHADOW_EVERY + 1);
+    expect(shadowEvery(PR_MIN, 1)).toBe(SHADOW_EVERY + 2);
   });
 });
 

@@ -12,7 +12,7 @@ export type Axis = 'x' | 'y' | 'z';
 
 export type Anim =
   /** Takes the hull's pitch, roll, bob and lunge; sinks by `drop` when kneeling. */
-  | { k: 'body'; drop?: number }
+  | { k: 'body'; drop?: number; level?: boolean; sway?: number }
   /** Turns toward the aim, relative to the hull; a swivel mount turns at most `max` radians either way (AIM-2). */
   | { k: 'turret'; max?: number }
   /** Recoils backwards along its own -X when firing. */
@@ -47,7 +47,17 @@ export type Anim =
   /** A tipping bed: raised about the hinge at `pivot` by up to `max` radians while unloading (R3D-19). */
   | { k: 'tip'; pivot: [number, number, number]; max: number }
   /** A cutter drum: turns while mining (R3D-19). */
-  | { k: 'drum' };
+  | { k: 'drum' }
+  /** A hydraulic arm: raised by `up` radians clear of the ground while driving, lowered as `head` goes to 1; `bob` nods it while it chews (R3D-30). */
+  | { k: 'arm'; up: number; bob?: number }
+  /** A gun cradle: elevated from `lo` to `hi` radians as `elev` goes 0..1 (R3D-32). */
+  | { k: 'elev'; lo: number; hi: number }
+  /** Feeding limbs (mandibles, tendrils): swing about `axis` by up to `amp` in a cycle of `rate` rad/s while feeding (R3D-31). */
+  | { k: 'feed'; axis: Axis; amp: number; rate: number; phase: number }
+  /** A segment or throat that pulses in scale: with each swallow while feeding (`swallow`), in a wave front to back while unloading (`wave`) (R3D-31). */
+  | { k: 'pulse'; rate: number; phase: number; swallow?: number; wave?: number }
+  /** A belt that carries cleats along its own X (rotated by its rest turn) as the drum turns, wrapping every `pitch` (R3D-30). */
+  | { k: 'scroll'; pitch: number; per: number };
 
 export interface RigNode {
   /** Shape key drawn at this node. */
@@ -84,6 +94,8 @@ export interface RigDef {
   /** Shiny chitin instead of painted metal. */
   organic?: boolean;
   weapon?: WeaponLook;
+  /** A fast ride: how much the body bobs, pitches and rolls at speed (R3D-33). */
+  ride?: number;
   /** Smoke and steam vents (buildings), local positions. */
   vents?: readonly V3[];
 }
@@ -198,6 +210,12 @@ export interface RigPose {
   drum?: number;
   /** How far the missile pods are open, 0..1 (HERO-7). */
   pod?: number;
+  /** The harvesting head, 0 raised clear for driving .. 1 lowered onto the ground while mining (R3D-30). */
+  head?: number;
+  /** How hard a creature is feeding, 0..1: mandibles and tendrils reach and the throat swallows (R3D-31). */
+  feed?: number;
+  /** Gun elevation, 0 resting in the travel lock .. 1 raised to fire (R3D-32). */
+  elev?: number;
 }
 
 /** Pose every animated node of a rig. Pure apart from writing the nodes' transforms. */
@@ -255,16 +273,27 @@ export function kneeFor(l1: number, l2: number, tx: number, ty: number): [number
 /** How far front wheels steer either way, radians: clear of the body and mudguards (AIM-2). */
 export const MAX_STEER = 0.3;
 
+/** The Gorger's slow side-to-side sway, rad/s (about 2.2 s a roll), and how fast a harvesting head nods while it chews (R3D-30, R3D-31). */
+export const SWAY_RATE = 2.9;
+export const CHEW_RATE = 9;
+
+/** A feeding limb's reach through its cycle, 0 curled in .. 1 fully out; it grips at the far end, then draws back toward the maw (R3D-31). */
+export const feedCycle = (timeMs: number, rate: number, phase: number): number => 0.5 - 0.5 * Math.cos((timeMs / 1000) * rate + phase);
+
+/** The throat's swallow, 0..1, once per cycle as the limbs draw back (R3D-31). */
+export const swallowBeat = (timeMs: number, rate: number, phase: number): number => Math.max(0, Math.sin((timeMs / 1000) * rate + phase)) ** 2;
+
 export function poseRig(tree: RigTree, p: RigPose): void {
   for (const a of tree.anims) {
     const an = a.anim;
     const obj = a.obj;
     switch (an.k) {
       case 'body':
-        obj.position.set(a.pos.x + p.lunge * p.reach - p.kick * 0.01, a.pos.y + p.bob - (p.crouch ?? 0) * (an.drop ?? 0), a.pos.z);
+        // A level body (the Gorger, R3D-31) never lunges, pitches or bows: it only sways slowly from side to side.
+        obj.position.set(a.pos.x + (an.level ? 0 : p.lunge * p.reach) - p.kick * 0.01, a.pos.y + p.bob - (p.crouch ?? 0) * (an.drop ?? 0), a.pos.z);
         {
-          const rx = a.rot.x + p.roll;
-          const rz = a.rot.z + p.pitch - p.kick * (p.walker ? 0 : 0.03) - p.lunge * 0.15;
+          const rx = a.rot.x + p.roll + (an.sway ? an.sway * Math.sin((p.time / 1000) * SWAY_RATE) : 0);
+          const rz = an.level ? a.rot.z : a.rot.z + p.pitch - p.kick * (p.walker ? 0 : 0.03) - p.lunge * 0.15;
           const r = obj.rotation;
           if (r.x !== rx || r.y !== a.rot.y || r.z !== rz) r.set(rx, a.rot.y, rz);
         }
@@ -328,6 +357,32 @@ export function poseRig(tree: RigTree, p: RigPose): void {
       case 'drum':
         turn(obj, 'z', a.rot.z - (p.drum ?? 0));
         break;
+      case 'arm': {
+        const h = smoothstep(p.head ?? 0);
+        turn(obj, 'z', a.rot.z + an.up * (1 - h) + (an.bob ? an.bob * h * Math.sin((p.time / 1000) * CHEW_RATE) : 0));
+        break;
+      }
+      case 'elev':
+        turn(obj, 'z', a.rot.z + an.lo + (an.hi - an.lo) * smoothstep(p.elev ?? 0));
+        break;
+      case 'feed': {
+        const f = Math.max(0, Math.min(1, p.feed ?? 0));
+        turn(obj, an.axis, a.rot[an.axis] + an.amp * f * feedCycle(p.time, an.rate, an.phase));
+        break;
+      }
+      case 'pulse': {
+        const f = Math.max(0, Math.min(1, p.feed ?? 0));
+        const sw = an.swallow ? an.swallow * f * swallowBeat(p.time, an.rate, an.phase) : 0;
+        const wv = an.wave ? an.wave * (p.tip ?? 0) * Math.max(0, Math.sin((p.time / 1000) * an.rate - an.phase)) : 0;
+        const sc = 1 + sw + wv;
+        if (obj.scale.x !== sc) obj.scale.setScalar(sc);
+        break;
+      }
+      case 'scroll': {
+        const d = ((((p.drum ?? 0) * an.per) % an.pitch) + an.pitch) % an.pitch;
+        obj.position.set(a.pos.x + d * Math.cos(a.rot.z), a.pos.y + d * Math.sin(a.rot.z), a.pos.z);
+        break;
+      }
       case 'spin':
         obj.rotation[an.axis] = a.rot[an.axis] + ((an.rate * p.time) / 1000) % (Math.PI * 2);
         break;

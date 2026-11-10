@@ -1,4 +1,4 @@
-import { cliffRgb, groundRgb, valueNoise, type TerrainInput } from '../render/terrainNext';
+import { cliffRgb, fbm, groundRgb, valueNoise, type TerrainInput } from '../render/terrainNext';
 
 /**
  * Terrain for the 3D view (R3D-2, R3D-11), built from the simulation's grid: one textured top per tile at its level's
@@ -21,7 +21,7 @@ export const LEVEL_H = 0.45;
 /** Ground texture texels per tile edge. */
 export const TEXELS = 16;
 /** Cliff rock: rows per level of height, columns per tile edge, and the largest push in or out (tiles). */
-const ROWS_PER_LEVEL = 4;
+const ROWS_PER_LEVEL = 8;
 const COLS = 4;
 export const ROCK_AMP = 0.075;
 
@@ -40,7 +40,38 @@ export function rockOffset(x: number, y: number, z: number): [number, number, nu
   const q = (v: number): number => Math.round(v * 64);
   const band = Math.sin(Math.PI * ((((y / LEVEL_H) % 1) + 1) % 1));
   const k = ROCK_AMP * band;
-  return [(hashf(q(x), q(y), q(z)) - 0.5) * 2 * k, (hashf(q(x) + 17, q(y), q(z) + 5) - 0.5) * k * 0.6, (hashf(q(x), q(y) + 31, q(z) + 11) - 0.5) * 2 * k];
+  // Ledges (R3D-24): every rock layer sits slightly in or out of the face, by a smooth, position-only push that
+  // changes from layer to layer, so the face steps in and out down its height and neighbouring walls still agree.
+  const l = strataAt(y).ledge * band * LEDGE_AMP;
+  const ledgeX = (valueNoise(x * 0.7 + 3, z * 0.7 + 41) - 0.5) * 2 * l;
+  const ledgeZ = (valueNoise(x * 0.7 + 87, z * 0.7 + 9) - 0.5) * 2 * l;
+  return [(hashf(q(x), q(y), q(z)) - 0.5) * 2 * k * 0.8 + ledgeX, (hashf(q(x) + 17, q(y), q(z) + 5) - 0.5) * k * 0.6, (hashf(q(x), q(y) + 31, q(z) + 11) - 0.5) * 2 * k * 0.8 + ledgeZ];
+}
+
+/** The largest in or out push of a rock layer, tiles. */
+export const LEDGE_AMP = 0.05;
+
+/** One rock layer of a cliff face (R3D-24): its tone, its warm or cool tint, and how far it sits proud (-1..1). */
+export interface Stratum {
+  id: number;
+  tone: number;
+  warm: number;
+  ledge: number;
+  /** World height of the layer's bottom and top. */
+  from: number;
+  to: number;
+}
+
+/** Layer boundaries, from world height 0 upwards: thickness varies layer to layer (0.07 to 0.24). Built once, from the layer number alone. */
+const BOUNDS: number[] = [0];
+for (let i = 0; i < 80; i++) BOUNDS.push(BOUNDS[i]! + 0.07 + 0.17 * hashf(i, 5, 91) ** 1.4);
+
+/** The rock layer at world height `y`. Pure, and a function of height alone, so every wall agrees. */
+export function strataAt(y: number): Stratum {
+  let i = 0;
+  while (i < BOUNDS.length - 2 && BOUNDS[i + 1]! <= y) i++;
+  const h = (k: number): number => hashf(i, k, 7);
+  return { id: i, tone: 0.78 + 0.46 * h(1), warm: h(2), ledge: (h(3) - 0.5) * 2, from: BOUNDS[i]!, to: BOUNDS[i + 1]! };
 }
 
 /** The furthest a drawn edge strays from its tile edge (R3D-14), tiles. Gameplay stays on the tile grid. */
@@ -256,11 +287,114 @@ function shoreRgb(t: TerrainInput, tx: number, ty: number, fx: number, fy: numbe
   return c;
 }
 
+const GRAVEL = [118, 106, 84] as const;
+const RUBBLE = [94, 88, 82] as const;
+const PEBBLE = [150, 140, 124] as const;
+
+/**
+ * How much of each surface covers the ground at (x, y), each 0..1 (R3D-24): gravel and rubble in broad, soft-edged
+ * patches (smooth noise in tile coordinates, never tied to a tile square), and lush grass where the ground is richest.
+ * Pure, and a function of position alone.
+ */
+export function groundPatches(x: number, y: number): { gravel: number; rubble: number; lush: number } {
+  const gravel = smooth(0.62, 0.76, fbm(x * 0.085 + 410, y * 0.085 + 130));
+  const rubble = smooth(0.64, 0.78, fbm(x * 0.15 + 60, y * 0.15 + 240)) * (1 - gravel * 0.7);
+  const lush = smooth(0.5, 0.72, fbm(x * 0.06 + 900, y * 0.06 + 20));
+  return { gravel, rubble, lush };
+}
+
+/** Patch cover is smooth, so it is sampled on a lattice (this many steps per tile) and interpolated per texel. */
+const PATCH_STEPS = 4;
+
+/** The patch cover (gravel, rubble, lush) on a lattice over the map, for `patchAt`. */
+function patchLattice(w: number, h: number): Float32Array {
+  const nx = w * PATCH_STEPS + 2;
+  const ny = h * PATCH_STEPS + 2;
+  const g = new Float32Array(nx * ny * 3);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const p = groundPatches(i / PATCH_STEPS, j / PATCH_STEPS);
+      const k = (j * nx + i) * 3;
+      g[k] = p.gravel;
+      g[k + 1] = p.rubble;
+      g[k + 2] = p.lush;
+    }
+  }
+  return g;
+}
+
+/** Bilinear lookup in the lattice at tile position (x, y), into `out`. */
+function patchAt(g: Float32Array, w: number, x: number, y: number, out: number[]): void {
+  const nx = w * PATCH_STEPS + 2;
+  const u = x * PATCH_STEPS;
+  const v = y * PATCH_STEPS;
+  const i = Math.floor(u);
+  const j = Math.floor(v);
+  const fu = u - i;
+  const fv = v - j;
+  for (let c = 0; c < 3; c++) {
+    const a = g[(j * nx + i) * 3 + c]!;
+    const b = g[(j * nx + i + 1) * 3 + c]!;
+    const d = g[((j + 1) * nx + i) * 3 + c]!;
+    const e = g[((j + 1) * nx + i + 1) * 3 + c]!;
+    out[c] = a + (b - a) * fu + (d - a) * fv + (a - b - d + e) * fu * fv;
+  }
+}
+
+const cover = [0, 0, 0];
+
+/** The ground colour `c` with its patches painted in (R3D-24): gravel speckle, rubble stones, lush grass, fine grain. */
+function patched(c: readonly number[], x: number, y: number, lat: Float32Array, w: number): [number, number, number] {
+  patchAt(lat, w, x, y, cover);
+  const [gravel, rubble, lush] = cover as [number, number, number];
+  let out: readonly number[] = lush > 0.01 ? mixRgb(c, [c[0]! * 0.9, c[1]! * 1.1, c[2]! * 0.88], lush * 0.55) : c;
+  if (gravel > 0.01) {
+    // Gravel: a speckle of light and dark grains, fresh at every texel.
+    const grain = hashf(Math.floor(x * TEXELS), Math.floor(y * TEXELS), 3);
+    const speck = grain > 0.88 ? 1.3 : grain < 0.16 ? 0.7 : 0.9 + valueNoise(x * 9 + 3, y * 9) * 0.2;
+    out = mixRgb(out, GRAVEL.map((v) => v * speck), gravel * 0.7);
+  }
+  if (rubble > 0.01) {
+    // Rubble: stones a few texels across, lit on their sunward side, over darker broken ground.
+    const stone = valueNoise(x * 13 + 21, y * 13 + 8);
+    const rock = smooth(0.58, 0.66, stone);
+    out = mixRgb(out, RUBBLE.map((v) => v * (0.8 + 0.3 * valueNoise(x * 5, y * 5 + 2))), rubble * 0.85);
+    out = mixRgb(out, PEBBLE.map((v) => v * (0.85 + 0.3 * stone)), rubble * rock * 0.7);
+  }
+  // Fine grain everywhere, so no stretch of ground is a flat colour up close.
+  const g = 0.95 + 0.1 * valueNoise(x * 26 + 5, y * 26 + 15);
+  return [out[0]! * g, out[1]! * g, out[2]! * g];
+}
+
+/**
+ * A square of the match's ground look around a base colour `rgb` (R3D-24), for scenes with no map (the menu): `tiles` by
+ * `tiles` tiles at TEXELS per tile, patches of grass, gravel and rubble from `groundPatches`, fine grain on top. Pure.
+ */
+export function patchedGroundTexture(rgb: readonly [number, number, number], tiles: number): { width: number; height: number; data: Uint8Array } {
+  const n = tiles * TEXELS;
+  const data = new Uint8Array(n * n * 4);
+  const lattice = patchLattice(tiles, tiles);
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const x = (i + 0.5) / TEXELS;
+      const y = (j + 0.5) / TEXELS;
+      const c = patched(rgb, x, y, lattice, tiles);
+      const k = (j * n + i) * 4;
+      data[k] = Math.min(255, Math.round(c[0]));
+      data[k + 1] = Math.min(255, Math.round(c[1]));
+      data[k + 2] = Math.min(255, Math.round(c[2]));
+      data[k + 3] = 255;
+    }
+  }
+  return { width: n, height: n, data };
+}
+
 /** RGBA ground texture, TEXELS per tile, row 0 at tile row 0. */
 export function groundTexture(t: TerrainInput): { width: number; height: number; data: Uint8Array } {
   const w = t.width * TEXELS;
   const h = t.height * TEXELS;
   const data = new Uint8Array(w * h * 4);
+  const lattice = patchLattice(t.width, t.height);
   for (let ty = 0; ty < t.height; ty++) {
     for (let tx = 0; tx < t.width; tx++) {
       const lv = level(t, tx, ty);
@@ -277,6 +411,12 @@ export function groundTexture(t: TerrainInput): { width: number; height: number;
           const ctx = { level: lv, water: false, shade, shore: 0, shards: false };
           let c = groundRgb(tx, ty, fx, fy, ctx);
           if (shoreTile) c = shoreRgb(t, tx, ty, fx, fy, c);
+          // Patches of gravel and rubble stay off the shore and the shard fields (R3D-24).
+          const dryK = shoreTile ? 1 - smooth(0.06, 0.18, wetness(t, tx + fx, ty + fy)) : 1;
+          if (dryK > 0) {
+            const pc = patched(c, tx + fx, ty + fy, lattice, t.width);
+            c = mixRgb(c, pc, dryK);
+          }
           if (nearShards) {
             const k = shardCover(t, tx + fx, ty + fy);
             if (k > 0) {
@@ -419,7 +559,13 @@ export function terrainMeshes(t: TerrainInput): TerrainMeshes {
           return [x + d[0] + o[0], yy + o[1], z + d[1] + o[2]];
         };
         for (let j = 0; j < rows; j++) {
-          const c = cliffRgb(tx + 0.5, ty + 0.5, Math.round((lv * ROWS_PER_LEVEL - j) * 1.5), sunward).map((v) => v / 255);
+          // The layer at the row's middle sets the tone: bands of rock that vary in tone, warmth and thickness with height
+          // (R3D-24); the first row under a layer's lower edge is a little darker, as a ledge's underside is.
+          const rowMid = y - ((j + 0.5) / ROWS_PER_LEVEL) * LEVEL_H;
+          const st = strataAt(rowMid);
+          const under = strataAt(y - (j / ROWS_PER_LEVEL) * LEVEL_H - 1e-6).id !== strataAt(y - ((j + 1) / ROWS_PER_LEVEL) * LEVEL_H + 1e-6).id ? 0.9 : 1;
+          const base = cliffRgb(tx + 0.5, ty + 0.5, st.id, sunward);
+          const c = mixRgb(base, sunward ? [176, 134, 92] : [92, 96, 118], 0.16 * (st.warm * 2 - 1) + 0.05).map((v) => (v * st.tone * under) / 255);
           for (let i = 0; i < COLS; i++) {
             const p00 = vert(i, j);
             const p10 = vert(i + 1, j);

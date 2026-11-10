@@ -13,17 +13,22 @@ import { crystalLevel, propAt, rockVariant } from '../render/voxel/props';
 import { BUILDING_RIGS, crystalShape, DOCK_RIGS, dockFrame, dockModelYaw, dockYaw, grassShape, propShape, reedShape } from './buildings3d';
 import { cameraPose, FOV, PX_PER_UNIT } from './camera3d';
 import { CombatFx } from './fx3d';
+import { Debris } from './debris3d';
 import { Instancer } from './instancer';
 import type { Built, Shape } from './kit';
-import { angleDiff, bodyPose, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
+import { angleDiff, bodyPose, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HAULER_PUFF_ACCEL, HAULER_PUFF_MS, HEAD_MS, rideMotion, slew, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
+import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
+import { applySurface, modelMaterials, setSurface } from './surface3d';
+import { noiseNormalMap } from './noiseNormal';
 import { unexploredMask } from './unexplored';
 import { RallyMarker } from './rally3d';
-import { PR_MAX, ResolutionGovernor } from './resolution';
+import { GpuTimer } from './gpuTimer';
+import { PR_MAX, PR_MAX_LOW, PR_MIN, ResolutionGovernor } from './resolution';
 import { addEnvironment, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights } from './lighting3d';
 
 /**
@@ -56,8 +61,20 @@ export { GLOW, glowLevels, HIVE_GLOW };
 /** Extra reach beyond the view, tiles, within which units are still posed (PERF-1). */
 export const POSE_MARGIN = 2;
 
+/** Distance fog, tiles from the camera at zoom 1 (it scales out as the camera pulls back, R3D-25). */
+const FOG_NEAR = 34;
+const FOG_FAR = 86;
 /** Frames per redraw of the sun's shadow map (PERF-1). */
 export const SHADOW_EVERY = 2;
+/**
+ * Shadow redraw cadence under GPU pressure (R3D-29): when the governor has had to lower the resolution the sun's shadows
+ * refresh every third frame, and at its floor every fourth, so the ground shadows trail units by at most 4 frames.
+ */
+export function shadowEvery(ratio: number, max: number): number {
+  const floor = Math.min(PR_MIN, max);
+  if (ratio >= max - 0.001) return SHADOW_EVERY;
+  return ratio <= floor + 0.03 ? SHADOW_EVERY + 2 : SHADOW_EVERY + 1;
+}
 
 
 /** An aircraft's dive from the sky to the ground, ms, and how far its momentum carries it on, tiles (R3D-12). */
@@ -81,61 +98,6 @@ const geometry = (d: MeshData & { uvs?: Float32Array }): THREE.BufferGeometry =>
   g.computeBoundingSphere();
   return g;
 };
-
-/** A seeded, seamlessly tiling value-noise height field turned into a normal map (ground relief, water ripples). */
-function noiseNormalMap(size: number, freq: number, strength: number, seed: number): THREE.DataTexture {
-  const h = new Float32Array(size * size);
-  // Lattice values wrap with each octave's period, so the texture tiles without seams.
-  const lattice = (x: number, y: number, period: number, octave: number): number => {
-    let v = Math.imul((x % period) + octave * 1009 + seed * 7919, 374761393) ^ Math.imul((y % period) + octave * 613, 668265263);
-    v = Math.imul(v ^ (v >>> 13), 1103515245);
-    return ((v ^ (v >>> 16)) >>> 0) / 4294967296;
-  };
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      let v = 0;
-      let amp = 1;
-      for (let o = 0; o < 3; o++) {
-        const f = freq * (1 << o);
-        const fx = (x / size) * f;
-        const fy = (y / size) * f;
-        const ix = Math.floor(fx);
-        const iy = Math.floor(fy);
-        const tx = fx - ix;
-        const ty = fy - iy;
-        const sx = tx * tx * (3 - 2 * tx);
-        const sy = ty * ty * (3 - 2 * ty);
-        const L = (a: number, b: number): number => lattice(a, b, f, o);
-        const top = L(ix, iy) + (L(ix + 1, iy) - L(ix, iy)) * sx;
-        const bot = L(ix, iy + 1) + (L(ix + 1, iy + 1) - L(ix, iy + 1)) * sx;
-        v += (top + (bot - top) * sy) * amp;
-        amp *= 0.5;
-      }
-      h[y * size + x] = v;
-    }
-  }
-  const data = new Uint8Array(size * size * 4);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const at = (xx: number, yy: number): number => h[((yy + size) % size) * size + ((xx + size) % size)] as number;
-      const nx = (at(x - 1, y) - at(x + 1, y)) * strength;
-      const ny = (at(x, y - 1) - at(x, y + 1)) * strength;
-      const l = Math.hypot(nx, ny, 1);
-      const k = (y * size + x) * 4;
-      data[k] = Math.round(((nx / l) * 0.5 + 0.5) * 255);
-      data[k + 1] = Math.round(((ny / l) * 0.5 + 0.5) * 255);
-      data[k + 2] = Math.round(((1 / l) * 0.5 + 0.5) * 255);
-      data[k + 3] = 255;
-    }
-  }
-  const t = new THREE.DataTexture(data, size, size);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.magFilter = THREE.LinearFilter;
-  t.minFilter = THREE.LinearMipmapLinearFilter;
-  t.generateMipmaps = true;
-  t.needsUpdate = true;
-  return t;
-}
 
 /** One drawn part of a rig instance, resolved once: its geometry, material and batch keys. */
 interface Part {
@@ -203,6 +165,11 @@ interface UnitObj {
   /** How far the bed is tipped (or the belly squeezes), 0..1, and the cutter drum's angle (R3D-19). */
   tip: number;
   drum: number;
+  /** How far into its work a harvester is, 0..1, eased over 0.4 s: the hauler's head is lowered, the gorger feeds (R3D-30, R3D-31). */
+  work: number;
+  /** The howitzer's barrel elevation, 0 in its travel lock .. 1 raised (R3D-32), and when the hauler last puffed exhaust. */
+  elev: number;
+  lastPuff: number;
   alive: number;
   seed: number;
   dying: { t0: number; mode: 'wreck' | 'fall' | 'crash' | 'break' | 'crush'; side: number; boomed: boolean; pieces?: { pivot: THREE.Group; plan: Piece }[] } | null;
@@ -274,8 +241,9 @@ export class View3D {
   private sun = this.lights.sun;
   private hemi = this.lights.hemi;
   private built = new Map<string, Built>();
-  private metalMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.38 });
-  private organicMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.05 });
+  private modelMats = modelMaterials();
+  private metalMat = this.modelMats.metal;
+  private organicMat = this.modelMats.organic;
   private propMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.02 });
   private crystalMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.25, emissive: 0x0c3a34 });
   // The view starts with bloom on (`bloomOn`), so the glows start at their bloom levels; applyQuality changes them.
@@ -286,6 +254,10 @@ export class View3D {
   private unexplored = unexploredMask();
   private inst: Instancer;
   private fx = new CombatFx();
+  /** Chunks thrown by destroyed vehicles and buildings (R3D-27). */
+  private debris = new Debris();
+  /** Shard-field tiles, where vehicles kick up no dust (R3D-26). */
+  private shardTiles: ArrayLike<number> | null = null;
   private units = new Map<number, UnitObj>();
   private buildings = new Map<number, BuildingObj>();
   private crystals: Static[] = [];
@@ -300,6 +272,10 @@ export class View3D {
   private scatterGroup = new THREE.Group();
   private shadowsOn = true;
   private bloomOn = true;
+  private detailOn = true;
+  /** Low renders at no more than 1 device pixel per CSS pixel: a third fewer pixels than High's 1.25. */
+  private lowRes = false;
+  private prepMs = 0;
   private proj: { key: string; p: Projector } | null = null;
   private ray = new THREE.Raycaster();
   private ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -355,8 +331,12 @@ export class View3D {
   private cpuMs = 0;
   /** Adaptive resolution (PERF-2); created on the first fit, when the device pixel ratio is known. */
   private res: ResolutionGovernor | null = null;
+  private gpuTimer: GpuTimer;
 
   constructor() {
+    // Panels, wear and creases on units and buildings, from the shader alone (R3D-23); compiled with the rest in prewarm.
+    applySurface(this.metalMat, 'metal');
+    applySurface(this.organicMat, 'organic');
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     configureRenderer(this.renderer);
     // The sun's shadows are redrawn every other frame (PERF-1): at 60 fps a shadow trailing its unit by one frame is invisible.
@@ -364,6 +344,7 @@ export class View3D {
     // Count a whole frame (shadows, scene and post-processing passes), not just the last pass.
     this.renderer.info.autoReset = false;
     this.inst = new Instancer(this.scene);
+    this.gpuTimer = new GpuTimer(this.renderer.getContext());
   }
 
   get canvas(): HTMLCanvasElement {
@@ -377,7 +358,7 @@ export class View3D {
   private fit(): void {
     const host = this.host;
     if (!host) return;
-    const max = Math.min(PR_MAX, window.devicePixelRatio || 1);
+    const max = Math.min(this.lowRes ? PR_MAX_LOW : PR_MAX, window.devicePixelRatio || 1);
     if (!this.res || this.res.max !== max) this.res = new ResolutionGovernor(max);
     const pr = this.res.ratio;
     this.renderer.setPixelRatio(pr);
@@ -405,12 +386,13 @@ export class View3D {
     this.mapH = snap.mapHeight;
     this.heights = snap.heights;
     const s = this.scene;
-    s.background = new THREE.Color(0x1a1f2e);
-    s.fog = new THREE.Fog(0x2a2d44, 38, 90);
+    // The sky gradient ends in the haze colour the distant land fades into (R3D-25).
+    s.background = skyTexture();
+    s.fog = new THREE.Fog(HAZE_COLOR, FOG_NEAR, FOG_FAR);
     addEnvironment(s, this.renderer);
     s.add(this.hemi);
     configureSunShadow(this.sun, 22, 2048);
-    s.add(this.sun, this.sun.target, this.fx.root, this.scatterGroup);
+    s.add(this.sun, this.sun.target, this.fx.root, this.debris.root, this.scatterGroup);
     this.buildTerrain(snap, look);
     this.buildProps(snap, look);
     this.syncShards(snap);
@@ -484,6 +466,7 @@ export class View3D {
    */
   private compileAll(): void {
     this.fx.warm(true);
+    this.debris.warm(true);
     this.rally.warm(true); // its programs too, or the first rally point would stall a frame
     this.renderer.shadowMap.needsUpdate = true;
     if (this.bloomOn && this.composer) {
@@ -496,6 +479,7 @@ export class View3D {
       this.renderer.render(this.scene, this.camera);
     }
     this.fx.warm(false);
+    this.debris.warm(false);
     this.rally.warm(false);
   }
 
@@ -512,6 +496,8 @@ export class View3D {
     this.blocked = look.blocked ?? null;
     this.liveWarp = contourWarp(input, false);
     this.fx.groundAt = (x, z) => this.groundAt(x, z);
+    this.debris.groundAt = (x, z) => this.groundAt(x, z);
+    this.shardTiles = look.shards ?? null;
     const tex = groundTexture(input);
     const map = new THREE.DataTexture(tex.data, tex.width, tex.height);
     map.flipY = true;
@@ -536,9 +522,14 @@ export class View3D {
     this.waterNormal.repeat.set(W / 4, snap.mapHeight / 4);
     const water = new THREE.Mesh(geometry(m.water), new THREE.MeshStandardMaterial({ color: 0x2a6a8a, vertexColors: true, depthWrite: false, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.82, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.45, 0.45) }));
     water.receiveShadow = true;
-    this.scene.add(ground, cliffs, water);
+    // The land beyond the map edge (R3D-25): scenery, one mesh, no shadows, no fog of war, never picked.
+    const horizon = new THREE.Mesh(geometry(horizonMesh(W, snap.mapHeight, snap.heights)), new THREE.MeshBasicMaterial({ vertexColors: true }));
+    horizon.matrixAutoUpdate = false;
+    horizon.frustumCulled = false;
+    this.scene.add(horizon, ground, cliffs, water);
     // Cliffs, water, props, plants and crystals on unexplored tiles fade into the fog's darkness (R3D-17).
-    for (const mat of [cliffMat, water.material, this.propMat, this.crystalMat, this.glowMat, this.hiveGlowMat]) this.unexplored.apply(mat);
+    for (const mat of [cliffMat, water.material, this.propMat, this.crystalMat, this.glowMat, this.hiveGlowMat, this.debris.material]) this.unexplored.apply(mat);
+    this.fx.useHide(this.unexplored.uniforms);
     if (snap.fog) {
       // Fog of war: the same tile tops, darkened through a per-tile alpha texture (linear filtering softens the edges).
       this.fogData = new Uint8Array(W * snap.mapHeight * 4);
@@ -711,6 +702,9 @@ export class View3D {
       capacity: d.capacity ?? 0,
       tip: 0,
       drum: 0,
+      work: 0,
+      elev: 0,
+      lastPuff: 0,
       alive: size,
       seed,
       dying: null,
@@ -803,6 +797,10 @@ export class View3D {
           return;
         }
         if (mode === 'fall') this.fx.splatter(at.setY(at.y + 0.15), !!u.def.organic, now);
+        // Vehicles and big organic bodies throw chunks; infantry and raiders just fall (R3D-27).
+        const role = (e.kind ? UNIT_DEFS[e.kind] : undefined)?.role;
+        if (mode === 'wreck') this.debris.spawn('vehicle', at, e.id, u.def.radius, u.team, now);
+        else if (mode === 'fall' && (role === 'tank' || role === 'artillery' || role === 'harvester' || role === 'scout')) this.debris.spawn('organic', at, e.id, u.def.radius, u.team, now);
         if (mode === 'wreck') this.fx.explosion(at.setY(at.y + 0.2), e.big ? 0.75 : 0.5, now);
         if (mode === 'fall' && e.big) this.fx.explosion(at, 0.45, now, 0x80e020);
         return;
@@ -815,6 +813,7 @@ export class View3D {
           const off = new THREE.Vector3(((i * 0.37) % 1) * d.w - d.w / 2, 0.4 + (i % 2) * 0.4, ((i * 0.61) % 1) * d.h - d.h / 2);
           this.fx.explosion(new THREE.Vector3(b.x, b.y, b.z).add(off), 0.9 + (i === 0 ? 0.6 : 0), now + i * 140);
         }
+        this.debris.spawn('building', { x: b.x, y: b.y, z: b.z }, e.id, (d.w + d.h) / 2, b.team, now);
         this.fx.shake = Math.max(this.fx.shake, 0.12);
         return;
       }
@@ -975,11 +974,11 @@ export class View3D {
     this.lastTime = t;
     this.fx.quality = { rich: vs.fx.particles };
     this.applyCamera(cam, t);
-    // The distance fog follows the camera out during the fly-in's sweep, so the whole map stays clear (CAM-4); at the normal pitch it is unchanged.
+    // The distance fog follows the camera out as it pulls back, so the whole map stays clear (CAM-4) and only the land beyond fades into haze (R3D-25).
     if (this.scene.fog instanceof THREE.Fog) {
-      const k = cam.rise === undefined ? 1 : Math.max(1, 1 / cam.zoom);
-      this.scene.fog.near = 38 * k;
-      this.scene.fog.far = 90 * k;
+      const k = Math.max(1, 1 / cam.zoom);
+      this.scene.fog.near = FOG_NEAR * k;
+      this.scene.fog.far = FOG_FAR * k;
     }
     if (snap) {
       if (snap.tick !== this.lastTick) {
@@ -1025,23 +1024,48 @@ export class View3D {
     const r = vs.rally;
     this.rally.update(r ? { from: r.from, to: { tx: r.to.tx + 0.5, ty: r.to.ty + 0.5 } } : null, OWNER_COLORS[vs.viewer] ?? 0x7ff5cd, t, (x, z) => this.groundAt(x, z));
     this.fx.update(t, dt);
+    this.debris.setQuality(vs.fx.particles);
+    this.debris.update(t, dt);
     this.applyQuality(vs);
-    if (this.frame % SHADOW_EVERY === 0) this.renderer.shadowMap.needsUpdate = true;
+    if (this.frame % (this.res ? shadowEvery(this.res.ratio, this.res.max) : SHADOW_EVERY) === 0) this.renderer.shadowMap.needsUpdate = true;
+    // The governor needs the CPU's own work, not the time render() spends blocked behind a busy GPU.
+    const prep = performance.now() - cpu0;
+    this.prepMs += (prep - this.prepMs) * 0.05;
+    this.gpuTimer.begin();
     if (this.bloomOn && this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
+    this.gpuTimer.end();
+    this.gpuTimer.poll();
     this.cpuMs += (performance.now() - cpu0 - this.cpuMs) * 0.05;
-    if (this.res?.step(dt * 1000, this.cpuMs)) this.fit();
+    if (this.res?.step(dt * 1000, this.prepMs, this.gpuTimer.ms)) this.fit();
+  }
+
+  /** Render figures for tests and measurement (R3D-29): draws, triangles, CPU time, live particles and debris. */
+  stats(): { cpuMs: number; draws: number; tris: number; particles: { smoke: number; glow: number }; debris: number; pr: number; gpuMs: number | null } {
+    const i = this.renderer.info.render;
+    return { cpuMs: this.cpuMs, draws: i.calls, tris: i.triangles, particles: this.fx.particleCounts, debris: this.debris.active, pr: this.res?.ratio ?? 0, gpuMs: this.gpuTimer.ms };
   }
 
   /** Draw calls of the last frame and the smoothed CPU time of an update, for the frame-time readout. */
   readout(): string {
-    return `${this.renderer.info.render.calls} draws · ${Math.round(this.renderer.info.render.triangles / 1000)}k tris · cpu ${this.cpuMs.toFixed(1)} ms`;
+    return `${this.renderer.info.render.calls} draws · ${Math.round(this.renderer.info.render.triangles / 1000)}k tris · cpu ${this.cpuMs.toFixed(1)} ms · px ${this.res?.ratio ?? 1}`;
   }
 
   /** The quality preset (R3D-12): shadows, bloom and decor follow it; programs rebuild when shadows change. */
   private applyQuality(vs: ViewState): void {
     this.scatterGroup.visible = vs.fx.decor;
-    const changed = vs.fx.bloom !== this.bloomOn || vs.fx.decor !== this.shadowsOn;
+    let changed = vs.fx.bloom !== this.bloomOn || vs.fx.decor !== this.shadowsOn;
+    // High quality is bloom, so it also stands for the other costly extras: surface detail and point lights.
+    if (vs.fx.bloom !== this.detailOn) {
+      this.detailOn = vs.fx.bloom;
+      setSurface(this.metalMat, 'metal', this.detailOn);
+      setSurface(this.organicMat, 'organic', this.detailOn);
+      this.metalMat.needsUpdate = this.organicMat.needsUpdate = true;
+      this.fx.setLights(this.detailOn);
+      this.lowRes = !this.detailOn;
+      this.fit();
+      changed = true;
+    }
     if (vs.fx.bloom !== this.bloomOn) {
       this.bloomOn = vs.fx.bloom;
       // Glowing parts are brighter than white with bloom, so the bloom pass picks them up; plain white without.
@@ -1161,12 +1185,18 @@ export class View3D {
         this.barAt(o.x, o.groundY + def.height * (def.scale ?? 1) + (air ? AIR_Y : 0) + 0.22, o.z, frac);
       }
       // Dust behind moving vehicles (R3D-12).
-      if ((def.move === 'tracked' || def.move === 'wheeled') && o.motion.speed > 0.4 && t - o.lastDust > 70 && this.inView(o.x, 0, o.z, 1)) {
+      if ((def.move === 'tracked' || def.move === 'wheeled') && o.motion.speed > 0.4 && t - o.lastDust > 70 && this.inView(o.x, 0, o.z, 1) && !(this.shardTiles?.[Math.floor(o.z) * this.mapW + Math.floor(o.x)])) {
         o.lastDust = t;
         const h = o.motion.heading;
         this.fx.dust(this.v.set(o.x - Math.cos(h) * def.radius * 0.6, 0, o.z - Math.sin(h) * def.radius * 0.6), def.radius * 1.2, t);
       }
       if (o.capacity > 0) this.harvestFx(u.id, o, t, dt);
+      // The hauler's stack puffs dark smoke as it throttles up (R3D-30), now and then.
+      if (o.kind === 'hum_hauler' && o.motion.accel > HAULER_PUFF_ACCEL && t - o.lastPuff > HAULER_PUFF_MS && this.inView(o.x, 0, o.z, 1)) {
+        o.lastPuff = t;
+        const h = o.motion.heading;
+        this.fx.burn(this.v.set(o.x + Math.cos(h) * 0.14 - Math.sin(h) * 0.3, o.groundY + 0.72, o.z + Math.sin(h) * 0.14 + Math.cos(h) * 0.3), false, 0.22, t);
+      }
       if (this.inView(o.x, o.root.position.y, o.z, def.radius + (o.members.length ? 0.5 : 0))) this.drawUnit(o, this.tint.setRGB(1, 1, 1), t);
     }
     for (const [id, o] of this.units) {
@@ -1233,15 +1263,16 @@ export class View3D {
     // The simulation says when it is docked and unloading (R3D-22); the bed stays up until it drives off.
     const unloading = !mining && o.docked;
     o.tip += ((unloading ? 1 : 0) - o.tip) * Math.min(1, dt * (unloading ? 9 : 3));
+    o.work = slew(o.work, mining ? 1 : 0, dt, HEAD_MS, HEAD_MS);
     if (mining) o.drum += dt * 14;
     if (mining && organic && t - o.lunge > 700) o.lunge = t; // a chomp
     const g = o.groundY;
     if (mining) {
-      const from = organic ? this.v.set(o.x + fx * 0.75, g + 0.06, o.z + fz * 0.75) : this.v.set(o.x + fx * 0.85, g + 0.1, o.z + fz * 0.85);
-      const into = organic ? this.v2.set(o.x + fx * 0.55, g + 0.32, o.z + fz * 0.55) : this.v2.set(o.x - fx * 0.2, g + 0.62, o.z - fz * 0.2);
+      const from = organic ? this.v.set(o.x + fx * 0.75, g + 0.06, o.z + fz * 0.75) : this.v.set(o.x + fx * 1.0, g + 0.1, o.z + fz * 1.0);
+      const into = organic ? this.v2.set(o.x + fx * 0.55, g + 0.32, o.z + fz * 0.55) : this.v2.set(o.x - fx * 0.1, g + 0.7, o.z - fz * 0.1);
       this.fx.harvest(id, from, into, organic, false, t);
     } else if (unloading && t - o.unloadAt < 300 && o.tip > 0.3) {
-      const from = organic ? this.v.set(o.x + fx * 0.6, g + 0.3, o.z + fz * 0.6) : this.v.set(o.x - fx * 0.95, g + 0.5, o.z - fz * 0.95);
+      const from = organic ? this.v.set(o.x + fx * 0.6, g + 0.3, o.z + fz * 0.6) : this.v.set(o.x - fx * 0.85, g + 0.5, o.z - fz * 0.85);
       const onto = organic ? this.v2.set(o.x + fx * 0.95, g + 0.05, o.z + fz * 0.95) : this.v2.set(o.x - fx * 1.35, g + 0.05, o.z - fz * 1.35);
       this.fx.harvest(id, from, onto, organic, true, t);
     }
@@ -1284,6 +1315,8 @@ export class View3D {
     }
     // Parts are posed only for units in or near the view (PERF-1); their walk and aim go on off screen, so nothing jumps.
     const posed = this.inView(o.x, o.root.position.y, o.z, def.radius + POSE_MARGIN);
+    // A howitzer raises its barrel while it has a target or has fired lately, and lowers it into the lock otherwise (R3D-32).
+    if (def.weapon === 'howitzer') o.elev = slew(o.elev, elevTarget(aiming, t - Math.max(...o.lastFire)), dt, ELEV_UP_MS, ELEV_DOWN_MS);
     o.figures.forEach((f, i) => {
       if (i >= o.alive) return;
       const mm = squad ? o.members[i]! : null;
@@ -1303,6 +1336,12 @@ export class View3D {
       }
       const phase = gaitPhase(mo.dist, def.stride ?? 1) + i * 1.7 + o.seed;
       const pose = bodyPose(def.move, mo, phase, t, o.seed + i, mm ? undefined : def.walk);
+      if (def.ride) {
+        const ride = rideMotion(def.ride, mo.stride, t, o.seed + i);
+        pose.pitch += ride.pitch;
+        pose.roll += ride.roll;
+        pose.bob += ride.bob;
+      }
       // A hero's whole body heaves with each heavy shot (HERO-4).
       const heave = heroHeave(def.weapon, t - (o.lastFire[i] ?? -1e9));
       poseRig(f, {
@@ -1324,6 +1363,9 @@ export class View3D {
         load: o.capacity > 0 ? o.load / o.capacity : 1,
         tip: o.tip,
         drum: o.drum,
+        head: o.work,
+        feed: o.work,
+        elev: o.elev,
         pod: podOpen(t - o.podSince, salvoOf(o.kind, this.msPerTick)),
       });
     });

@@ -3,11 +3,12 @@ import { UNIT_DEFS, type UnitDef } from '../data/defs';
 import { OWNER_COLORS } from '../render/colors';
 import { FP, TICKS_PER_SECOND } from '../sim';
 import { CombatFx } from './fx3d';
-import { bodyPose, missileLaunchAt, podOpen, salvoOf, POD_OPEN_MS, follow, heroHeave, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, turnToward, turretOnBody, TURRET_RATE, walkerFacing, type Follow, type MotionState } from './motion';
+import { bodyPose, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HEAD_MS, rideMotion, slew, missileLaunchAt, podOpen, salvoOf, POD_OPEN_MS, follow, heroHeave, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, turnToward, turretOnBody, TURRET_RATE, walkerFacing, type Follow, type MotionState } from './motion';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigTree } from './rig';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { BUILDING_RIGS } from './buildings3d';
 import { UNIT_RIGS } from './units3d';
+import { modelMaterials } from './surface3d';
 import { extremePoints, fitPicture, viewDir, type V3 } from './iconFit';
 
 /**
@@ -26,6 +27,8 @@ export const PREVIEW_FOV = 30;
 export const PREVIEW_PITCH = 0.42;
 /** Turntable speed, radians per second. */
 export const SPIN = 0.45;
+/** The yaw a unit starts the sheet's turn at: its front three-quarter faces the camera (the camera stands at azimuth about 0.76), so a hauler's cargo bed and a Gorger's claws show from the first moment. */
+export const START_YAW = -0.2;
 /** One cycle, ms: moving, coming to a stop, then working (firing, or mining and unloading). */
 export const MOVE_MS = 3400;
 export const SETTLE_MS = 500;
@@ -111,6 +114,9 @@ interface Live {
   load: number;
   tip: number;
   drum: number;
+  /** Harvest head lowered / feeding, and the howitzer's barrel elevation, 0..1 (R3D-30..32). */
+  work: number;
+  elev: number;
   act: PreviewAct | '';
 }
 
@@ -120,8 +126,9 @@ export class UnitPreview {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(PREVIEW_FOV, 1, 0.05, 100);
-  private metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.38 });
-  private organic = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.05 });
+  private mats = modelMaterials();
+  private metal = this.mats.metal;
+  private organic = this.mats.organic;
   private glow = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
   private plinth: THREE.Mesh;
   private rim: THREE.Mesh;
@@ -326,21 +333,24 @@ export class UnitPreview {
         s.nextShot = now + (d ? shotEvery(d) : 1000);
       }
     }
+    // A howitzer raises its barrel while it has a target or has fired lately (R3D-32).
+    if (def.weapon === 'howitzer') s.elev = slew(s.elev, elevTarget(firing, now - Math.max(-1e9, ...s.lastFire)), dt, ELEV_UP_MS, ELEV_DOWN_MS);
     // Harvesting (R3D-19): the cutter turns and the bed fills, then the bed tips and empties.
     if (harvester) {
       const organic = !!def.organic;
       const mining = beat.act === 'mine';
       const unloading = beat.act === 'unload' && beat.into < UNLOAD_MS;
       s.tip += ((unloading ? 1 : 0) - s.tip) * Math.min(1, dt * (unloading ? 9 : 3));
+      s.work = slew(s.work, mining ? 1 : 0, dt, HEAD_MS, HEAD_MS);
       const h = mo.heading;
       if (mining) {
         s.drum += dt * 14;
         s.load = Math.min(1, s.load + (dt * 1000) / MINE_MS);
         if (organic && now - s.lunge > 700) s.lunge = now; // a chomp
-        this.fx.harvest(1, organic ? this.ahead(h, 0.75, 0.06, this.v) : this.ahead(h, 0.85, 0.1, this.v), organic ? this.ahead(h, 0.55, 0.32, this.v2) : this.ahead(h, -0.2, 0.62, this.v2), organic, false, now);
+        this.fx.harvest(1, organic ? this.ahead(h, 0.75, 0.06, this.v) : this.ahead(h, 1.0, 0.1, this.v), organic ? this.ahead(h, 0.55, 0.32, this.v2) : this.ahead(h, -0.1, 0.7, this.v2), organic, false, now);
       } else if (unloading) {
         s.load = Math.max(0, s.load - (dt * 1000) / UNLOAD_MS);
-        if (s.tip > 0.3) this.fx.harvest(1, organic ? this.ahead(h, 0.6, 0.3, this.v) : this.ahead(h, -0.95, 0.5, this.v), organic ? this.ahead(h, 0.95, 0.05, this.v2) : this.ahead(h, -1.35, 0.05, this.v2), organic, true, now);
+        if (s.tip > 0.3) this.fx.harvest(1, organic ? this.ahead(h, 0.6, 0.3, this.v) : this.ahead(h, -0.85, 0.5, this.v), organic ? this.ahead(h, 0.95, 0.05, this.v2) : this.ahead(h, -1.35, 0.05, this.v2), organic, true, now);
       }
     }
     // The rig, posed exactly as poseUnit poses it in a match.
@@ -357,6 +367,12 @@ export class UnitPreview {
       }
       const phase = gaitPhase(fm.dist, def.stride ?? 1) + i * 1.7 + SEED;
       const pose = bodyPose(def.move, fm, phase, now, SEED + i, mm ? undefined : def.walk);
+      if (def.ride) {
+        const ride = rideMotion(def.ride, fm.stride, now, SEED + i);
+        pose.pitch += ride.pitch;
+        pose.roll += ride.roll;
+        pose.bob += ride.bob;
+      }
       const heave = heroHeave(def.weapon, now - (s.lastFire[i] ?? -1e9));
       poseRig(tree, {
         turret: turretOnBody(s.turretYaw, !mm && walker ? s.figureYaw : mo.heading),
@@ -376,10 +392,13 @@ export class UnitPreview {
         load: harvester ? s.load : 1,
         tip: s.tip,
         drum: s.drum,
+        head: s.work,
+        feed: s.work,
+        elev: s.elev,
         pod: UNIT_DEFS[m.kind]?.weapon2 ? podOpen(now - s.podSince, salvoOf(m.kind, 1000 / TICKS_PER_SECOND)) : 0,
       });
     });
-    m.group.rotation.y = -0.6 + (t / 1000) * SPIN;
+    m.group.rotation.y = START_YAW + (t / 1000) * SPIN;
     m.group.updateMatrixWorld(true);
     this.firePending(now);
     this.fx.update(now, dt);
@@ -538,6 +557,8 @@ export class UnitPreview {
       load: 0,
       tip: 0,
       drum: 0,
+      work: 0,
+      elev: 0,
       act: '',
     };
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;

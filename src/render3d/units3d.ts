@@ -18,8 +18,18 @@ const OLIVE = 0x5c6a4e;
 /** Rocketeers' heavier gunmetal fatigues. */
 const HEAVY_CLOTH = 0x4a4f58;
 const HAZARD = 0xe0aa2c;
-const GLASS = 0x22384a;
 const SKIN = 0xb98a6a;
+/** Vehicle colour schemes (R3D-23): the tank is olive with tan camouflage blocks, the buggy sand with a bold dark stripe, the artillery slate blue over pale grey with a hazard-banded barrel. */
+const TANK_OLIVE = 0x4f5d3a;
+const TANK_DARK = 0x38432b;
+const TANK_TAN = 0x93855a;
+const BUGGY_SAND = 0xcdb47c;
+const BUGGY_SAND2 = 0xa88e58;
+const BUGGY_STRIPE = 0x262b33;
+const BUGGY_WHITE = 0xece6d4;
+const ARTY_SLATE = 0x4b525c;
+const ARTY_PALE = 0xb4bcc2;
+const ARTY_BAND = 0xf2c53a;
 const CYAN = 0x6fe2ff;
 const AMBER = 0xffb347;
 const RED = 0xff4a3a;
@@ -175,7 +185,12 @@ function tank(): RigDef {
       roadwheel: () => roadWheel(0.062, 0.04),
       hull: () => {
         const s = shape();
-        s.slab([[-0.56, 0.09], [0.48, 0.09], [0.62, 0.17], [0.42, 0.28], [-0.5, 0.29], [-0.58, 0.21]], 0.6, STEEL, { bevel: 0.025 });
+        s.slab([[-0.56, 0.09], [0.48, 0.09], [0.62, 0.17], [0.42, 0.28], [-0.5, 0.29], [-0.58, 0.21]], 0.6, TANK_OLIVE, { bevel: 0.025 });
+        // Tan camouflage blocks across the deck and glacis, dark olive flanks.
+        s.box(0.34, 0.012, 0.26, TANK_TAN, { at: [0.12, 0.286, 0.17], bevel: 0 });
+        s.box(0.28, 0.012, 0.22, TANK_DARK, { at: [-0.12, 0.292, -0.18], bevel: 0 });
+        s.box(0.2, 0.012, 0.2, TANK_TAN, { at: [-0.36, 0.296, 0.22], bevel: 0 });
+        s.slab([[0.44, 0.255], [0.56, 0.2], [0.6, 0.17], [0.44, 0.17]], 0.34, TANK_DARK, { at: [0, 0.006, 0], bevel: 0 });
         // Side skirts in team colour, hazard chevrons up front.
         for (const z of [0.36, -0.36]) {
           s.slab([[-0.56, 0.12], [0.5, 0.12], [0.56, 0.21], [-0.54, 0.25]], 0.035, 'team', { at: [0, 0, z], bevel: 0.01 });
@@ -193,20 +208,22 @@ function tank(): RigDef {
       },
       turret: () => {
         const s = shape();
-        s.hull([[0.26, -0.13], [0.3, 0], [0.26, 0.13], [-0.16, 0.21], [-0.3, 0.14], [-0.3, -0.14], [-0.16, -0.21]], 0.15, STEEL, { bevel: 0.025 });
+        s.hull([[0.26, -0.13], [0.3, 0], [0.26, 0.13], [-0.16, 0.21], [-0.3, 0.14], [-0.3, -0.14], [-0.16, -0.21]], 0.15, TANK_OLIVE, { bevel: 0.025 });
+        s.box(0.22, 0.012, 0.16, TANK_TAN, { at: [-0.12, 0.156, -0.09], bevel: 0 });
+        s.box(0.16, 0.012, 0.12, TANK_DARK, { at: [0.05, 0.156, 0.1], bevel: 0 });
         s.hull([[0.18, -0.09], [0.21, 0], [0.18, 0.09], [-0.12, 0.15], [-0.24, 0.1], [-0.24, -0.1], [-0.12, -0.15]], 0.025, 'team', { at: [0, 0.15, 0], bevel: 0.008 });
         s.cyl(0.055, 0.05, STEEL2, { at: [-0.1, 0.19, 0.09], seg: 10 }); // cupola
         s.box(0.03, 0.012, 0.05, CYAN, { at: [-0.06, 0.205, 0.09], glow: true, bevel: 0 }); // cupola vision block
         s.box(0.06, 0.05, 0.05, GUN, { at: [0.1, 0.18, -0.12] }); // gunner sight
         s.box(0.012, 0.03, 0.035, CYAN, { at: [0.133, 0.18, -0.12], glow: true, bevel: 0 });
         s.cyl(0.006, 0.34, DARK, { at: [-0.24, 0.32, -0.12], seg: 4 }); // antenna
-        s.box(0.12, 0.08, 0.3, STEEL2, { at: [-0.34, 0.08, 0] }); // bustle rack
+        s.box(0.12, 0.08, 0.3, TANK_DARK, { at: [-0.34, 0.08, 0] }); // bustle rack
         for (const z of [0.17, -0.17]) for (const k of [0, 1]) s.tube(0.016, 0.06, GUN, { at: [0.12 + k * 0.01, 0.12 + k * 0.03, z], rot: [0, z > 0 ? -0.5 : 0.5, 0.4] }); // smoke dischargers
         return s;
       },
       barrel: () => {
         const s = shape();
-        s.box(0.1, 0.09, 0.13, STEEL2, { at: [0.02, 0, 0] }); // mantlet
+        s.box(0.1, 0.09, 0.13, TANK_DARK, { at: [0.02, 0, 0] }); // mantlet
         s.tube(0.028, 0.5, GUN, { at: [0.3, 0, 0], r2: 0.032, seg: 10 });
         s.tube(0.04, 0.09, GUN, { at: [0.3, 0, 0], seg: 10 }); // fume extractor
         s.box(0.07, 0.055, 0.075, DARK, { at: [0.57, 0, 0], bevel: 0.2 }); // muzzle brake
@@ -234,60 +251,86 @@ function tank(): RigDef {
 }
 
 /**
- * Hammer Artillery: a self-propelled gun, unmistakably not a tank. A big armoured crew cab sits up front; the gun stands
- * on an open turntable deck at the back behind side shields, its long barrel raised steeply over the cab; recoil
- * outriggers and ammunition racks flank the deck.
+ * Hammer Artillery (R3D-32): a modern self-propelled howitzer, an original design. A long, low tracked hull on seven
+ * road wheels carries a large, enclosed, faceted turret set toward the rear; the long barrel, with a multi-baffle muzzle
+ * brake, reaches out over the hull front and rests in a travel lock on the glacis until the gun has a target. No open
+ * deck, no outriggers, no crew. The barrel rides an elevating cradle, so shots leave the muzzle at its current angle.
  */
+/** Barrel elevation in the travel lock (nearly level) and fully raised, radians (R3D-32). */
+export const HAMMER_LOCK = 0.035;
+export const HAMMER_RAISED = 0.68;
+/** Where the barrel hinges in the turret, and the muzzle's distance along the barrel from that hinge (R3D-32). */
+export const HAMMER_TRUNNION: V3 = [0.44, 0.2, 0];
+export const HAMMER_MUZZLE = 1.14;
+
 function artillery(): RigDef {
+  const LEN = 1.5;
   return {
     move: 'tracked',
     turn: 5,
-    radius: 0.76,
-    height: 0.62,
+    radius: 0.78,
+    height: 0.7,
     weapon: 'howitzer',
     shapes: {
-      track: () => trackShape(1.3, 0.14, 0.16),
+      track: () => trackShape(LEN, 0.14, 0.16),
       roadwheel: () => roadWheel(0.058, 0.04),
       hull: () => {
         const s = shape();
-        s.slab([[-0.64, 0.08], [0.52, 0.08], [0.66, 0.15], [0.56, 0.22], [-0.64, 0.22]], 0.6, STEEL, { bevel: 0.022 });
-        for (const z of [0.35, -0.35]) s.slab([[-0.62, 0.11], [0.54, 0.11], [0.6, 0.19], [-0.62, 0.2]], 0.03, 'team', { at: [0, 0, z], bevel: 0.01 });
-        // The crew cab: tall, armoured, with a wraparound visor and a team-coloured roof.
-        s.slab([[0.12, 0.22], [0.58, 0.22], [0.62, 0.3], [0.5, 0.44], [0.14, 0.44]], 0.56, STEEL2, { bevel: 0.02 });
-        s.box(0.012, 0.05, 0.46, CYAN, { at: [0.565, 0.36, 0], glow: true, bevel: 0 });
-        for (const z of [0.285, -0.285]) s.box(0.24, 0.04, 0.008, CYAN, { at: [0.36, 0.38, z], glow: true, bevel: 0 });
-        s.box(0.34, 0.02, 0.5, 'team', { at: [0.33, 0.45, 0], bevel: 0.3 });
-        s.cyl(0.006, 0.36, DARK, { at: [0.2, 0.62, 0.22], seg: 4 }); // antenna
-        s.box(0.02, 0.03, 0.05, AMBER, { at: [0.64, 0.18, 0.2], glow: true, bevel: 0 });
-        s.box(0.02, 0.03, 0.05, AMBER, { at: [0.64, 0.18, -0.2], glow: true, bevel: 0 });
-        // The open gun deck at the back: grated floor, ammunition racks along both sides.
-        s.box(0.7, 0.025, 0.62, DARK, { at: [-0.3, 0.235, 0], bevel: 0.1 });
-        for (const z of [0.27, -0.27]) for (let i = 0; i < 4; i++) s.cyl(0.028, 0.12, HAZARD, { at: [-0.56 + i * 0.07, 0.3, z], seg: 6 });
-        // Recoil outriggers folded down at the rear corners, and the spade between them.
-        for (const z of [0.3, -0.3]) {
-          s.box(0.3, 0.04, 0.05, GUN, { at: [-0.74, 0.14, z], rot: [0, z > 0 ? -0.45 : 0.45, 0.35] });
-          s.box(0.1, 0.02, 0.1, DARK, { at: [-0.87, 0.04, z * 1.3] });
+        s.box(1.42, 0.08, 0.42, GUN, { at: [0, 0.12, 0], bevel: 0.2 }); // belly between the tracks
+        // The faceted hull: a low wedge with a shallow glacis.
+        s.slab([[-0.74, 0.15], [0.7, 0.15], [0.8, 0.2], [0.46, 0.3], [-0.7, 0.3], [-0.76, 0.24]], 0.5, ARTY_SLATE, { bevel: 0.02 });
+        // A pale grey roof deck over the slate hull, and a hazard stripe across the glacis.
+        s.box(0.9, 0.012, 0.4, ARTY_PALE, { at: [-0.22, 0.298, 0], bevel: 0 });
+        for (let i = 0; i < 4; i++) s.box(0.04, 0.012, 0.1, i % 2 ? DARK : ARTY_BAND, { at: [0.64, 0.255, -0.15 + i * 0.1], bevel: 0, rot: [0, 0, -0.5] });
+        // Sponsons over the tracks, closed by smooth side skirts with a team stripe.
+        for (const z of [0.325, -0.325]) {
+          s.box(1.36, 0.1, 0.18, ARTY_SLATE, { at: [-0.02, 0.24, z], bevel: 0.25 });
+          s.box(1.0, 0.026, 0.012, 'team', { at: [-0.05, 0.27, z * 1.285], bevel: 0 });
         }
-        s.box(0.2, 0.05, 0.42, DARK, { at: [-0.7, 0.1, 0], rot: [0, 0, 0.6] });
+        // The travel lock on the glacis: two posts and a pad the barrel rests above.
+        for (const z of [0.06, -0.06]) s.box(0.07, 0.17, 0.035, GUN, { at: [0.52, 0.365, z], bevel: 0.2 });
+        s.box(0.1, 0.025, 0.16, DARK, { at: [0.52, 0.455, 0], bevel: 0.2 });
+        // Driver's optics and sensor block on the glacis, engine deck louvres, small cyan lenses.
+        s.box(0.08, 0.05, 0.1, GUN, { at: [0.34, 0.325, 0.15], bevel: 0.25 });
+        s.box(0.012, 0.022, 0.05, CYAN, { at: [0.382, 0.326, 0.15], glow: true, bevel: 0 });
+        s.box(0.34, 0.016, 0.36, DARK, { at: [-0.5, 0.305, 0], bevel: 0.2 });
+        for (const z of [0.18, -0.18]) s.box(0.016, 0.02, 0.04, CYAN, { at: [0.752, 0.19, z], glow: true, bevel: 0 });
+        s.box(0.012, 0.03, 0.1, RED, { at: [-0.762, 0.22, 0.14], glow: true, bevel: 0 });
+        s.box(0.012, 0.03, 0.1, RED, { at: [-0.762, 0.22, -0.14], glow: true, bevel: 0 });
         return s;
       },
       turret: () => {
-        // The gun mount: a turntable with a low ring and shields on both sides of the breech.
+        // Large, enclosed and angular: a chamfered plan block with a sloped roof wedge, a rear bustle and optics.
         const s = shape();
-        s.cyl(0.24, 0.06, STEEL2, { at: [0, 0.03, 0], seg: 16 });
-        s.cyl(0.25, 0.02, 'team', { at: [0, 0.07, 0], seg: 16 });
-        for (const z of [0.15, -0.15]) s.slab([[-0.22, 0.06], [0.2, 0.06], [0.14, 0.28], [-0.16, 0.24]], 0.03, STEEL, { at: [0, 0, z], bevel: 0.01 });
-        s.box(0.14, 0.1, 0.12, GUN, { at: [-0.18, 0.12, 0] }); // breech and loader
-        s.box(0.012, 0.03, 0.05, AMBER, { at: [-0.25, 0.14, 0.1], glow: true, bevel: 0 });
+        s.cyl(0.3, 0.04, STEEL2, { at: [0, 0.02, 0], seg: 16 });
+        s.hull([[-0.38, -0.18], [-0.3, -0.26], [0.26, -0.26], [0.36, -0.14], [0.36, 0.14], [0.26, 0.26], [-0.3, 0.26], [-0.38, 0.18]], 0.26, ARTY_PALE, { at: [0, 0.04, 0], bevel: 0.02 });
+        s.slab([[-0.32, 0], [0.3, 0], [0.12, 0.09], [-0.26, 0.09]], 0.36, ARTY_SLATE, { at: [0, 0.29, 0], bevel: 0.015 });
+        s.box(0.4, 0.012, 0.08, 'team', { at: [-0.04, 0.385, 0], bevel: 0 });
+        s.box(0.07, 0.17, 0.3, GUN, { at: [-0.4, 0.17, 0], bevel: 0.3 }); // rear bustle
+        // Optics: a commander's sight block and a gunner's sensor block, each with a small cyan lens.
+        s.box(0.1, 0.07, 0.12, GUN, { at: [-0.12, 0.42, 0.12], bevel: 0.25 });
+        s.box(0.012, 0.035, 0.07, CYAN, { at: [-0.066, 0.425, 0.12], glow: true, bevel: 0 });
+        s.box(0.11, 0.05, 0.09, GUN, { at: [0.16, 0.4, -0.1], bevel: 0.25 });
+        s.box(0.012, 0.025, 0.05, CYAN, { at: [0.216, 0.4, -0.1], glow: true, bevel: 0 });
+        s.cyl(0.006, 0.2, DARK, { at: [-0.3, 0.48, 0.2], seg: 4 }); // short antenna
+        for (const z of [0.285, -0.285]) for (const x of [0.2, 0.25]) s.tube(0.014, 0.06, DARK, { at: [x, 0.25, z], seg: 6 }); // smoke dischargers
+        return s;
+      },
+      cradle: () => {
+        const s = shape();
+        s.box(0.22, 0.12, 0.14, STEEL2, { at: [0.01, 0, 0], bevel: 0.25 });
+        for (const z of [0.07, -0.07]) s.box(0.1, 0.09, 0.015, GUN, { at: [0.01, 0, z] }); // trunnion cheeks
         return s;
       },
       barrel: () => {
         const s = shape();
-        s.box(0.16, 0.14, 0.18, STEEL2, { at: [0.02, 0, 0] }); // cradle
-        s.tube(0.036, 0.9, GUN, { at: [0.5, 0, 0], r2: 0.042, seg: 10 });
-        s.tube(0.024, 0.55, STEEL2, { at: [0.32, -0.06, 0], seg: 6 }); // recoil cylinder
-        s.tube(0.05, 0.12, GUN, { at: [0.6, 0, 0], seg: 10 }); // fume extractor
-        s.box(0.1, 0.075, 0.1, DARK, { at: [0.96, 0, 0], bevel: 0.2 }); // muzzle brake
+        s.tube(0.03, 1.0, GUN, { at: [0.5, 0, 0], r2: 0.034, seg: 10 });
+        s.tube(0.04, 0.4, ARTY_PALE, { at: [0.22, 0, 0], seg: 10 }); // thermal sleeve
+        // A hazard band of alternating yellow and black rings near the muzzle.
+        for (let i = 0; i < 6; i++) s.tube(0.036, 0.04, i % 2 ? DARK : ARTY_BAND, { at: [0.78 + i * 0.04, 0, 0], seg: 10 });
+        s.tube(0.047, 0.12, GUN, { at: [0.6, 0, 0], seg: 10 }); // fume extractor
+        s.tube(0.036, 0.13, DARK, { at: [1.065, 0, 0], seg: 8 }); // muzzle brake core and its three baffles
+        for (const x of [1.02, 1.065, 1.11]) s.box(0.014, 0.1, 0.1, GUN, { at: [x, 0, 0], bevel: 0.2 });
         return s;
       },
     },
@@ -296,14 +339,21 @@ function artillery(): RigDef {
         {
           anim: { k: 'body' },
           kids: [
-            ...runningGear(1.3, 0.29, 0.058, 6, 0.08),
+            ...runningGear(LEN, 0.29, 0.058, 7, 0.08),
             { geo: 'hull' },
             {
               anim: { k: 'turret' },
-              at: [-0.34, 0.25, 0],
+              at: [-0.34, 0.3, 0],
               geo: 'turret',
-              // Trunnions high on the mount; the barrel rises steeply over the cab.
-              kids: [{ geo: 'barrel', at: [0.02, 0.2, 0], rot: [0, 0, 0.62], anim: { k: 'barrel', recoil: 0.16 }, kids: [{ muzzle: true, at: [1.02, 0, 0] }] }],
+              // The cradle elevates the barrel from the travel lock; the barrel recoils along itself inside it.
+              kids: [
+                {
+                  geo: 'cradle',
+                  at: HAMMER_TRUNNION,
+                  anim: { k: 'elev', lo: HAMMER_LOCK, hi: HAMMER_RAISED },
+                  kids: [{ geo: 'barrel', anim: { k: 'barrel', recoil: 0.1 }, kids: [{ muzzle: true, at: [HAMMER_MUZZLE, 0, 0] }] }],
+                },
+              ],
             },
           ],
         },
@@ -312,40 +362,61 @@ function artillery(): RigDef {
   };
 }
 
+/**
+ * Scout Buggy (R3D-33): a fast, light, high-tech scout car, an original design. A low wedge of armour on four
+ * long-travel wheels with visible suspension arms, a closed cab under a tinted canopy, a sensor mast at the back and a
+ * small remote weapon station with twin barrels. No driver or crew figure.
+ */
+const CANOPY = 0x2c3a48;
+/** The buggy is drawn at about three quarters of the tank's footprint: it is the light scout. Wheels roll by the scaled radius. */
+const BUGGY_SCALE = 0.78;
+
 function buggy(): RigDef {
+  const R = 0.125;
   const wheel = (x: number, z: number, front: boolean): RigNode =>
-    front ? { anim: { k: 'steer' }, at: [x, 0.11, z], kids: [{ geo: 'wheel', anim: { k: 'wheel', r: 0.11 } }] } : { geo: 'wheel', at: [x, 0.11, z], anim: { k: 'wheel', r: 0.11 } };
+    front ? { anim: { k: 'steer' }, at: [x, R, z], kids: [{ geo: 'wheel', anim: { k: 'wheel', r: R * BUGGY_SCALE } }] } : { geo: 'wheel', at: [x, R, z], anim: { k: 'wheel', r: R * BUGGY_SCALE } };
   return {
     move: 'wheeled',
     turn: 7.5,
-    radius: 0.6,
-    height: 0.42,
+    scale: BUGGY_SCALE,
+    radius: 0.47,
+    height: 0.62,
     weapon: 'mg',
+    ride: 0.05,
     shapes: {
-      wheel: () => tire(0.11, 0.08, STEEL2),
+      wheel: () => tire(R, 0.1, STEEL2),
       body: () => {
         const s = shape();
-        s.slab([[-0.42, 0.1], [0.38, 0.1], [0.5, 0.16], [0.36, 0.22], [-0.4, 0.22]], 0.36, 'team', { bevel: 0.02 });
-        s.box(0.7, 0.04, 0.42, GUN, { at: [0, 0.11, 0], bevel: 0.2 }); // floor pan
-        for (const z of [0.18, -0.18]) {
-          s.box(0.18, 0.03, 0.12, STEEL2, { at: [0.3, 0.22, z * 1.25], bevel: 0.3 }); // fenders
-          s.box(0.18, 0.03, 0.12, STEEL2, { at: [-0.3, 0.22, z * 1.25], bevel: 0.3 });
+        s.slab([[-0.46, 0.16], [0.46, 0.16], [0.58, 0.22], [0.3, 0.31], [-0.32, 0.33], [-0.46, 0.27]], 0.34, BUGGY_SAND, { bevel: 0.02 });
+        // A bold dark racing stripe down the hood and roof, sand-brown arch panels.
+        s.box(0.62, 0.012, 0.09, BUGGY_STRIPE, { at: [0.2, 0.298, 0.0], bevel: 0 });
+        s.box(0.4, 0.012, 0.09, BUGGY_STRIPE, { at: [-0.18, 0.338, 0.0], bevel: 0 });
+        for (const z of [0.1, -0.1]) s.box(0.5, 0.01, 0.025, BUGGY_WHITE, { at: [0.2, 0.3, z * 1.1], bevel: 0 });
+        for (const z of [0.172, -0.172]) s.slab([[-0.4, 0.19], [0.44, 0.19], [0.5, 0.22], [0.3, 0.27], [-0.4, 0.27]], 0.02, 'team', { at: [0, 0, z], bevel: 0.005 });
+        s.box(0.9, 0.03, 0.3, DARK, { at: [0, 0.15, 0], bevel: 0.2 }); // skid plate
+        s.box(0.1, 0.02, 0.4, GUN, { at: [0.6, 0.17, 0], bevel: 0.3 }); // splitter
+        // Long-travel suspension: an upper and a lower arm and a sprung shock to each wheel hub.
+        for (const x of [0.36, -0.36]) {
+          for (const z of [1, -1]) {
+            s.strut([x * 0.55, 0.27, z * 0.15], [x, 0.24, z * 0.25], 0.011, DARK);
+            s.strut([x * 0.5, 0.17, z * 0.14], [x, 0.14, z * 0.25], 0.011, DARK);
+            s.strut([x * 0.8, 0.31, z * 0.15], [x, 0.17, z * 0.25], 0.016, 'team');
+            s.box(0.28, 0.02, 0.12, BUGGY_SAND2, { at: [x, 0.292, z * 0.3], bevel: 0.3 }); // fender flares
+            s.box(0.05, 0.03, 0.1, STEEL2, { at: [x, 0.292, z * 0.22], bevel: 0.2 }); // and the stay that holds each to the body
+          }
         }
-        // Roll cage.
-        for (const z of [0.15, -0.15]) {
-          s.tube(0.012, 0.36, DARK, { at: [0.02, 0.36, z], seg: 6 });
-          s.cyl(0.012, 0.16, DARK, { at: [0.2, 0.3, z], rot: [0, 0, 0.6], seg: 6 });
-          s.cyl(0.012, 0.16, DARK, { at: [-0.16, 0.3, z], seg: 6 });
+        // The tinted canopy over a closed cab, with a roof plate.
+        s.slab([[-0.22, 0.31], [0.26, 0.31], [0.1, 0.44], [-0.14, 0.45], [-0.22, 0.4]], 0.28, CANOPY, { bevel: 0.015 });
+        s.box(0.26, 0.015, 0.25, BUGGY_SAND2, { at: [-0.02, 0.452, 0], bevel: 0.2 });
+        s.box(0.28, 0.018, 0.07, BUGGY_STRIPE, { at: [-0.02, 0.456, 0], bevel: 0 });
+        // Sensor mast at the back, with a small cyan lens.
+        s.cyl(0.012, 0.3, DARK, { at: [-0.38, 0.45, 0], seg: 6 });
+        s.box(0.06, 0.03, 0.08, GUN, { at: [-0.38, 0.61, 0], bevel: 0.3 });
+        s.box(0.012, 0.014, 0.03, CYAN, { at: [-0.347, 0.61, 0], glow: true, bevel: 0 });
+        for (const z of [0.1, -0.1]) {
+          s.box(0.012, 0.02, 0.07, AMBER, { at: [0.555, 0.238, z], glow: true, bevel: 0 });
+          s.box(0.012, 0.02, 0.06, RED, { at: [-0.465, 0.24, z * 1.2], glow: true, bevel: 0 });
         }
-        s.cyl(0.012, 0.3, DARK, { at: [0.02, 0.36, 0], rot: [Math.PI / 2, 0, 0], seg: 6 });
-        s.box(0.08, 0.1, 0.1, OLIVE, { at: [0.05, 0.27, 0.07] }); // driver
-        s.ball(0.04, STEEL2, { at: [0.06, 0.34, 0.07], cut: 0.6, seg: 8 });
-        s.box(0.012, 0.012, 0.04, CYAN, { at: [0.098, 0.335, 0.07], glow: true, bevel: 0 });
-        s.box(0.015, 0.03, 0.06, AMBER, { at: [0.5, 0.17, 0.12], glow: true, bevel: 0 });
-        s.box(0.015, 0.03, 0.06, AMBER, { at: [0.5, 0.17, -0.12], glow: true, bevel: 0 });
-        s.box(0.015, 0.02, 0.05, RED, { at: [-0.42, 0.18, 0.13], glow: true, bevel: 0 });
-        s.box(0.015, 0.02, 0.05, RED, { at: [-0.42, 0.18, -0.13], glow: true, bevel: 0 });
-        s.cyl(0.04, 0.1, STEEL2, { at: [-0.22, 0.27, 0], seg: 8 }); // gun ring
         return s;
       },
       turret: () => {
@@ -364,10 +435,10 @@ function buggy(): RigDef {
     },
     root: {
       kids: [
-        wheel(0.3, 0.24, true),
-        wheel(0.3, -0.24, true),
-        wheel(-0.3, 0.24, false),
-        wheel(-0.3, -0.24, false),
+        wheel(0.36, 0.3, true),
+        wheel(0.36, -0.3, true),
+        wheel(-0.36, 0.3, false),
+        wheel(-0.36, -0.3, false),
         {
           anim: { k: 'body' },
           geo: 'body',
@@ -375,7 +446,7 @@ function buggy(): RigDef {
             {
               anim: { k: 'turret' },
               geo: 'turret',
-              at: [-0.22, 0.32, 0],
+              at: [0.0, 0.465, 0],
               kids: [{ geo: 'barrel', at: [0.06, 0.05, 0], anim: { k: 'barrel', recoil: 0.025 }, kids: [{ muzzle: true, at: [0.21, 0, 0.022] }, { muzzle: true, at: [0.21, 0, -0.022] }] }],
             },
           ],
@@ -385,80 +456,140 @@ function buggy(): RigDef {
   };
 }
 
+/** Where the hauler's rear hatch hinges and its head's arms pivot: body-frame points (R3D-30). */
+export const HAULER_HATCH: [number, number, number] = [-0.8, 0.62, 0];
+export const HAULER_ARM: V3 = [0.66, 0.27, 0];
+/** How far a lowered head's arms turn down from level, and how far the arms rise to clear the ground, radians (R3D-30). */
+const HEAD_DOWN = -0.445;
+const HEAD_UP = 0.645;
+
+/**
+ * Shard Hauler (R3D-30): a heavy, armoured industrial harvester, an original design. A long chassis on six big wheels
+ * carries a raised armoured cab at the front-left and a large boxed hopper behind it. Across the front, a housed toothed
+ * drum hangs on two hydraulic arms: raised clear while driving, lowered onto the ground to mine, feeding a conveyor that
+ * carries crystals up into the hopper. A rear hatch opens to discharge.
+ */
 function hauler(): RigDef {
+  const R = 0.14;
   const wheel = (x: number, z: number, front: boolean): RigNode =>
-    front ? { anim: { k: 'steer' }, at: [x, 0.12, z], kids: [{ geo: 'wheel', anim: { k: 'wheel', r: 0.12 } }] } : { geo: 'wheel', at: [x, 0.12, z], anim: { k: 'wheel', r: 0.12 } };
+    front ? { anim: { k: 'steer' }, at: [x, R, z], kids: [{ geo: 'wheel', anim: { k: 'wheel', r: R } }] } : { geo: 'wheel', at: [x, R, z], anim: { k: 'wheel', r: R } };
+  const BELT = -0.4636;
   return {
     move: 'wheeled',
     turn: 5,
-    radius: 0.8,
-    height: 0.62,
+    radius: 0.85,
+    height: 0.78,
     shapes: {
-      wheel: () => tire(0.12, 0.1, HAZARD),
+      wheel: () => tire(R, 0.12, HAZARD),
       body: () => {
         const s = shape();
-        s.box(1.36, 0.18, 0.4, GUN, { at: [0, 0.2, 0], bevel: 0.15 }); // frame, between the wheels and up to the cab and bed
-        s.slab([[0.36, 0.29], [0.66, 0.29], [0.7, 0.34], [0.6, 0.48], [0.36, 0.5]], 0.56, 'team', { bevel: 0.02 }); // cab, clear of the wheel tops
-        s.slab([[0.58, 0.36], [0.66, 0.36], [0.61, 0.46], [0.55, 0.46]], 0.48, GLASS, { at: [0.012, 0, 0], bevel: 0.005 }); // windscreen
-        s.box(0.06, 0.03, 0.1, AMBER, { at: [0.5, 0.5, 0], glow: true, bevel: 0.3 }); // beacon
-        s.box(0.02, 0.04, 0.08, AMBER, { at: [0.7, 0.22, 0.18], glow: true, bevel: 0 });
-        s.box(0.02, 0.04, 0.08, AMBER, { at: [0.7, 0.22, -0.18], glow: true, bevel: 0 });
-        s.cyl(0.025, 0.3, GUN, { at: [0.33, 0.42, 0.22], seg: 8 }); // exhaust stack
-        s.box(0.12, 0.03, 0.56, STEEL2, { at: [0.74, 0.12, 0], bevel: 0.2 }); // cutter arms
-        s.box(0.015, 0.025, 0.05, RED, { at: [-0.785, 0.2, 0.12], glow: true, bevel: 0 }); // tail lights
-        s.box(0.015, 0.025, 0.05, RED, { at: [-0.785, 0.2, -0.12], glow: true, bevel: 0 });
-        s.cyl(0.03, 0.14, GUN, { at: [-0.62, 0.26, 0.2], rot: [0, 0, 0.5], seg: 8 }); // tipping rams
-        s.cyl(0.03, 0.14, GUN, { at: [-0.62, 0.26, -0.2], rot: [0, 0, 0.5], seg: 8 });
+        s.box(1.5, 0.14, 0.5, GUN, { at: [-0.02, 0.23, 0], bevel: 0.15 }); // the chassis frame, between the wheels
+        s.box(0.1, 0.12, 0.5, GUN, { at: [0.7, 0.22, 0], bevel: 0.2 }); // bumper and arm mounts
+        for (const x of [0.46, -0.04, -0.54]) for (const z of [0.34, -0.34]) s.box(0.34, 0.03, 0.15, STEEL2, { at: [x, 0.32, z], bevel: 0.3 }); // fenders
+        // The hopper: a boxed bin with a floor, team bands, a front wall and a rim.
+        s.box(0.86, 0.03, 0.58, STEEL, { at: [-0.34, 0.335, 0], bevel: 0.2 });
+        for (const z of [0.29, -0.29]) {
+          s.slab([[-0.78, 0.32], [0.1, 0.32], [0.1, 0.62], [-0.78, 0.62]], 0.04, STEEL, { at: [0, 0, z], bevel: 0.01 });
+          s.box(0.78, 0.07, 0.048, 'team', { at: [-0.34, 0.5, z], bevel: 0.2 });
+          s.box(0.88, 0.03, 0.05, DARK, { at: [-0.34, 0.63, z], bevel: 0.2 });
+          s.box(0.05, 0.3, 0.05, GUN, { at: [-0.8, 0.47, z], bevel: 0.2 });
+          for (let i = 0; i < 4; i++) s.box(0.06, 0.03, 0.052, i % 2 ? DARK : HAZARD, { at: [-0.66 + i * 0.07, 0.36, z], bevel: 0 });
+        }
+        s.box(0.05, 0.28, 0.6, STEEL2, { at: [0.08, 0.46, 0], bevel: 0.2 });
+        // The armoured cab, front-left: sloped front, dark visor, side window, team roof and a beacon.
+        s.slab([[0.14, 0.3], [0.66, 0.3], [0.68, 0.4], [0.58, 0.62], [0.2, 0.66]], 0.27, STEEL, { at: [0, 0, 0.165], bevel: 0.02 });
+        s.box(0.03, 0.16, 0.23, DARK, { at: [0.635, 0.51, 0.165], rot: [0, 0, 0.43], bevel: 0.1 });
+        s.box(0.22, 0.09, 0.01, DARK, { at: [0.4, 0.52, 0.302], bevel: 0 });
+        s.box(0.42, 0.02, 0.29, 'team', { at: [0.39, 0.665, 0.165], bevel: 0.3 });
+        s.box(0.05, 0.025, 0.07, AMBER, { at: [0.3, 0.69, 0.165], glow: true, bevel: 0.3 });
+        s.cyl(0.005, 0.2, DARK, { at: [0.24, 0.78, 0.26], seg: 4 });
+        for (const z of [0.09, 0.24]) s.box(0.02, 0.04, 0.05, AMBER, { at: [0.69, 0.36, z], glow: true, bevel: 0 });
+        s.cyl(0.028, 0.34, GUN, { at: [0.14, 0.47, 0.3], seg: 8 }); // exhaust stack
+        s.cyl(0.036, 0.02, DARK, { at: [0.14, 0.65, 0.3], seg: 8 });
+        // The conveyor trough from the head up into the hopper, on legs; its cleats are a separate scrolling part.
+        s.box(1.0, 0.04, 0.18, DARK, { at: [0.41, 0.495, -0.13], rot: [0, 0, BELT], bevel: 0.1 });
+        for (const z of [0.09, -0.09]) s.box(1.0, 0.065, 0.025, STEEL2, { at: [0.41, 0.515, -0.13 + z], rot: [0, 0, BELT], bevel: 0.2 });
+        for (const x of [0.6, 0.24]) s.box(0.03, 0.2, 0.03, GUN, { at: [x, 0.36, -0.13] });
+        s.box(0.015, 0.025, 0.05, RED, { at: [-0.755, 0.25, 0.14], glow: true, bevel: 0 }); // tail lights
+        s.box(0.015, 0.025, 0.05, RED, { at: [-0.755, 0.25, -0.14], glow: true, bevel: 0 });
         return s;
       },
-      bed: () => {
-        // The ore bed: a sloped steel bin with team bands and hazard stripes, hinged at the back to tip.
+      hatch: () => {
+        // The rear hatch, hinged along its top edge: hazard-striped and swinging up and out to discharge.
         const s = shape();
-        s.slab([[-0.66, 0.3], [0.3, 0.3], [0.34, 0.54], [-0.7, 0.54]], 0.6, STEEL, { bevel: 0.025 }); // floor clear of the wheel tops
-        s.box(1.0, 0.04, 0.62, 'team', { at: [-0.18, 0.52, 0], bevel: 0.25 });
-        for (let i = 0; i < 5; i++) s.box(0.06, 0.02, 0.625, i % 2 ? DARK : HAZARD, { at: [-0.6 + i * 0.07, 0.33, 0], bevel: 0 });
-        s.box(0.9, 0.02, 0.5, DARK, { at: [-0.18, 0.545, 0], bevel: 0 }); // hopper mouth
-        s.box(0.06, 0.24, 0.56, STEEL2, { at: [-0.72, 0.42, 0], bevel: 0.2 }); // tail gate
+        s.box(0.04, 0.3, 0.52, STEEL2, { at: [-0.8, 0.47, 0], bevel: 0.15 });
+        for (let i = 0; i < 3; i++) s.box(0.046, 0.03, 0.5, i % 2 ? DARK : HAZARD, { at: [-0.8, 0.37 + i * 0.07, 0], bevel: 0 });
+        return s;
+      },
+      head: () => {
+        // The harvesting head, in the arms' own frame (X along the arms, pivot at the origin): two hydraulic arms with
+        // rams, and the hood and side plates that house the drum at the far end.
+        const s = shape();
+        for (const z of [0.27, -0.27]) {
+          s.box(0.36, 0.05, 0.045, GUN, { at: [0.18, 0, z], bevel: 0.2 });
+          s.strut([0.06, 0.1, z * 0.9], [0.26, 0.03, z], 0.014, STEEL);
+          s.cyl(0.04, 0.05, STEEL2, { at: [0, 0, z], rot: [Math.PI / 2, 0, 0], seg: 8 });
+          s.box(0.26, 0.18, 0.03, STEEL2, { at: [0.36, 0.04, z * 1.06], bevel: 0.2 });
+        }
+        s.box(0.16, 0.03, 0.56, 'team', { at: [0.25, 0.16, 0], bevel: 0.2 }); // a hood over the back of the drum only, so its teeth show
+        s.box(0.03, 0.05, 0.56, HAZARD, { at: [0.54, -0.04, 0], bevel: 0.2 }); // a low lip at the front
+        s.box(0.06, 0.14, 0.24, DARK, { at: [0.22, 0.1, -0.13], bevel: 0.2 }); // the throat toward the conveyor
         return s;
       },
       drum: () => {
         // A toothed cutter drum across the front that chews crystals off the ground.
         const s = shape();
-        s.cyl(0.07, 0.5, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 10 });
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2;
-          s.box(0.03, 0.03, 0.46, i % 2 ? HAZARD : GUN, { at: [Math.cos(a) * 0.07, Math.sin(a) * 0.07, 0], rot: [0, 0, a], bevel: 0 });
+        s.cyl(0.085, 0.5, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 10 });
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2;
+          s.box(0.05, 0.045, 0.46, i % 2 ? HAZARD : GUN, { at: [Math.cos(a) * 0.1, Math.sin(a) * 0.1, 0], rot: [0, 0, a], bevel: 0 });
+        }
+        return s;
+      },
+      cleats: () => {
+        // The conveyor's cleats, with crystals riding on them; the node slides them along the trough.
+        const s = shape();
+        for (let i = 0; i < 10; i++) {
+          const x = -0.45 + i * 0.1;
+          s.box(0.02, 0.035, 0.15, HAZARD, { at: [x, 0.05, 0], bevel: 0 });
+          s.cone(0.026, 0.07, i % 2 ? 0x47e8c4 : 0x7ff0dc, { at: [x + 0.05, 0.06, ((i % 3) - 1) * 0.04], seg: 5 });
         }
         return s;
       },
       cargo: () => {
         const s = shape();
         // A heap of crystals standing proud of the hopper when full (it rises from the floor with the load).
-        for (let i = 0; i < 9; i++) {
-          const x = -0.58 + (i % 3) * 0.25 + (i % 2) * 0.04;
-          const z = (Math.floor(i / 3) - 1) * 0.16;
-          const tilt: [number, number, number] = [0.35 * (i % 2 ? 1 : -1), 0, 0.25 * ((i % 3) - 1)];
-          s.cyl(0.05, 0.2, 0x47e8c4, { at: [x, 0.6, z], rot: tilt, seg: 6 });
-          s.cone(0.05, 0.09, 0x7ff0dc, { at: [x, 0.74, z], rot: tilt, seg: 6 });
+        for (let i = 0; i < 12; i++) {
+          const cx = i % 4;
+          const cz = Math.floor(i / 4);
+          const x = -0.6 + cx * 0.17 + (cz % 2) * 0.05;
+          const z = (cz - 1) * 0.17;
+          const h = 0.17 + 0.12 * (1 - Math.abs(cx - 1.5) / 1.5) * (1 - Math.abs(cz - 1) * 0.5);
+          const tilt: [number, number, number] = [0.3 * (i % 2 ? 1 : -1), 0, 0.22 * ((i % 3) - 1)];
+          s.cyl(0.05, h, 0x47e8c4, { at: [x, 0.35 + h / 2, z], rot: tilt, seg: 6 });
+          s.cone(0.05, 0.09, 0x7ff0dc, { at: [x, 0.35 + h + 0.03, z], rot: tilt, seg: 6 });
         }
         return s;
       },
     },
     root: {
       kids: [
-        wheel(0.48, 0.28, true),
-        wheel(0.48, -0.28, true),
-        wheel(-0.3, 0.28, false),
-        wheel(-0.3, -0.28, false),
-        wheel(-0.56, 0.28, false),
-        wheel(-0.56, -0.28, false),
+        wheel(0.46, 0.34, true),
+        wheel(0.46, -0.34, true),
+        wheel(-0.04, 0.34, false),
+        wheel(-0.04, -0.34, false),
+        wheel(-0.54, 0.34, false),
+        wheel(-0.54, -0.34, false),
         {
           anim: { k: 'body' },
           geo: 'body',
           kids: [
-            { geo: 'drum', at: [0.8, 0.1, 0], anim: { k: 'drum' } },
-            // The bed tips back about its rear hinge to unload; the crystal pile rides in it and rises as it fills.
-            { geo: 'bed', anim: { k: 'tip', pivot: [-0.72, 0.3, 0], max: 0.7 }, kids: [{ geo: 'cargo', anim: { k: 'cargo', pivot: [-0.25, 0.52, 0] } }] },
+            // The head hangs lowered at rest and lifts clear on its arms while driving; the drum turns at its far end.
+            { geo: 'head', at: HAULER_ARM, rot: [0, 0, HEAD_DOWN], anim: { k: 'arm', up: HEAD_UP, bob: 0.025 }, kids: [{ geo: 'drum', at: [0.36, 0, 0], anim: { k: 'drum' } }] },
+            { geo: 'cleats', at: [0.41, 0.52, -0.13], rot: [0, 0, BELT], anim: { k: 'scroll', pitch: 0.1, per: -0.045 } },
+            // The hatch swings up and out about its top hinge; the crystal heap sits in the hopper and rises as it fills.
+            { geo: 'hatch', anim: { k: 'tip', pivot: HAULER_HATCH, max: -1.1 } },
+            { geo: 'cargo', anim: { k: 'cargo', pivot: [-0.3, 0.35, 0] } },
           ],
         },
       ],
@@ -914,9 +1045,9 @@ function lobber(): RigDef {
   };
 }
 
-/** Where the gorger's head hinges on its body, and how far it bows to disgorge, radians (R3D-22). */
+/** Where the gorger's head hinges on its body, and how far it nods to disgorge, radians: a small nod, the body stays level (R3D-22, R3D-31). */
 export const GORGER_NECK = 0.4;
-export const GORGER_BOW = 0.7;
+export const GORGER_BOW = 0.28;
 
 /** Swollen chitin segments along the gorger's back, [x, radius] each, with team plates on top. */
 function gorgerSegments(s: Shape, seg: readonly (readonly [number, number])[]): Shape {
@@ -928,7 +1059,101 @@ function gorgerSegments(s: Shape, seg: readonly (readonly [number, number])[]): 
   return s;
 }
 
+/** Shard finish for the gorger's claw rakes: darker and glossier than the chitin, a blue-violet gunmetal that still sits in its family. */
+const SHARD = 0x2e3156;
+const SHARD2 = 0x3a4670;
+/** The lustrous facet on a rake's upper face. */
+const SHARD_LUST = 0x6a7fb0;
+/** The colour between chitin and shard, worn at the wrist where the two blend. */
+const SHARD_JOINT = 0x3b2b55;
+/** Faint crystal-teal edge light on the rakes; deliberately dim. */
+const SHARD_GLOW = 0x22918a;
+
+/** A claw's upper limb or forearm: a thick tapered chitin link along +X, with a jointed knob at the far end (the same language as `insectLeg`). */
+function clawLink(len: number, r: number, color: number, knob: number): Shape {
+  const s = shape();
+  s.ball(r * 1.15, color, { seg: 6 });
+  s.strut([0, 0, 0], [len, 0, 0], r, color, { r2: r * 0.72 });
+  s.ball(r * 0.95, knob, { at: [len, 0, 0], seg: 6 });
+  return s;
+}
+
+/** The end of a claw: a broad, flat, faceted rake of three shard tines fanned sideways, in three tones, with dim teal edge lights. Points along +X. */
+function clawBlade(): Shape {
+  const s = shape();
+  const k = CLAW_SCALE;
+  s.ball(0.07 * k, SHARD_JOINT, { at: [0.03 * k, 0, 0], scale: [1.2, 0.9, 1.1], seg: 6 });
+  s.ball(0.085 * k, SHARD, { at: [0.11 * k, 0, 0], scale: [1.3, 0.55, 2.0], seg: 5 });
+  for (const [yaw, len0, w0] of [[0, 0.38, 0.075], [0.42, 0.3, 0.065], [-0.42, 0.3, 0.065]] as const) {
+    const len = len0 * k;
+    const w = w0 * k;
+    const cx = (0.1 + len0 / 2 * Math.cos(yaw)) * k;
+    const cz = ((len0 / 2) * Math.sin(yaw) + yaw * 0.12) * k;
+    const rot: [number, number, number] = [0, -yaw, -Math.PI / 2];
+    // Wide, flat, four-sided: a dark body, a lustrous plate on the upper face, and a keel below.
+    s.cone(w, len, yaw === 0 ? SHARD : SHARD2, { at: [cx, 0, cz], rot, scale: [1, 1, 0.4], seg: 4 });
+    s.cone(w * 0.8, len * 0.92, SHARD_LUST, { at: [cx, 0.022 * k, cz], rot, scale: [1, 1, 0.3], seg: 4 });
+    s.strut([0.14 * k, 0.012 * k, cz * 0.4], [(0.1 + len0 * 0.9 * Math.cos(yaw)) * k, 0.012 * k, ((len0 * 0.9) * Math.sin(yaw) + yaw * 0.12) * k], 0.0075 * k, SHARD_GLOW, { r2: 0.004 * k, seg: 4, glow: true });
+  }
+  return s;
+}
+
+/** Where a claw is rooted on the body: just behind the head, on the flank. */
+export const CLAW_ROOT_X = 0.44;
+export const CLAW_ROOT_Z = 0.2;
+const CLAW_SWEEP = -1.2;
+/** Start of the scoop: the limb points out to the side and a little back (rad from forward); it swings through CLAW_ARC to end pointing forward beside the mouth. */
+const CLAW_OUT = 1.55;
+const CLAW_ARC = 1.58;
+/** The shoulder lowers by CLAW_LOWER and the elbow opens by CLAW_OPEN over the inward stroke; the dip trails the yaw by CLAW_DIP_LEAD rad so the rake is lowest as it closes. */
+const CLAW_LOWER = 0.35;
+const CLAW_OPEN = 0.12;
+const CLAW_DIP_LEAD = Math.PI / 4;
+const CLAW_RATE = 7.4;
+/** The claws are drawn at this fraction of their first size. */
+const CLAW_SCALE = 0.78;
+const CLAW_UPPER = 0.23 * CLAW_SCALE;
+const CLAW_FORE = 0.23 * CLAW_SCALE;
+
+/**
+ * One feeding claw (R3D-31): the gorger's front limb evolved to gather shards. Local X runs along the limb, so the root's
+ * yaw points it sideways (+Z for `side` +1, -Z for -1). It stays on its own side of the body: held up and folded against
+ * the flank at rest; feeding, it sweeps in from the side toward the mouth, a small dip
+ * putting the rake on the crystals, then swings back out. The yaw only swings the limb fore and aft, never across the centre plane.
+ */
+function clawNode(side: number, phase: number): RigNode {
+  const feed = (axis: 'y' | 'z', amp: number, ph: number): { k: 'feed'; axis: 'y' | 'z'; amp: number; rate: number; phase: number } => ({ k: 'feed', axis, amp, rate: CLAW_RATE, phase: ph });
+  return {
+    at: [CLAW_ROOT_X, -0.02, side * CLAW_ROOT_Z],
+    // Out to the side and a little forward at rest; the sweep turns it further forward, in toward the mouth.
+    rot: [0, -side * CLAW_OUT, 0],
+    anim: feed('y', side * CLAW_ARC, phase + CLAW_SWEEP),
+    kids: [
+      {
+        // Shoulder: the limb is held up at rest and lowered onto the crystals as it reaches.
+        rot: [0, 0, 1.25],
+        anim: feed('z', -CLAW_LOWER, phase + CLAW_SWEEP + CLAW_DIP_LEAD),
+        kids: [
+          {
+            geo: 'clawUpper',
+            kids: [
+              {
+                // Elbow: folded at rest, opens to reach.
+                at: [CLAW_UPPER, 0, 0],
+                rot: [0, 0, -1.95],
+                anim: feed('z', CLAW_OPEN, phase + CLAW_SWEEP + CLAW_DIP_LEAD + 0.3),
+                kids: [{ geo: 'clawFore', kids: [{ geo: 'clawBlade', at: [CLAW_FORE, 0, 0], rot: [0, 0, 0.6] }] }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function gorger(): RigDef {
+  const WAVE = 5.7;
   return {
     move: 'walker',
     organic: true,
@@ -939,13 +1164,13 @@ function gorger(): RigDef {
     shapes: {
       legR: () => insectLeg(1, 0.3, 0.24, 0.1, 0.04, CHITIN),
       legL: () => insectLeg(-1, 0.3, 0.24, 0.1, 0.04, CHITIN),
-      body: () => {
-        // Two swollen segments behind the head, team plates on top.
-        return gorgerSegments(shape(), [[0.05, 0.28], [-0.38, 0.24]]);
-      },
+      // Three swollen segments, team plates on top; each is its own part so a wave can run through them (R3D-31).
+      seg2: () => gorgerSegments(shape(), [[0, 0.24]]),
+      seg1: () => gorgerSegments(shape(), [[0, 0.28]]),
+      seg0: () => gorgerSegments(shape(), [[0, 0.2]]),
       head: () => {
-        // The front segment with the maw; it dips into a refinery's feeding maw to disgorge (R3D-22).
-        const s = gorgerSegments(shape(), [[0.4, 0.2]]);
+        // The maw; it nods a little into a refinery's feeding maw to disgorge (R3D-22).
+        const s = shape();
         s.ring(0.12, 0.035, BONE, { at: [0.6, -0.02, 0], rot: [0, 0, Math.PI / 2], seg: 12 }); // maw
         s.cyl(0.1, 0.02, FLESH, { at: [0.62, -0.02, 0], rot: [0, 0, Math.PI / 2], seg: 10 });
         for (let i = 0; i < 6; i++) {
@@ -955,6 +1180,15 @@ function gorger(): RigDef {
         for (const z of [0.12, -0.12]) s.ball(0.022, GREEN, { at: [0.52, 0.1, z], seg: 6, glow: true });
         return s;
       },
+      throat: () => {
+        // A muscular collar behind the maw that pulses with each swallow.
+        const s = shape();
+        s.ring(0.15, 0.04, FLESH, { rot: [0, 0, Math.PI / 2], seg: 14 });
+        return s;
+      },
+      clawUpper: () => clawLink(CLAW_UPPER, 0.056 * CLAW_SCALE, CHITIN2, CHITIN),
+      clawFore: () => clawLink(CLAW_FORE, 0.052 * CLAW_SCALE, CHITIN, SHARD_JOINT),
+      clawBlade,
       cargo: () => {
         const s = shape();
         s.ball(0.17, SAC, { at: [0.05, 0.2, 0], scale: [1.2, 0.7, 0.9], seg: 12 });
@@ -966,15 +1200,27 @@ function gorger(): RigDef {
     root: {
       kids: [
         {
-          anim: { k: 'body' },
-          geo: 'body',
+          // Level, always: it only sways slowly from side to side (R3D-31).
+          anim: { k: 'body', level: true, sway: 0.05 },
           at: [0, 0.3, 0],
-          // The glowing belly sac swells as the gorger feeds.
           kids: [
             ...sixLegs([0.35, 0.02, -0.32], -0.06, 0.16, 0.3, 0.04),
+            // The belly sac swells as the gorger feeds; its segments pulse in a wave front to back as it empties.
             { geo: 'cargo', anim: { k: 'cargo', pivot: [0.05, 0.2, 0], swell: true } },
-            // Unloading, the head bows about its neck into the maw (R3D-22).
-            { geo: 'head', anim: { k: 'tip', pivot: [GORGER_NECK, 0, 0], max: -GORGER_BOW } },
+            { geo: 'seg2', at: [-0.38, 0, 0], anim: { k: 'pulse', rate: WAVE, phase: 2, wave: 0.08 } },
+            { geo: 'seg1', at: [0.05, 0, 0], anim: { k: 'pulse', rate: WAVE, phase: 1, wave: 0.08 } },
+            { geo: 'seg0', at: [0.4, 0, 0], anim: { k: 'pulse', rate: WAVE, phase: 0, wave: 0.08, swallow: 0.05 } },
+            // Unloading, the head nods a little about its neck into the maw (R3D-22); the body never bows.
+            {
+              geo: 'head',
+              anim: { k: 'tip', pivot: [GORGER_NECK, 0, 0], max: -GORGER_BOW },
+              kids: [
+                { geo: 'throat', at: [0.55, -0.02, 0], anim: { k: 'pulse', rate: 7.4, phase: -0.6, swallow: 0.28 } },
+              ],
+            },
+            // The claws are the front limb pair, rooted on the body's flanks just behind the head, so they stay put when the head nods.
+            clawNode(1, 0),
+            clawNode(-1, 0.18),
           ],
         },
       ],

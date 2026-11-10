@@ -4,7 +4,10 @@ import * as THREE from 'three';
 import { UNIT_DEFS } from '../../src/data/defs';
 import { BUILDING_RIGS } from '../../src/render3d/buildings3d';
 import { buttonKinds, cameraAngle, castKinds, FADE_IN_MS, FADE_OUT_MS, FIELD_ANGLE, FIELD_ARC, FIELD_INNER, footprintOf, HERO_CLEAR, HQ_SPOT, holdStill, IconCache, iconKey, ORBIT_PERIOD_S, nearestUnit, ORBIT_SAMPLES, orbitAngleAt, PAN_HOLD, panWeight, aimPoint, AIM_BEHIND, ringGap, projectedHeight, settledOnUnit, PANEL_MARGIN, panelRight, projectedSpan, RING_RADIUS, SCENE_CAST, sceneFraming, sceneKinds, sceneSlots, shardPlan, STILL_ANGLE } from '../../src/render/menuPlan';
-import { CAMERA_MAX_DIST, FOG_FAR, FOG_NEAR, GROUND_RADIUS, HAZE, SKY_TOP_SHADE } from '../../src/render3d/menuScene3d';
+import { CAMERA_MAX_DIST, FOG_FAR, FOG_NEAR, GROUND_RADIUS, HAZE, SKY_TOP_SHADE, WORK_SPOTS } from '../../src/render3d/menuScene3d';
+import { modelMaterials, SURFACE_KEYS } from '../../src/render3d/surface3d';
+import { patchedGroundTexture, TEXELS } from '../../src/render3d/terrain3d';
+import { HAZE_COLOR } from '../../src/render3d/horizon3d';
 import { fitPicture, ICON_EDGE, project, viewDir } from '../../src/render3d/iconFit';
 import { fitPoints, PREVIEW_FOV, PREVIEW_PITCH, restFitPoints } from '../../src/render3d/preview3d';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
@@ -343,5 +346,47 @@ describe('build-button pictures (UI-17)', () => {
     expect(icons).toContain('preview.dispose()');
     expect(preview).toContain('forceContextLoss');
     expect(readFileSync('src/ui/sidebar.ts', 'utf8')).not.toContain('drawIcons');
+  });
+
+  it('R3D-31 MENU-10 INF-6: the menu scene and the unit sheet use the match material factory, so their models carry the surface detail program keys', () => {
+    const on = modelMaterials(true);
+    expect(on.metal.customProgramCacheKey()).toBe(SURFACE_KEYS.metal);
+    expect(on.organic.customProgramCacheKey()).toBe(SURFACE_KEYS.organic);
+    const off = modelMaterials(false);
+    expect(off.metal.customProgramCacheKey()).not.toBe(SURFACE_KEYS.metal);
+    for (const f of ['src/render3d/menuScene3d.ts', 'src/render3d/preview3d.ts', 'src/render3d/view3d.ts']) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, f).toContain('modelMaterials(');
+      expect(src, f).not.toMatch(/new THREE\.MeshStandardMaterial\(\{ vertexColors: true, roughness: 0\.48/);
+    }
+    // Low gets no surface detail in the menu, and no working particles.
+    const menu = readFileSync('src/ui/menu.ts', 'utf8');
+    expect(menu).toContain("detail: settings.quality !== 'low'");
+    expect(menu).toContain('effects: !reduceMotion');
+  });
+
+  it('R3D-31 R3D-24 MENU-10: the menu ground is the patched ground of the match with its fine relief, and its sky shares the horizon of the match haze', () => {
+    const tex = patchedGroundTexture([92, 90, 72], 24);
+    expect(tex.width).toBe(24 * TEXELS);
+    expect(patchedGroundTexture([92, 90, 72], 24).data).toEqual(tex.data);
+    // Patches of gravel, rubble or grass make some of the ground differ clearly from its base, and most of it near it.
+    let far = 0;
+    for (let i = 0; i < tex.data.length; i += 4) if (Math.abs(tex.data[i]! - 92) > 22) far++;
+    expect(far).toBeGreaterThan(tex.data.length / 4 / 50);
+    const scene = readFileSync('src/render3d/menuScene3d.ts', 'utf8');
+    expect(scene).toContain('patchedGroundTexture(');
+    expect(scene).toContain('noiseNormalMap(');
+    expect(scene).toContain('HAZE_COLOR');
+    expect(readFileSync('src/render3d/terrain3d.ts', 'utf8')).toMatch(/export function patchedGroundTexture[\s\S]*patched\(/);
+    // Halfway between the dusk tint and the match's horizon haze.
+    for (const f of ['human', 'alien'] as const) expect(Math.abs(((HAZE[f] >> 16) & 255) - ((HAZE_COLOR >> 16) & 255))).toBeLessThan(0x1c);
+  });
+
+  it('R3D-31 R3D-19 MENU-10: the working hauler throws chips and puffs exhaust as GPU particles, on High with motion only', () => {
+    const scene = readFileSync('src/render3d/menuScene3d.ts', 'utf8');
+    expect(scene).toContain('fx.harvest(');
+    expect(scene).toContain('if (!this.fxAllowed || this.still)');
+    expect(scene).toContain('this.fxAllowed = on && effects');
+    expect(WORK_SPOTS.metal.cut[0]).toBeGreaterThan(0);
   });
 });

@@ -5,12 +5,17 @@ import { OWNER_COLORS } from '../render/colors';
 import { BUILDING_RIGS, crystalShape } from './buildings3d';
 import { addEnvironment, configureRenderer, configureSunShadow, createComposer, glowLevels, matchLights } from './lighting3d';
 import { aimPoint, cameraAngle, FADE_IN_MS, FADE_OUT_MS, HQ_SPOT, SCENE_CAST, SCENE_FOV, SCENE_PITCH, sceneFraming, sceneSlots, shardPlan, TARGET_HEIGHT, type SceneFaction, type SceneSlot } from '../render/menuPlan';
-import { bodyPose, restingMotion } from './motion';
+import { bodyPose, restingMotion, rideMotion } from './motion';
 import { Instancer } from './instancer';
 import { PR_MAX } from './resolution';
 import { poseRig, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
-import { newMember, rand, stepSquad, type Member } from './squad3d';
+import { newMember, stepSquad, type Member } from './squad3d';
 import { UNIT_RIGS } from './units3d';
+import { modelMaterials, setSurface } from './surface3d';
+import { noiseNormalMap } from './noiseNormal';
+import { patchedGroundTexture } from './terrain3d';
+import { HAZE_COLOR } from './horizon3d';
+import { CombatFx } from './fx3d';
 
 /**
  * The live faction scene behind the menu (MENU-10, MENU-11): the picked faction's hero and every other unit kind standing in
@@ -24,6 +29,10 @@ export interface MenuSceneOptions {
   faction: SceneFaction;
   /** Draw once and hold still (Low quality, or reduced motion). */
   still: boolean;
+  /** Surface detail on the models (R3D-23): High. Default true. */
+  detail?: boolean;
+  /** Show the harvesters' working effects (GPU particles): High, with motion. Default true while animating. */
+  effects?: boolean;
   /** Called after the first frame is drawn, so the menu can retire its backdrop. */
   onReady?: () => void;
 }
@@ -34,6 +43,8 @@ export interface MenuScene {
   setFaction(f: SceneFaction): void;
   /** Hold still (draw once) or animate. */
   setStill(still: boolean): void;
+  /** Surface detail and working effects follow the quality preset: on for High. */
+  setDetail(on: boolean, effects?: boolean): void;
   /** Pause while the unit sheet covers the scene. */
   setPaused(paused: boolean): void;
   /** Stop drawing, free everything and release the WebGL context. */
@@ -45,16 +56,19 @@ const FOV = SCENE_FOV;
 const PITCH = SCENE_PITCH;
 /** The sun is lower than a match's, for long shadows. */
 const SUN_AT: readonly [number, number, number] = [-10, 8, 7];
-/** Distance haze and the horizon of the dusk sky, per faction: calm, close to a match's fog (0x2a2d44). */
-export const HAZE: Record<SceneFaction, number> = { human: 0x28304a, alien: 0x3a3042 };
+/** Distance haze and the horizon of the dusk sky, per faction: halfway between the dusk tint and the match's horizon haze (R3D-25, `HAZE_COLOR`), so the menu and a match share one sky. */
+const midHex = (a: number, b: number): number => new THREE.Color(a).lerp(new THREE.Color(b), 0.5).getHex();
+export const HAZE: Record<SceneFaction, number> = { human: midHex(0x28304a, HAZE_COLOR), alien: midHex(0x3a3042, HAZE_COLOR) };
 /** The sky above the horizon: the haze colour darkened toward the top. */
-export const SKY_TOP_SHADE = 0.35;
+export const SKY_TOP_SHADE = 0.8;
 /** The farthest the camera stands from the HQ (a wide screen backs it off), tiles. Fog starts behind the stage and has swallowed the ground well before its edge. */
 export const CAMERA_MAX_DIST = 30;
 export const FOG_NEAR = 34;
 export const FOG_FAR = 80;
 export const GROUND_RADIUS = 160;
 const GROUND: Record<SceneFaction, readonly [number, number, number]> = { human: [92, 90, 72], alien: [84, 70, 72] };
+/** Where a working harvester throws and drops: model-forward offsets (tiles ahead, up) of its cutter or maw, its hopper, and its tail. */
+export const WORK_SPOTS = { metal: { cut: [1.0, 0.1], hop: [-0.1, 0.7], tail: [-1.3, 0.35] }, organic: { cut: [0.75, 0.06], hop: [0.55, 0.32], tail: [-0.8, 0.3] } } as const;
 
 /** One mining cycle of the hauler, ms (as the unit sheet's preview). */
 const MINE_MS = 2400;
@@ -91,26 +105,20 @@ function skyTexture(horizon: number): THREE.CanvasTexture {
   return t;
 }
 
-/** A ground texture of fine, seeded speckle around `rgb`. */
+/** The match's ground look (R3D-24) on the menu's patch of ground: `GROUND_TILES` tiles square, mirrored outward under the fog. */
+export const GROUND_TILES = 48;
 function groundTexture(rgb: readonly [number, number, number]): THREE.DataTexture {
-  const n = 128;
-  const data = new Uint8Array(n * n * 4);
-  for (let y = 0; y < n; y++) {
-    for (let x = 0; x < n; x++) {
-      const v = 0.82 + 0.36 * (0.6 * rand(SEED, x, y) + 0.4 * rand(SEED + 1, x >> 2, y >> 2));
-      const o = (y * n + x) * 4;
-      data[o] = Math.min(255, rgb[0] * v);
-      data[o + 1] = Math.min(255, rgb[1] * v);
-      data[o + 2] = Math.min(255, rgb[2] * v);
-      data[o + 3] = 255;
-    }
-  }
-  const t = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(27, 27);
+  const tex = patchedGroundTexture(rgb, GROUND_TILES);
+  const t = new THREE.DataTexture(tex.data, tex.width, tex.height, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.MirroredRepeatWrapping;
+  // The disc's UV spans its diameter once: repeat so one texture is GROUND_TILES tiles wide, centred on the HQ.
+  const rep = (2 * GROUND_RADIUS) / GROUND_TILES;
+  t.repeat.set(rep, rep);
+  t.offset.set(0.5 - 0.5 * rep, 0.5 - 0.5 * rep);
   t.colorSpace = THREE.SRGBColorSpace;
   t.magFilter = THREE.LinearFilter;
   t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.anisotropy = 4;
   t.generateMipmaps = true;
   t.needsUpdate = true;
   return t;
@@ -122,12 +130,19 @@ class Scene3d implements MenuScene {
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 160);
   private composer: EffectComposer;
-  private metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.38 });
-  private organic = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.05 });
+  private mats: ReturnType<typeof modelMaterials>;
+  private metal: THREE.MeshStandardMaterial;
+  private organic: THREE.MeshStandardMaterial;
   private crystal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.25, emissive: 0x0c3a34 });
   private glow = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, color: new THREE.Color().setScalar(glowLevels(true).glow) });
   private hiveGlow = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, color: new THREE.Color().setScalar(glowLevels(true).hive) });
-  private groundMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0 });
+  private groundMat = new THREE.MeshStandardMaterial({ roughness: 0.93, metalness: 0, normalMap: noiseNormalMap(128, 8, 5, 1), normalScale: new THREE.Vector2(0.7, 0.7) });
+  /** The harvesters' chips, grit and exhaust (R3D-19): GPU particles, High with motion only. */
+  private fx: CombatFx | null = null;
+  private fxAllowed: boolean;
+  private v = new THREE.Vector3();
+  private v2 = new THREE.Vector3();
+  private exhaustAt = 0;
   private sun: THREE.DirectionalLight;
   private stage = new THREE.Group();
   /** Geometry owned by the ground (index 0) and by the current stage. */
@@ -155,6 +170,10 @@ class Scene3d implements MenuScene {
 
   constructor(private host: HTMLElement, o: MenuSceneOptions) {
     this.faction = o.faction;
+    this.fxAllowed = o.effects !== false && o.detail !== false;
+    this.mats = modelMaterials(o.detail !== false);
+    this.metal = this.mats.metal;
+    this.organic = this.mats.organic;
     this.still = o.still;
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     configureRenderer(this.renderer);
@@ -174,6 +193,8 @@ class Scene3d implements MenuScene {
     const ground = new THREE.Mesh(new THREE.CircleGeometry(GROUND_RADIUS, 64).rotateX(-Math.PI / 2), this.groundMat);
     ground.receiveShadow = true;
     this.geos.push(ground.geometry);
+    const nm = this.groundMat.normalMap!;
+    nm.repeat.set((2 * GROUND_RADIUS) / 3, (2 * GROUND_RADIUS) / 3);
     this.scene.add(ground);
     this.composer = createComposer(this.renderer, this.scene, this.camera);
     this.build(this.faction);
@@ -283,9 +304,45 @@ class Scene3d implements MenuScene {
     this.pose(0, 0.016);
   }
 
+  /** The point `fwd` ahead of a figure and `up` above the ground, into `out`. */
+  private ahead(f: Figure, spot: readonly [number, number], out: THREE.Vector3): THREE.Vector3 {
+    const s = f.def.scale ?? 1;
+    return out.set(f.x + Math.cos(f.heading) * spot[0] * s, spot[1] * s, f.z + Math.sin(f.heading) * spot[0] * s);
+  }
+
+  /** The working hauler's chips and grit at the cutter or maw, and a puff of exhaust now and then (R3D-19). */
+  private workFx(f: Figure, now: number): void {
+    const fx = this.fx;
+    if (!fx) return;
+    const spots = WORK_SPOTS[f.def.organic ? 'organic' : 'metal'];
+    fx.harvest(1, this.ahead(f, spots.cut, this.v), this.ahead(f, spots.hop, this.v2), !!f.def.organic, false, now);
+    if (!f.def.organic && now - this.exhaustAt > 320) {
+      this.exhaustAt = now;
+      fx.dust(this.ahead(f, spots.tail, this.v), 0.7, now);
+    }
+  }
+
+  /** The effects layer: made on first use, only when allowed and animating. */
+  private ensureFx(): CombatFx | null {
+    if (!this.fxAllowed || this.still) {
+      if (this.fx) this.fx.root.visible = false;
+      return null;
+    }
+    if (!this.fx) {
+      this.fx = new CombatFx();
+      this.fx.setLights(false);
+      this.scene.add(this.fx.root);
+      this.fx.setScale((this.h * this.renderer.getPixelRatio()) / (2 * Math.tan((FOV * Math.PI) / 360)));
+    }
+    this.fx.root.visible = true;
+    return this.fx;
+  }
+
   /** Idle motion for every figure at `now` ms: breathing and sway from the game's own body model, squads that wander. */
   private pose(now: number, dt: number): void {
+    this.ensureFx();
     for (const f of this.figures) {
+      if (f.working && !f.building) this.workFx(f, now);
       const def = f.def;
       const walker = def.move === 'walker';
       const squad = f.members.length > 0;
@@ -305,7 +362,13 @@ class Scene3d implements MenuScene {
           return;
         }
         const pose = bodyPose(def.move, m, 0, now, f.seed + i, mm ? undefined : def.walk);
-        const work = f.working ? { load: ((now + f.seed * 97) % MINE_MS) / MINE_MS, drum: (now / 1000) * 14, lunge: def.organic ? Math.max(0, Math.sin((now / 700) * Math.PI * 2)) : 0 } : null;
+        const work = f.working ? { load: ((now + f.seed * 97) % MINE_MS) / MINE_MS, drum: (now / 1000) * 14, head: 1, feed: 1 } : null;
+        if (def.ride) {
+          const ride = rideMotion(def.ride, m.stride, now, f.seed + i);
+          pose.pitch += ride.pitch;
+          pose.roll += ride.roll;
+          pose.bob += ride.bob;
+        }
         poseRig(tree, { ...STILL, turret: 0.3 * Math.sin(now / 2600 + f.seed), pitch: pose.pitch, roll: pose.roll, bob: pose.bob, time: now, reach: def.radius * 0.25, walker, crouch: mm?.crouch ?? 0, phase: i * 1.7, ...work });
       });
     }
@@ -324,6 +387,7 @@ class Scene3d implements MenuScene {
     this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.frameGroup();
+    this.fx?.setScale((h * pr) / (2 * Math.tan((FOV * Math.PI) / 360)));
     if (this.still || this.paused) this.draw(this.time);
   }
 
@@ -363,6 +427,7 @@ class Scene3d implements MenuScene {
       this.last = now;
       this.time = (now - this.t0) / 1000;
       this.pose(now, dt);
+      this.fx?.update(now, dt);
       this.draw(this.time);
       this.raf = requestAnimationFrame(frame);
     };
@@ -399,8 +464,19 @@ class Scene3d implements MenuScene {
     this.still = still;
     if (still) {
       cancelAnimationFrame(this.raf);
+      this.ensureFx();
       this.draw(this.time);
     } else this.loop();
+  }
+
+  setDetail(on: boolean, effects = on): void {
+    if (this.gone) return;
+    this.fxAllowed = on && effects;
+    setSurface(this.metal, 'metal', on);
+    setSurface(this.organic, 'organic', on);
+    this.metal.needsUpdate = this.organic.needsUpdate = true;
+    this.ensureFx();
+    if (this.still || this.paused) this.draw(this.time);
   }
 
   setPaused(paused: boolean): void {
@@ -422,6 +498,7 @@ class Scene3d implements MenuScene {
     (this.scene.background as THREE.Texture | null)?.dispose();
     for (const m of [this.metal, this.organic, this.crystal, this.glow, this.hiveGlow, this.groundMat]) m.dispose();
     this.scene.environment?.dispose();
+    this.fx?.root.removeFromParent();
     this.composer.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

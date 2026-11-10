@@ -1,7 +1,7 @@
 import type { Faction } from '../data/defs';
 import { battlePlan, menuPlan, MUSIC_PATCHES, menuThemePlan, musicPlan, stingerPlan, themePlan, type Note } from './plan';
 import { busGains, layerGains } from './mix';
-import { ackRecipe, allocateVoice, MOVE_CLASSES, MOVE_LOOPS, moveLoopSamples, recipeFor, sizeMods, Variation, type AmbienceMix, type FilterSpec, type Layer, type MoveClass, type Recipe, type SoundName, type VoiceInfo } from './recipes';
+import { ackRecipe, allocateVoice, MAX_VOICES, MOVE_CLASSES, MOVE_LOOPS, moveLoopSamples, recipeFor, sizeMods, Variation, type AmbienceMix, type FilterSpec, type Layer, type MoveClass, type Recipe, type SoundName, type VoiceInfo } from './recipes';
 
 type Name = SoundName;
 
@@ -103,6 +103,8 @@ export class AudioEngine {
   musicVolume = 0.75;
   /** Turn off the per-name rate limit (a test that wants the densest possible battle). */
   limitRate = true;
+  /** Low quality: half the voice budget and one play per sound per rate window, so a big fight builds fewer audio nodes. */
+  lean = false;
   /** Counts for tests: plays asked for by key, started, and dropped by the voice budget. */
   stats = { requested: {} as Record<string, number>, started: 0, dropped: 0 };
 
@@ -253,7 +255,7 @@ export class AudioEngine {
     const now = c.currentTime;
     if (this.limitRate) {
       const r = (this.recent.get(key) ?? []).filter((t) => now - t < 0.12);
-      if (r.length >= perWindow) {
+      if (r.length >= (this.lean ? Math.min(1, perWindow) : perWindow)) {
         this.recent.set(key, r);
         return;
       }
@@ -266,7 +268,7 @@ export class AudioEngine {
     const loud = level * (o.near ?? 1);
     // The voice budget (AUD-12): at most 24 at once; when full the quietest or farthest goes first.
     this.voices = this.voices.filter((x) => x.end > now);
-    const al = allocateVoice(this.voices, loud, now);
+    const al = allocateVoice(this.voices, loud, now, this.lean ? MAX_VOICES >> 1 : MAX_VOICES);
     if (al.kind === 'drop') {
       this.stats.dropped++;
       return;

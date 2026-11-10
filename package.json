@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit",
     "trace": "tsx scripts/trace.ts",
     "bench": "tsx scripts/bench.ts",
+    "perf3d": "tsx scripts/perf3d.ts",
     "e2e": "playwright test",
     "harness": "tsx scripts/harness.ts",
     "ai:length": "tsx scripts/match-length.ts",

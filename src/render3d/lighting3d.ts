@@ -63,7 +63,13 @@ export function createComposer(renderer: THREE.WebGLRenderer, scene: THREE.Scene
   const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
   const composer = new EffectComposer(renderer, target);
   composer.addPass(new RenderPass(scene, camera));
-  if (bloom) composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.5, 1.0));
+  if (bloom) {
+    // Bloom is soft by nature: run its blur chain from half the screen size, a quarter of the pixels (PERF-1).
+    const pass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.5, 1.0);
+    const setSize = pass.setSize.bind(pass);
+    pass.setSize = (w: number, h: number): void => setSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
+    composer.addPass(pass);
+  }
   composer.addPass(new OutputPass());
   composer.addPass(new FXAAPass());
   return composer;

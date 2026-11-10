@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { mapBounds, centerOnTile, type Camera } from '../../src/render/camera';
 import { FLY_HUD_CSS, FLY_MS, FlyIn, flyEnabled, flyMode, flyPose, smootherstep } from '../../src/render/flyIn';
 import { Lockstep } from '../../src/net/lockstep';
-import { cameraPose, FOV } from '../../src/render3d/camera3d';
+import { cameraPose, FOV, riseFor } from '../../src/render3d/camera3d';
 
 /** The camera a match starts with today: centred on the player's base at zoom 1. */
 const startCam = (w: number, h: number, tx: number, ty: number): Camera => centerOnTile({ x: 0, y: 0, zoom: 1 }, tx, ty, mapBounds(w, h));
@@ -37,6 +37,16 @@ describe('the fly-in camera sweep', () => {
       expect(flyPose(1, m, end)).toEqual(end);
       expect(flyPose(1, m, end).rise).toBeUndefined();
     }
+  });
+
+  it('CAM-4 R3D-28: the sweep ends exactly on a zoomed-in camera, its pitch easing to the pitch for that zoom and cleared at the end', () => {
+    const m = MAPS[0]!;
+    const end: Camera = { ...startCam(m.width, m.height, 14.5, 40.5), zoom: 2.2 };
+    expect(flyPose(1, m, end)).toEqual(end);
+    expect(flyPose(1, m, end).rise).toBeUndefined();
+    const near = flyPose(1 - 1e-6, m, end);
+    expect(near.rise).toBeCloseTo(riseFor(2.2), 4);
+    expect(near.zoom).toBeCloseTo(2.2, 4);
   });
 
   it('CAM-4: it eases in and out, with no speed at either end, and moves steadily down in between', () => {

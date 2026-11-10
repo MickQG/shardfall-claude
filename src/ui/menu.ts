@@ -276,7 +276,7 @@ export function showMenu(): void {
     void import('../render3d/menuScene3d')
       .then((m) => {
         if (sceneClosed) return;
-        scene = m.mountMenuScene(root.querySelector<HTMLElement>('.scene')!, { faction: pick.faction, still: holdStill(settings.quality, reduceMotion), onReady: () => root.classList.add('scene3d') });
+        scene = m.mountMenuScene(root.querySelector<HTMLElement>('.scene')!, { faction: pick.faction, still: holdStill(settings.quality, reduceMotion), detail: settings.quality !== 'low', effects: !reduceMotion, onReady: () => root.classList.add('scene3d') });
         document.body.dataset.menuScene = 'on';
         if (sheet.isOpen()) scene.setPaused(true);
       })
@@ -371,6 +371,7 @@ export function showMenu(): void {
     }
     else if (t.dataset.quality) {
       save({ quality: t.dataset.quality === 'low' ? 'low' : 'high' });
+      scene?.setDetail(settings.quality !== 'low', settings.quality !== 'low' && !reduceMotion);
       scene?.setStill(holdStill(settings.quality, reduceMotion));
     }
     else if (t.dataset.map) {

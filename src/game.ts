@@ -1,5 +1,5 @@
 import { DIFFICULTIES, resolvePersonality } from './ai/ai';
-import { duelConfig, mapIdOf, mapSeedOf, resolveMapSeed, rushConfig, showcaseConfig, skirmishConfig } from './data/maps';
+import { brawlConfig, duelConfig, mapIdOf, mapSeedOf, resolveMapSeed, rushConfig, showcaseConfig, skirmishConfig } from './data/maps';
 import { buildingDef, unitDef } from './data/defs';
 import { AudioEngine } from './audio/engine';
 import { BattleIntensity } from './audio/intensity';
@@ -65,7 +65,7 @@ const seed = seedOf(params.get('seed'), Date.now() % 100000);
 const personality = resolvePersonality(params.get('personality'), seed);
 const cfg = match
   ? skirmishConfig(match.setup.seed, { factions: match.setup.factions, bonuses: [0, 0], map: match.setup.map, mapSeed: match.setup.mapSeed })
-  : scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0), myFaction) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
+  : scenario === 'showcase' ? showcaseConfig(seed, Math.min(150, Number(params.get('army') ?? 0) || 0), myFaction) : scenario === 'brawl' ? brawlConfig(seed, Math.min(100, Number(params.get('army') ?? 0) || 100), myFaction) : scenario === 'duel' ? duelConfig(seed, opts) : scenario === 'rush' ? rushConfig(seed, opts) : skirmishConfig(seed, opts);
 /** The world view (ADR 0005, R3D-1), chosen once here and never part of the simulation. */
 const use3d = chooseRenderer(params.get('renderer'), probeGpu()) === '3d';
 const map = cfg.map;
@@ -80,7 +80,7 @@ watch?.attach(sim);
 const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D() : new GameView();
 const frameStats = new FrameStats();
 // The frame-time readout is for the showcase and for measuring (`?fps`), not for normal games.
-const showFrameTime = scenario === 'showcase' || params.has('fps');
+const showFrameTime = scenario === 'showcase' || scenario === 'brawl' || params.has('fps');
 const selection = new Selection();
 const hud = createHud(myFaction);
 const settings = loadSettings(safeStorage(), matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -384,6 +384,7 @@ function frame(prevTime: number): (t: number) => void {
       if (targeting && !curr.buildings.some((b) => b.id === targeting?.building && b.owner === PLAYER)) targeting = null;
       const alpha = (performance.now() - sim.currAt) / tickMsAt(speed);
       const ru = interpolate(sim.prev.units, curr.units, alpha);
+      audio.lean = settings.quality === 'low';
       view.update(ru, drawCam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings), acks: acks.markers(performance.now(), (id) => locate(id, ru, curr)), flash: acks.flashing(performance.now()) }, curr);
       if (curr.tick !== lastAlertTick) {
         lastAlertTick = curr.tick;
@@ -573,7 +574,7 @@ async function boot(): Promise<void> {
     sidebar.setIcons(await drawIcons(buttonKinds(myFaction), PLAYER));
     document.body.dataset.iconMs = String(Math.round(performance.now() - t0));
   }
-  if (scenario === 'showcase') {
+  if (scenario === 'showcase' || scenario === 'brawl') {
     // Both armies march into each other's base so the fight and its effects can be seen, whichever side is watched.
     const army = (p: number): number[] => first.units.filter((u) => u.owner === p).map((u) => u.id);
     for (const p of [0, 1]) {
@@ -591,6 +592,8 @@ async function boot(): Promise<void> {
   const canvas = view.canvas;
   const hq = first.buildings.find((b) => b.owner === PLAYER && buildingDef(b.kind).hq);
   if (hq) centerOn(hq.tx + 1.5, hq.ty + 1.5);
+  // The brawl is fought in the middle of the map, so the camera starts there (R3D-29).
+  if (scenario === 'brawl') centerOn(first.mapWidth / 2, first.mapHeight / 2 + 1);
 
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
@@ -816,6 +819,8 @@ async function boot(): Promise<void> {
 
   (window as unknown as { __shardfall: unknown }).__shardfall = {
     snapshot: () => sim.curr,
+    /** Frame rate and the renderer's draws, triangles, CPU time, live particles and debris, for tests and measurement (R3D-29). */
+    renderStats: () => ({ fps: frameStats.fps, ...(view.stats?.() ?? { cpuMs: 0, draws: 0, tris: 0, particles: { smoke: 0, glow: 0 }, debris: 0 }) }),
     /** Sound counts (AUD-7, AUD-11) and the last movement and ambience mix (AUD-8, AUD-10), for tests. */
     audio: () => ({ ...audio.stats, mix: soundscape.last }),
     /** Renders a dense battle offline through the real engine graph and returns its peak sample (AUD-12). */
