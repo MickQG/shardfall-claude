@@ -1064,71 +1064,74 @@ function jaw(side: number): Shape {
   return s;
 }
 
-/** A claw's upper arm and forearm: thick tapered chitin links with a joint knob at the far end. */
-function clawLink(len: number, r: number): Shape {
+/** Shard finish for the gorger's claw rakes: darker and glossier than the chitin, a blue-violet gunmetal that still sits in its family. */
+const SHARD = 0x2a2c4c;
+const SHARD2 = 0x3a4670;
+/** The colour between chitin and shard, worn at the wrist where the two blend. */
+const SHARD_JOINT = 0x3b2b55;
+/** Faint crystal-teal edge light on the rakes; deliberately dim. */
+const SHARD_GLOW = 0x1c7f78;
+
+/** A claw's upper limb or forearm: a thick tapered chitin link along +X, with a jointed knob at the far end (the same language as `insectLeg`). */
+function clawLink(len: number, r: number, color: number, knob: number): Shape {
   const s = shape();
-  s.strut([0, 0, 0], [len, 0, 0], r, CHITIN2, { r2: r * 0.7 });
-  s.ball(r * 0.95, FLESH, { at: [len, 0, 0], seg: 8 });
+  s.ball(r * 1.15, color, { seg: 6 });
+  s.strut([0, 0, 0], [len, 0, 0], r, color, { r2: r * 0.72 });
+  s.ball(r * 0.95, knob, { at: [len, 0, 0], seg: 6 });
   return s;
 }
 
-/** One pincer finger: a tapered bone hook that curls in at its tip. */
-function clawFinger(): Shape {
+/** The end of a claw: a flat, faceted rake of three shard tines on a socket, with faint teal edge lights. Points along +X. */
+function clawBlade(): Shape {
   const s = shape();
-  s.strut([0, 0, 0], [0.15, 0, 0], 0.036, BONE, { r2: 0.026 });
-  s.strut([0.15, 0, 0], [0.24, 0, 0.0], 0.026, BONE, { r2: 0.008 });
-  s.cone(0.02, 0.08, BONE, { at: [0.28, 0, 0.0], rot: [0, 0, -Math.PI / 2], seg: 5 });
+  s.ball(0.05, SHARD_JOINT, { at: [0.02, 0, 0], scale: [1.2, 0.9, 1.1], seg: 6 });
+  s.ball(0.052, SHARD, { at: [0.07, 0, 0], scale: [1.5, 0.8, 1.5], seg: 5 });
+  for (const [z, len, yaw] of [[0, 0.21, 0], [0.055, 0.16, 0.3], [-0.055, 0.16, -0.3]] as const) {
+    const cx = 0.09 + (len / 2) * Math.cos(yaw);
+    const cz = z + (len / 2) * Math.sin(yaw);
+    // Flat in Z, broad in Y, four-sided so every tine shows hard facets.
+    s.cone(0.034, len, z === 0 ? SHARD2 : SHARD, { at: [cx, 0, cz], rot: [0, -yaw, -Math.PI / 2], scale: [1, 1, 0.3], seg: 4 });
+    s.strut([0.11, 0.024, z], [0.09 + len * 0.86 * Math.cos(yaw), 0.004, z + len * 0.86 * Math.sin(yaw)], 0.005, SHARD_GLOW, { r2: 0.003, seg: 4, glow: true });
+  }
   return s;
 }
 
+/** Where a claw is rooted on the body: just behind the head, on the flank. */
+export const CLAW_ROOT_X = 0.47;
+export const CLAW_ROOT_Z = 0.2;
+const CLAW_SWEEP = -1.2;
 const CLAW_RATE = 7.4;
-const CLAW_UPPER = 0.3;
-const CLAW_FORE = 0.27;
+const CLAW_UPPER = 0.23;
+const CLAW_FORE = 0.23;
 
 /**
- * One feeding claw (R3D-31): a jointed arm rooted at the side of the head, ending in a two-finger pincer. `side` is +1
- * for the left (+Z) claw and -1 for the right. At rest it is folded in beside the maw. Feeding, the shoulder swings out
- * and down, the elbow straightens, the pincer opens, then closes at the far end and the whole arm draws back in toward the mouth.
+ * One feeding claw (R3D-31): the gorger's front limb evolved to gather shards. Local X runs along the limb, so the root's
+ * yaw points it sideways (+Z for `side` +1, -Z for -1). It stays on its own side of the body: held up and folded against
+ * the flank at rest; feeding, it reaches out and down onto the crystals, then rakes in toward the mouth along the
+ * ground, lifts and returns. The yaw only swings the limb fore and aft, never across the centre plane.
  */
 function clawNode(side: number, phase: number): RigNode {
   const feed = (axis: 'y' | 'z', amp: number, ph: number): { k: 'feed'; axis: 'y' | 'z'; amp: number; rate: number; phase: number } => ({ k: 'feed', axis, amp, rate: CLAW_RATE, phase: ph });
-  const finger = (s: number): RigNode => ({
-    geo: 'clawFinger',
-    at: [0.07, 0, s * 0.035],
-    rot: [0, -s * 0.05, 0],
-    // Open while reaching, closed on the return: a quarter cycle ahead of the arm.
-    anim: feed('y', s * 0.7, phase + Math.PI / 2),
-  });
   return {
-    at: [0.5, -0.02, side * 0.17],
-    // Folded in: the arm hangs forward and a little across the maw, forearm and pincer angled down.
-    rot: [0, side * 0.55, 0.6],
-    anim: feed('y', -side * 1.15, phase),
+    at: [CLAW_ROOT_X, -0.02, side * CLAW_ROOT_Z],
+    // Out to the side, a little aft at rest; the swing drives it forward as it rakes in.
+    rot: [0, -side * (Math.PI / 2 + 0.55), 0],
+    anim: feed('y', side * 0.8, phase + CLAW_SWEEP),
     kids: [
       {
-        // Shoulder pitch: lifted at rest, lowered to the crystals as it reaches.
-        anim: feed('z', -1.1, phase),
+        // Shoulder: the limb is held up at rest and lowered onto the crystals as it reaches.
+        rot: [0, 0, 1.0],
+        anim: feed('z', -1.5, phase),
         kids: [
           {
             geo: 'clawUpper',
             kids: [
               {
-                // Elbow: folded at rest, extends as it reaches.
+                // Elbow: folded at rest, opens to reach.
                 at: [CLAW_UPPER, 0, 0],
-                rot: [0, 0, -0.9],
-                anim: feed('z', 0.9, phase + 0.25),
-                kids: [
-                  {
-                    geo: 'clawFore',
-                    kids: [
-                      {
-                        at: [CLAW_FORE, 0, 0],
-                        rot: [0, 0, -0.3],
-                        kids: [{ geo: 'clawPalm' }, finger(1), finger(-1)],
-                      },
-                    ],
-                  },
-                ],
+                rot: [0, 0, -1.95],
+                anim: feed('z', 1.5, phase + 0.2),
+                kids: [{ geo: 'clawFore', kids: [{ geo: 'clawBlade', at: [CLAW_FORE, 0, 0], rot: [0, 0, -0.4] }] }],
               },
             ],
           },
@@ -1174,10 +1177,9 @@ function gorger(): RigDef {
       },
       jawL: () => jaw(1),
       jawR: () => jaw(-1),
-      clawUpper: () => clawLink(CLAW_UPPER, 0.052),
-      clawFore: () => clawLink(CLAW_FORE, 0.044),
-      clawPalm: () => shape().ball(0.065, FLESH, { at: [0.03, 0, 0], scale: [1.3, 0.85, 1.1], seg: 8 }),
-      clawFinger,
+      clawUpper: () => clawLink(CLAW_UPPER, 0.048, CHITIN2, CHITIN),
+      clawFore: () => clawLink(CLAW_FORE, 0.04, CHITIN, SHARD_JOINT),
+      clawBlade,
       cargo: () => {
         const s = shape();
         s.ball(0.17, SAC, { at: [0.05, 0.2, 0], scale: [1.2, 0.7, 0.9], seg: 12 });
@@ -1207,10 +1209,11 @@ function gorger(): RigDef {
                 { geo: 'throat', at: [0.55, -0.02, 0], anim: { k: 'pulse', rate: 7.4, phase: -0.6, swallow: 0.28 } },
                 { geo: 'jawL', at: [0.64, -0.02, 0.1], rot: [0, 0.3, 0], anim: { k: 'feed', axis: 'y', amp: -0.75, rate: 7.4, phase: 0 } },
                 { geo: 'jawR', at: [0.64, -0.02, -0.1], rot: [0, -0.3, 0], anim: { k: 'feed', axis: 'y', amp: 0.75, rate: 7.4, phase: 0 } },
-                clawNode(1, 0),
-                clawNode(-1, 0.18),
               ],
             },
+            // The claws are the front limb pair, rooted on the body's flanks just behind the head, so they stay put when the head nods.
+            clawNode(1, 0),
+            clawNode(-1, 0.18),
           ],
         },
       ],

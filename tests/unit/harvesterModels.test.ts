@@ -155,8 +155,8 @@ describe('R3D-31: the Gorger', () => {
     const feeds = t.anims.filter((a) => a.anim.k === 'feed');
     const jaws = feeds.filter((a) => a.anim.k === 'feed' && a.anim.axis === 'y');
     const joints = feeds.filter((a) => a.anim.k === 'feed' && a.anim.axis === 'z');
-    expect(t.drawn.filter((d) => d.geo === 'clawPalm').length, 'two claws').toBe(2);
-    expect(t.drawn.filter((d) => d.geo === 'clawFinger').length, 'a pincer of two fingers on each').toBe(4);
+    expect(t.drawn.filter((d) => d.geo === 'clawBlade').length, 'two claws, each ending in a rake').toBe(2);
+    expect(t.drawn.filter((d) => d.geo === 'clawFore').length).toBe(2);
     expect(t.drawn.some((d) => d.geo?.startsWith('tend'))).toBe(false);
     expect(jaws.length).toBeGreaterThanOrEqual(2);
     expect(joints.length).toBeGreaterThanOrEqual(4); // a shoulder and an elbow in each of the two claws
@@ -182,12 +182,57 @@ describe('R3D-31: the Gorger', () => {
     const tipOf = (feed: number, ms: number): THREE.Vector3 => {
       poseRig(t, { ...STILL, walker, feed, time: ms });
       t.root.updateMatrixWorld(true);
-      return new THREE.Vector3(0.1, 0, 0).applyMatrix4(node(t, 'clawPalm').obj.matrixWorld);
+      return new THREE.Vector3(0.1, 0, 0).applyMatrix4(node(t, 'clawBlade').obj.matrixWorld);
     };
     const curled = tipOf(0, 0);
     const reach = tipOf(1, (period * 1000) / 2);
     expect(Math.hypot(reach.x - curled.x, reach.z - curled.z)).toBeGreaterThan(0.15);
     expect(curled.y - reach.y).toBeGreaterThan(0.2);
+  });
+
+  it('R3D-31: each claw is rooted on its own flank behind the head and works on its own side, never crossing the centre plane or the maw', () => {
+    const t = rigTree(def);
+    const tipX = Math.max(...def.shapes.head!().pieces.map((p) => { p.geo.computeBoundingBox(); return p.geo.boundingBox!.max.x; }));
+    const body = t.anims.find((a) => a.anim.k === 'body')!;
+    const inBody = new THREE.Vector3();
+    const claws = ['clawUpper', 'clawFore', 'clawBlade'].flatMap((g) => t.drawn.filter((d) => d.geo === g).map((d) => ({ d, geo: g })));
+    expect(claws.length).toBe(6);
+    // A claw part belongs to the +Z side when its root is; sample every vertex in the body's frame.
+    const verts = (d: (typeof claws)[number], f: (v: THREE.Vector3) => void): void => {
+      for (const p of def.shapes[d.geo]!().pieces) {
+        const pos = p.geo.getAttribute('position');
+        for (let i = 0; i < pos.count; i++) f(inBody.fromBufferAttribute(pos, i).applyMatrix4(d.d.obj.matrixWorld).applyMatrix4(body.obj.matrixWorld.clone().invert()));
+      }
+    };
+    poseRig(t, { ...STILL, walker, feed: 1, time: 0 });
+    t.root.updateMatrixWorld(true);
+    // The shoulders sit on the flanks, just behind the head.
+    for (const side of [1, -1]) {
+      const upper = claws.filter((c) => c.geo === 'clawUpper').find((c) => {
+        const p = new THREE.Vector3().setFromMatrixPosition(c.d.obj.matrixWorld).applyMatrix4(body.obj.matrixWorld.clone().invert());
+        return Math.sign(p.z) === side;
+      })!;
+      const root = new THREE.Vector3().setFromMatrixPosition(upper.d.obj.matrixWorld).applyMatrix4(body.obj.matrixWorld.clone().invert());
+      expect(Math.abs(root.z)).toBeGreaterThan(0.15);
+      expect(Math.abs(root.z)).toBeLessThan(0.3);
+      expect(root.x).toBeGreaterThan(0.4);
+      expect(root.x).toBeLessThan(0.55);
+    }
+    for (const feed of [0, 0.5, 1]) {
+      for (let ms = 0; ms < 1700; ms += 50) {
+        poseRig(t, { ...STILL, walker, feed, time: ms });
+        t.root.updateMatrixWorld(true);
+        for (const c of claws) {
+          const root = new THREE.Vector3().setFromMatrixPosition(c.d.obj.matrixWorld).applyMatrix4(body.obj.matrixWorld.clone().invert());
+          const side = Math.sign(root.z);
+          verts(c, (v) => {
+            // A margin of 0.08 off the centre plane (the body is 0.2 wide there), and never ahead of the maw.
+            expect(v.z * side, `${c.geo} at ${ms} ms, feed ${feed}`).toBeGreaterThan(0.08);
+            expect(v.x, `${c.geo} at ${ms} ms, feed ${feed}`).toBeLessThan(tipX);
+          });
+        }
+      }
+    }
   });
 
   it('R3D-31: the throat pulses with each swallow, the belly swells with the load and contracts in waves front to back when unloading', () => {
