@@ -1065,12 +1065,14 @@ function jaw(side: number): Shape {
 }
 
 /** Shard finish for the gorger's claw rakes: darker and glossier than the chitin, a blue-violet gunmetal that still sits in its family. */
-const SHARD = 0x2a2c4c;
+const SHARD = 0x2e3156;
 const SHARD2 = 0x3a4670;
+/** The lustrous facet on a rake's upper face. */
+const SHARD_LUST = 0x6a7fb0;
 /** The colour between chitin and shard, worn at the wrist where the two blend. */
 const SHARD_JOINT = 0x3b2b55;
 /** Faint crystal-teal edge light on the rakes; deliberately dim. */
-const SHARD_GLOW = 0x1c7f78;
+const SHARD_GLOW = 0x22918a;
 
 /** A claw's upper limb or forearm: a thick tapered chitin link along +X, with a jointed knob at the far end (the same language as `insectLeg`). */
 function clawLink(len: number, r: number, color: number, knob: number): Shape {
@@ -1081,17 +1083,19 @@ function clawLink(len: number, r: number, color: number, knob: number): Shape {
   return s;
 }
 
-/** The end of a claw: a flat, faceted rake of three shard tines on a socket, with faint teal edge lights. Points along +X. */
+/** The end of a claw: a broad, flat, faceted rake of three shard tines fanned sideways, in three tones, with dim teal edge lights. Points along +X. */
 function clawBlade(): Shape {
   const s = shape();
-  s.ball(0.05, SHARD_JOINT, { at: [0.02, 0, 0], scale: [1.2, 0.9, 1.1], seg: 6 });
-  s.ball(0.052, SHARD, { at: [0.07, 0, 0], scale: [1.5, 0.8, 1.5], seg: 5 });
-  for (const [z, len, yaw] of [[0, 0.21, 0], [0.055, 0.16, 0.3], [-0.055, 0.16, -0.3]] as const) {
-    const cx = 0.09 + (len / 2) * Math.cos(yaw);
-    const cz = z + (len / 2) * Math.sin(yaw);
-    // Flat in Z, broad in Y, four-sided so every tine shows hard facets.
-    s.cone(0.034, len, z === 0 ? SHARD2 : SHARD, { at: [cx, 0, cz], rot: [0, -yaw, -Math.PI / 2], scale: [1, 1, 0.3], seg: 4 });
-    s.strut([0.11, 0.024, z], [0.09 + len * 0.86 * Math.cos(yaw), 0.004, z + len * 0.86 * Math.sin(yaw)], 0.005, SHARD_GLOW, { r2: 0.003, seg: 4, glow: true });
+  s.ball(0.07, SHARD_JOINT, { at: [0.03, 0, 0], scale: [1.2, 0.9, 1.1], seg: 6 });
+  s.ball(0.085, SHARD, { at: [0.11, 0, 0], scale: [1.3, 0.55, 2.0], seg: 5 });
+  for (const [yaw, len, w] of [[0, 0.38, 0.075], [0.42, 0.3, 0.065], [-0.42, 0.3, 0.065]] as const) {
+    const cx = 0.1 + (len / 2) * Math.cos(yaw);
+    const cz = (len / 2) * Math.sin(yaw) + yaw * 0.12;
+    const rot: [number, number, number] = [0, -yaw, -Math.PI / 2];
+    // Wide, flat, four-sided: a dark body, a lustrous plate on the upper face, and a keel below.
+    s.cone(w, len, yaw === 0 ? SHARD : SHARD2, { at: [cx, 0, cz], rot, scale: [1, 1, 0.4], seg: 4 });
+    s.cone(w * 0.8, len * 0.92, SHARD_LUST, { at: [cx, 0.022, cz], rot, scale: [1, 1, 0.3], seg: 4 });
+    s.strut([0.14, 0.012, cz * 0.4], [0.1 + len * 0.9 * Math.cos(yaw), 0.012, (len * 0.9) * Math.sin(yaw) + yaw * 0.12], 0.0075, SHARD_GLOW, { r2: 0.004, seg: 4, glow: true });
   }
   return s;
 }
@@ -1115,8 +1119,8 @@ function clawNode(side: number, phase: number): RigNode {
   return {
     at: [CLAW_ROOT_X, -0.02, side * CLAW_ROOT_Z],
     // Out to the side, a little aft at rest; the swing drives it forward as it rakes in.
-    rot: [0, -side * (Math.PI / 2 + 0.55), 0],
-    anim: feed('y', side * 0.8, phase + CLAW_SWEEP),
+    rot: [0, -side * (Math.PI / 2 + 0.7), 0],
+    anim: feed('y', side * 0.75, phase + CLAW_SWEEP),
     kids: [
       {
         // Shoulder: the limb is held up at rest and lowered onto the crystals as it reaches.
@@ -1177,8 +1181,8 @@ function gorger(): RigDef {
       },
       jawL: () => jaw(1),
       jawR: () => jaw(-1),
-      clawUpper: () => clawLink(CLAW_UPPER, 0.048, CHITIN2, CHITIN),
-      clawFore: () => clawLink(CLAW_FORE, 0.04, CHITIN, SHARD_JOINT),
+      clawUpper: () => clawLink(CLAW_UPPER, 0.056, CHITIN2, CHITIN),
+      clawFore: () => clawLink(CLAW_FORE, 0.052, CHITIN, SHARD_JOINT),
       clawBlade,
       cargo: () => {
         const s = shape();
