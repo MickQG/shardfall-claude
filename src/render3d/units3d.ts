@@ -1081,27 +1081,39 @@ function clawLink(len: number, r: number, color: number, knob: number): Shape {
 /** The end of a claw: a broad, flat, faceted rake of three shard tines fanned sideways, in three tones, with dim teal edge lights. Points along +X. */
 function clawBlade(): Shape {
   const s = shape();
-  s.ball(0.07, SHARD_JOINT, { at: [0.03, 0, 0], scale: [1.2, 0.9, 1.1], seg: 6 });
-  s.ball(0.085, SHARD, { at: [0.11, 0, 0], scale: [1.3, 0.55, 2.0], seg: 5 });
-  for (const [yaw, len, w] of [[0, 0.38, 0.075], [0.42, 0.3, 0.065], [-0.42, 0.3, 0.065]] as const) {
-    const cx = 0.1 + (len / 2) * Math.cos(yaw);
-    const cz = (len / 2) * Math.sin(yaw) + yaw * 0.12;
+  const k = CLAW_SCALE;
+  s.ball(0.07 * k, SHARD_JOINT, { at: [0.03 * k, 0, 0], scale: [1.2, 0.9, 1.1], seg: 6 });
+  s.ball(0.085 * k, SHARD, { at: [0.11 * k, 0, 0], scale: [1.3, 0.55, 2.0], seg: 5 });
+  for (const [yaw, len0, w0] of [[0, 0.38, 0.075], [0.42, 0.3, 0.065], [-0.42, 0.3, 0.065]] as const) {
+    const len = len0 * k;
+    const w = w0 * k;
+    const cx = (0.1 + len0 / 2 * Math.cos(yaw)) * k;
+    const cz = ((len0 / 2) * Math.sin(yaw) + yaw * 0.12) * k;
     const rot: [number, number, number] = [0, -yaw, -Math.PI / 2];
     // Wide, flat, four-sided: a dark body, a lustrous plate on the upper face, and a keel below.
     s.cone(w, len, yaw === 0 ? SHARD : SHARD2, { at: [cx, 0, cz], rot, scale: [1, 1, 0.4], seg: 4 });
-    s.cone(w * 0.8, len * 0.92, SHARD_LUST, { at: [cx, 0.022, cz], rot, scale: [1, 1, 0.3], seg: 4 });
-    s.strut([0.14, 0.012, cz * 0.4], [0.1 + len * 0.9 * Math.cos(yaw), 0.012, (len * 0.9) * Math.sin(yaw) + yaw * 0.12], 0.0075, SHARD_GLOW, { r2: 0.004, seg: 4, glow: true });
+    s.cone(w * 0.8, len * 0.92, SHARD_LUST, { at: [cx, 0.022 * k, cz], rot, scale: [1, 1, 0.3], seg: 4 });
+    s.strut([0.14 * k, 0.012 * k, cz * 0.4], [(0.1 + len0 * 0.9 * Math.cos(yaw)) * k, 0.012 * k, ((len0 * 0.9) * Math.sin(yaw) + yaw * 0.12) * k], 0.0075 * k, SHARD_GLOW, { r2: 0.004 * k, seg: 4, glow: true });
   }
   return s;
 }
 
 /** Where a claw is rooted on the body: just behind the head, on the flank. */
-export const CLAW_ROOT_X = 0.47;
+export const CLAW_ROOT_X = 0.44;
 export const CLAW_ROOT_Z = 0.2;
 const CLAW_SWEEP = -1.2;
+/** Start of the scoop: the limb points out to the side and a little back (rad from forward); it swings through CLAW_ARC to end pointing forward beside the mouth. */
+const CLAW_OUT = 1.55;
+const CLAW_ARC = 1.58;
+/** The shoulder lowers by CLAW_LOWER and the elbow opens by CLAW_OPEN over the inward stroke; the dip trails the yaw by CLAW_DIP_LEAD rad so the rake is lowest as it closes. */
+const CLAW_LOWER = 0.35;
+const CLAW_OPEN = 0.12;
+const CLAW_DIP_LEAD = Math.PI / 4;
 const CLAW_RATE = 7.4;
-const CLAW_UPPER = 0.23;
-const CLAW_FORE = 0.23;
+/** The claws are drawn at this fraction of their first size. */
+const CLAW_SCALE = 0.78;
+const CLAW_UPPER = 0.23 * CLAW_SCALE;
+const CLAW_FORE = 0.23 * CLAW_SCALE;
 
 /**
  * One feeding claw (R3D-31): the gorger's front limb evolved to gather shards. Local X runs along the limb, so the root's
@@ -1114,13 +1126,13 @@ function clawNode(side: number, phase: number): RigNode {
   return {
     at: [CLAW_ROOT_X, -0.02, side * CLAW_ROOT_Z],
     // Out to the side and a little forward at rest; the sweep turns it further forward, in toward the mouth.
-    rot: [0, -side * (Math.PI / 2 - 0.2), 0],
-    anim: feed('y', side * 0.4, phase + CLAW_SWEEP),
+    rot: [0, -side * CLAW_OUT, 0],
+    anim: feed('y', side * CLAW_ARC, phase + CLAW_SWEEP),
     kids: [
       {
         // Shoulder: the limb is held up at rest and lowered onto the crystals as it reaches.
         rot: [0, 0, 1.25],
-        anim: feed('z', -0.4, phase),
+        anim: feed('z', -CLAW_LOWER, phase + CLAW_SWEEP + CLAW_DIP_LEAD),
         kids: [
           {
             geo: 'clawUpper',
@@ -1129,7 +1141,7 @@ function clawNode(side: number, phase: number): RigNode {
                 // Elbow: folded at rest, opens to reach.
                 at: [CLAW_UPPER, 0, 0],
                 rot: [0, 0, -1.95],
-                anim: feed('z', 0.25, phase + 0.2),
+                anim: feed('z', CLAW_OPEN, phase + CLAW_SWEEP + CLAW_DIP_LEAD + 0.3),
                 kids: [{ geo: 'clawFore', kids: [{ geo: 'clawBlade', at: [CLAW_FORE, 0, 0], rot: [0, 0, 0.6] }] }],
               },
             ],
@@ -1174,8 +1186,8 @@ function gorger(): RigDef {
         s.ring(0.15, 0.04, FLESH, { rot: [0, 0, Math.PI / 2], seg: 14 });
         return s;
       },
-      clawUpper: () => clawLink(CLAW_UPPER, 0.056, CHITIN2, CHITIN),
-      clawFore: () => clawLink(CLAW_FORE, 0.052, CHITIN, SHARD_JOINT),
+      clawUpper: () => clawLink(CLAW_UPPER, 0.056 * CLAW_SCALE, CHITIN2, CHITIN),
+      clawFore: () => clawLink(CLAW_FORE, 0.052 * CLAW_SCALE, CHITIN, SHARD_JOINT),
       clawBlade,
       cargo: () => {
         const s = shape();

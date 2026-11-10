@@ -178,17 +178,40 @@ describe('R3D-31: the Gorger', () => {
     expect(feedCycle(0, 7.4, 0)).toBeCloseTo(0, 9);
     expect(feedCycle(period * 500, 7.4, 0)).toBeCloseTo(1, 6);
     expect(feedCycle(period * 1000, 7.4, 0)).toBeCloseTo(0, 6);
-    // Reaching, the claw's wrist sweeps in and dips a little below where it folds at rest.
-    const tipOf = (feed: number, ms: number): THREE.Vector3 => {
-      poseRig(t, { ...STILL, walker, feed, time: ms });
-      t.root.updateMatrixWorld(true);
-      return new THREE.Vector3(0.1, 0, 0).applyMatrix4(node(t, 'clawBlade').obj.matrixWorld);
-    };
-    const curled = tipOf(0, 0);
-    const reach = tipOf(1, (period * 1000) / 2);
-    expect(Math.hypot(reach.x - curled.x, reach.z - curled.z)).toBeGreaterThan(0.1);
-    expect(curled.y - reach.y).toBeGreaterThan(0.05); // only a small dip, not a flap
-    expect(curled.y - reach.y).toBeLessThan(0.2);
+    // Each claw scoops: its rake sweeps a horizontal arc of about a quarter turn from out beside the body to forward beside the mouth, low on the inward stroke and raised on the way back.
+    t.root.updateMatrixWorld(true);
+    const body = t.anims.find((a) => a.anim.k === 'body')!;
+    for (const side of [1, -1]) {
+      const upper = t.drawn.filter((d) => d.geo === 'clawUpper').find((d) => {
+        poseRig(t, { ...STILL, walker, feed: 0, time: 0 });
+        t.root.updateMatrixWorld(true);
+        return Math.sign(new THREE.Vector3().setFromMatrixPosition(d.obj.matrixWorld).applyMatrix4(body.obj.matrixWorld.clone().invert()).z) === side;
+      })!;
+      const blade = t.drawn.filter((d) => d.geo === 'clawBlade').find((d) => { let n: THREE.Object3D | null = d.obj; while (n && n !== upper.obj) n = n.parent; return n === upper.obj; })!;
+      const samples: { yaw: number; y: number; ms: number }[] = [];
+      for (let ms = 0; ms < period * 1000; ms += 10) {
+        poseRig(t, { ...STILL, walker, feed: 1, time: ms });
+        t.root.updateMatrixWorld(true);
+        const inv = body.obj.matrixWorld.clone().invert();
+        const root = new THREE.Vector3().setFromMatrixPosition(upper.obj.matrixWorld).applyMatrix4(inv);
+        const tip = new THREE.Vector3(0.3 * 0.78, 0, 0).applyMatrix4(blade.obj.matrixWorld).applyMatrix4(inv);
+        samples.push({ yaw: (Math.atan2(tip.z - root.z, tip.x - root.x) * 180 * side) / Math.PI, y: tip.y, ms });
+      }
+      const yaws = samples.map((s) => s.yaw);
+      expect(Math.max(...yaws) - Math.min(...yaws), `arc of claw ${side}`).toBeGreaterThan(75);
+      expect(Math.max(...yaws) - Math.min(...yaws)).toBeLessThan(110);
+      expect(Math.max(...yaws), 'starts out to the side').toBeGreaterThan(75);
+      expect(Math.min(...yaws), 'ends forward beside the mouth').toBeLessThan(10);
+      // Inward stroke (yaw falling) sits lower than the return stroke (yaw rising) at the same yaw about half way round.
+      const mid = (inward: boolean): number => {
+        const v = samples.filter((s, i) => Math.abs(s.yaw - 45) < 4 && (samples[(i + 1) % samples.length]!.yaw < s.yaw) === inward).map((s) => s.y);
+        return v.reduce((x, y) => x + y, 0) / v.length;
+      };
+      expect(mid(false) - mid(true), 'raised on the return, low on the inward stroke').toBeGreaterThan(0.03);
+      // The height moves modestly: no flapping.
+      const ys = samples.map((s) => s.y);
+      expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(0.25);
+    }
   });
 
   it('R3D-31: each claw is rooted on its own flank behind the head and works on its own side, never crossing the centre plane or the maw', () => {
@@ -227,8 +250,8 @@ describe('R3D-31: the Gorger', () => {
           const root = new THREE.Vector3().setFromMatrixPosition(c.d.obj.matrixWorld).applyMatrix4(body.obj.matrixWorld.clone().invert());
           const side = Math.sign(root.z);
           verts(c, (v) => {
-            // A margin of 0.08 off the centre plane (the body is 0.2 wide there), and never far ahead of the maw: the claws work beside the head, held well off the centre line, so they reach no more than about a third of a tile past its tip.
-            expect(v.z * side, `${c.geo} at ${ms} ms, feed ${feed}`).toBeGreaterThan(0.08);
+            // A margin of 0.02 off the centre plane, so the two rakes meet by the mouth without crossing, and never far ahead of the maw: the claws work beside the head, held well off the centre line, so they reach no more than about a third of a tile past its tip.
+            expect(v.z * side, `${c.geo} at ${ms} ms, feed ${feed}`).toBeGreaterThan(0.02);
             expect(v.x, `${c.geo} at ${ms} ms, feed ${feed}`).toBeLessThan(tipX + 0.35);
           });
         }
