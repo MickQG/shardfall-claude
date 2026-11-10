@@ -6,6 +6,7 @@
  *
  *   npm run perf3d                          starts its own dev server
  *   PERF_URL=http://localhost:5197 npm run perf3d   uses a running server
+ *   PERF_QUALITY=low measures the Low preset; PERF_EXTRA="&dbg=..." adds URL parameters
  *   PERF_SECONDS=15 PERF_SCENARIOS=showcase,brawl PERF_GL=swiftshader PERF_HEADED=1   tune a run
  *
  * PERF_HEADED=1 opens the window off-screen (--window-position=-32000,-32000), so it never pops up on the desktop.
@@ -50,13 +51,16 @@ async function main(): Promise<void> {
   try {
     for (const scenario of SCENARIOS) {
       const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
-      await page.goto(`${base}/?faction=human&scenario=${scenario}&seed=1&renderer=3d&flyin=0`);
+      if (process.env.PERF_QUALITY === 'low') await page.addInitScript("localStorage.setItem('shardfall.settings.v3', JSON.stringify({ quality: 'low' }))");
+      await page.goto(`${base}/?faction=human&scenario=${scenario}&seed=1&renderer=3d&flyin=0${process.env.PERF_EXTRA ?? ""}`);
       await page.waitForSelector('body[data-ready="true"]', { timeout: 120_000 });
       // Let the fight start and the first shaders settle, then sample.
       await page.waitForTimeout(3000);
       // The sampler is plain source text: tsx would otherwise inject helpers that do not exist in the page.
       const r = (await page.evaluate(`(async () => {
         const deltas = [];
+        const gp = [];
+        const iv = setInterval(() => { const g = window.__shardfall.renderStats().gpuMs; if (g) gp.push(g); }, 100);
         await new Promise((done) => {
           let last = performance.now();
           const t0 = last;
@@ -68,10 +72,12 @@ async function main(): Promise<void> {
           };
           requestAnimationFrame(tick);
         });
+        clearInterval(iv);
+        const gpuAvg = gp.reduce((a, b) => a + b, 0) / Math.max(1, gp.length);
         const sorted = deltas.slice().sort((a, b) => a - b);
         const at = (q) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] || 0;
         const avg = deltas.reduce((a, b) => a + b, 0) / Math.max(1, deltas.length);
-        return { frames: deltas.length, avg, p95: at(0.95), p99: at(0.99), fps: 1000 / avg, stats: window.__shardfall.renderStats() };
+        return { frames: deltas.length, avg, p95: at(0.95), p99: at(0.99), fps: 1000 / avg, stats: { ...window.__shardfall.renderStats(), gpuAvg } };
       })()`)) as Result;
       console.log(`${scenario.padEnd(9)} frames ${r.frames}  avg ${r.avg.toFixed(1)} ms  p95 ${r.p95.toFixed(1)} ms  p99 ${r.p99.toFixed(1)} ms  fps ${r.fps.toFixed(1)}  ${JSON.stringify(r.stats)}`);
       await page.close();

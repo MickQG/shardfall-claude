@@ -27,7 +27,8 @@ import { applySurface, modelMaterials, setSurface } from './surface3d';
 import { noiseNormalMap } from './noiseNormal';
 import { unexploredMask } from './unexplored';
 import { RallyMarker } from './rally3d';
-import { PR_MAX, PR_MAX_LOW, ResolutionGovernor } from './resolution';
+import { GpuTimer } from './gpuTimer';
+import { PR_MAX, PR_MAX_LOW, PR_MIN, ResolutionGovernor } from './resolution';
 import { addEnvironment, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights } from './lighting3d';
 
 /**
@@ -65,6 +66,15 @@ const FOG_NEAR = 34;
 const FOG_FAR = 86;
 /** Frames per redraw of the sun's shadow map (PERF-1). */
 export const SHADOW_EVERY = 2;
+/**
+ * Shadow redraw cadence under GPU pressure (R3D-29): when the governor has had to lower the resolution the sun's shadows
+ * refresh every third frame, and at its floor every fourth, so the ground shadows trail units by at most 4 frames.
+ */
+export function shadowEvery(ratio: number, max: number): number {
+  const floor = Math.min(PR_MIN, max);
+  if (ratio >= max - 0.001) return SHADOW_EVERY;
+  return ratio <= floor + 0.03 ? SHADOW_EVERY + 2 : SHADOW_EVERY + 1;
+}
 
 
 /** An aircraft's dive from the sky to the ground, ms, and how far its momentum carries it on, tiles (R3D-12). */
@@ -321,6 +331,7 @@ export class View3D {
   private cpuMs = 0;
   /** Adaptive resolution (PERF-2); created on the first fit, when the device pixel ratio is known. */
   private res: ResolutionGovernor | null = null;
+  private gpuTimer: GpuTimer;
 
   constructor() {
     // Panels, wear and creases on units and buildings, from the shader alone (R3D-23); compiled with the rest in prewarm.
@@ -333,6 +344,7 @@ export class View3D {
     // Count a whole frame (shadows, scene and post-processing passes), not just the last pass.
     this.renderer.info.autoReset = false;
     this.inst = new Instancer(this.scene);
+    this.gpuTimer = new GpuTimer(this.renderer.getContext());
   }
 
   get canvas(): HTMLCanvasElement {
@@ -1015,20 +1027,23 @@ export class View3D {
     this.debris.setQuality(vs.fx.particles);
     this.debris.update(t, dt);
     this.applyQuality(vs);
-    if (this.frame % SHADOW_EVERY === 0) this.renderer.shadowMap.needsUpdate = true;
+    if (this.frame % (this.res ? shadowEvery(this.res.ratio, this.res.max) : SHADOW_EVERY) === 0) this.renderer.shadowMap.needsUpdate = true;
     // The governor needs the CPU's own work, not the time render() spends blocked behind a busy GPU.
     const prep = performance.now() - cpu0;
     this.prepMs += (prep - this.prepMs) * 0.05;
+    this.gpuTimer.begin();
     if (this.bloomOn && this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
+    this.gpuTimer.end();
+    this.gpuTimer.poll();
     this.cpuMs += (performance.now() - cpu0 - this.cpuMs) * 0.05;
-    if (this.res?.step(dt * 1000, this.prepMs)) this.fit();
+    if (this.res?.step(dt * 1000, this.prepMs, this.gpuTimer.ms)) this.fit();
   }
 
   /** Render figures for tests and measurement (R3D-29): draws, triangles, CPU time, live particles and debris. */
-  stats(): { cpuMs: number; draws: number; tris: number; particles: { smoke: number; glow: number }; debris: number } {
+  stats(): { cpuMs: number; draws: number; tris: number; particles: { smoke: number; glow: number }; debris: number; pr: number; gpuMs: number | null } {
     const i = this.renderer.info.render;
-    return { cpuMs: this.cpuMs, draws: i.calls, tris: i.triangles, particles: this.fx.particleCounts, debris: this.debris.active };
+    return { cpuMs: this.cpuMs, draws: i.calls, tris: i.triangles, particles: this.fx.particleCounts, debris: this.debris.active, pr: this.res?.ratio ?? 0, gpuMs: this.gpuTimer.ms };
   }
 
   /** Draw calls of the last frame and the smoothed CPU time of an update, for the frame-time readout. */
