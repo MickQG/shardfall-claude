@@ -87,7 +87,7 @@ export class ResolutionGovernor {
       this.overFor += frameMs;
       if (this.overFor >= DROP_GPU_AFTER_MS && this.ratio > floor) {
         const want = this.ratio * Math.sqrt(GPU_BUDGET_MS / gpuMs);
-        this.ratio = Math.max(floor, round(Math.min(this.ratio - 0.02, Math.max(this.ratio - 0.12, want))));
+        this.ratio = Math.max(floor, round(Math.floor(Math.min(this.ratio - 0.02, Math.max(this.ratio - 0.12, want)) * 20) / 20));
         this.overFor = 0;
         this.settle = SETTLE_MS;
         return true;

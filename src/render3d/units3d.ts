@@ -1119,13 +1119,13 @@ function clawNode(side: number, phase: number): RigNode {
   return {
     at: [CLAW_ROOT_X, -0.02, side * CLAW_ROOT_Z],
     // Out to the side, a little aft at rest; the swing drives it forward as it rakes in.
-    rot: [0, -side * (Math.PI / 2 + 0.7), 0],
-    anim: feed('y', side * 0.75, phase + CLAW_SWEEP),
+    rot: [0, -side * (Math.PI / 2 + 0.6), 0],
+    anim: feed('y', side * 0.6, phase + CLAW_SWEEP),
     kids: [
       {
         // Shoulder: the limb is held up at rest and lowered onto the crystals as it reaches.
-        rot: [0, 0, 1.0],
-        anim: feed('z', -1.5, phase),
+        rot: [0, 0, 1.25],
+        anim: feed('z', -1.35, phase),
         kids: [
           {
             geo: 'clawUpper',
@@ -1135,7 +1135,7 @@ function clawNode(side: number, phase: number): RigNode {
                 at: [CLAW_UPPER, 0, 0],
                 rot: [0, 0, -1.95],
                 anim: feed('z', 1.5, phase + 0.2),
-                kids: [{ geo: 'clawFore', kids: [{ geo: 'clawBlade', at: [CLAW_FORE, 0, 0], rot: [0, 0, -0.4] }] }],
+                kids: [{ geo: 'clawFore', kids: [{ geo: 'clawBlade', at: [CLAW_FORE, 0, 0], rot: [0, 0, 0.6] }] }],
               },
             ],
           },

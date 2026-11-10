@@ -46,6 +46,7 @@ async function main(): Promise<void> {
     for (let i = 0; i < 60 && !(await serverUp(base)); i++) await new Promise((r) => setTimeout(r, 500));
   }
   const args: string[] = process.env.PERF_GL === 'swiftshader' ? ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] : ['--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
+  if (process.env.PERF_NOVSYNC === '1') args.push('--disable-frame-rate-limit', '--disable-gpu-vsync');
   if (process.env.PERF_HEADED === '1') args.push('--window-position=-32000,-32000');
   const browser = await chromium.launch({ args, headless: process.env.PERF_HEADED !== '1' });
   try {

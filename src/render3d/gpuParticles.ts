@@ -164,6 +164,12 @@ void main() {
   #ifdef SMOKE
     a *= 0.45 + 0.55 * smoothstep(0.0, 0.3, p.y / max(size, 0.05));
   #endif
+  // The fade's tail is invisible long before the particle ends: do not rasterise it (R3D-29).
+  if (a < 0.008) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    gl_PointSize = 0.0;
+    return;
+  }
   vColor = vec4(mix(aC0, aC1, k), a);
   vXZ = p.xz;
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
@@ -196,6 +202,7 @@ void main() {
     a = pow(1.0 - r, 1.6);
   #endif
   a *= vColor.a;
+  if (a < 0.003) discard;
   // Over unexplored tiles the particle fades out with the rest of the world (R3D-17).
   float hidden = smoothstep(0.62, 0.9, texture2D(uHideMap, vec2(vXZ.x / uHideSize.x, 1.0 - vXZ.y / uHideSize.y)).g);
   a *= 1.0 - hidden;
