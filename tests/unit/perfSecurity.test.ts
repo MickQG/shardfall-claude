@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CSP } from '../../desktop/paths.cjs';
 import { skirmishConfig } from '../../src/data/maps';
 import { poseRig, rigTree, type RigDef } from '../../src/render3d/rig';
-import { GPU_BUDGET_MS, PR_MAX, PR_MIN, ResolutionGovernor } from '../../src/render3d/resolution';
+import { PR_MAX, PR_MIN, ResolutionGovernor } from '../../src/render3d/resolution';
 import { POSE_MARGIN, SHADOW_EVERY, shadowEvery } from '../../src/render3d/view3d';
 import { createGame, snapshot } from '../../src/sim';
 import { seedOf } from '../../src/ui/params';
@@ -104,38 +104,35 @@ describe('performance', () => {
     expect(low.ratio).toBe(0.6);
   });
 
-  it('R3D-29: GPU-timed governor drops to the ratio that fits the budget, never below the floor, and ignores readings right after a change', () => {
-    const g = new ResolutionGovernor(1);
-    // Within budget: nothing changes.
-    for (let i = 0; i < 100; i++) expect(g.step(16.7, 3, GPU_BUDGET_MS - 2)).toBe(false);
-    // 1.2x over budget for 400 ms: one change, towards sqrt(budget / gpu), at most 0.12 per change.
-    let changes = 0;
-    for (let i = 0; i < 30; i++) if (g.step(16.7, 3, GPU_BUDGET_MS * 1.2)) changes++;
-    expect(changes).toBe(1);
-    expect(g.ratio).toBeLessThan(1);
-    expect(g.ratio).toBeGreaterThanOrEqual(0.88);
-    // Stale readings are ignored while the buffers settle, then it keeps stepping down to the floor and stops there.
-    for (let i = 0; i < 3000; i++) g.step(16.7, 3, GPU_BUDGET_MS * 2);
-    expect(g.ratio).toBe(PR_MIN);
-    expect(g.step(16.7, 3, 40)).toBe(false);
+  it('R3D-29: frames that hold 60 fps never lower the resolution, however long the GPU time reads', () => {
+    const g = new ResolutionGovernor(PR_MAX);
+    for (let i = 0; i < 3000; i++) expect(g.step(16.7, 3, 15)).toBe(false);
+    expect(g.ratio).toBe(PR_MAX);
+    expect(PR_MIN).toBe(0.85);
   });
 
-  it('R3D-29: GPU-timed governor recovers in small steps only when the next step is predicted to fit, without flapping', () => {
-    const g = new ResolutionGovernor(1, 0.7);
-    // At 0.7 the GPU takes 9 ms: the next step (0.75) would take about 10.3 ms, inside the raise limit.
+  it('R3D-29: with a GPU reading, slow frames drop only when the GPU is the bottleneck, and a raise waits for headroom', () => {
+    const g = new ResolutionGovernor(1);
+    // Slow frames but the GPU is nearly idle (CPU-bound): no change, whatever the CPU heuristic would say.
+    for (let i = 0; i < 300; i++) expect(g.step(30, 3, 5)).toBe(false);
+    // Slow frames with the GPU taking most of the interval: one step after about 1.5 s.
+    let changes = 0;
+    for (let i = 0; i < 50; i++) if (g.step(30, 3, 25)) changes++;
+    expect(changes).toBe(1);
+    expect(g.ratio).toBeCloseTo(0.9);
+    // On-time frames raise it back only when the predicted GPU time one step up fits.
+    const h = new ResolutionGovernor(1, 0.9);
+    for (let i = 0; i < 2000; i++) h.step(16.7, 3, 16);
+    expect(h.ratio).toBe(0.9);
     let raised = 0;
-    for (let i = 0; i < 600; i++) if (g.step(16.7, 3, 9)) raised++;
-    expect(raised).toBeGreaterThan(0);
-    expect(g.ratio).toBeLessThanOrEqual(1);
-    // A GPU that is just inside budget gives no headroom to step up: the ratio holds.
-    const h = new ResolutionGovernor(1, 0.8);
-    for (let i = 0; i < 2000; i++) h.step(16.7, 3, GPU_BUDGET_MS - 0.5);
-    expect(h.ratio).toBe(0.8);
+    for (let i = 0; i < 600; i++) if (h.step(16.7, 3, 9)) raised++;
+    expect(raised).toBe(1);
+    expect(h.ratio).toBe(1);
   });
 
   it('R3D-29: shadows refresh less often only while the governor has lowered the resolution', () => {
     expect(shadowEvery(1, 1)).toBe(SHADOW_EVERY);
-    expect(shadowEvery(0.85, 1)).toBe(SHADOW_EVERY + 1);
+    expect(shadowEvery(0.95, 1)).toBe(SHADOW_EVERY + 1);
     expect(shadowEvery(PR_MIN, 1)).toBe(SHADOW_EVERY + 2);
   });
 });

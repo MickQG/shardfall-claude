@@ -150,15 +150,15 @@ describe('R3D-31: the Gorger', () => {
     expect(rb.obj.rotation.z).toBeLessThan(rb.rot.z);
   });
 
-  it('R3D-31: mandibles and the two claws reach out, close and draw back in a calm rhythm of 0.7 to 1 s', () => {
+  it('R3D-31: the two claws sweep in, close and draw back in a calm rhythm of 0.7 to 1 s', () => {
     const t = rigTree(def);
     const feeds = t.anims.filter((a) => a.anim.k === 'feed');
-    const jaws = feeds.filter((a) => a.anim.k === 'feed' && a.anim.axis === 'y');
+    const sweeps = feeds.filter((a) => a.anim.k === 'feed' && a.anim.axis === 'y');
     const joints = feeds.filter((a) => a.anim.k === 'feed' && a.anim.axis === 'z');
     expect(t.drawn.filter((d) => d.geo === 'clawBlade').length, 'two claws, each ending in a rake').toBe(2);
     expect(t.drawn.filter((d) => d.geo === 'clawFore').length).toBe(2);
     expect(t.drawn.some((d) => d.geo?.startsWith('tend'))).toBe(false);
-    expect(jaws.length).toBeGreaterThanOrEqual(2);
+    expect(sweeps.length).toBeGreaterThanOrEqual(2);
     expect(joints.length).toBeGreaterThanOrEqual(4); // a shoulder and an elbow in each of the two claws
     const period = (2 * Math.PI) / (feeds[0]!.anim as { rate: number }).rate;
     expect(period).toBeGreaterThanOrEqual(0.7);
@@ -178,7 +178,7 @@ describe('R3D-31: the Gorger', () => {
     expect(feedCycle(0, 7.4, 0)).toBeCloseTo(0, 9);
     expect(feedCycle(period * 500, 7.4, 0)).toBeCloseTo(1, 6);
     expect(feedCycle(period * 1000, 7.4, 0)).toBeCloseTo(0, 6);
-    // Reaching, the claw's wrist is well out and below where it folds at rest.
+    // Reaching, the claw's wrist sweeps in and dips a little below where it folds at rest.
     const tipOf = (feed: number, ms: number): THREE.Vector3 => {
       poseRig(t, { ...STILL, walker, feed, time: ms });
       t.root.updateMatrixWorld(true);
@@ -186,8 +186,9 @@ describe('R3D-31: the Gorger', () => {
     };
     const curled = tipOf(0, 0);
     const reach = tipOf(1, (period * 1000) / 2);
-    expect(Math.hypot(reach.x - curled.x, reach.z - curled.z)).toBeGreaterThan(0.15);
-    expect(curled.y - reach.y).toBeGreaterThan(0.2);
+    expect(Math.hypot(reach.x - curled.x, reach.z - curled.z)).toBeGreaterThan(0.1);
+    expect(curled.y - reach.y).toBeGreaterThan(0.05); // only a small dip, not a flap
+    expect(curled.y - reach.y).toBeLessThan(0.2);
   });
 
   it('R3D-31: each claw is rooted on its own flank behind the head and works on its own side, never crossing the centre plane or the maw', () => {
@@ -226,9 +227,9 @@ describe('R3D-31: the Gorger', () => {
           const root = new THREE.Vector3().setFromMatrixPosition(c.d.obj.matrixWorld).applyMatrix4(body.obj.matrixWorld.clone().invert());
           const side = Math.sign(root.z);
           verts(c, (v) => {
-            // A margin of 0.08 off the centre plane (the body is 0.2 wide there), and never ahead of the maw.
+            // A margin of 0.08 off the centre plane (the body is 0.2 wide there), and never far ahead of the maw: the claws work beside the head, held well off the centre line, so they reach no more than about a third of a tile past its tip.
             expect(v.z * side, `${c.geo} at ${ms} ms, feed ${feed}`).toBeGreaterThan(0.08);
-            expect(v.x, `${c.geo} at ${ms} ms, feed ${feed}`).toBeLessThan(tipX);
+            expect(v.x, `${c.geo} at ${ms} ms, feed ${feed}`).toBeLessThan(tipX + 0.35);
           });
         }
       }

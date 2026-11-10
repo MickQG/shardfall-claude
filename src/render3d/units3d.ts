@@ -368,15 +368,18 @@ function artillery(): RigDef {
  * small remote weapon station with twin barrels. No driver or crew figure.
  */
 const CANOPY = 0x2c3a48;
+/** The buggy is drawn at about three quarters of the tank's footprint: it is the light scout. Wheels roll by the scaled radius. */
+const BUGGY_SCALE = 0.78;
 
 function buggy(): RigDef {
   const R = 0.125;
   const wheel = (x: number, z: number, front: boolean): RigNode =>
-    front ? { anim: { k: 'steer' }, at: [x, R, z], kids: [{ geo: 'wheel', anim: { k: 'wheel', r: R } }] } : { geo: 'wheel', at: [x, R, z], anim: { k: 'wheel', r: R } };
+    front ? { anim: { k: 'steer' }, at: [x, R, z], kids: [{ geo: 'wheel', anim: { k: 'wheel', r: R * BUGGY_SCALE } }] } : { geo: 'wheel', at: [x, R, z], anim: { k: 'wheel', r: R * BUGGY_SCALE } };
   return {
     move: 'wheeled',
     turn: 7.5,
-    radius: 0.6,
+    scale: BUGGY_SCALE,
+    radius: 0.47,
     height: 0.62,
     weapon: 'mg',
     ride: 0.05,
@@ -1056,14 +1059,6 @@ function gorgerSegments(s: Shape, seg: readonly (readonly [number, number])[]): 
   return s;
 }
 
-function jaw(side: number): Shape {
-  // A curved mandible blade that closes on crystals; `side` is +1 for the left (+Z) jaw and -1 for the right.
-  const s = shape();
-  s.cone(0.032, 0.17, BONE, { at: [0.085, 0, 0], rot: [0, 0, -Math.PI / 2], seg: 5 });
-  s.cone(0.022, 0.12, BONE, { at: [0.2, 0, -side * 0.035], rot: [0, -side * 0.9, -Math.PI / 2], seg: 5 });
-  return s;
-}
-
 /** Shard finish for the gorger's claw rakes: darker and glossier than the chitin, a blue-violet gunmetal that still sits in its family. */
 const SHARD = 0x2e3156;
 const SHARD2 = 0x3a4670;
@@ -1111,21 +1106,21 @@ const CLAW_FORE = 0.23;
 /**
  * One feeding claw (R3D-31): the gorger's front limb evolved to gather shards. Local X runs along the limb, so the root's
  * yaw points it sideways (+Z for `side` +1, -Z for -1). It stays on its own side of the body: held up and folded against
- * the flank at rest; feeding, it reaches out and down onto the crystals, then rakes in toward the mouth along the
- * ground, lifts and returns. The yaw only swings the limb fore and aft, never across the centre plane.
+ * the flank at rest; feeding, it sweeps in from the side toward the mouth, a small dip
+ * putting the rake on the crystals, then swings back out. The yaw only swings the limb fore and aft, never across the centre plane.
  */
 function clawNode(side: number, phase: number): RigNode {
   const feed = (axis: 'y' | 'z', amp: number, ph: number): { k: 'feed'; axis: 'y' | 'z'; amp: number; rate: number; phase: number } => ({ k: 'feed', axis, amp, rate: CLAW_RATE, phase: ph });
   return {
     at: [CLAW_ROOT_X, -0.02, side * CLAW_ROOT_Z],
-    // Out to the side, a little aft at rest; the swing drives it forward as it rakes in.
-    rot: [0, -side * (Math.PI / 2 + 0.6), 0],
-    anim: feed('y', side * 0.6, phase + CLAW_SWEEP),
+    // Out to the side and a little forward at rest; the sweep turns it further forward, in toward the mouth.
+    rot: [0, -side * (Math.PI / 2 - 0.2), 0],
+    anim: feed('y', side * 0.4, phase + CLAW_SWEEP),
     kids: [
       {
         // Shoulder: the limb is held up at rest and lowered onto the crystals as it reaches.
         rot: [0, 0, 1.25],
-        anim: feed('z', -1.35, phase),
+        anim: feed('z', -0.4, phase),
         kids: [
           {
             geo: 'clawUpper',
@@ -1134,7 +1129,7 @@ function clawNode(side: number, phase: number): RigNode {
                 // Elbow: folded at rest, opens to reach.
                 at: [CLAW_UPPER, 0, 0],
                 rot: [0, 0, -1.95],
-                anim: feed('z', 1.5, phase + 0.2),
+                anim: feed('z', 0.25, phase + 0.2),
                 kids: [{ geo: 'clawFore', kids: [{ geo: 'clawBlade', at: [CLAW_FORE, 0, 0], rot: [0, 0, 0.6] }] }],
               },
             ],
@@ -1179,8 +1174,6 @@ function gorger(): RigDef {
         s.ring(0.15, 0.04, FLESH, { rot: [0, 0, Math.PI / 2], seg: 14 });
         return s;
       },
-      jawL: () => jaw(1),
-      jawR: () => jaw(-1),
       clawUpper: () => clawLink(CLAW_UPPER, 0.056, CHITIN2, CHITIN),
       clawFore: () => clawLink(CLAW_FORE, 0.052, CHITIN, SHARD_JOINT),
       clawBlade,
@@ -1211,8 +1204,6 @@ function gorger(): RigDef {
               anim: { k: 'tip', pivot: [GORGER_NECK, 0, 0], max: -GORGER_BOW },
               kids: [
                 { geo: 'throat', at: [0.55, -0.02, 0], anim: { k: 'pulse', rate: 7.4, phase: -0.6, swallow: 0.28 } },
-                { geo: 'jawL', at: [0.64, -0.02, 0.1], rot: [0, 0.3, 0], anim: { k: 'feed', axis: 'y', amp: -0.75, rate: 7.4, phase: 0 } },
-                { geo: 'jawR', at: [0.64, -0.02, -0.1], rot: [0, -0.3, 0], anim: { k: 'feed', axis: 'y', amp: 0.75, rate: 7.4, phase: 0 } },
               ],
             },
             // The claws are the front limb pair, rooted on the body's flanks just behind the head, so they stay put when the head nods.

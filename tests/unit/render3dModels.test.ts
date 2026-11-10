@@ -187,10 +187,11 @@ describe('movement feel (render only)', () => {
     poseRig(inf, { ...STILL, phase: Math.PI / 2, stride: 1 });
     const [a, b] = legs.map((l) => l.obj.rotation.z - l.rot.z);
     expect(a! * b!).toBeLessThan(0); // left and right legs swing opposite ways
-    const buggy = rigTree(UNIT_RIGS.hum_buggy!());
+    const buggyDef = UNIT_RIGS.hum_buggy!();
+    const buggy = rigTree(buggyDef);
     const wheels = buggy.anims.filter((x) => x.anim.k === 'wheel');
     expect(wheels.length).toBe(4);
-    poseRig(buggy, { ...STILL, dist: 0.125 });
+    poseRig(buggy, { ...STILL, dist: 0.125 * (buggyDef.scale ?? 1) }); // world distance of one drawn wheel radius
     for (const w of wheels) expect(w.obj.rotation.z).toBeCloseTo(-1); // one radius travelled = one radian rolled
   });
 
