@@ -46,7 +46,8 @@ export class ResolutionGovernor {
     const timed = gpuMs !== null && gpuMs > 0 && this.settle <= 0;
     if (this.settle > 0) this.settle -= frameMs;
     if (frameMs > SLOW_MS) {
-      const gpuBound = timed ? gpuMs! >= frameMs * GPU_BOUND_SHARE : cpuMs < frameMs * 0.7;
+      // A missed frame is two intervals long whatever the cause, so the share is taken of one interval, not of the stretched frame.
+      const gpuBound = timed ? gpuMs! >= Math.min(frameMs, SLOW_MS) * GPU_BOUND_SHARE : cpuMs < frameMs * 0.7;
       this.fineFor = 0;
       if (!gpuBound) {
         this.slowFor = 0;
@@ -61,7 +62,9 @@ export class ResolutionGovernor {
       }
       return false;
     }
-    this.slowFor = 0;
+    // A frame that is not slow only drains the slow time by half its length instead of wiping it: a game that alternates one
+    // frame on time with one frame missed (17 and 33 ms, under 50 fps on average) still counts as slow (PERF-2).
+    this.slowFor = Math.max(0, this.slowFor - frameMs * 0.5);
     if (frameMs <= ON_TIME_MS) {
       const up = Math.min(this.max, round(this.ratio + PR_STEP));
       // A GPU reading can veto a raise that would land the GPU over budget again.
