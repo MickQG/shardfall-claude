@@ -456,6 +456,9 @@ function buggy(): RigDef {
   };
 }
 
+/** Where the hauler's hopper hinges to tip and how far it tips up at the front to unload, radians: short of the conveyor's end above it (R3D-30). */
+export const HAULER_HOPPER: [number, number, number] = [-0.78, 0.33, 0];
+export const HAULER_TIP = 0.4;
 /** Where the hauler's rear hatch hinges and its head's arms pivot: body-frame points (R3D-30). */
 export const HAULER_HATCH: [number, number, number] = [-0.8, 0.62, 0];
 export const HAULER_ARM: V3 = [0.66, 0.27, 0];
@@ -486,15 +489,7 @@ function hauler(): RigDef {
         s.box(1.5, 0.14, 0.5, GUN, { at: [-0.02, 0.23, 0], bevel: 0.15 }); // the chassis frame, between the wheels
         s.box(0.1, 0.12, 0.5, GUN, { at: [0.7, 0.22, 0], bevel: 0.2 }); // bumper and arm mounts
         for (const x of [0.46, -0.04, -0.54]) for (const z of [0.34, -0.34]) s.box(0.34, 0.03, 0.15, STEEL2, { at: [x, 0.32, z], bevel: 0.3 }); // fenders
-        // The hopper: a boxed bin with a floor, team bands, a front wall and a rim.
-        s.box(0.86, 0.03, 0.58, STEEL, { at: [-0.34, 0.335, 0], bevel: 0.2 });
-        for (const z of [0.29, -0.29]) {
-          s.slab([[-0.78, 0.32], [0.1, 0.32], [0.1, 0.62], [-0.78, 0.62]], 0.04, STEEL, { at: [0, 0, z], bevel: 0.01 });
-          s.box(0.78, 0.07, 0.048, 'team', { at: [-0.34, 0.5, z], bevel: 0.2 });
-          s.box(0.88, 0.03, 0.05, DARK, { at: [-0.34, 0.63, z], bevel: 0.2 });
-          s.box(0.05, 0.3, 0.05, GUN, { at: [-0.8, 0.47, z], bevel: 0.2 });
-          for (let i = 0; i < 4; i++) s.box(0.06, 0.03, 0.052, i % 2 ? DARK : HAZARD, { at: [-0.66 + i * 0.07, 0.36, z], bevel: 0 });
-        }
+        // The fixed bulkhead in front of the hopper.
         s.box(0.05, 0.28, 0.6, STEEL2, { at: [0.08, 0.46, 0], bevel: 0.2 });
         // The armoured cab, front-left: sloped front, dark visor, side window, team roof and a beacon.
         s.slab([[0.14, 0.3], [0.66, 0.3], [0.68, 0.4], [0.58, 0.62], [0.2, 0.66]], 0.27, STEEL, { at: [0, 0, 0.165], bevel: 0.02 });
@@ -512,6 +507,20 @@ function hauler(): RigDef {
         for (const x of [0.6, 0.24]) s.box(0.03, 0.2, 0.03, GUN, { at: [x, 0.36, -0.13] });
         s.box(0.015, 0.025, 0.05, RED, { at: [-0.755, 0.25, 0.14], glow: true, bevel: 0 }); // tail lights
         s.box(0.015, 0.025, 0.05, RED, { at: [-0.755, 0.25, -0.14], glow: true, bevel: 0 });
+        return s;
+      },
+      hopper: () => {
+        // The hopper: a boxed bin with a floor, team bands and a rim. It tips up at the front about a hinge at its rear to
+        // unload; it stops a little short of the bulkhead so it swings clear.
+        const s = shape();
+        s.box(0.8, 0.03, 0.58, STEEL, { at: [-0.37, 0.335, 0], bevel: 0.2 });
+        for (const z of [0.29, -0.29]) {
+          s.slab([[-0.78, 0.32], [0.04, 0.32], [0.04, 0.62], [-0.78, 0.62]], 0.04, STEEL, { at: [0, 0, z], bevel: 0.01 });
+          s.box(0.74, 0.07, 0.048, 'team', { at: [-0.36, 0.5, z], bevel: 0.2 });
+          s.box(0.82, 0.03, 0.05, DARK, { at: [-0.37, 0.63, z], bevel: 0.2 });
+          s.box(0.05, 0.3, 0.05, GUN, { at: [-0.8, 0.47, z], bevel: 0.2 });
+          for (let i = 0; i < 4; i++) s.box(0.06, 0.03, 0.052, i % 2 ? DARK : HAZARD, { at: [-0.66 + i * 0.07, 0.36, z], bevel: 0 });
+        }
         return s;
       },
       hatch: () => {
@@ -587,9 +596,16 @@ function hauler(): RigDef {
             // The head hangs lowered at rest and lifts clear on its arms while driving; the drum turns at its far end.
             { geo: 'head', at: HAULER_ARM, rot: [0, 0, HEAD_DOWN], anim: { k: 'arm', up: HEAD_UP, bob: 0.025 }, kids: [{ geo: 'drum', at: [0.36, 0, 0], anim: { k: 'drum' } }] },
             { geo: 'cleats', at: [0.41, 0.52, -0.13], rot: [0, 0, BELT], anim: { k: 'scroll', pitch: 0.1, per: -0.045 } },
-            // The hatch swings up and out about its top hinge; the crystal heap sits in the hopper and rises as it fills.
-            { geo: 'hatch', anim: { k: 'tip', pivot: HAULER_HATCH, max: -1.1 } },
-            { geo: 'cargo', anim: { k: 'cargo', pivot: [-0.3, 0.35, 0] } },
+            // Unloading, the hopper tips up at the front about its rear hinge and its hatch swings up and out, so the load
+            // slides out of the back; the crystal heap sits in the hopper, rises as it fills and tips with it.
+            {
+              geo: 'hopper',
+              anim: { k: 'tip', pivot: HAULER_HOPPER, max: HAULER_TIP },
+              kids: [
+                { geo: 'hatch', anim: { k: 'tip', pivot: HAULER_HATCH, max: -1.1 } },
+                { geo: 'cargo', anim: { k: 'cargo', pivot: [-0.3, 0.35, 0] } },
+              ],
+            },
           ],
         },
       ],

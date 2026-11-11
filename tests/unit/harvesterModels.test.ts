@@ -30,7 +30,7 @@ describe('R3D-30: the Shard Hauler', () => {
   it('R3D-30: it is a long heavy chassis on six wheels with a cab, a hopper, a hatch, a conveyor and a drum on arms', () => {
     const t = rigTree(def);
     expect(t.anims.filter((a) => a.anim.k === 'wheel')).toHaveLength(6);
-    for (const geo of ['body', 'head', 'drum', 'cleats', 'hatch', 'cargo']) expect(def.shapes[geo], geo).toBeDefined();
+    for (const geo of ['body', 'head', 'drum', 'cleats', 'hopper', 'hatch', 'cargo']) expect(def.shapes[geo], geo).toBeDefined();
     poseRig(t, STILL);
     const b = bounds(def, t);
     const size = b.getSize(new THREE.Vector3());
@@ -43,7 +43,7 @@ describe('R3D-30: the Shard Hauler', () => {
     expect(b.min.y).toBeGreaterThan(-0.02);
     // The cab stands raised at the front, the hopper behind it.
     const body = def.shapes.body!();
-    expect(body.pieces.length).toBeGreaterThan(30);
+    expect(body.pieces.length + def.shapes.hopper!().pieces.length).toBeGreaterThan(30);
   });
 
   it('R3D-30: the head is raised clear of the ground while driving and lowered onto it while mining', () => {
@@ -104,9 +104,27 @@ describe('R3D-30: the Shard Hauler', () => {
     expect(Math.abs(at(1000) - cleats.pos.x)).toBeLessThan(pitch + 1e-6);
   });
 
+  it('R3D-30: to unload, the whole hopper tips up at the front about its rear hinge, carrying the hatch and the heap, and lies flat again after', () => {
+    const t = rigTree(def);
+    const hopper = t.anims.find((a) => a.anim.k === 'tip' && a.anim.max > 0)!;
+    expect(node(t, 'hopper').obj).toBe(hopper.obj);
+    expect(node(t, 'hatch').obj.parent).toBe(hopper.obj);
+    expect(node(t, 'cargo').obj.parent).toBe(hopper.obj);
+    poseRig(t, { ...STILL, tip: 0 });
+    const flat = bounds(def, t, ['hopper']);
+    poseRig(t, { ...STILL, tip: 1 });
+    const up = bounds(def, t, ['hopper']);
+    expect(up.max.y).toBeGreaterThan(flat.max.y + 0.2); // the front end is well up
+    expect(up.min.y).toBeGreaterThan(flat.min.y - 0.03); // the rear stays on its hinge, it does not drop through the chassis
+    expect(up.max.x).toBeLessThan(flat.max.x + 1e-6); // it swings back and up, away from the bulkhead and cab
+    expect(up.max.y).toBeLessThan(1.0); // a tip, not a flip
+    poseRig(t, { ...STILL, tip: 0 });
+    expect(bounds(def, t, ['hopper']).max.y).toBeCloseTo(flat.max.y, 6);
+  });
+
   it('R3D-30: it unloads through a rear hatch that opens out of the back, and the heap in the hopper grows with the load', () => {
     const t = rigTree(def);
-    const hatch = t.anims.find((a) => a.anim.k === 'tip')!;
+    const hatch = t.anims.find((a) => a.anim.k === 'tip' && a.anim.max < 0)!;
     expect(hatch.anim.k === 'tip' && hatch.anim.max).toBeLessThan(0);
     poseRig(t, { ...STILL, tip: 0 });
     const closed = bounds(def, t, ['hatch']);

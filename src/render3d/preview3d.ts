@@ -3,7 +3,7 @@ import { UNIT_DEFS, type UnitDef } from '../data/defs';
 import { OWNER_COLORS } from '../render/colors';
 import { FP, TICKS_PER_SECOND } from '../sim';
 import { CombatFx } from './fx3d';
-import { bodyPose, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HEAD_MS, rideMotion, slew, missileLaunchAt, podOpen, salvoOf, POD_OPEN_MS, follow, heroHeave, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, turnToward, turretOnBody, TURRET_RATE, walkerFacing, type Follow, type MotionState } from './motion';
+import { bodyPose, elevationReady, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HEAD_MS, rideMotion, slew, missileLaunchAt, podOpen, salvoOf, POD_OPEN_MS, follow, heroHeave, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, turnToward, turretOnBody, TURRET_RATE, walkerFacing, type Follow, type MotionState } from './motion';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigTree } from './rig';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { BUILDING_RIGS } from './buildings3d';
@@ -327,7 +327,7 @@ export class UnitPreview {
       const reach = turretReach(def);
       const turreted = reach > 0 || (!squad && def.move === 'walker');
       const body = !squad && def.move === 'walker' ? s.figureYaw : mo.heading;
-      if (readyToFire(turreted, gunYaw(body, s.turretYaw, reach), s.aim, now - s.nextShot)) {
+      if (readyToFire(turreted, gunYaw(body, s.turretYaw, reach), s.aim, now - s.nextShot) && elevationReady(def.weapon === 'howitzer', s.elev, now - s.nextShot)) {
         for (let i = 0; i < m.trees.length; i++) s.pending.push({ at: now + i * 55, figure: i });
         if (def.weapon === 'claw') s.lunge = now;
         s.nextShot = now + (d ? shotEvery(d) : 1000);

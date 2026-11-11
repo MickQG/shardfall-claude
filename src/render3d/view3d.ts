@@ -16,7 +16,7 @@ import { CombatFx } from './fx3d';
 import { Debris } from './debris3d';
 import { Instancer, SHADOW_LAYER } from './instancer';
 import type { Built, Shape } from './kit';
-import { angleDiff, bodyPose, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HAULER_PUFF_ACCEL, HAULER_PUFF_MS, HEAD_MS, rideMotion, slew, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
+import { angleDiff, bodyPose, elevationReady, restingSettle, settleStep, type Settle, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HAULER_PUFF_ACCEL, HAULER_PUFF_MS, HEAD_MS, rideMotion, slew, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
@@ -24,7 +24,7 @@ import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, 
 import { UNIT_RIGS } from './units3d';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
 import { applySurface, modelMaterials, setSurface } from './surface3d';
-import { noiseNormalMap } from './noiseNormal';
+import { noiseNormalMap, WATER } from './noiseNormal';
 import { unexploredMask } from './unexplored';
 import { RallyMarker } from './rally3d';
 import { GpuTimer } from './gpuTimer';
@@ -174,6 +174,8 @@ interface UnitObj {
   work: number;
   /** The howitzer's barrel elevation, 0 in its travel lock .. 1 raised (R3D-32), and when the hauler last puffed exhaust. */
   elev: number;
+  /** The hauler's stop settle (R3D-30). */
+  settle: Settle;
   lastPuff: number;
   alive: number;
   seed: number;
@@ -546,10 +548,10 @@ export class View3D {
     const cliffs = new THREE.Mesh(geometry(m.cliffs), cliffMat);
     cliffs.receiveShadow = true;
     cliffs.castShadow = true;
-    // Water ripples and glints (R3D-11): a scrolling normal map on a glossy surface.
-    this.waterNormal = noiseNormalMap(128, 6, 9, 2);
-    this.waterNormal.repeat.set(W / 4, snap.mapHeight / 4);
-    const water = new THREE.Mesh(geometry(m.water), new THREE.MeshStandardMaterial({ color: 0x2a6a8a, vertexColors: true, depthWrite: false, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.82, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.45, 0.45) }));
+    // Calm water (R3D-11): slowly drifting, broad ripples under a soft sheen, no glints.
+    this.waterNormal = noiseNormalMap(128, WATER.noiseFreq, WATER.noiseStrength, 2);
+    this.waterNormal.repeat.set(W / WATER.tilesPerRepeat, snap.mapHeight / WATER.tilesPerRepeat);
+    const water = new THREE.Mesh(geometry(m.water), new THREE.MeshStandardMaterial({ color: 0x2a6a8a, vertexColors: true, depthWrite: false, roughness: WATER.roughness, metalness: WATER.metalness, transparent: true, opacity: 0.82, normalMap: this.waterNormal, normalScale: new THREE.Vector2(WATER.normalScale, WATER.normalScale) }));
     water.receiveShadow = true;
     // The land beyond the map edge (R3D-25): scenery, one mesh, no shadows, no fog of war, never picked.
     const horizon = new THREE.Mesh(geometry(horizonMesh(W, snap.mapHeight, snap.heights)), new THREE.MeshBasicMaterial({ vertexColors: true }));
@@ -733,6 +735,7 @@ export class View3D {
       drum: 0,
       work: 0,
       elev: 0,
+      settle: restingSettle(),
       lastPuff: 0,
       alive: size,
       seed,
@@ -869,7 +872,8 @@ export class View3D {
       }
       // A turret fires once it is on target (R3D-9); the shell then flies that much faster, so it lands with the damage.
       const late = now - p.at;
-      if (p.src && !readyToFire(p.src.turreted, this.gunYawOf(p.src, p.figure), p.src.aim, late)) {
+      // A howitzer's shell, flash and recoil wait for its barrel to finish rising (R3D-32); the shell's flight is shortened by the wait.
+      if (p.src && (!readyToFire(p.src.turreted, this.gunYawOf(p.src, p.figure), p.src.aim, late) || (isUnit(p.src) && !elevationReady(p.src.def.weapon === 'howitzer', p.src.elev, late)))) {
         later.push(p);
         continue;
       }
@@ -1035,7 +1039,7 @@ export class View3D {
     this.renderer.info.reset();
     this.frame++;
     this.camRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
-    if (this.waterNormal) this.waterNormal.offset.set((t * 0.000018) % 1, (t * 0.000011) % 1);
+    if (this.waterNormal) this.waterNormal.offset.set((t * WATER.driftX) % 1, (t * WATER.driftY) % 1);
     this.inst.begin();
     this.animateUnits(units, vs, snap, t, dt);
     this.animateBuildings(vs, t, dt);
@@ -1348,6 +1352,8 @@ export class View3D {
     // Parts are posed only for units in or near the view (PERF-1); their walk and aim go on off screen, so nothing jumps.
     const posed = this.inView(o.x, o.root.position.y, o.z, def.radius + POSE_MARGIN);
     // A howitzer raises its barrel while it has a target or has fired lately, and lowers it into the lock otherwise (R3D-32).
+    // The hauler's nose dips once as it stops and the suspension settles; not while it mines or docks (R3D-30).
+    if (o.kind === 'hum_hauler') o.settle = settleStep(o.settle, m.speed, dt, o.docked || o.work > 0.05);
     if (def.weapon === 'howitzer') o.elev = slew(o.elev, elevTarget(aiming, t - Math.max(...o.lastFire)), dt, ELEV_UP_MS, ELEV_DOWN_MS);
     o.figures.forEach((f, i) => {
       if (i >= o.alive) return;
@@ -1368,6 +1374,7 @@ export class View3D {
       }
       const phase = gaitPhase(mo.dist, def.stride ?? 1) + i * 1.7 + o.seed;
       const pose = bodyPose(def.move, mo, phase, t, o.seed + i, mm ? undefined : def.walk);
+      if (o.kind === 'hum_hauler') pose.pitch += o.settle.pitch;
       if (def.ride) {
         const ride = rideMotion(def.ride, mo.stride, t, o.seed + i);
         pose.pitch += ride.pitch;

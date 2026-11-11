@@ -193,6 +193,12 @@ export const gunYaw = (bodyYaw: number, turretYaw: number, reach: number): numbe
   return bodyYaw + Math.max(-reach, Math.min(reach, rel));
 };
 
+/** The howitzer's barrel counts as raised from this elevation (0..1), and a shot is held for it at most this long, ms: the rise itself plus a beat (R3D-32). */
+export const ELEV_READY = 0.97;
+export const MAX_ELEV_WAIT = 700;
+/** Whether a howitzer's shot due `waited` ms ago may show its shell, flash and recoil: only once the barrel has finished elevating, or after a bounded wait (R3D-32). Other guns are never held. */
+export const elevationReady = (howitzer: boolean, elev: number, waited: number): boolean => !howitzer || elev >= ELEV_READY || waited >= MAX_ELEV_WAIT;
+
 /** A shell's drawn flight after waiting for its turret, ms: shorter by the wait, so it still lands with the damage. */
 export const flightAfterWait = (flightMs: number, waited: number): number => Math.max(60, flightMs - waited);
 
@@ -276,3 +282,40 @@ export function rideMotion(ride: number, stride: number, t: number, seed: number
 /** The hauler puffs exhaust when its throttle opens past this acceleration, tiles/s², and no more often than this, ms (R3D-30). */
 export const HAULER_PUFF_ACCEL = 0.6;
 export const HAULER_PUFF_MS = 450;
+
+/** The hauler's stop (R3D-30): the nose dips once and the suspension settles, a damped spring, never a bounce. */
+export interface Settle {
+  /** Body pitch added by the settle, radians (negative is nose down, as braking in `bodyPose`). */
+  pitch: number;
+  vel: number;
+  /** Set once the drawn speed has been high enough to count as driving; a stop then fires the dip once. */
+  armed: boolean;
+}
+export const restingSettle = (): Settle => ({ pitch: 0, vel: 0, armed: false });
+/** Drawn speed (tiles per second) above which the hauler counts as driving, and below which it has stopped. */
+export const SETTLE_DRIVE = 0.5;
+export const SETTLE_STOP = 0.15;
+/** The suspension: natural frequency rad/s, damping ratio (about 0.75 overshoots by under 3%), and the impulse that makes a dip of about 2.6 degrees. */
+const SETTLE_W = 14;
+const SETTLE_ZETA = 0.75;
+const SETTLE_KICK = 1.4;
+/**
+ * Advance the stop settle by `dt` seconds with the drawn `speed`. `quiet` (mining, docked) arms nothing and fires
+ * nothing, and the spring just settles. Pure.
+ */
+export function settleStep(s: Settle, speed: number, dt: number, quiet = false): Settle {
+  let { pitch, vel, armed } = s;
+  if (!quiet && speed > SETTLE_DRIVE) armed = true;
+  if (armed && (quiet || speed < SETTLE_STOP)) {
+    if (!quiet) vel -= SETTLE_KICK;
+    armed = false;
+  }
+  // Semi-implicit Euler in small steps keeps it stable at any frame rate.
+  const n = Math.max(1, Math.ceil(dt / 0.004));
+  const h = dt / n;
+  for (let i = 0; i < n; i++) {
+    vel += (-SETTLE_W * SETTLE_W * pitch - 2 * SETTLE_ZETA * SETTLE_W * vel) * h;
+    pitch += vel * h;
+  }
+  return { pitch, vel, armed };
+}

@@ -12,6 +12,9 @@
       /* The game frame is at most 16:9 (UI-10): on wider screens it is centred between dark bars, so the console stays
          beside the action. The transform makes the HUD's fixed panels lay out inside the frame, not the window. */
       html { background: #04070a; }
+      /* No text selection in the HUD, menus and score screen (UI-22): dragging over them never highlights text. Typed fields, the map seed, the online room code and the score screen's line with it stay selectable and copyable. */
+      body { user-select: none; -webkit-user-select: none; }
+      input, textarea, [contenteditable], #map-seed, #mp-room, #result .sub { user-select: text; -webkit-user-select: text; }
       body { position: relative; max-width: calc(100vh * 16 / 9); margin: 0 auto; transform: translateZ(0); box-shadow: 0 0 40px #000; }
     </style>
   </head>
