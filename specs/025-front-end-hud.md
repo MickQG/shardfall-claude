@@ -16,3 +16,4 @@ A new look for the menu and the in-match HUD: a live faction scene behind the me
 - **UI-19**: The loading screen (UI-12) wears the player's faction skin and shows the wordmark (MENU-8) and one tip taken from the Basics points (MENU-14).
 - **UI-20**: The post-game score screen wears the player's faction skin and the heading typeface. Its content (SCR-1..5) is unchanged.
 - **UI-21**: In both skins, every piece of menu and HUD text has a contrast ratio against the colour behind it of at least 4.5:1, or 3:1 for headings of 18 px and up. This is checked from the skin's colour tokens.
+- **UI-22**: Text in the in-match HUD (sidebar, top bar, toasts, overlays), the menus and the score screen cannot be selected, so dragging the mouse over it with any button never highlights it. Typed fields and the map seed (in the menu and on the score screen) can still be selected and copied.
