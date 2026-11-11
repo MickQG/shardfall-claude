@@ -16,7 +16,7 @@ import { CombatFx } from './fx3d';
 import { Debris } from './debris3d';
 import { Instancer } from './instancer';
 import type { Built, Shape } from './kit';
-import { angleDiff, bodyPose, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HAULER_PUFF_ACCEL, HAULER_PUFF_MS, HEAD_MS, rideMotion, slew, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
+import { angleDiff, bodyPose, elevationReady, restingSettle, settleStep, type Settle, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HAULER_PUFF_ACCEL, HAULER_PUFF_MS, HEAD_MS, rideMotion, slew, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
@@ -24,8 +24,8 @@ import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, 
 import { UNIT_RIGS } from './units3d';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
 import { applySurface, modelMaterials, setSurface } from './surface3d';
-import { noiseNormalMap } from './noiseNormal';
-import { unexploredMask } from './unexplored';
+import { noiseNormalMap, WATER } from './noiseNormal';
+import { UNEXPLORED_COLOR, unexploredMask, unexploredTone } from './unexplored';
 import { RallyMarker } from './rally3d';
 import { GpuTimer } from './gpuTimer';
 import { PR_MAX, PR_MAX_LOW, PR_MIN, ResolutionGovernor } from './resolution';
@@ -169,6 +169,8 @@ interface UnitObj {
   work: number;
   /** The howitzer's barrel elevation, 0 in its travel lock .. 1 raised (R3D-32), and when the hauler last puffed exhaust. */
   elev: number;
+  /** The hauler's stop settle (R3D-30). */
+  settle: Settle;
   lastPuff: number;
   alive: number;
   seed: number;
@@ -267,6 +269,8 @@ export class View3D {
   private missiles: { at: number; src: UnitObj; side: number; to: THREE.Vector3; flightMs: number; elite: boolean }[] = [];
   private missileTurn = 0;
   private fogTex: THREE.DataTexture | null = null;
+  private fogMat: THREE.MeshBasicMaterial | null = null;
+  private fogLift = -1;
   private fogData: Uint8Array | null = null;
   private waterNormal: THREE.Texture | null = null;
   private scatterGroup = new THREE.Group();
@@ -517,10 +521,10 @@ export class View3D {
     const cliffs = new THREE.Mesh(geometry(m.cliffs), cliffMat);
     cliffs.receiveShadow = true;
     cliffs.castShadow = true;
-    // Water ripples and glints (R3D-11): a scrolling normal map on a glossy surface.
-    this.waterNormal = noiseNormalMap(128, 6, 9, 2);
-    this.waterNormal.repeat.set(W / 4, snap.mapHeight / 4);
-    const water = new THREE.Mesh(geometry(m.water), new THREE.MeshStandardMaterial({ color: 0x2a6a8a, vertexColors: true, depthWrite: false, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.82, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.45, 0.45) }));
+    // Calm water (R3D-11): slowly drifting, broad ripples under a soft sheen, no glints.
+    this.waterNormal = noiseNormalMap(128, WATER.noiseFreq, WATER.noiseStrength, 2);
+    this.waterNormal.repeat.set(W / WATER.tilesPerRepeat, snap.mapHeight / WATER.tilesPerRepeat);
+    const water = new THREE.Mesh(geometry(m.water), new THREE.MeshStandardMaterial({ color: 0x2a6a8a, vertexColors: true, depthWrite: false, roughness: WATER.roughness, metalness: WATER.metalness, transparent: true, opacity: 0.82, normalMap: this.waterNormal, normalScale: new THREE.Vector2(WATER.normalScale, WATER.normalScale) }));
     water.receiveShadow = true;
     // The land beyond the map edge (R3D-25): scenery, one mesh, no shadows, no fog of war, never picked.
     const horizon = new THREE.Mesh(geometry(horizonMesh(W, snap.mapHeight, snap.heights)), new THREE.MeshBasicMaterial({ vertexColors: true }));
@@ -538,7 +542,7 @@ export class View3D {
       this.fogTex.magFilter = THREE.LinearFilter;
       this.fogTex.minFilter = THREE.LinearFilter;
       this.unexplored.use(this.fogTex, W, snap.mapHeight);
-      const fogMat = new THREE.MeshBasicMaterial({ color: 0x0c0f22, alphaMap: this.fogTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      const fogMat = this.fogMat = new THREE.MeshBasicMaterial({ color: UNEXPLORED_COLOR, alphaMap: this.fogTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       const fog = new THREE.Mesh(geometry(m.ground), fogMat);
       fog.renderOrder = 10;
       this.scene.add(fog);
@@ -704,6 +708,7 @@ export class View3D {
       drum: 0,
       work: 0,
       elev: 0,
+      settle: restingSettle(),
       lastPuff: 0,
       alive: size,
       seed,
@@ -840,7 +845,8 @@ export class View3D {
       }
       // A turret fires once it is on target (R3D-9); the shell then flies that much faster, so it lands with the damage.
       const late = now - p.at;
-      if (p.src && !readyToFire(p.src.turreted, this.gunYawOf(p.src, p.figure), p.src.aim, late)) {
+      // A howitzer's shell, flash and recoil wait for its barrel to finish rising (R3D-32); the shell's flight is shortened by the wait.
+      if (p.src && (!readyToFire(p.src.turreted, this.gunYawOf(p.src, p.figure), p.src.aim, late) || (isUnit(p.src) && !elevationReady(p.src.def.weapon === 'howitzer', p.src.elev, late)))) {
         later.push(p);
         continue;
       }
@@ -946,6 +952,15 @@ export class View3D {
     return p;
   }
 
+  /** The unexplored darkness, lifted to a dim flat tone during the opening of the fly-in (CAM-4) and back to play's darkness by its middle. */
+  private liftFog(lift: number): void {
+    if (!this.fogMat || Math.abs(lift - this.fogLift) < 0.004) return;
+    this.fogLift = lift;
+    const [r, g, b] = unexploredTone(lift);
+    this.fogMat.color.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
+    this.unexplored.uniforms.uHideColor.value.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
+  }
+
   private applyCamera(cam: Camera, t: number): void {
     const p = cameraPose(cam);
     this.camera.position.set(...p.position);
@@ -974,6 +989,7 @@ export class View3D {
     this.lastTime = t;
     this.fx.quality = { rich: vs.fx.particles };
     this.applyCamera(cam, t);
+    this.liftFog(vs.fogLift ?? 0);
     // The distance fog follows the camera out as it pulls back, so the whole map stays clear (CAM-4) and only the land beyond fades into haze (R3D-25).
     if (this.scene.fog instanceof THREE.Fog) {
       const k = Math.max(1, 1 / cam.zoom);
@@ -1004,7 +1020,7 @@ export class View3D {
     this.renderer.info.reset();
     this.frame++;
     this.camRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
-    if (this.waterNormal) this.waterNormal.offset.set((t * 0.000018) % 1, (t * 0.000011) % 1);
+    if (this.waterNormal) this.waterNormal.offset.set((t * WATER.driftX) % 1, (t * WATER.driftY) % 1);
     this.inst.begin();
     this.animateUnits(units, vs, snap, t, dt);
     this.animateBuildings(vs, t, dt);
@@ -1316,6 +1332,8 @@ export class View3D {
     // Parts are posed only for units in or near the view (PERF-1); their walk and aim go on off screen, so nothing jumps.
     const posed = this.inView(o.x, o.root.position.y, o.z, def.radius + POSE_MARGIN);
     // A howitzer raises its barrel while it has a target or has fired lately, and lowers it into the lock otherwise (R3D-32).
+    // The hauler's nose dips once as it stops and the suspension settles; not while it mines or docks (R3D-30).
+    if (o.kind === 'hum_hauler') o.settle = settleStep(o.settle, m.speed, dt, o.docked || o.work > 0.05);
     if (def.weapon === 'howitzer') o.elev = slew(o.elev, elevTarget(aiming, t - Math.max(...o.lastFire)), dt, ELEV_UP_MS, ELEV_DOWN_MS);
     o.figures.forEach((f, i) => {
       if (i >= o.alive) return;
@@ -1336,6 +1354,7 @@ export class View3D {
       }
       const phase = gaitPhase(mo.dist, def.stride ?? 1) + i * 1.7 + o.seed;
       const pose = bodyPose(def.move, mo, phase, t, o.seed + i, mm ? undefined : def.walk);
+      if (o.kind === 'hum_hauler') pose.pitch += o.settle.pitch;
       if (def.ride) {
         const ride = rideMotion(def.ride, mo.stride, t, o.seed + i);
         pose.pitch += ride.pitch;
