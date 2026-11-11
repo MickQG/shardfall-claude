@@ -26,6 +26,8 @@ interface Piece {
   geo: THREE.BufferGeometry;
   paint: Paint;
   glow: boolean;
+  /** A plainer version of the same piece (square edges, fewer sides), the one a shadow is cast from (PERF-4). */
+  low?: THREE.BufferGeometry;
 }
 
 export interface Built {
@@ -34,7 +36,25 @@ export interface Built {
   /** Top of the shape in local units. */
   top: number;
   triangles: number;
+  /** Position-only stand-in for the whole shape's shadow (PERF-4): plainer pieces, and none for the small ones. */
+  shadow?: THREE.BufferGeometry | null;
+  /** Triangles of the shadow stand-in. */
+  shadowTriangles?: number;
 }
+
+/** A piece whose longest side is under this (tiles) casts no shadow: it is a few pixels at play zoom (PERF-4). */
+export const SHADOW_MIN_LONG = 0.1;
+/** A piece whose second longest side is under this (tiles) is a rod too thin for its shadow to show (PERF-4). */
+export const SHADOW_MIN_MID = 0.03;
+
+/** Whether a piece of this bounding size (tiles) casts a shadow (PERF-4): small parts cast none. */
+export function castsShadow(size: V3): boolean {
+  const [a, b] = [...size].sort((x, y) => y - x) as [number, number, number];
+  return a >= SHADOW_MIN_LONG && b >= SHADOW_MIN_MID;
+}
+
+/** Sides of a round piece in its shadow stand-in. */
+const LOW_SEG = 6;
 
 /** Pieces smaller than this (tiles) get less geometric detail. */
 const SMALL = 0.1;
@@ -55,14 +75,15 @@ export class Shape {
   readonly pieces: Piece[] = [];
 
   /** Add any geometry (it is owned by the shape afterwards). */
-  add(geo: THREE.BufferGeometry, paint: Paint, o: PieceOpts = {}): this {
+  add(geo: THREE.BufferGeometry, paint: Paint, o: PieceOpts = {}, low?: THREE.BufferGeometry): this {
     const m = new THREE.Matrix4().compose(
       new THREE.Vector3(...(o.at ?? [0, 0, 0])),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(...(o.rot ?? [0, 0, 0]))),
       new THREE.Vector3(...(o.scale ?? [1, 1, 1])),
     );
     geo.applyMatrix4(m);
-    this.pieces.push({ geo, paint, glow: !!o.glow });
+    low?.applyMatrix4(m);
+    this.pieces.push({ geo, paint, glow: !!o.glow, low });
     return this;
   }
 
@@ -73,13 +94,15 @@ export class Shape {
   box(w: number, h: number, d: number, paint: Paint, o: PieceOpts & { bevel?: number } = {}): this {
     const bevel = o.bevel ?? 0.18;
     const r = Math.min(w, h, d) * Math.min(0.45, bevel);
-    const geo = r > 0.0015 && Math.max(w, h, d) >= SMALL ? new RoundedBoxGeometry(w, h, d, 1, r) : new THREE.BoxGeometry(w, h, d);
-    return this.add(geo, paint, o);
+    const rounded = r > 0.0015 && Math.max(w, h, d) >= SMALL;
+    const geo = rounded ? new RoundedBoxGeometry(w, h, d, 1, r) : new THREE.BoxGeometry(w, h, d);
+    return this.add(geo, paint, o, rounded ? new THREE.BoxGeometry(w, h, d) : undefined);
   }
 
   /** A cylinder along Y (top radius r, bottom radius r2), centred on `at`. */
   cyl(r: number, h: number, paint: Paint, o: PieceOpts & { r2?: number; seg?: number; open?: boolean } = {}): this {
-    return this.add(new THREE.CylinderGeometry(r, o.r2 ?? r, h, segs(o.seg ?? 10, Math.max(r, o.r2 ?? r)), 1, !!o.open), paint, o);
+    const seg = segs(o.seg ?? 10, Math.max(r, o.r2 ?? r));
+    return this.add(new THREE.CylinderGeometry(r, o.r2 ?? r, h, seg, 1, !!o.open), paint, o, seg > LOW_SEG ? new THREE.CylinderGeometry(r, o.r2 ?? r, h, LOW_SEG, 1, !!o.open) : undefined);
   }
 
   /** A limb from point `a` to point `b` (a tapered cylinder, `r` at a and `r2` at b), so joints always meet. */
@@ -87,40 +110,53 @@ export class Shape {
     const from = new THREE.Vector3(...a);
     const dir = new THREE.Vector3(...b).sub(from);
     const len = dir.length();
-    const geo = new THREE.CylinderGeometry(o.r2 ?? r, r, len, segs(o.seg ?? 6, Math.max(r, o.r2 ?? r)));
-    geo.applyMatrix4(new THREE.Matrix4().compose(from.addScaledVector(dir, 0.5), new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize()), new THREE.Vector3(1, 1, 1)));
-    this.pieces.push({ geo, paint, glow: !!o.glow });
+    const seg = segs(o.seg ?? 6, Math.max(r, o.r2 ?? r));
+    const geo = new THREE.CylinderGeometry(o.r2 ?? r, r, len, seg);
+    const low = seg > 4 ? new THREE.CylinderGeometry(o.r2 ?? r, r, len, 4) : undefined;
+    const m = new THREE.Matrix4().compose(from.addScaledVector(dir, 0.5), new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize()), new THREE.Vector3(1, 1, 1));
+    geo.applyMatrix4(m);
+    low?.applyMatrix4(m);
+    this.pieces.push({ geo, paint, glow: !!o.glow, low });
     return this;
   }
 
   /** A cylinder lying along X (barrels, axles), centred on `at`. */
   tube(r: number, len: number, paint: Paint, o: PieceOpts & { r2?: number; seg?: number } = {}): this {
-    const geo = new THREE.CylinderGeometry(o.r2 ?? r, r, len, segs(o.seg ?? 8, Math.max(r, o.r2 ?? r)));
+    const seg = segs(o.seg ?? 8, Math.max(r, o.r2 ?? r));
+    const geo = new THREE.CylinderGeometry(o.r2 ?? r, r, len, seg);
     geo.rotateZ(-Math.PI / 2);
-    return this.add(geo, paint, o);
+    const low = seg > LOW_SEG ? new THREE.CylinderGeometry(o.r2 ?? r, r, len, LOW_SEG) : undefined;
+    low?.rotateZ(-Math.PI / 2);
+    return this.add(geo, paint, o, low);
   }
 
   /** A sphere (use `scale` for ellipsoids), optionally cut to its upper part (`cut` 0..1 of the height kept). */
   ball(r: number, paint: Paint, o: PieceOpts & { seg?: number; cut?: number } = {}): this {
     const seg = segs(o.seg ?? 10, r * Math.max(...(o.scale ?? [1, 1, 1])));
     const theta = o.cut ? Math.PI * o.cut : Math.PI;
-    return this.add(new THREE.SphereGeometry(r, seg, Math.max(4, Math.round(seg * 0.7)), 0, Math.PI * 2, 0, theta), paint, o);
+    const low = seg > LOW_SEG ? new THREE.SphereGeometry(r, LOW_SEG, 4, 0, Math.PI * 2, 0, theta) : undefined;
+    return this.add(new THREE.SphereGeometry(r, seg, Math.max(4, Math.round(seg * 0.7)), 0, Math.PI * 2, 0, theta), paint, o, low);
   }
 
   cone(r: number, h: number, paint: Paint, o: PieceOpts & { seg?: number } = {}): this {
-    return this.add(new THREE.ConeGeometry(r, h, o.seg ?? 8), paint, o);
+    const seg = o.seg ?? 8;
+    return this.add(new THREE.ConeGeometry(r, h, seg), paint, o, seg > LOW_SEG ? new THREE.ConeGeometry(r, h, LOW_SEG) : undefined);
   }
 
   /** A shell of revolution around Y from (radius, height) points, bottom to top. */
   lathe(points: readonly (readonly [number, number])[], paint: Paint, o: PieceOpts & { seg?: number } = {}): this {
-    return this.add(new THREE.LatheGeometry(points.map(([r, y]) => new THREE.Vector2(Math.max(0.0001, r), y)), o.seg ?? 12), paint, o);
+    const pts = points.map(([r, y]) => new THREE.Vector2(Math.max(0.0001, r), y));
+    const seg = o.seg ?? 12;
+    return this.add(new THREE.LatheGeometry(pts, seg), paint, o, seg > LOW_SEG + 2 ? new THREE.LatheGeometry(pts, LOW_SEG + 2) : undefined);
   }
 
   /** A ring (torus) lying flat in XZ. */
   ring(r: number, tube: number, paint: Paint, o: PieceOpts & { seg?: number } = {}): this {
     const geo = new THREE.TorusGeometry(r, tube, 5, o.seg ?? 16);
     geo.rotateX(Math.PI / 2);
-    return this.add(geo, paint, o);
+    const low = new THREE.TorusGeometry(r, tube, 3, Math.min(o.seg ?? 16, 10));
+    low.rotateX(Math.PI / 2);
+    return this.add(geo, paint, o, low);
   }
 
   /**
@@ -134,7 +170,10 @@ export class Shape {
     // Extrusion runs along +Z from the XY shape; turn it to run up +Y with the outline's z kept.
     geo.rotateX(-Math.PI / 2);
     geo.translate(0, bevel, 0);
-    return this.add(geo, paint, o);
+    // The shadow's version is the same outline without the bevel (square edges, a third of the triangles).
+    const low = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.001, h), bevelEnabled: false, curveSegments: 1 });
+    low.rotateX(-Math.PI / 2);
+    return this.add(geo, paint, o, low);
   }
 
   /**
@@ -146,14 +185,19 @@ export class Shape {
     const shape = new THREE.Shape(profile.map(([x, y]) => new THREE.Vector2(x, y)));
     const geo = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.001, width - bevel * 2), bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1, curveSegments: 4 });
     geo.translate(0, 0, -width / 2 + bevel);
-    return this.add(geo, paint, o);
+    const low = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.001, width), bevelEnabled: false, curveSegments: 1 });
+    low.translate(0, 0, -width / 2);
+    return this.add(geo, paint, o, low);
   }
 
   /** A half cylinder lying along X with its flat side down (hangar roofs, arches). */
   arch(r: number, len: number, paint: Paint, o: PieceOpts & { seg?: number } = {}): this {
     const geo = new THREE.CylinderGeometry(r, r, len, o.seg ?? 14, 1, false, 0, Math.PI);
     geo.rotateZ(Math.PI / 2);
-    return this.add(geo, paint, o);
+    const seg = o.seg ?? 14;
+    const low = seg > 8 ? new THREE.CylinderGeometry(r, r, len, 8, 1, false, 0, Math.PI) : undefined;
+    low?.rotateZ(Math.PI / 2);
+    return this.add(geo, paint, o, low);
   }
 
   /** A faceted rock: an icosahedron with its corners pushed in and out by a deterministic hash of `seed`. */
@@ -177,6 +221,7 @@ export class Shape {
   build(team: number): Built {
     const lit: THREE.BufferGeometry[] = [];
     const glow: THREE.BufferGeometry[] = [];
+    const shade: THREE.BufferGeometry[] = [];
     let top = 0;
     let triangles = 0;
     for (const p of this.pieces) {
@@ -196,6 +241,14 @@ export class Shape {
       top = Math.max(top, g.boundingBox!.max.y);
       triangles += n / 3;
       (p.glow ? glow : lit).push(g);
+      if (!p.glow) {
+        const size = g.boundingBox!.getSize(new THREE.Vector3());
+        if (castsShadow([size.x, size.y, size.z])) {
+          const sg = (p.low ?? p.geo).toNonIndexed();
+          for (const name of Object.keys(sg.attributes)) if (name !== 'position') sg.deleteAttribute(name);
+          shade.push(sg);
+        }
+      }
     }
     const merge = (list: THREE.BufferGeometry[]): THREE.BufferGeometry | null => {
       if (list.length === 0) return null;
@@ -205,7 +258,8 @@ export class Shape {
       m.computeBoundingSphere();
       return m;
     };
-    return { lit: merge(lit), glow: merge(glow), top, triangles };
+    const shadow = merge(shade);
+    return { lit: merge(lit), glow: merge(glow), top, triangles, shadow, shadowTriangles: shadow ? shadow.attributes.position!.count / 3 : 0 };
   }
 }
 

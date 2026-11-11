@@ -14,7 +14,7 @@ import { BUILDING_RIGS, crystalShape, DOCK_RIGS, dockFrame, dockModelYaw, dockYa
 import { cameraPose, FOV, PX_PER_UNIT } from './camera3d';
 import { CombatFx } from './fx3d';
 import { Debris } from './debris3d';
-import { Instancer } from './instancer';
+import { Instancer, SHADOW_LAYER } from './instancer';
 import type { Built, Shape } from './kit';
 import { angleDiff, bodyPose, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HAULER_PUFF_ACCEL, HAULER_PUFF_MS, HEAD_MS, rideMotion, slew, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
@@ -29,7 +29,7 @@ import { unexploredMask } from './unexplored';
 import { RallyMarker } from './rally3d';
 import { GpuTimer } from './gpuTimer';
 import { PR_MAX, PR_MAX_LOW, PR_MIN, ResolutionGovernor } from './resolution';
-import { addEnvironment, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights } from './lighting3d';
+import { addEnvironment, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights, snapShadowTarget, SUN_OFFSET } from './lighting3d';
 
 /**
  * How damage shows on a building at health fraction `hp` (R3D-18): soot darkens it steadily; below half it throws
@@ -64,6 +64,9 @@ export const POSE_MARGIN = 2;
 /** Distance fog, tiles from the camera at zoom 1 (it scales out as the camera pulls back, R3D-25). */
 const FOG_NEAR = 34;
 const FOG_FAR = 86;
+/** The sun's shadow box reaches this many tiles either side of the view's centre, drawn into a map this many texels wide. */
+const SUN_HALF = 22;
+const SUN_MAP = 2048;
 /** Frames per redraw of the sun's shadow map (PERF-1). */
 export const SHADOW_EVERY = 2;
 /**
@@ -106,6 +109,8 @@ interface Part {
   cargo: boolean;
   lit: THREE.BufferGeometry | null;
   glow: THREE.BufferGeometry | null;
+  /** Low-detail stand-in the part's shadow is cast from (PERF-4). */
+  shade: THREE.BufferGeometry | null;
   litKey: string;
   glowKey: string;
   mat: THREE.Material;
@@ -341,6 +346,14 @@ export class View3D {
     configureRenderer(this.renderer);
     // The sun's shadows are redrawn every other frame (PERF-1): at 60 fps a shadow trailing its unit by one frame is invisible.
     this.renderer.shadowMap.autoUpdate = false;
+    // The shadow stand-ins live on their own layer, which the camera never draws. The shadow pass takes its layer test from
+    // the camera too, and runs after the scene's draw list is built, so the layer is switched on for that call alone (PERF-4).
+    const drawShadows = this.renderer.shadowMap.render.bind(this.renderer.shadowMap);
+    this.renderer.shadowMap.render = (lights, scene, camera): void => {
+      camera.layers.enable(SHADOW_LAYER);
+      drawShadows(lights, scene, camera);
+      camera.layers.disable(SHADOW_LAYER);
+    };
     // Count a whole frame (shadows, scene and post-processing passes), not just the last pass.
     this.renderer.info.autoReset = false;
     this.inst = new Instancer(this.scene);
@@ -361,7 +374,10 @@ export class View3D {
     const max = Math.min(this.lowRes ? PR_MAX_LOW : PR_MAX, window.devicePixelRatio || 1);
     if (!this.res || this.res.max !== max) this.res = new ResolutionGovernor(max);
     const pr = this.res.ratio;
-    this.renderer.setPixelRatio(pr);
+    // With post-processing, the canvas keeps its full size and only the composer's buffers follow the governor: resizing
+    // the canvas costs a frame or two (PERF-3), reallocating offscreen buffers does not. The last pass scales up to the canvas.
+    const post = this.bloomOn && this.composer !== null;
+    this.renderer.setPixelRatio(post ? this.res.max : pr);
     this.renderer.setSize(host.clientWidth, host.clientHeight);
     this.size = { width: host.clientWidth || 1, height: host.clientHeight || 1 };
     this.composer?.setPixelRatio(pr);
@@ -391,7 +407,7 @@ export class View3D {
     s.fog = new THREE.Fog(HAZE_COLOR, FOG_NEAR, FOG_FAR);
     addEnvironment(s, this.renderer);
     s.add(this.hemi);
-    configureSunShadow(this.sun, 22, 2048);
+    configureSunShadow(this.sun, SUN_HALF, SUN_MAP);
     s.add(this.sun, this.sun.target, this.fx.root, this.debris.root, this.scatterGroup);
     this.buildTerrain(snap, look);
     this.buildProps(snap, look);
@@ -448,15 +464,28 @@ export class View3D {
         m.frustumCulled = false;
         upload.add(m);
       }
+      if (b.shadow) {
+        const sm = new THREE.InstancedMesh(b.shadow, new THREE.MeshBasicMaterial(), 1);
+        sm.layers.set(SHADOW_LAYER);
+        sm.castShadow = true;
+        sm.scale.setScalar(0.001);
+        sm.frustumCulled = false;
+        upload.add(sm);
+      }
     }
     this.scene.add(upload);
-    this.renderer.shadowMap.needsUpdate = true;
+    this.renderShadows();
     if (this.composer) this.composer.render(0.016);
     else this.renderer.render(this.scene, this.camera);
     this.scene.remove(upload);
     for (const m of upload.children) (m as THREE.InstancedMesh).dispose();
     // Wait for the GPU to finish all of that here, while loading, rather than stalling the first frames of play.
     this.renderer.getContext().finish();
+  }
+
+  /** Ask for the sun's shadow map to be redrawn in the next render (from the shadow stand-ins, PERF-4). */
+  private renderShadows(): void {
+    this.renderer.shadowMap.needsUpdate = true;
   }
 
   /**
@@ -468,7 +497,7 @@ export class View3D {
     this.fx.warm(true);
     this.debris.warm(true);
     this.rally.warm(true); // its programs too, or the first rally point would stall a frame
-    this.renderer.shadowMap.needsUpdate = true;
+    this.renderShadows();
     if (this.bloomOn && this.composer) {
       this.renderer.setRenderTarget(this.composer.readBuffer);
       this.renderer.compile(this.scene, this.camera);
@@ -646,7 +675,7 @@ export class View3D {
       if (!shape) continue;
       const key = `${kind}/${d.geo}`;
       const b = this.shapeGeo(key, shape, team);
-      parts.push({ obj: d.obj, cargo: d.cargo, lit: b.lit, glow: b.glow, litKey: `${key}|${team}|L`, glowKey: `${key}|${team}|G`, mat, glowMat });
+      parts.push({ obj: d.obj, cargo: d.cargo, lit: b.lit, glow: b.glow, shade: b.shadow ?? null, litKey: `${key}|${team}|L`, glowKey: `${key}|${team}|G`, mat, glowMat });
     }
     return { ...tree, parts };
   }
@@ -956,8 +985,10 @@ export class View3D {
     this.camera.updateMatrixWorld();
     // The shadow follows the view, so it stays sharp wherever the camera looks.
     // Sun from -X and +Z, as in the classic bake: walls facing screen-left are lit, those facing screen-right shaded.
-    this.sun.position.set(p.target[0] - 7, 24, p.target[2] + 15);
-    this.sun.target.position.set(p.target[0], 0, p.target[2]);
+    // The target snaps to the shadow map's texel grid, so a panning view never makes shadow edges crawl (PERF-3).
+    const snap = snapShadowTarget(p.target[0], p.target[2], (2 * SUN_HALF) / SUN_MAP);
+    this.sun.position.set(snap.x + SUN_OFFSET[0], SUN_OFFSET[1], snap.z + SUN_OFFSET[2]);
+    this.sun.target.position.set(snap.x, 0, snap.z);
     this.projView.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projView);
   }
@@ -1027,7 +1058,7 @@ export class View3D {
     this.debris.setQuality(vs.fx.particles);
     this.debris.update(t, dt);
     this.applyQuality(vs);
-    if (this.frame % (this.res ? shadowEvery(this.res.ratio, this.res.max) : SHADOW_EVERY) === 0) this.renderer.shadowMap.needsUpdate = true;
+    if (this.frame % (this.res ? shadowEvery(this.res.ratio, this.res.max) : SHADOW_EVERY) === 0) this.renderShadows();
     // The governor needs the CPU's own work, not the time render() spends blocked behind a busy GPU.
     const prep = performance.now() - cpu0;
     this.prepMs += (prep - this.prepMs) * 0.05;
@@ -1068,6 +1099,7 @@ export class View3D {
     }
     if (vs.fx.bloom !== this.bloomOn) {
       this.bloomOn = vs.fx.bloom;
+      this.fit(); // the canvas follows whether post-processing is on
       // Glowing parts are brighter than white with bloom, so the bloom pass picks them up; plain white without.
       const lv = glowLevels(this.bloomOn);
       this.glowMat.color.setScalar(lv.glow);
@@ -1123,7 +1155,7 @@ export class View3D {
   private drawRig(rig: RigInst, tint: THREE.Color, load: number): void {
     for (const p of rig.parts) {
       if (p.cargo && load <= 0) continue;
-      if (p.lit) this.inst.push(p.litKey, p.lit, p.mat, true, p.obj.matrixWorld, tint);
+      if (p.lit) this.inst.push(p.litKey, p.lit, p.mat, true, p.obj.matrixWorld, tint, 0, p.shade);
       if (p.glow) this.inst.push(p.glowKey, p.glow, p.glowMat, false, p.obj.matrixWorld, tint);
     }
   }
@@ -1621,7 +1653,7 @@ export class View3D {
         c.litKey = `${key}|L`;
         c.glowKey = `${key}|G`;
       }
-      if (c.b.lit) this.inst.push(c.litKey!, c.b.lit, this.crystalMat, true, c.m);
+      if (c.b.lit) this.inst.push(c.litKey!, c.b.lit, this.crystalMat, true, c.m, undefined, 0, c.b.shadow ?? null);
       if (c.b.glow) this.inst.push(c.glowKey!, c.b.glow, this.glowMat, false, c.m);
     }
     for (const p of this.props) {
@@ -1631,7 +1663,7 @@ export class View3D {
         p.litKey = `${p.key}|L`;
         p.glowKey = `${p.key}|G`;
       }
-      if (p.b.lit) this.inst.push(p.litKey!, p.b.lit, this.propMat, true, p.m);
+      if (p.b.lit) this.inst.push(p.litKey!, p.b.lit, this.propMat, true, p.m, undefined, 0, p.b.shadow ?? null);
       if (p.b.glow) this.inst.push(p.glowKey!, p.b.glow, this.glowMat, false, p.m);
     }
   }

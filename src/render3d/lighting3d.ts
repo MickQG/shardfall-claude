@@ -55,6 +55,36 @@ export function configureSunShadow(sun: THREE.DirectionalLight, half: number, si
   sun.shadow.normalBias = 0.025;
 }
 
+/** Where the sun sits relative to the point it looks at, tiles: from -X and +Z, as in the classic bake. */
+export const SUN_OFFSET: readonly [number, number, number] = [-7, 24, 15];
+
+/**
+ * The point the sun looks at, moved sideways in the light's own plane to the nearest shadow-map texel (PERF-3), so the
+ * map's grid stays fixed in the world while the camera pans and shadow edges do not shimmer. `texel` is the world size
+ * of one texel, tiles. Returns the snapped x and z of the target (its height stays 0).
+ */
+export function snapShadowTarget(x: number, z: number, texel: number): { x: number; z: number } {
+  const [ox, oy, oz] = SUN_OFFSET;
+  // The light's view axes as three's lookAt builds them: back is from the target to the sun, right is up x back, up is back x right.
+  const bl = Math.hypot(ox, oy, oz);
+  const bx = ox / bl;
+  const by = oy / bl;
+  const bz = oz / bl;
+  const rl = Math.hypot(bz, bx);
+  const rx = bz / rl;
+  const ry = 0;
+  const rz = -bx / rl;
+  const ux = by * rz - bz * ry;
+  const uz = bx * ry - by * rx;
+  // The ground point's coordinates along right and up, rounded to a texel; then the ground shift that lands there.
+  const a = x * rx + z * rz;
+  const b = x * ux + z * uz;
+  const da = Math.round(a / texel) * texel - a;
+  const db = Math.round(b / texel) * texel - b;
+  const det = rx * uz - rz * ux;
+  return { x: x + (da * uz - rz * db) / det, z: z + (rx * db - ux * da) / det };
+}
+
 /**
  * Bloom works on a half-float (HDR) buffer; edges are smoothed by FXAA after tone mapping. (A multisampled HDR buffer
  * looked the same but its resolve halved the frame rate on integrated graphics.)
