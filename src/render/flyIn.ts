@@ -147,6 +147,11 @@ export function flyPose(t01: number, map: MapSize, end: Camera, aspect = 16 / 9)
   return { x: p.x, y: p.y, zoom, rise: START_RISE + (riseFor(end.zoom) - START_RISE) * e };
 }
 
+/** How far the unexplored darkness is lifted during the sweep (CAM-4): fully at the first frame, gone by 60% of the way down, so the play look is back before the camera arrives. */
+export function flyFogLift(t01: number): number {
+  return 1 - smootherstep(t01 / 0.6);
+}
+
 /**
  * The HUD's style while the fly-in plays and as it ends (CAM-5). Hiding with `opacity: 0` alone leaves the browser
  * compositing both panels as translucent layers over the full-screen WebGL canvas, which cost about 35 ms a frame on a
