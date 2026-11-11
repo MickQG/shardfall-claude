@@ -1,58 +1,29 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { flyFogLift } from '../../src/render/flyIn';
 import { ELEV_READY, ELEV_UP_MS, MAX_ELEV_WAIT, SETTLE_DRIVE, elevationReady, restingSettle, settleStep, slew } from '../../src/render3d/motion';
 import { WATER } from '../../src/render3d/noiseNormal';
-import { UNEXPLORED_COLOR, UNEXPLORED_LIFTED, unexploredTone } from '../../src/render3d/unexplored';
 
-const mean = (c: readonly number[]): number => (c[0]! + c[1]! + c[2]!) / 3;
 const read = (f: string): string => readFileSync(join(__dirname, '../..', f), 'utf8');
-const rgb = (c: number): number[] => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
 
 describe('calm water (R3D-11)', () => {
-  it('R3D-11: the ripples drift at no more than half their old speed', () => {
-    expect(WATER.driftX).toBeLessThanOrEqual(0.000018 / 2);
-    expect(WATER.driftY).toBeLessThanOrEqual(0.000011 / 2);
-    expect(WATER.driftX).toBeGreaterThan(0);
+  it('R3D-11: the waves drift, at no more than two thirds of their old speed', () => {
+    expect(WATER.driftX).toBeLessThanOrEqual((0.000018 * 2) / 3);
+    expect(WATER.driftY).toBeLessThanOrEqual((0.000011 * 2) / 3);
+    expect(WATER.driftX).toBeGreaterThan(0.000018 / 3);
   });
-  it('R3D-11: the surface is a soft sheen, not a glint: rough, barely metallic, weak broad ripples', () => {
-    expect(WATER.roughness).toBeGreaterThanOrEqual(0.4);
-    expect(WATER.metalness).toBeLessThanOrEqual(0.1);
-    expect(WATER.normalScale).toBeLessThanOrEqual(0.2);
-    expect(WATER.noiseFreq).toBeLessThan(6);
-    expect(WATER.tilesPerRepeat).toBeGreaterThan(4);
+  it('R3D-11: the waves show and sparkle a little, less than the old glossy surface', () => {
+    // Old values: roughness 0.08, metalness 0.3, normal scale 0.45. Flat water (0.5, 0.08, 0.16) was rejected by the owner.
+    expect(WATER.roughness).toBeGreaterThan(0.08);
+    expect(WATER.roughness).toBeLessThan(0.4);
+    expect(WATER.metalness).toBeLessThan(0.3);
+    expect(WATER.normalScale).toBeLessThan(0.45);
+    expect(WATER.normalScale).toBeGreaterThan(0.25);
   });
   it('R3D-11: the water is built from these numbers whatever the quality preset', () => {
     const src = read('src/render3d/view3d.ts');
     expect(src).toContain('roughness: WATER.roughness');
     expect(src).toContain('WATER.driftX');
-  });
-});
-
-describe('the fly-in opening shot (CAM-4)', () => {
-  it('CAM-4: the first frame lifts the unexplored darkness to a dim tone, not near-black, and play keeps its own', () => {
-    expect(mean(unexploredTone(1))).toBeGreaterThanOrEqual(70);
-    expect(mean(unexploredTone(0))).toBeLessThan(30);
-    expect(unexploredTone(0)).toEqual(rgb(UNEXPLORED_COLOR));
-    expect(unexploredTone(1)).toEqual(rgb(UNEXPLORED_LIFTED));
-  });
-  it('CAM-4: the lift is full at the first frame and gone well before the camera arrives', () => {
-    expect(flyFogLift(0)).toBe(1);
-    expect(flyFogLift(0.6)).toBe(0);
-    expect(flyFogLift(1)).toBe(0);
-    let prev = 1;
-    for (let i = 1; i <= 20; i++) {
-      const k = flyFogLift(i / 20);
-      expect(k).toBeLessThanOrEqual(prev);
-      prev = k;
-    }
-  });
-  it('CAM-4 CAM-7: the lifted tone is one flat colour and still dark, and it feeds both the fog layer and the unexplored mask', () => {
-    expect(mean(unexploredTone(1))).toBeLessThan(128);
-    const src = read('src/render3d/view3d.ts');
-    expect(src).toContain('uHideColor.value.setRGB');
-    expect(src).toContain('this.fogMat.color.setRGB');
   });
 });
 

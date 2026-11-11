@@ -38,19 +38,7 @@ const FRAGMENT = `#include <dithering_fragment>
     gl_FragColor.rgb = mix( gl_FragColor.rgb, uHideColor, hidden );
   }`;
 
-/** The darkness over unexplored ground in play (R3D-17). */
-export const UNEXPLORED_COLOR = 0x0c0f22;
-/** The same darkness at the first frame of the fly-in (CAM-4): from high up nearly the whole map is unexplored, so a near-black tone would make the opening shot black. A flat, featureless dim blue-grey: no terrain shows through it (CAM-7). */
-export const UNEXPLORED_LIFTED = 0x46557a;
-
-/** The unexplored tone for a lift of 0 (play) to 1 (opening shot), as sRGB bytes. Pure. */
-export function unexploredTone(lift: number): [number, number, number] {
-  const k = Math.min(1, Math.max(0, lift));
-  const ch = (shift: number): number => Math.round(((UNEXPLORED_COLOR >> shift) & 255) * (1 - k) + ((UNEXPLORED_LIFTED >> shift) & 255) * k);
-  return [ch(16), ch(8), ch(0)];
-}
-
-export function unexploredMask(color = UNEXPLORED_COLOR): UnexploredMask {
+export function unexploredMask(color = 0x0c0f22): UnexploredMask {
   // Until a map's fog is known, nothing is hidden (a 1x1 texture with green 0).
   const none = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
   none.needsUpdate = true;

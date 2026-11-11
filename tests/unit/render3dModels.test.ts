@@ -356,7 +356,7 @@ describe('fog, damage, harvesters and deaths', () => {
     }
     // The hauler opens its rear hatch about the top hinge to unload, and its cutter drum turns while mining.
     const hauler = rigTree(UNIT_RIGS.hum_hauler!());
-    const hatch = hauler.anims.find((a) => a.anim.k === 'tip')!;
+    const hatch = hauler.anims.find((a) => a.anim.k === 'tip' && a.anim.max < 0)!;
     const drum = hauler.anims.find((a) => a.anim.k === 'drum')!;
     poseRig(hauler, { ...STILL, tip: 0, drum: 0 });
     expect(hatch.obj.rotation.z).toBe(0);

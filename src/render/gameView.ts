@@ -76,8 +76,6 @@ export interface ViewState {
   acks?: readonly AckMarker[];
   /** Units whose selection rings flash after an order, with the flash strength 0..1 (UI-15). */
   flash?: ReadonlyMap<number, number>;
-  /** 3D view only: how far the unexplored darkness is lifted to a dim, featureless blue-grey, 1 at the first frame of the fly-in down to 0 in play (CAM-4). */
-  fogLift?: number;
 }
 
 const tilePoly = (tx: number, ty: number, w: number, h: number): number[] => {

@@ -25,7 +25,7 @@ import { UNIT_RIGS } from './units3d';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
 import { applySurface, modelMaterials, setSurface } from './surface3d';
 import { noiseNormalMap, WATER } from './noiseNormal';
-import { UNEXPLORED_COLOR, unexploredMask, unexploredTone } from './unexplored';
+import { unexploredMask } from './unexplored';
 import { RallyMarker } from './rally3d';
 import { GpuTimer } from './gpuTimer';
 import { PR_MAX, PR_MAX_LOW, PR_MIN, ResolutionGovernor } from './resolution';
@@ -269,8 +269,6 @@ export class View3D {
   private missiles: { at: number; src: UnitObj; side: number; to: THREE.Vector3; flightMs: number; elite: boolean }[] = [];
   private missileTurn = 0;
   private fogTex: THREE.DataTexture | null = null;
-  private fogMat: THREE.MeshBasicMaterial | null = null;
-  private fogLift = -1;
   private fogData: Uint8Array | null = null;
   private waterNormal: THREE.Texture | null = null;
   private scatterGroup = new THREE.Group();
@@ -542,7 +540,7 @@ export class View3D {
       this.fogTex.magFilter = THREE.LinearFilter;
       this.fogTex.minFilter = THREE.LinearFilter;
       this.unexplored.use(this.fogTex, W, snap.mapHeight);
-      const fogMat = this.fogMat = new THREE.MeshBasicMaterial({ color: UNEXPLORED_COLOR, alphaMap: this.fogTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      const fogMat = new THREE.MeshBasicMaterial({ color: 0x0c0f22, alphaMap: this.fogTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
       const fog = new THREE.Mesh(geometry(m.ground), fogMat);
       fog.renderOrder = 10;
       this.scene.add(fog);
@@ -952,15 +950,6 @@ export class View3D {
     return p;
   }
 
-  /** The unexplored darkness, lifted to a dim flat tone during the opening of the fly-in (CAM-4) and back to play's darkness by its middle. */
-  private liftFog(lift: number): void {
-    if (!this.fogMat || Math.abs(lift - this.fogLift) < 0.004) return;
-    this.fogLift = lift;
-    const [r, g, b] = unexploredTone(lift);
-    this.fogMat.color.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
-    this.unexplored.uniforms.uHideColor.value.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
-  }
-
   private applyCamera(cam: Camera, t: number): void {
     const p = cameraPose(cam);
     this.camera.position.set(...p.position);
@@ -989,7 +978,6 @@ export class View3D {
     this.lastTime = t;
     this.fx.quality = { rich: vs.fx.particles };
     this.applyCamera(cam, t);
-    this.liftFog(vs.fogLift ?? 0);
     // The distance fog follows the camera out as it pulls back, so the whole map stays clear (CAM-4) and only the land beyond fades into haze (R3D-25).
     if (this.scene.fog instanceof THREE.Fog) {
       const k = Math.max(1, 1 / cam.zoom);

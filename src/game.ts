@@ -36,7 +36,7 @@ import { Sidebar } from './ui/sidebar';
 import { Soundscape } from './ui/soundscape';
 import { wireUiSounds } from './ui/uiSounds';
 import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
-import { FLY_HUD_CSS, FlyIn, flyEnabled, flyFogLift, flyPose, smootherstep } from './render/flyIn';
+import { FLY_HUD_CSS, FlyIn, flyEnabled, flyPose, smootherstep } from './render/flyIn';
 import { chooseRenderer, probeGpu } from './render/chooseRenderer';
 import { buttonKinds } from './render/menuPlan';
 import { drawIcons } from './render3d/icons3d';
@@ -346,10 +346,8 @@ function frame(prevTime: number): (t: number) => void {
 
     // The fly-in (CAM-4, CAM-8): its sweep is drawn instead of the player's camera; the player's camera is untouched, so the sweep ends exactly there.
     drawCam = cam;
-    let fogLift = 0;
     if (flying) {
       const p = flyHold ?? fly.progress(performance.now());
-      if (fly.mode === 'sweep') fogLift = flyFogLift(p);
       if (flyStarted && p >= 1) endFly();
       else if (fly.mode === 'sweep') drawCam = flyPose(p, map, cam, v.width / Math.max(1, v.height));
       else flyFade.style.opacity = String(1 - smootherstep(p));
@@ -387,7 +385,7 @@ function frame(prevTime: number): (t: number) => void {
       const alpha = (performance.now() - sim.currAt) / tickMsAt(speed);
       const ru = interpolate(sim.prev.units, curr.units, alpha);
       audio.lean = settings.quality === 'low';
-      view.update(ru, drawCam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings), acks: acks.markers(performance.now(), (id) => locate(id, ru, curr)), flash: acks.flashing(performance.now()), fogLift }, curr);
+      view.update(ru, drawCam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings), acks: acks.markers(performance.now(), (id) => locate(id, ru, curr)), flash: acks.flashing(performance.now()) }, curr);
       if (curr.tick !== lastAlertTick) {
         lastAlertTick = curr.tick;
         for (const a of alerts.update(curr)) {

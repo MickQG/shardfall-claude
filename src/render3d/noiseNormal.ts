@@ -1,21 +1,21 @@
 import * as THREE from 'three';
 
 /**
- * Calm water (R3D-11): the ripples drift slowly and the surface shows a soft, broad sheen instead of sparkling glints,
- * on Low and High alike. Drift is in texture repeats per ms (it was 0.000018 / 0.000011); the roughness is high and the
- * ripple normals weak and low-frequency, so there are few small bright highlights.
+ * Water (R3D-11): low waves that drift slowly and sparkle a little, on Low and High alike. Drift is in texture repeats
+ * per ms (it was 0.000018 / 0.000011). The old surface (roughness 0.08, metalness 0.3, normal scale 0.45) glittered too
+ * much; a flat one (0.5, 0.08, 0.16) showed no waves. These sit between the two.
  */
 export const WATER = {
-  driftX: 0.000008,
-  driftY: 0.000005,
-  roughness: 0.5,
-  metalness: 0.08,
-  normalScale: 0.16,
+  driftX: 0.000011,
+  driftY: 0.000007,
+  roughness: 0.2,
+  metalness: 0.22,
+  normalScale: 0.34,
   /** Noise lattice frequency of the ripple normal map (it was 6) and its strength (it was 9). */
-  noiseFreq: 3,
-  noiseStrength: 6,
-  /** Tiles per texture repeat (it was 4): bigger, so the ripples are broad. */
-  tilesPerRepeat: 6,
+  noiseFreq: 5,
+  noiseStrength: 8,
+  /** Tiles per texture repeat. */
+  tilesPerRepeat: 4,
 } as const;
 
 /** A seeded, seamlessly tiling value-noise height field turned into a normal map (ground relief, water ripples). */
