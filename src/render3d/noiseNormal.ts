@@ -1,5 +1,23 @@
 import * as THREE from 'three';
 
+/**
+ * Water (R3D-11): low waves that drift slowly and sparkle a little, on Low and High alike. Drift is in texture repeats
+ * per ms (it was 0.000018 / 0.000011). The old surface (roughness 0.08, metalness 0.3, normal scale 0.45) glittered too
+ * much; a flat one (0.5, 0.08, 0.16) showed no waves. These sit between the two.
+ */
+export const WATER = {
+  driftX: 0.000011,
+  driftY: 0.000007,
+  roughness: 0.13,
+  metalness: 0.26,
+  normalScale: 0.4,
+  /** Noise lattice frequency of the ripple normal map (it was 6) and its strength (it was 9). */
+  noiseFreq: 6,
+  noiseStrength: 8,
+  /** Tiles per texture repeat. */
+  tilesPerRepeat: 4,
+} as const;
+
 /** A seeded, seamlessly tiling value-noise height field turned into a normal map (ground relief, water ripples). */
 export function noiseNormalMap(size: number, freq: number, strength: number, seed: number): THREE.DataTexture {
   const h = new Float32Array(size * size);
