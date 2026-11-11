@@ -8,7 +8,7 @@ import { AckGate, mostNumerousKind, panGain, ShotTagger } from './audio/recipes'
 import { SimClient } from './host/client';
 import { activeMatch } from './net/lobby';
 import { OnlineWatch } from './net/watch';
-import { centerOnTile, clampCamera, mapBounds, pan, zoomAt, type Camera } from './render/camera';
+import { centerOnTile, clampCamera, mapBounds, pan, panStep, zoomAt, type Camera } from './render/camera';
 import { GameView, type PlacementPreview } from './render/gameView';
 import type { WorldRenderer } from './render/worldRenderer';
 import { interpolate, type RenderUnit } from './render/interp';
@@ -182,7 +182,6 @@ let resultShown = false;
 let lastAlertTick = -1;
 
 const EDGE = 12;
-const PAN_SPEED = 900;
 
 const tileFromScreen = (sx: number, sy: number): { x: number; y: number } => view.projector(cam).toGround(sx, sy);
 
@@ -333,7 +332,7 @@ function cursorState(): CursorState {
 function frame(prevTime: number): (t: number) => void {
   return (t) => {
     if (showFrameTime) frameStats.push(t - prevTime);
-    const dt = Math.min(0.05, (t - prevTime) / 1000);
+    const panDt = t - prevTime;
     prevTime = t;
     const v = view.viewport;
     let dx = 0;
@@ -342,7 +341,7 @@ function frame(prevTime: number): (t: number) => void {
     if (keys.has('d') || keys.has('arrowright') || (mouse.x > v.width - EDGE && mouse.x <= v.width)) dx += 1;
     if (keys.has('w') || keys.has('arrowup') || (mouse.y >= 0 && mouse.y < EDGE)) dy -= 1;
     if (keys.has('s') || keys.has('arrowdown') || (mouse.y > v.height - EDGE && mouse.y <= v.height)) dy += 1;
-    if ((dx || dy) && allowed('w')) cam = pan(cam, dx * PAN_SPEED * dt, dy * PAN_SPEED * dt, bounds);
+    if ((dx || dy) && allowed('w')) cam = pan(cam, dx * panStep(panDt), dy * panStep(panDt), bounds);
 
     // The fly-in (CAM-4, CAM-8): its sweep is drawn instead of the player's camera; the player's camera is untouched, so the sweep ends exactly there.
     drawCam = cam;
