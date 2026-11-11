@@ -40,6 +40,16 @@ export function pan(c: Camera, dxScreen: number, dyScreen: number, b: Bounds): C
   return clampCamera({ ...c, x: c.x + dxScreen / c.zoom, y: c.y + dyScreen / c.zoom }, b);
 }
 
+/** Screen pixels per second a held pan key or the screen edge moves the view. */
+export const PAN_SPEED = 900;
+/** The longest frame a pan counts (s): a hidden tab or a stall never throws the view across the map (PERF-3). */
+export const PAN_MAX_DT = 0.1;
+
+/** How far a pan moves in a frame of `dtMs` (PERF-3): proportional to the frame's time, so the ground moves the same on screen however the frames fall. */
+export function panStep(dtMs: number, speed = PAN_SPEED): number {
+  return speed * Math.min(PAN_MAX_DT, Math.max(0, dtMs / 1000));
+}
+
 export interface Viewport {
   width: number;
   height: number;
