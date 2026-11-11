@@ -8,11 +8,11 @@ import * as THREE from 'three';
 export const WATER = {
   driftX: 0.000011,
   driftY: 0.000007,
-  roughness: 0.2,
-  metalness: 0.22,
-  normalScale: 0.34,
+  roughness: 0.13,
+  metalness: 0.26,
+  normalScale: 0.4,
   /** Noise lattice frequency of the ripple normal map (it was 6) and its strength (it was 9). */
-  noiseFreq: 5,
+  noiseFreq: 6,
   noiseStrength: 8,
   /** Tiles per texture repeat. */
   tilesPerRepeat: 4,
