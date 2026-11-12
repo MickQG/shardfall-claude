@@ -20,6 +20,8 @@ export interface PieceOpts {
   scale?: V3;
   /** Drawn unlit and bright (bloom picks it up). */
   glow?: boolean;
+  /** False for a detail lying on a bigger part, whose own shadow already covers it: it casts none (PERF-4). */
+  shadow?: boolean;
 }
 
 interface Piece {
@@ -28,6 +30,10 @@ interface Piece {
   glow: boolean;
   /** A plainer version of the same piece (square edges, fewer sides), the one a shadow is cast from (PERF-4). */
   low?: THREE.BufferGeometry;
+  /** The piece's own size when its world box overstates it (a slanted rod), for the small-part test (PERF-4). */
+  size?: V3;
+  /** Casts no shadow of its own (PERF-4). */
+  noShadow?: boolean;
 }
 
 export interface Built {
@@ -83,7 +89,7 @@ export class Shape {
     );
     geo.applyMatrix4(m);
     low?.applyMatrix4(m);
-    this.pieces.push({ geo, paint, glow: !!o.glow, low });
+    this.pieces.push({ geo, paint, glow: !!o.glow, low, noShadow: o.shadow === false });
     return this;
   }
 
@@ -106,7 +112,7 @@ export class Shape {
   }
 
   /** A limb from point `a` to point `b` (a tapered cylinder, `r` at a and `r2` at b), so joints always meet. */
-  strut(a: V3, b: V3, r: number, paint: Paint, o: { r2?: number; seg?: number; glow?: boolean } = {}): this {
+  strut(a: V3, b: V3, r: number, paint: Paint, o: { r2?: number; seg?: number; glow?: boolean; shadow?: boolean } = {}): this {
     const from = new THREE.Vector3(...a);
     const dir = new THREE.Vector3(...b).sub(from);
     const len = dir.length();
@@ -116,7 +122,9 @@ export class Shape {
     const m = new THREE.Matrix4().compose(from.addScaledVector(dir, 0.5), new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize()), new THREE.Vector3(1, 1, 1));
     geo.applyMatrix4(m);
     low?.applyMatrix4(m);
-    this.pieces.push({ geo, paint, glow: !!o.glow, low });
+    // A slanted rod's box is much wider than the rod: judge its shadow by its own length and thickness (PERF-4).
+    const thick = 2 * Math.max(r, o.r2 ?? r);
+    this.pieces.push({ geo, paint, glow: !!o.glow, low, size: [thick, len, thick], noShadow: o.shadow === false });
     return this;
   }
 
@@ -241,9 +249,9 @@ export class Shape {
       top = Math.max(top, g.boundingBox!.max.y);
       triangles += n / 3;
       (p.glow ? glow : lit).push(g);
-      if (!p.glow) {
+      if (!p.glow && !p.noShadow) {
         const size = g.boundingBox!.getSize(new THREE.Vector3());
-        if (castsShadow([size.x, size.y, size.z])) {
+        if (castsShadow(p.size ?? [size.x, size.y, size.z])) {
           const sg = (p.low ?? p.geo).toNonIndexed();
           for (const name of Object.keys(sg.attributes)) if (name !== 'position') sg.deleteAttribute(name);
           shade.push(sg);
