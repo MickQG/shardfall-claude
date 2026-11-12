@@ -1,9 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { buildingDef, unitDef } from '../../src/data/defs';
-import { brawlConfig, skirmishConfig } from '../../src/data/maps';
+import { brawlConfig, MAPS, skirmishConfig } from '../../src/data/maps';
 import { createGame, FP, hash, submit, tick, type Command, type Game, type GameConfig, type UnitSpawn } from '../../src/sim';
-import { distanceField, FAR, findPath, isBlocked } from '../../src/sim/path';
+import { groupPath, ringTiles } from '../../src/sim/movement';
+import { distanceField, FAR, findPath, isBlocked, nearestFreeTiles, type Grid } from '../../src/sim/path';
 import type { Unit } from '../../src/sim/state';
+
+/** Cost of walking p from (sx,sy) on g, failing on any step that jumps, lands on a blocked tile or cuts a blocked corner (SIM-4). */
+function walkOn(g: Grid, sx: number, sy: number, p: number[]): number {
+  const W = g.width;
+  let [x, y, cost] = [sx, sy, 0];
+  for (const q of p) {
+    const [nx, ny] = [q % W, Math.floor(q / W)];
+    const [dx, dy] = [nx - x, ny - y];
+    expect(Math.max(Math.abs(dx), Math.abs(dy))).toBe(1);
+    expect(isBlocked(g, nx, ny)).toBe(false);
+    if (dx !== 0 && dy !== 0) expect(isBlocked(g, x + dx, y) || isBlocked(g, x, y + dy)).toBe(false);
+    cost += dx !== 0 && dy !== 0 ? 14 : 10;
+    [x, y] = [nx, ny];
+  }
+  return cost;
+}
 
 const MIX = ['hum_rifleman', 'hum_tank', 'hum_rocketeer', 'hum_buggy', 'hum_artillery'];
 
@@ -63,7 +80,7 @@ function brawl(): Game {
 
 describe('order response (SIM-10)', () => {
   for (const type of ['move', 'attackmove', 'attack'] as const) {
-    it(`SIM-10: 200 units given one ${type} order across the map all have their routes and are under way within 10 ticks`, () => {
+    it(`SIM-10: 200 units given one ${type} order across the map all have their routes and are under way by the tick after the order`, () => {
       const g = createGame(massConfig(200, true));
       const ids = mine(g, 0)
         .slice(0, 200)
@@ -73,9 +90,47 @@ describe('order response (SIM-10)', () => {
       const cmd: Command =
         type === 'attack' ? { type, player: 0, units: ids, target: hq.id } : { type, player: 0, units: ids, x: (hq.tx - 3) * FP, y: (hq.ty + 1) * FP };
       submit(g, cmd);
-      const { late, unrouted } = underWay(g, ids, 10);
+      const { late, unrouted } = underWay(g, ids, 2);
       expect(unrouted).toEqual([]);
       expect(late).toEqual([]);
+    });
+  }
+
+  for (const n of [60, 100, 200]) {
+    it(`SIM-10: in a quiet match, ${n} units given one move order all have their routes in the tick the order is applied`, () => {
+      const g = createGame(massConfig(n));
+      const ids = mine(g, 0).map((u) => u.id);
+      const hq = enemyHq(g, 0);
+      submit(g, { type: 'move', player: 0, units: ids, x: (hq.tx - 3) * FP, y: (hq.ty + 1) * FP });
+      const { late, unrouted } = underWay(g, ids, 1);
+      expect(unrouted).toEqual([]);
+      expect(late).toEqual([]);
+    });
+  }
+
+  it('SIM-10: two group orders of 100 given in the same tick are both routed by the tick after', () => {
+    const g = createGame(massConfig(200, true));
+    const ids = mine(g, 0).map((u) => u.id);
+    const hq = enemyHq(g, 0);
+    submit(g, { type: 'move', player: 0, units: ids.slice(0, 100), x: (hq.tx - 3) * FP, y: (hq.ty + 1) * FP });
+    submit(g, { type: 'attack', player: 0, units: ids.slice(100, 200), target: hq.id });
+    const { late, unrouted } = underWay(g, ids.slice(0, 200), 2);
+    expect(unrouted).toEqual([]);
+    expect(late).toEqual([]);
+  });
+
+  for (const type of ['attackmove', 'attack'] as const) {
+    it(`SIM-10: in a 200-unit fight, a fresh ${type} order to 60 units is routed by the tick after the order`, () => {
+      const g = brawl();
+      for (let i = 0; i < 50; i++) tick(g);
+      const ids = mine(g, 0)
+        .filter((u) => !unitDef(u.kind).hero)
+        .slice(0, 60)
+        .map((u) => u.id);
+      const foe = enemyHq(g, 0);
+      submit(g, type === 'attack' ? { type, player: 0, units: ids, target: foe.id } : { type, player: 0, units: ids, x: 4 * FP, y: 4 * FP });
+      for (let i = 0; i < 2; i++) tick(g);
+      expect(ids.filter((id) => byId(g, id)?.waiting)).toEqual([]);
     });
   }
 
@@ -106,7 +161,7 @@ describe('order response (SIM-10)', () => {
     expect(worst).toBeLessThanOrEqual(2);
   });
 
-  it('SIM-10: in a 200-unit fight, a fresh move order to 30 units is routed within 10 ticks', () => {
+  it('SIM-10: in a 200-unit fight, a fresh move order to 30 units is routed and under way by the tick after the order', () => {
     const g = brawl();
     for (let i = 0; i < 50; i++) tick(g);
     const ids = mine(g, 0)
@@ -115,7 +170,7 @@ describe('order response (SIM-10)', () => {
       .map((u) => u.id);
     expect(ids).toHaveLength(30);
     submit(g, { type: 'move', player: 0, units: ids, x: 4 * FP, y: 4 * FP });
-    const { unrouted, late } = underWay(g, ids, 10);
+    const { unrouted, late } = underWay(g, ids, 2);
     expect(unrouted).toEqual([]);
     expect(late).toEqual([]);
   });
@@ -201,6 +256,73 @@ describe('route search (SIM-10, SIM-3, SIM-4)', () => {
     }
     // A case the old search got wrong (it walked 680 where 672 will do).
     expect(walk(24, 64, findPath(grid, 24, 64, 32, 0))).toBe(672);
+  });
+
+  it('SIM-3 SIM-4 SIM-10: a group member’s route is at most twice its own tile’s distance from the group’s destination longer than shortest, on every map', () => {
+    const cfgs = [...MAPS.map((m) => skirmishConfig(1, { map: m.id })), ...[3, 4, 5].map((seed) => skirmishConfig(seed, {}))];
+    let total = 0;
+    let extra = 0;
+    for (const cfg of cfgs) {
+      const g = createGame({ ...cfg, units: [] }).state.grid;
+      const W = g.width;
+      let seed = 5;
+      const rnd = (k: number): number => {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        return seed % k;
+      };
+      for (let o = 0; o < 6; o++) {
+        const pick = (): [number, number] => {
+          for (;;) {
+            const [x, y] = [rnd(W), rnd(g.height)];
+            if (!isBlocked(g, x, y)) return [x, y];
+          }
+        };
+        const [cx, cy] = pick();
+        const [tx, ty] = pick();
+        const starts = ringTiles(g, cx, cy, [30, 100, 200][o % 3]!);
+        const free = ringTiles(g, tx, ty, starts.length);
+        const to = free[0]!;
+        const field = distanceField(g, to);
+        for (const [k, s] of starts.entries()) {
+          // Each unit's own tile, as a move order hands them out (SIM-8).
+          let bi = 0;
+          for (let i = 1; i < free.length; i++) {
+            const d = (q: number): number => Math.abs((q % W) - (s % W)) + Math.abs(Math.floor(q / W) - Math.floor(s / W));
+            if (d(free[i]!) < d(free[bi]!)) bi = i;
+          }
+          const goal = free.splice(bi, 1)[0]!;
+          if (k % 3 !== 0) continue; // every third, to keep the exact searches quick
+          const exact = distanceField(g, s)[goal]!;
+          if (exact === FAR || s === goal) continue;
+          const p = groupPath(g, field, to, s % W, Math.floor(s / W), goal % W, Math.floor(goal / W));
+          expect(p.at(-1)).toBe(goal);
+          const cost = walkOn(g, s % W, Math.floor(s / W), p);
+          expect(cost - exact).toBeLessThanOrEqual(2 * field[goal]!);
+          total += exact;
+          extra += cost - exact;
+        }
+      }
+    }
+    // In practice far less: well under 1% in all.
+    expect(extra / total).toBeLessThan(0.01);
+  }, 30000);
+
+  it('SIM-3 SIM-4 SIM-10: a group attacking a building each take a shortest route to one of the tiles nearest its middle', () => {
+    const s = createGame(skirmishConfig(1, { map: 'crossroads' })).state;
+    const hq = s.buildings.find((b) => b.owner === 1 && buildingDef(b.kind).hq)!;
+    const [gx, gy] = [hq.tx + 1, hq.ty + 1];
+    const ends = nearestFreeTiles(grid, gx, gy);
+    const field = distanceField(grid, ends);
+    for (let sy = 4; sy < grid.height; sy += 9)
+      for (let sx = 4; sx < W; sx += 9) {
+        if (isBlocked(grid, sx, sy) || field[sy * W + sx] === FAR) continue;
+        const p = groupPath(grid, field, gy * W + gx, sx, sy, gx, gy);
+        if (p.length === 0) continue;
+        expect(ends).toContain(p.at(-1));
+        // As short as the shortest route to any of them, and no longer than a unit's own search would take.
+        expect(walkOn(grid, sx, sy, p)).toBe(field[sy * W + sx]);
+        expect(walkOn(grid, sx, sy, p)).toBeLessThanOrEqual(walk(sx, sy, findPath(grid, sx, sy, gx, gy)));
+      }
   });
 
   it('SIM-3 SIM-10: a route to a building ends on the nearest tile next to it without searching the whole map', () => {
