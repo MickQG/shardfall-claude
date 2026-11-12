@@ -144,10 +144,11 @@ function canStep(blocked: Uint8Array, W: number, H: number, cx: number, cy: numb
 }
 
 /**
- * Exact 8-direction travel cost (10 straight, 14 diagonal, no cut corners) from tile `src` to every tile, or FAR: a
- * Dijkstra flood over the whole map. Steps are symmetric, so it is also the cost from every tile to `src`.
+ * Exact 8-direction travel cost (10 straight, 14 diagonal, no cut corners) from tile `src` (or the nearest of several) to
+ * every tile, or FAR: a Dijkstra flood over the whole map. Steps are symmetric, so it is also the cost from every tile to
+ * `src`.
  */
-export function distanceField(g: Grid, src: number, work?: PathWork): Int32Array {
+export function distanceField(g: Grid, src: number | readonly number[], work?: PathWork): Int32Array {
   const W = g.width;
   const H = g.height;
   const blocked = g.blocked;
@@ -155,8 +156,10 @@ export function distanceField(g: Grid, src: number, work?: PathWork): Int32Array
   const c = prepare(W * H);
   const run = c.run;
   const { closed, heap } = c;
-  dist[src] = 0;
-  heap.push(src, 0, 0);
+  for (const s of typeof src === 'number' ? [src] : src) {
+    dist[s] = 0;
+    heap.push(s, 0, 0);
+  }
   let expanded = 0;
   while (heap.size > 0) {
     const cur = heap.pop();
@@ -177,6 +180,64 @@ export function distanceField(g: Grid, src: number, work?: PathWork): Int32Array
   }
   if (work) work.expanded += expanded;
   return dist;
+}
+
+/**
+ * Walk down a distance field `f` (exact costs to one tile, from `distanceField`) from (sx,sy) toward (gx,gy), a tile near
+ * the field's own (SIM-10): every step stays on a shortest way to the field's tile (no cut corners, SIM-4), and among
+ * such steps it takes the one nearest (gx,gy), so units bound for different tiles keep to different lanes where the
+ * ground allows. Stops on the first tile within `near` tiles (Chebyshev) of (gx,gy), or at the field's tile. Returns the
+ * tiles stepped onto, excluding the start; `work`, when given, is credited with one per step. Costs nothing when the
+ * start cannot reach the field's tile.
+ */
+export function descend(g: Grid, f: Int32Array, sx: number, sy: number, gx: number, gy: number, near: number, work?: PathWork, floor = 0): number[] {
+  const W = g.width;
+  const H = g.height;
+  const blocked = g.blocked;
+  const out: number[] = [];
+  let cur = sy * W + sx;
+  let cx = sx;
+  let cy = sy;
+  let d = f[cur] as number;
+  if (d === FAR) return out;
+  while (d > floor && Math.max(Math.abs(cx - gx), Math.abs(cy - gy)) > near) {
+    let best = -1;
+    let bestK = -1;
+    let bestH = FAR;
+    for (let k = 0; k < 8; k++) {
+      if (!canStep(blocked, W, H, cx, cy, k)) continue;
+      const ni = cur + (DY[k] as number) * W + (DX[k] as number);
+      if ((f[ni] as number) + (COST[k] as number) !== d) continue;
+      const h = octile(cx + (DX[k] as number), cy + (DY[k] as number), gx, gy);
+      if (h < bestH) {
+        bestH = h;
+        best = ni;
+        bestK = k;
+      }
+    }
+    // A finite field value always has a neighbour one step nearer; guard anyway.
+    if (best < 0) break;
+    cur = best;
+    cx += DX[bestK] as number;
+    cy += DY[bestK] as number;
+    d = f[cur] as number;
+    out.push(cur);
+  }
+  if (work) work.expanded += out.length;
+  return out;
+}
+
+/**
+ * The free tiles a route to the blocked tile (gx,gy) ends on: those at the smallest octile distance from it (SIM-3). A
+ * route to it ends on the one of them cheapest to reach.
+ */
+export function nearestFreeTiles(g: Grid, gx: number, gy: number): number[] {
+  const near = nearestFree(g, gx, gy);
+  const out: number[] = [];
+  if (near === FAR) return out;
+  const r = Math.ceil(near / 10);
+  for (let y = gy - r; y <= gy + r; y++) for (let x = gx - r; x <= gx + r; x++) if (!isBlocked(g, x, y) && octile(x, y, gx, gy) === near) out.push(y * g.width + x);
+  return out;
 }
 
 /** The smallest octile distance from (gx,gy) to any free tile: how near a path to a blocked goal can get. */
