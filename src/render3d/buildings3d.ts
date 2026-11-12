@@ -140,6 +140,22 @@ function roofVent(s: Shape, at: V3, w: number, d: number, h = 0.06): void {
   for (const k of [-0.3, 0.02, 0.3]) s.box(w * 0.84, 0.008, d * 0.14, DARK, { at: [at[0], at[1] + h + 0.002, at[2] + k * d], bevel: 0, shadow: false });
 }
 
+/**
+ * A dish aerial on a gimbal at `at`, tilted `tilt` radians from straight up toward +x, with its feed on the axis. The
+ * bowl is closed and thick (a back out to the rim, and a face from the rim back to the middle), so it shows from
+ * behind as well as from the front, and the gimbal joins it to the mast below.
+ */
+function dish(s: Shape, at: V3, r: number, tilt: number, shadow = true): void {
+  const along = (k: number): V3 => [at[0] + Math.sin(tilt) * k, at[1] + Math.cos(tilt) * k, at[2]];
+  const d = r * 0.42;
+  // The back casts the shadow; the face lies inside it and casts none (PERF-4).
+  s.lathe([[0, 0], [r * 0.55, d * 0.22], [r * 0.92, d * 0.78], [r, d]], STEEL, { at, rot: [0, 0, -tilt], seg: 12, shadow });
+  s.lathe([[r, d], [r * 0.93, d * 0.98], [r * 0.5, d * 0.36], [0, d * 0.2]], STEEL, { at, rot: [0, 0, -tilt], seg: 12, shadow: false });
+  s.ball(r * 0.2, GUN, { at: along(-r * 0.05), seg: 6, shadow: false });
+  s.cyl(r * 0.035, r * 0.75, DARK, { at: along(d * 0.2 + r * 0.375), rot: [0, 0, -tilt], seg: 4, shadow: false });
+  s.ball(r * 0.07, DARK, { at: along(d * 0.2 + r * 0.75), seg: 6, shadow: false });
+}
+
 /** A ladder from `a` up to `b`, its rungs across the horizontal unit vector `side` (x, z). */
 function ladder(s: Shape, a: V3, b: V3, side: readonly [number, number], rungs: number, w = 0.07): void {
   const o = (p: V3, k: number): V3 => [p[0] + side[0] * k, p[1], p[2] + side[1] * k];
@@ -431,8 +447,7 @@ function humHq(): RigDef {
     radar: () => {
       const s = shape();
       s.cyl(0.03, 0.16, DARK, { at: [0, 0.08, 0], seg: 6 });
-      s.lathe([[0.0, 0], [0.12, 0.02], [0.2, 0.07], [0.22, 0.09]], STEEL, { at: [0.05, 0.2, 0], rot: [0, 0, -1.1], seg: 12 });
-      s.cyl(0.008, 0.12, DARK, { at: [0.1, 0.24, 0], rot: [0, 0, -1.1], seg: 4 });
+      dish(s, [0, 0.19, 0], 0.24, 1.0);
       return s;
     },
   }, [{ geo: 'radar', at: [-0.45, 2.1, -0.45], anim: { k: 'spin', axis: 'y', rate: 1.1 } }]);
@@ -579,7 +594,7 @@ function humBarracks(): RigDef {
       s.box(0.12, 0.02, 0.12, GUN, { at: [-0.1, 0.73, 0.4], bevel: 0, shadow: false });
       s.box(0.13, 0.006, 0.018, HAZARD, { at: [-0.1, 0.742, 0.47], bevel: 0, shadow: false });
       s.cyl(0.012, 0.1, DARK, { at: [-0.55, 0.77, -0.15], seg: 5, shadow: false });
-      s.lathe([[0, 0], [0.06, 0.01], [0.09, 0.035]], STEEL, { at: [-0.55, 0.83, -0.15], rot: [0, 0, -0.7], seg: 10, shadow: false });
+      dish(s, [-0.55, 0.83, -0.15], 0.09, 0.7, false);
       railing(s, [-0.62, 0.72, 0.7], [-0.42, 0.72, 0.7], 2);
       railing(s, [-0.24, 0.72, 0.7], [0.3, 0.72, 0.7], 4);
       for (const z of [-0.52, -0.05, 0.38]) s.box(0.48, 0.008, 0.02, GUN, { at: [0.58, 0.611, z], rot: [0, 0, -0.517], bevel: 0, shadow: false });
@@ -599,6 +614,9 @@ function humBarracks(): RigDef {
     },
   }, []);
 }
+
+/** Where the Motor Pool's two roof fans stand along the hangar: midway between its team-coloured ribs, so nothing cuts into a rib. */
+const FAN_X = [-0.62, 0.22] as const;
 
 function humFactory(): RigDef {
   return def(3, 3, 1.7, {
@@ -631,9 +649,9 @@ function humFactory(): RigDef {
         s.box(0.07, 0.7, 0.06, STEEL2, { at: [0.975, 0.45, z], bevel: 0, shadow: false });
         s.box(0.88, 0.006, 0.03, HAZARD, { at: [1.0, 0.123, z], bevel: 0, shadow: false });
       }
-      // Skylights along the hangar roof between the ribs, and shrouds under the roof fans.
+      // Skylights along the hangar roof between the ribs, and a pedestal under each roof fan.
       for (const x of [-1.04, -0.2, 0.64]) s.box(0.3, 0.008, 0.2, GLASS, { at: [x, 1.052, 0.215], rot: [0.75, 0, 0], bevel: 0, shadow: false });
-      for (const x of [-0.7, 0.2]) s.cyl(0.17, 0.03, GUN, { at: [x, 1.24, -0.3], seg: 10, shadow: false });
+      for (const x of FAN_X) s.cyl(0.07, 0.1, GUN, { at: [x, 1.215, -0.3], seg: 8, shadow: false });
       // The hall's side wall beside the workshop: seams and a louvre.
       seams(s, 'z', 0.452, 0.15, 0.9, 0.14, 0.46, 3, 401);
       grille(s, 'z', 0.452, 0.3, 0.3, 0.24, 0.1);
@@ -657,8 +675,8 @@ function humFactory(): RigDef {
       return s;
     },
   }, [
-    { geo: 'fan', at: [-0.7, 1.27, -0.3], anim: { k: 'spin', axis: 'y', rate: 5 } },
-    { geo: 'fan', at: [0.2, 1.27, -0.3], anim: { k: 'spin', axis: 'y', rate: 4.2 } },
+    { geo: 'fan', at: [FAN_X[0], 1.27, -0.3], anim: { k: 'spin', axis: 'y', rate: 5 } },
+    { geo: 'fan', at: [FAN_X[1], 1.27, -0.3], anim: { k: 'spin', axis: 'y', rate: 4.2 } },
   ], { vents: [[-1.2, 1.45, -0.9], [-1.2, 1.45, -1.15]] });
 }
 
@@ -749,9 +767,8 @@ function humLab(): RigDef {
     },
     dish: () => {
       const s = shape();
-      s.lathe([[0.0, 0], [0.1, 0.015], [0.17, 0.05], [0.19, 0.07]], STEEL, { rot: [0, 0, -0.8], seg: 12 });
-      s.cyl(0.006, 0.1, DARK, { at: [0.05, 0.05, 0], rot: [0, 0, -0.8], seg: 4 });
-      s.ball(0.015, RED, { at: [0.08, 0.08, 0], seg: 6, glow: true });
+      dish(s, [0, 0, 0], 0.19, 0.8);
+      s.ball(0.015, RED, { at: [0.158 * Math.sin(0.8), 0.158 * Math.cos(0.8), 0], seg: 6, glow: true });
       return s;
     },
     halo: () => shape().ring(0.3, 0.012, CYAN, { seg: 24, glow: true }).ring(0.24, 0.008, CYAN, { at: [0, 0.06, 0], seg: 24, glow: true }),
