@@ -821,6 +821,9 @@ async function boot(): Promise<void> {
 
   (window as unknown as { __shardfall: unknown }).__shardfall = {
     snapshot: () => sim.curr,
+    /** The newest snapshot's tick and arrival time, and where a unit was last drawn: for measuring the drawing lag (R3D-10). */
+    arrival: () => ({ tick: sim.curr?.tick ?? -1, at: sim.currAt }),
+    drawnAt: (id: number) => view.drawnAt?.(id) ?? null,
     /** Frame rate and the renderer's draws, triangles, CPU time, live particles and debris, for tests and measurement (R3D-29). */
     renderStats: () => ({ fps: frameStats.fps, ...(view.stats?.() ?? { cpuMs: 0, draws: 0, tris: 0, particles: { smoke: 0, glow: 0 }, debris: 0 }) }),
     /** Sound counts (AUD-7, AUD-11) and the last movement and ambience mix (AUD-8, AUD-10), for tests. */

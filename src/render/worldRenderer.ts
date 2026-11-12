@@ -22,6 +22,8 @@ export interface WorldRenderer {
   readout?(): string;
   /** Measured figures for tests and the performance script (R3D-29), if the renderer has any. */
   stats?(): { cpuMs: number; draws: number; tris: number; particles: { smoke: number; glow: number }; debris: number };
+  /** Where a unit was last drawn, in tiles (for measuring the drawing lag, R3D-10). */
+  drawnAt?(id: number): { x: number; z: number } | null;
   /** Screen and ground mapping for the current camera (R3D-5). */
   projector(cam: Camera): Projector;
 }

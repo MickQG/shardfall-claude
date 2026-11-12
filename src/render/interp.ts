@@ -82,6 +82,9 @@ export class DrawClock {
   private t = Number.NaN;
   private last = Number.NaN;
 
+  /** `margin`: how much later than usual a snapshot may arrive before the drawn time waits for it, ms. */
+  constructor(private readonly margin = DRAW_MARGIN_MS) {}
+
   /** Record a snapshot of `tick` that arrived at `at` (ms). A tick before the newest starts afresh (a new game). */
   push(tick: number, units: readonly UnitSnap[], at: number): void {
     const newest = this.hist[this.hist.length - 1];
@@ -100,8 +103,8 @@ export class DrawClock {
   }
 
   /** How far (ticks) the drawn time aims to be behind the newest snapshot's arrival, at a tick length of `tickMs`. */
-  static lead(tickMs: number): number {
-    return (Math.max(tickMs, ARRIVAL_MS) + DRAW_MARGIN_MS) / tickMs;
+  lead(tickMs: number): number {
+    return (Math.max(tickMs, ARRIVAL_MS) + this.margin) / tickMs;
   }
 
   /** Move the drawn time to the frame at `now` (ms), a tick lasting `tickMs` of real time; returns it. */
@@ -109,7 +112,7 @@ export class DrawClock {
     const newest = this.hist[this.hist.length - 1];
     if (!newest) return this.t;
     const oldest = this.hist[0] as (typeof this.hist)[number];
-    const want = newest.tick + (now - newest.at) / tickMs - DrawClock.lead(tickMs);
+    const want = newest.tick + (now - newest.at) / tickMs - this.lead(tickMs);
     const dt = Number.isNaN(this.last) ? 0 : Math.max(0, now - this.last);
     this.last = now;
     if (Number.isNaN(this.t) || want - this.t > 3) this.t = want;

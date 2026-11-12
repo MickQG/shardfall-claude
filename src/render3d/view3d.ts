@@ -1160,6 +1160,12 @@ export class View3D {
     if (this.res?.step(dt * 1000, this.prepMs, this.gpuTimer.ms)) this.fit();
   }
 
+  /** Where a unit was last drawn, in tiles (R3D-10), for measuring the drawing lag. */
+  drawnAt(id: number): { x: number; z: number } | null {
+    const o = this.units.get(id);
+    return o ? { x: o.x, z: o.z } : null;
+  }
+
   /** Render figures for tests and measurement (R3D-29): draws, triangles, CPU time, live particles and debris. */
   stats(): { cpuMs: number; draws: number; tris: number; particles: { smoke: number; glow: number }; debris: number; pr: number; gpuMs: number | null } {
     const i = this.renderer.info.render;
