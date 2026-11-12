@@ -441,7 +441,7 @@ describe('heroes as meat shields', () => {
     for (const [hero, enemy] of [
       ['hum_paladin', ['ali_brute', 9]],
       ['ali_strider', ['hum_tank', 9]],
-      ['hum_paladin', ['ali_spitter', 18]],
+      ['hum_paladin', ['ali_spitter', 20]],
       ['ali_strider', ['hum_rocketeer', 18]],
     ] as [string, Spawn][]) {
       const now = stand(hero, null, enemy).lived;
@@ -449,7 +449,8 @@ describe('heroes as meat shields', () => {
       expect(now, `${hero} against ${enemy[0]}`).toBeGreaterThanOrEqual(before * 1.2);
       gains.push(now / before);
     }
-    // Measured: 1.23 to 1.37, 1.31 on average. At 5000 hit points a lone Paladin would beat eighteen Spitter squads outright.
+    // Measured: 1.26 to 1.39, 1.32 on average. Against eighteen or nineteen Spitter squads a Paladin now survives with the
+    // old stats too (it no longer stutters while they chase it, SIM-10), so twenty is the smallest force that still tells.
     expect(gains.reduce((a, b) => a + b, 0) / gains.length).toBeGreaterThanOrEqual(1.3);
   }, 300_000);
 });
