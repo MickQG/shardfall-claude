@@ -1,8 +1,8 @@
 import { unitDef } from '../data/defs';
 import { crushable, isCrusher } from './crush';
 import { centerOf, FP, isqrt, tileOf } from './fixed';
-import { findPath, isBlocked, type Grid } from './path';
-import { Hv, type State, type Unit } from './state';
+import { distanceField, findPath, isBlocked, type Grid } from './path';
+import { Hv, type GroupRoute, type State, type Unit } from './state';
 
 /** Free tiles around (tx,ty) in deterministic ring order, nearest first. */
 export function ringTiles(g: Grid, tx: number, ty: number, count: number): number[] {
@@ -20,36 +20,100 @@ export function ringTiles(g: Grid, tx: number, ty: number, count: number): numbe
   return out;
 }
 
-/** Queue a path search for `u` toward tile index `goal`. */
-export function orderMove(s: State, u: Unit, goal: number): void {
+/**
+ * Ask for a route for `u` toward tile index `goal` (SIM-10). The unit keeps walking the path it has until the new one is
+ * served, so a moving unit never stops to wait. `urgent` marks an order given by a player or an AI: it is served ahead of
+ * automatic re-routes. A unit stands in the queues at most once; asking again while queued only updates the goal (and
+ * moves the request up front when it has become urgent).
+ */
+export function orderMove(s: State, u: Unit, goal: number, urgent = false, group: GroupRoute | null = null): void {
   u.goal = goal;
-  u.path = [];
   u.waiting = true;
-  s.pathQueue.push(u.id);
+  u.group = group;
+  if (!u.queued) {
+    (urgent ? s.orderQueue : s.pathQueue).push(u.id);
+    u.queued = true;
+    u.urgent = urgent;
+  } else if (urgent && !u.urgent) {
+    const i = s.pathQueue.indexOf(u.id);
+    if (i >= 0) s.pathQueue.splice(i, 1);
+    s.orderQueue.push(u.id);
+    u.urgent = true;
+  }
 }
 
 export function clearOrder(u: Unit): void {
   u.path = [];
   u.goal = -1;
   u.waiting = false;
+  u.group = null;
 }
 
-/** Path searches allowed per tick; the rest wait their turn in FIFO order (keeps tick time flat). */
+/** Group orders of at least this many ground units share one distance field for their route searches (SIM-10). */
+export const GROUP_FIELD_MIN = 8;
+
+/**
+ * Shared route work for a group order sending `units` to tile `to`, or null when there are too few ground units for it
+ * to pay (SIM-10). The starting landmark is the free tile nearest the middle of the group.
+ */
+export function groupRoute(s: State, units: readonly Unit[], to: number | undefined): GroupRoute | null {
+  const g = s.grid;
+  const ground = units.filter((u) => !unitDef(u.kind).air);
+  if (ground.length < GROUP_FIELD_MIN || to === undefined || isBlocked(g, to % g.width, Math.floor(to / g.width))) return null;
+  let x = 0;
+  let y = 0;
+  for (const u of ground) {
+    x += tileOf(u.x);
+    y += tileOf(u.y);
+  }
+  const [from] = ringTiles(g, Math.floor(x / ground.length), Math.floor(y / ground.length), 1);
+  if (from === undefined) return null;
+  return { to, from, rev: -1, fields: null };
+}
+
+/**
+ * Route finding per tick (SIM-10). Searches are served while the nodes expanded this tick stay under PATH_WORK, but never
+ * more than PATHS_MAX of them. At least PATHS_PER_TICK are served whatever they cost, and orders at least ORDERS_PER_TICK,
+ * so that 200 units ordered at once are all routed within 10 ticks.
+ */
+export const PATH_WORK = 8000;
 export const PATHS_PER_TICK = 6;
+export const ORDERS_PER_TICK = 20;
+export const PATHS_MAX = 64;
 
 export function servePathQueue(s: State): void {
+  if (s.orderQueue.length === 0 && s.pathQueue.length === 0) return;
+  const byId = new Map<number, Unit>();
+  for (const u of s.units) byId.set(u.id, u);
+  const work = { expanded: 0 };
   let served = 0;
-  while (served < PATHS_PER_TICK && s.pathQueue.length > 0) {
-    const id = s.pathQueue.shift() as number;
-    const u = s.units.find((x) => x.id === id);
-    if (!u || !u.waiting) continue;
+  let orders = 0;
+  while (served < PATHS_MAX) {
+    const urgent = s.orderQueue.length > 0;
+    const q = urgent ? s.orderQueue : s.pathQueue;
+    if (q.length === 0) break;
+    if (work.expanded >= PATH_WORK && served >= PATHS_PER_TICK && !(urgent && orders < ORDERS_PER_TICK)) break;
+    const id = q.shift() as number;
+    const u = byId.get(id);
+    if (!u) continue;
+    u.queued = false;
+    u.urgent = false;
+    if (!u.waiting) continue; // the order was dropped while it stood in line
     u.waiting = false;
-    if (unitDef(u.kind).air) {
-      u.path = [u.goal];
-    } else {
-      u.path = findPath(s.grid, tileOf(u.x), tileOf(u.y), u.goal % s.grid.width, Math.floor(u.goal / s.grid.width));
+    // The new route starts from the tile the unit stands on now, so it turns onto it without stepping back (SIM-10).
+    const group = u.group;
+    u.group = null;
+    if (unitDef(u.kind).air) u.path = [u.goal];
+    else {
+      // The first of a group to be routed makes the group's distance field (counted against this tick's work).
+      if (group && (group.fields === null || group.rev !== s.gridRev)) {
+        group.fields = [distanceField(s.grid, group.to, work), distanceField(s.grid, group.from, work)];
+        group.rev = s.gridRev;
+      }
+      u.path = findPath(s.grid, tileOf(u.x), tileOf(u.y), u.goal % s.grid.width, Math.floor(u.goal / s.grid.width), work, group?.fields ?? []);
     }
     served++;
+    if (urgent) orders++;
   }
 }
 

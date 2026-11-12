@@ -1,12 +1,12 @@
 import { buildingDef, unitDef } from '../data/defs';
-import { fireSuperweapon, tickCombat } from './combat';
+import { chase, chaseTile, fireSuperweapon, tickCombat } from './combat';
 import { crush, isCrusher } from './crush';
 import { dirOf, dirVec, mayWalk, turnUnit } from './facing';
 import { isLowPower, regrow, tickHaulers, updatePower } from './economy';
 import { centerOf, FP, tileOf } from './fixed';
 import { recomputeVisible, SIGHT_LINGER, VISIBLE, type VisionSource } from './fog';
 import { Hasher } from './hash';
-import { clearOrder, orderMove, ringTiles, separate, servePathQueue, stepUnit } from './movement';
+import { clearOrder, groupRoute, orderMove, ringTiles, separate, servePathQueue, stepUnit } from './movement';
 import { cancel, enqueue, place, sell, setRally, setRepair, tickProduction } from './production';
 import { createState, Hv, STATS_EVERY, type Building, type State } from './state';
 import type { BuildingSnap, Command, GameConfig, SimEvent, Snapshot, SuperweaponTimer } from './types';
@@ -20,7 +20,7 @@ export { BUILD_RANGE, canPlace, type Footprint, type PlacementContext } from './
 export { canQueue } from './production';
 export { QUEUE_MAX, STATS_EVERY } from './state';
 export { maxHpOf, MAX_RANK, rankFor, RANK_XP, squadAlive, unitDamage } from './units';
-export { PATHS_PER_TICK } from './movement';
+export { ORDERS_PER_TICK, PATH_WORK, PATHS_MAX, PATHS_PER_TICK } from './movement';
 
 export const TICKS_PER_SECOND = 20;
 
@@ -114,15 +114,17 @@ function applyCommand(s: State, cmd: Command): void {
     case 'attackmove':
       return moveUnits(s, cmd.player, cmd.units, cmd.x, cmd.y, 'amove');
     case 'attack': {
-      const target = s.units.some((q) => q.id === cmd.target && q.owner !== cmd.player) || s.buildings.some((q) => q.id === cmd.target && q.owner !== cmd.player);
+      const target = s.units.find((q) => q.id === cmd.target && q.owner !== cmd.player) ?? s.buildings.find((q) => q.id === cmd.target && q.owner !== cmd.player);
       if (!target) return;
-      for (const u of s.units) {
-        if (u.owner !== cmd.player || !cmd.units.includes(u.id) || !unitDef(u.kind).weapon) continue;
-        clearOrder(u);
+      const attackers = s.units.filter((u) => u.owner === cmd.player && cmd.units.includes(u.id) && unitDef(u.kind).weapon);
+      const group = groupRoute(s, attackers, chaseTile(s, target));
+      for (const u of attackers) {
         u.auto = false;
         u.mode = 'attack';
         u.target = cmd.target;
         u.amove = -1;
+        // Head for the target at once; a unit on the move keeps going until its new route is ready (SIM-10).
+        chase(s, u, target, true, group);
       }
       return;
     }
@@ -132,15 +134,14 @@ function applyCommand(s: State, cmd: Command): void {
       for (const u of s.units) {
         if (u.owner !== cmd.player || !cmd.units.includes(u.id) || unitDef(u.kind).capacity === undefined) continue;
         u.auto = true;
-        clearOrder(u);
         u.hv = Hv.Idle;
         u.dock = -1;
         const i = tileOf(cmd.y) * s.grid.width + tileOf(cmd.x);
         if ((s.shards[i] as number) > 0) {
-          orderMove(s, u, i);
+          orderMove(s, u, i, true); // keeps rolling until its new route is ready (SIM-10)
           u.hv = Hv.ToField;
           u.home = i; // this is its field now (ECO-8)
-        }
+        } else clearOrder(u);
       }
       return;
     }
@@ -202,9 +203,10 @@ function moveUnits(s: State, player: number, ids: number[], x: number, y: number
     u.mode = mode;
     u.target = -1;
     u.amove = mode === 'amove' ? i : -1;
-    orderMove(s, u, i);
+    orderMove(s, u, i, true);
   }
   const free = ringTiles(g, tileOf(x), tileOf(y), ground.length);
+  const group = groupRoute(s, ground, free[0]);
   for (const u of ground) {
     u.auto = false;
     u.hv = Hv.Idle;
@@ -227,7 +229,7 @@ function moveUnits(s: State, player: number, ids: number[], x: number, y: number
       continue;
     }
     u.amove = mode === 'amove' ? goal : -1;
-    orderMove(s, u, goal);
+    orderMove(s, u, goal, true, group);
   }
 }
 

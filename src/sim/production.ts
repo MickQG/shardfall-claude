@@ -127,6 +127,7 @@ export function removeBuilding(s: State, b: Building): void {
   for (const u of s.units) if (u.target === b.id) u.target = -1;
   for (const o of s.buildings) if (o.target === b.id) o.target = -1;
   s.players.forEach((p) => p.ghosts.delete(b.id));
+  s.orderQueue = s.orderQueue.filter((id) => s.units.some((u) => u.id === id));
   s.pathQueue = s.pathQueue.filter((id) => s.units.some((u) => u.id === id));
   // A destroyed or sold building frees its tiles.
   rebuildBlocked(s);
