@@ -22,7 +22,7 @@ import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type 
 import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
-import { DEFAULT_TARGET, scatterKind, shotScatter, type Offset, type ScatterKind, type ScatterTarget } from './scatter';
+import { DEFAULT_TARGET, scatterKind, shotScatter, wallEnd, type Offset, type ScatterKind, type ScatterTarget } from './scatter';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
 import { applySurface, modelMaterials, setSurface } from './surface3d';
 import { noiseNormalMap, WATER } from './noiseNormal';
@@ -280,6 +280,8 @@ export class View3D {
   /** The target measured for the shot being spawned, and its scatter (reused, AIM-3). */
   private scatterT: ScatterTarget = { ...DEFAULT_TARGET };
   private scatterO: Offset = { x: 0, y: 0, z: 0 };
+  /** The building measured as that target, if it is one. */
+  private scatterB: BuildingObj | null = null;
   private fogTex: THREE.DataTexture | null = null;
   private fogData: Uint8Array | null = null;
   private waterNormal: THREE.Texture | null = null;
@@ -891,10 +893,12 @@ export class View3D {
   private measureTarget(x: number, z: number, air: boolean): number {
     const t = this.scatterT;
     t.air = air;
+    this.scatterB = null;
     if (!air) {
       for (const b of this.buildings.values()) {
         const d = buildingDef(b.kind);
         if (Math.abs(x - b.x) <= d.w / 2 && Math.abs(z - b.z) <= d.h / 2) {
+          this.scatterB = b;
           t.halfX = d.w / 2;
           t.halfZ = d.h / 2;
           t.height = b.def.height;
@@ -928,9 +932,16 @@ export class View3D {
   private shotEnd(src: number, shot: number, figure: number, kind: ScatterKind, x: number, base: number, z: number, dirX: number, dirZ: number): THREE.Vector3 {
     const t = this.scatterT;
     const o = shotScatter(src, shot, figure, t, kind, this.scatterO, dirX, dirZ);
-    const ex = x + o.x;
-    const ez = z + o.z;
+    let ex = x + o.x;
+    let ez = z + o.z;
     let ey = base + t.aimY + o.y;
+    const b = this.scatterB;
+    if (b && kind === 'body') {
+      // On a building the shot ends on the face toward the shooter, not inside the model (AIM-3).
+      const w = wallEnd(x - dirX, z - dirZ, ex, ez, b.x, b.z, t.halfX, t.halfZ, o);
+      ex = w.x;
+      ez = w.z;
+    }
     // Never below the ground, even where it rises under the scattered point.
     if (!t.air) ey = Math.max(ey, this.groundAt(ex, ez) + 0.03);
     return new THREE.Vector3(ex, ey, ez);

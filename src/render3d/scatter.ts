@@ -107,3 +107,44 @@ export function shotScatter(shooter: number, shot: number, figure: number, t: Sc
   }
   return out;
 }
+
+/** The segment's entry and exit fractions, narrowed by each `slab` (reused, so a shot allocates nothing). */
+const slabT: [number, number] = [0, 1];
+
+/** Narrow `slabT` to where `s + d * t` lies in [lo, hi]; false when it never does. */
+function slab(s: number, d: number, lo: number, hi: number): boolean {
+  if (Math.abs(d) < 1e-9) return s >= lo && s <= hi;
+  const a = (lo - s) / d;
+  const b = (hi - s) / d;
+  slabT[0] = Math.max(slabT[0], Math.min(a, b));
+  slabT[1] = Math.min(slabT[1], Math.max(a, b));
+  return true;
+}
+
+/** How far inside a building's footprint edge a shot at it ends, tiles (AIM-3). */
+export const WALL_MARGIN = 0.05;
+
+/**
+ * A shot at a building ends on the face toward the shooter (AIM-3): the point where the line from the shooter
+ * (`sx`, `sz`) to the scattered point (`px`, `pz`) first enters the building's footprint (centre `cx`, `cz`, half
+ * extents `hx`, `hz`), drawn in by `WALL_MARGIN`. A shooter on or inside the footprint keeps the scattered point.
+ * Writes x and z to `out` (its y is left alone).
+ */
+export function wallEnd(sx: number, sz: number, px: number, pz: number, cx: number, cz: number, hx: number, hz: number, out: Offset): Offset {
+  out.x = px;
+  out.z = pz;
+  if (Math.abs(sx - cx) <= hx && Math.abs(sz - cz) <= hz) return out;
+  const ax = Math.max(0, hx - WALL_MARGIN);
+  const az = Math.max(0, hz - WALL_MARGIN);
+  const dx = px - sx;
+  const dz = pz - sz;
+  // Slabs: the part of the segment within each axis's band.
+  slabT[0] = 0;
+  slabT[1] = 1;
+  if (!slab(sx, dx, cx - ax, cx + ax) || !slab(sz, dz, cz - az, cz + az)) return out;
+  const t0 = slabT[0];
+  if (t0 > slabT[1]) return out;
+  out.x = sx + dx * t0;
+  out.z = sz + dz * t0;
+  return out;
+}

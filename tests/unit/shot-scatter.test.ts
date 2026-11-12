@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { AREA_SCATTER, BODY_SPREAD, scatterKind, shotScatter, type Offset, type ScatterTarget } from '../../src/render3d/scatter';
+import { AREA_SCATTER, BODY_SPREAD, scatterKind, shotScatter, WALL_MARGIN, wallEnd, type Offset, type ScatterTarget } from '../../src/render3d/scatter';
 import type { WeaponLook } from '../../src/render3d/rig';
 
 const tank: ScatterTarget = { halfX: 0.45, halfZ: 0.45, height: 0.6, aimY: 0.2, air: false };
 const depot: ScatterTarget = { halfX: 1.5, halfZ: 1, height: 1.4, aimY: 0.56, air: false };
 const flyer: ScatterTarget = { halfX: 0.4, halfZ: 0.4, height: 0.4, aimY: 0, air: true };
+const near = (o: Offset, x: number, z: number): void => {
+  expect(o.x).toBeCloseTo(x, 9);
+  expect(o.z).toBeCloseTo(z, 9);
+};
 const at = (shooter: number, shot: number, figure: number, t: ScatterTarget, look: WeaponLook | 'superweapon' = 'rifle', dx = 0, dz = 0): Offset =>
   shotScatter(shooter, shot, figure, t, scatterKind(look), { x: 0, y: 0, z: 0 }, dx, dz);
 
@@ -103,6 +107,43 @@ describe('shot scatter (AIM-3)', () => {
     // On a small target the blast stays within its body too.
     const small: ScatterTarget = { halfX: 0.15, halfZ: 0.15, height: 0.3, aimY: 0.18, air: false };
     for (let s = 0; s < 50; s++) expect(Math.hypot(at(1, s, 0, small, 'howitzer').x, at(1, s, 0, small, 'howitzer').z)).toBeLessThanOrEqual(BODY_SPREAD * 0.15 + 1e-9);
+  });
+
+  it('AIM-3: a shot at a building ends on the face toward the shooter, from each side and a diagonal', () => {
+    // Footprint centred on (10, 20), 3 wide and 2 deep.
+    const end = (sx: number, sz: number, px: number, pz: number): Offset => wallEnd(sx, sz, px, pz, 10, 20, 1.5, 1, { x: 0, y: 7, z: 0 });
+    const m = WALL_MARGIN;
+    near(end(0, 20.3, 10.2, 20.3), 8.5 + m, 20.3); // from the west
+    near(end(20, 19.8, 9.9, 19.8), 11.5 - m, 19.8); // from the east
+    near(end(10.4, 10, 10.4, 20.1), 10.4, 19 + m); // from the north
+    near(end(9.7, 30, 9.7, 19.9), 9.7, 21 - m); // from the south
+    // A diagonal enters through whichever wall it meets first, on the line to the scattered point.
+    const d = end(5, 15, 10, 20);
+    expect(d.x).toBeCloseTo(9 + m, 9);
+    expect(d.z).toBeCloseTo(19 + m, 9);
+    // The y is left alone.
+    expect(d.y).toBe(7);
+  });
+
+  it('AIM-3: a shooter on or inside a building footprint keeps the scattered point', () => {
+    expect(wallEnd(10, 20, 10.5, 20.4, 10, 20, 1.5, 1, { x: 0, y: 0, z: 0 })).toMatchObject({ x: 10.5, z: 20.4 });
+    expect(wallEnd(8.5, 20, 10.5, 20.4, 10, 20, 1.5, 1, { x: 0, y: 0, z: 0 })).toMatchObject({ x: 10.5, z: 20.4 });
+  });
+
+  it('AIM-3: building shots always end on or inside the footprint and above the ground, and walk across the face', () => {
+    const hits: number[] = [];
+    for (let s = 0; s < 200; s++) {
+      for (const [sx, sz] of [[0, 20], [10, 40], [25, 5], [10, 20.5]] as const) {
+        const o = at(31, s, 0, depot, 'cannon', 10 - sx, 20 - sz);
+        const w = wallEnd(sx, sz, 10 + o.x, 20 + o.z, 10, 20, depot.halfX, depot.halfZ, { x: 0, y: 0, z: 0 });
+        expect(Math.abs(w.x - 10)).toBeLessThanOrEqual(depot.halfX + 1e-9);
+        expect(Math.abs(w.z - 20)).toBeLessThanOrEqual(depot.halfZ + 1e-9);
+        expect(depot.aimY + o.y).toBeGreaterThan(0);
+        if (sx === 0) hits.push(w.z);
+      }
+    }
+    // From the west, successive shots land at many points along the west face.
+    expect(Math.max(...hits) - Math.min(...hits)).toBeGreaterThan(0.8);
   });
 
   it('AIM-3: a body shot spreads less along the line of fire, so tracers end on the near face', () => {
