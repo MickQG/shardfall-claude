@@ -76,14 +76,15 @@ const watch = match ? new OnlineWatch(match, { end: (why, tick) => endOnline(why
 // Held at its first tick until the view is drawn and the controls are live (UI-12).
 const sim = new SimClient(cfg, scenario || match ? [] : [{ player: 1, difficulty: level, personality }], { viewer: PLAYER, net: watch?.link, hold: true });
 watch?.attach(sim);
-// three.js loads only for the 3D view, so classic sessions do not download it.
-const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D() : new GameView();
 const frameStats = new FrameStats();
 // The frame-time readout is for the showcase and for measuring (`?fps`), not for normal games.
 const showFrameTime = scenario === 'showcase' || scenario === 'brawl' || params.has('fps');
 const selection = new Selection();
 const hud = createHud(myFaction);
 const settings = loadSettings(safeStorage(), matchMedia('(prefers-reduced-motion: reduce)').matches);
+// three.js loads only for the 3D view, so classic sessions do not download it. Its canvas is multisampled only for a
+// match that starts on Low (PERF-5).
+const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D({ msaa: settings.quality === 'low' }) : new GameView();
 const audio = new AudioEngine();
 audio.setMuted(settings.muted);
 audio.setVolume(settings.volume);

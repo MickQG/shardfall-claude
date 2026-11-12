@@ -29,7 +29,7 @@ import { unexploredMask } from './unexplored';
 import { RallyMarker } from './rally3d';
 import { GpuTimer } from './gpuTimer';
 import { PR_MAX, PR_MAX_LOW, PR_MIN, ResolutionGovernor } from './resolution';
-import { addEnvironment, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights, snapShadowTarget, SUN_OFFSET } from './lighting3d';
+import { addEnvironment, canvasMsaa, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights, snapShadowTarget, SUN_OFFSET } from './lighting3d';
 
 /**
  * How damage shows on a building at health fraction `hp` (R3D-18): soot darkens it steadily; below half it throws
@@ -340,11 +340,16 @@ export class View3D {
   private res: ResolutionGovernor | null = null;
   private gpuTimer: GpuTimer;
 
-  constructor() {
+  /**
+   * `msaa`: multisample the canvas, for a match that starts on Low (its only edge smoothing). On High the last pass is
+   * FXAA drawing one full-screen quad, which multisampling cannot smooth further, so the canvas is not multisampled and
+   * its samples and resolve cost nothing (PERF-5). A switch of preset mid-match keeps the canvas it started with.
+   */
+  constructor(opts: { msaa?: boolean } = {}) {
     // Panels, wear and creases on units and buildings, from the shader alone (R3D-23); compiled with the rest in prewarm.
     applySurface(this.metalMat, 'metal');
     applySurface(this.organicMat, 'organic');
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ antialias: canvasMsaa(opts.msaa === true), powerPreference: 'high-performance' });
     configureRenderer(this.renderer);
     // The sun's shadows are redrawn every other frame (PERF-1): at 60 fps a shadow trailing its unit by one frame is invisible.
     this.renderer.shadowMap.autoUpdate = false;
