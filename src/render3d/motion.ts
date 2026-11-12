@@ -58,15 +58,12 @@ export interface Follow {
   vz: number;
 }
 
-/**
- * How far behind (s) a drawn unit trails the position it is drawn at (R3D-10). The drawn time already runs evenly (see
- * DrawClock), so this only rounds off what is left: 0.02 is as smooth, 0.03 keeps a margin for uneven frames.
- */
-export const SMOOTH_TIME = 0.03;
+/** How far behind (s) a drawn unit trails its simulated position (R3D-10): enough to hide uneven snapshot timing. */
+export const SMOOTH_TIME = 0.12;
 
 /**
- * Move a drawn position toward the target (`tx`, `tz`) with a critically damped spring, in place (R3D-10), riding
- * through what unevenness is left after the drawn time (frames of uneven length, a late snapshot). A target more than
+ * Move a drawn position toward the target (`tx`, `tz`) with a critically damped spring, in place (R3D-10). Snapshots
+ * arrive unevenly, so the interpolated position stalls and jumps; the spring rides through both. A target more than
  * `snap` tiles away is taken at once.
  */
 export function follow(f: Follow, tx: number, tz: number, dt: number, smoothTime = SMOOTH_TIME, snap = 3): void {
