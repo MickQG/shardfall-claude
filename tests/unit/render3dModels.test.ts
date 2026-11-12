@@ -7,7 +7,7 @@ import { BUILDING_RIGS, crystalShape, DOCK_RIGS, dockFrame, dockIntake, dockMode
 import { CombatFx, LOOKS, scorchTexture, shotDuration } from '../../src/render3d/fx3d';
 import { Instancer } from '../../src/render3d/instancer';
 import { Shape } from '../../src/render3d/kit';
-import { angleDiff, bodyPose, flightAfterWait, follow, gaitPhase, MAX_AIM_WAIT, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, type Follow } from '../../src/render3d/motion';
+import { angleDiff, bodyPose, flightAfterWait, follow, gaitPhase, MAX_AIM_WAIT, readyToFire, restingMotion, SQUAD_SMOOTH_TIME, stepMotion, TURRET_RATE, turnToward, type Follow } from '../../src/render3d/motion';
 import { muzzleCount, poseRig, recoil, rigTree, type RigDef, type RigPose } from '../../src/render3d/rig';
 import { contourWarp, EDGE_AMP, groundPatches, groundTexture, LEVEL_H, ROCK_AMP, rockOffset, scatter, shardCover, strataAt, terrainMeshes, TEXELS, waterAlpha, wetness } from '../../src/render3d/terrain3d';
 import { kneels, newMember, SQUAD_SPREAD, stepSquad, type Member, type SquadFrame } from '../../src/render3d/squad3d';
@@ -635,7 +635,7 @@ describe('living squads', () => {
       const gap = [0, 0, 0];
       for (let k = 0; k < 60 * 5; k++) {
         const tx = 10 + (speed * Math.min(k, 120)) / 60;
-        follow(sq, tx, 10, 1 / 60);
+        follow(sq, tx, 10, 1 / 60, SQUAD_SMOOTH_TIME);
         const fr: SquadFrame = { ...base, x: sq.x, z: sq.z, vx: sq.vx, vz: sq.vz, t: (k * 1000) / 60 };
         stepSquad(members, fr);
         members.forEach((m, i) => {

@@ -1,5 +1,6 @@
 import { Lockstep } from '../net/lockstep';
 import type { NetMsg } from '../net/protocol';
+import { DrawClock } from '../render/interp';
 import type { Command, GameConfig, SimEvent, Snapshot } from '../sim';
 import type { AiSetup } from './runner';
 import type { HashReport, ToWorker } from './worker';
@@ -20,6 +21,8 @@ export class SimClient {
   curr: Snapshot | null = null;
   /** performance.now() timestamp when `curr` arrived. */
   currAt = 0;
+  /** Where units are drawn between the snapshots received (R3D-10). */
+  readonly draw = new DrawClock();
   /** Effects from every received tick, drained by the renderer. */
   events: SimEvent[] = [];
 
@@ -44,6 +47,7 @@ export class SimClient {
       this.prev = this.curr ?? d;
       this.curr = d;
       this.currAt = performance.now();
+      this.draw.push(d.tick, d.units, this.currAt);
       if (d.events.length > 0) this.events.push(...d.events);
       this.lockstep?.progress(d.tick);
     };

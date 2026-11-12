@@ -209,10 +209,11 @@ function centerOnUnits(units: readonly { x: number; y: number }[]): void {
 /** One picking context per query: units are interpolated to the same instant for hover, right-click and left-click. */
 function hitContext(snap: Snapshot): HitContext {
   const proj = view.projector(cam);
-  const alpha = (performance.now() - sim.currAt) / tickMsAt(speed);
+  // The units where the last frame drew them (R3D-10).
+  const drawn = sim.draw.units();
   return {
     player: PLAYER,
-    units: toScreenUnits(interpolate(sim.prev?.units ?? snap.units, snap.units, alpha), proj),
+    units: toScreenUnits(drawn.length > 0 ? drawn : interpolate(snap.units, snap.units, 1), proj),
     buildings: snap.buildings,
     // The hit-test works in isometric pixels: map the ground point under the pointer back into them.
     toWorld: (sx, sy) => {
@@ -382,8 +383,9 @@ function frame(prevTime: number): (t: number) => void {
       if (selectedBuilding !== null && !curr.buildings.some((b) => b.id === selectedBuilding)) selectedBuilding = null;
       if (placing && !placementLive(placing, curr.buildings, PLAYER)) placing = null;
       if (targeting && !curr.buildings.some((b) => b.id === targeting?.building && b.owner === PLAYER)) targeting = null;
-      const alpha = (performance.now() - sim.currAt) / tickMsAt(speed);
-      const ru = interpolate(sim.prev.units, curr.units, alpha);
+      // Units are drawn at a steadily running time a little behind the newest snapshot (R3D-10).
+      sim.draw.advance(performance.now(), tickMsAt(speed));
+      const ru = sim.draw.units();
       audio.lean = settings.quality === 'low';
       view.update(ru, drawCam, { selectedUnits: new Set(selection.selected), selectedBuilding, placement: placementPreview(curr), viewer: PLAYER, rally: selectedBuilding === null ? null : ((b) => (b ? rallyLine(b, selectedBuilding) : null))(curr.buildings.find((x) => x.id === selectedBuilding)), time: t, fx: effectsEnabled(settings), acks: acks.markers(performance.now(), (id) => locate(id, ru, curr)), flash: acks.flashing(performance.now()) }, curr);
       if (curr.tick !== lastAlertTick) {
