@@ -9,7 +9,7 @@ import { SimClient } from './host/client';
 import { activeMatch } from './net/lobby';
 import { OnlineWatch } from './net/watch';
 import { centerOnTile, clampCamera, mapBounds, pan, panStep, zoomAt, type Camera } from './render/camera';
-import { GameView, type PlacementPreview } from './render/gameView';
+import type { PlacementPreview } from './render/gameView';
 import type { WorldRenderer } from './render/worldRenderer';
 import { interpolate, type RenderUnit } from './render/interp';
 import { tileToScreen } from './render/iso';
@@ -82,9 +82,9 @@ const showFrameTime = scenario === 'showcase' || scenario === 'brawl' || params.
 const selection = new Selection();
 const hud = createHud(myFaction);
 const settings = loadSettings(safeStorage(), matchMedia('(prefers-reduced-motion: reduce)').matches);
-// three.js loads only for the 3D view, so classic sessions do not download it. Its canvas is multisampled only for a
+// Each view loads only when it is chosen (PERF-6): three.js for 3D sessions, the classic view and PixiJS for classic ones. The 3D canvas is multisampled only for a
 // match that starts on Low (PERF-5).
-const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D({ msaa: settings.quality === 'low' }) : new GameView();
+const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D({ msaa: settings.quality === 'low' }) : new (await import('./render/gameView')).GameView();
 const audio = new AudioEngine();
 audio.setMuted(settings.muted);
 audio.setVolume(settings.volume);
