@@ -82,6 +82,12 @@ const showFrameTime = scenario === 'showcase' || scenario === 'brawl' || params.
 const selection = new Selection();
 const hud = createHud(myFaction);
 const settings = loadSettings(safeStorage(), matchMedia('(prefers-reduced-motion: reduce)').matches);
+// The HUD is hidden for the fly-in before anything is awaited (CAM-5): were the class added after a view had loaded, a
+// frame could show the HUD first and it would then fade out instead of never showing.
+document.body.classList.add('flyin');
+const flyStyle = document.createElement('style');
+flyStyle.textContent = FLY_HUD_CSS;
+document.head.appendChild(flyStyle);
 // Each view loads only when it is chosen (PERF-6): three.js for 3D sessions, the classic view and PixiJS for classic ones. The 3D canvas is multisampled only for a
 // match that starts on Low (PERF-5).
 const view: WorldRenderer = use3d ? new (await import('./render3d/view3d')).View3D({ msaa: settings.quality === 'low' }) : new (await import('./render/gameView')).GameView();
@@ -126,10 +132,6 @@ let flyHold: number | null = null;
 /** The camera drawn this frame: the sweep's pose during the fly-in, otherwise the player's camera. */
 let drawCam: Camera = { x: 0, y: 0, zoom: 1 };
 // The HUD stays hidden until the fly-in ends, then fades in (CAM-5); a reduced-motion or classic fly-in fades the view in from black (CAM-8).
-document.body.classList.add('flyin');
-const flyStyle = document.createElement('style');
-flyStyle.textContent = FLY_HUD_CSS;
-document.head.appendChild(flyStyle);
 const flyFade = document.createElement('div');
 flyFade.id = 'flyfade';
 flyFade.style.cssText = 'position:fixed;inset:0;z-index:20;background:#000;pointer-events:none;opacity:1';
