@@ -22,6 +22,7 @@ import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type 
 import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { UNIT_RIGS } from './units3d';
+import { DEFAULT_TARGET, scatterKind, shotScatter, type Offset, type ScatterKind, type ScatterTarget } from './scatter';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
 import { applySurface, modelMaterials, setSurface } from './surface3d';
 import { noiseNormalMap, WATER } from './noiseNormal';
@@ -274,6 +275,11 @@ export class View3D {
   /** Missiles of a Paladin's salvo waiting to leave their pods (HERO-7). */
   private missiles: { at: number; src: UnitObj; side: number; to: THREE.Vector3; flightMs: number; elite: boolean }[] = [];
   private missileTurn = 0;
+  /** Shots each shooter has fired so far, by id: picks where each lands on its target (AIM-3). Render state only. */
+  private shotCount = new Map<number, number>();
+  /** The target measured for the shot being spawned, and its scatter (reused, AIM-3). */
+  private scatterT: ScatterTarget = { ...DEFAULT_TARGET };
+  private scatterO: Offset = { x: 0, y: 0, z: 0 };
   private fogTex: THREE.DataTexture | null = null;
   private fogData: Uint8Array | null = null;
   private waterNormal: THREE.Texture | null = null;
@@ -778,24 +784,34 @@ export class View3D {
       const src = this.units.get(e.src) ?? this.buildings.get(e.src) ?? null;
       const [sx, sz] = P(e.x, e.y);
       const [tx, tz] = P(e.tx, e.ty);
-      const to = new THREE.Vector3(tx, e.air ? AIR_Y + 0.05 : this.targetHeight(tx, tz), tz);
+      // Each shot ends at its own point on the target (AIM-3): the target is measured once here, and the shooter's
+      // shot count picks the point, so a replayed fight scatters the same way.
+      const base = this.measureTarget(tx, tz, e.air);
+      const shot = this.shotCount.get(e.src) ?? 0;
+      this.shotCount.set(e.src, shot + 1);
+      const dx = tx - sx;
+      const dz = tz - sz;
       if (e.weapon === 'missile' && src && isUnit(src)) {
         // A salvo (HERO-7): the pods open, then each missile leaves its pod a beat after the last and arcs to its landing.
         if (!e.delay) src.podSince = now;
         const lead = POD_OPEN_MS;
+        const to = this.shotEnd(e.src, shot, 0, scatterKind('missile'), tx, base, tz, dx, dz);
         this.missiles.push({ at: now + lead + (e.delay ?? 0) * this.msPerTick, src, side: this.missileTurn++ % 2, to, flightMs: Math.max(80, e.flight * this.msPerTick - lead), elite: e.elite === true });
         return;
       }
       if (src) {
-        src.aim = Math.atan2(tz - sz, tx - sx);
+        // The gun still turns to the middle of the target (AIM-1); only where the shot ends is scattered.
+        src.aim = Math.atan2(dz, dx);
         src.aimHold = now + 900;
       }
       const look = src?.def.weapon ?? (e.weapon === 'claw' || e.weapon === 'bite' ? 'claw' : e.weapon === 'rocket' ? 'rocket' : e.weapon === 'blast' ? 'howitzer' : 'rifle');
+      // A sim splash weapon fired by something drawn with a body look still lands where its damage does.
+      const kind = e.weapon === 'blast' ? scatterKind('howitzer') : e.weapon === 'claw' || e.weapon === 'bite' ? scatterKind('claw') : scatterKind(look);
       if (src && isUnit(src)) {
-        // Every standing squad member fires from its own weapon, a beat apart.
-        for (let i = 0; i < src.alive; i++) this.pending.push({ at: now + i * 55, src, figure: i, e, look, to: to.clone().add(new THREE.Vector3(((i * 37) % 7) / 40 - 0.08, 0, ((i * 53) % 5) / 30 - 0.07)) });
+        // Every standing squad member fires from its own weapon, a beat apart, at its own point.
+        for (let i = 0; i < src.alive; i++) this.pending.push({ at: now + i * 55, src, figure: i, e, look, to: this.shotEnd(e.src, shot, i, kind, tx, base, tz, dx, dz) });
         if (look === 'claw') src.lunge = now;
-      } else this.pending.push({ at: now, src, figure: 0, e, look, to });
+      } else this.pending.push({ at: now, src, figure: 0, e, look, to: this.shotEnd(e.src, shot, 0, kind, tx, base, tz, dx, dz) });
       return;
     }
     if (e.t === 'boom') {
@@ -867,13 +883,57 @@ export class View3D {
     }
   }
 
-  /** Height to aim at on a ground target: a building's middle, else a unit's chest. */
-  private targetHeight(x: number, z: number): number {
-    for (const b of this.buildings.values()) {
-      const d = buildingDef(b.kind);
-      if (Math.abs(x - b.x) <= d.w / 2 && Math.abs(z - b.z) <= d.h / 2) return b.y + Math.min(0.7, b.def.height * 0.4);
+  /**
+   * The target at a shot's aim point, measured into `this.scatterT` (AIM-3): a building whose footprint holds the point,
+   * else the nearest drawn unit within reach (an aircraft for an air shot), else a small default. Returns the target's
+   * base height; the aim point is `scatterT.aimY` above it: a building's middle, a unit's chest, an aircraft's body.
+   */
+  private measureTarget(x: number, z: number, air: boolean): number {
+    const t = this.scatterT;
+    t.air = air;
+    if (!air) {
+      for (const b of this.buildings.values()) {
+        const d = buildingDef(b.kind);
+        if (Math.abs(x - b.x) <= d.w / 2 && Math.abs(z - b.z) <= d.h / 2) {
+          t.halfX = d.w / 2;
+          t.halfZ = d.h / 2;
+          t.height = b.def.height;
+          t.aimY = Math.min(0.7, b.def.height * 0.4);
+          return b.y;
+        }
+      }
     }
-    return this.groundAt(x, z) + 0.2;
+    let best: UnitObj | null = null;
+    let bestD = Infinity;
+    for (const u of this.units.values()) {
+      if ((u.def.move === 'air') !== air) continue;
+      const dd = Math.hypot(u.x - x, u.z - z);
+      if (dd < bestD && dd <= u.ringR + 0.6) {
+        best = u;
+        bestD = dd;
+      }
+    }
+    const h = best ? best.def.height * (best.def.scale ?? 1) : DEFAULT_TARGET.height;
+    t.halfX = t.halfZ = best ? best.ringR : DEFAULT_TARGET.halfX;
+    t.height = h;
+    if (air) {
+      t.aimY = 0;
+      return AIR_Y + 0.05;
+    }
+    t.aimY = Math.min(0.2, h * 0.6);
+    return this.groundAt(x, z);
+  }
+
+  /** Where shot `shot` from `src` (squad figure `figure`) ends: the aim point `base` + `scatterT.aimY`, scattered (AIM-3). */
+  private shotEnd(src: number, shot: number, figure: number, kind: ScatterKind, x: number, base: number, z: number, dirX: number, dirZ: number): THREE.Vector3 {
+    const t = this.scatterT;
+    const o = shotScatter(src, shot, figure, t, kind, this.scatterO, dirX, dirZ);
+    const ex = x + o.x;
+    const ez = z + o.z;
+    let ey = base + t.aimY + o.y;
+    // Never below the ground, even where it rises under the scattered point.
+    if (!t.air) ey = Math.max(ey, this.groundAt(ex, ez) + 0.03);
+    return new THREE.Vector3(ex, ey, ez);
   }
 
   /** Fire queued shots from the muzzles, now that this frame's rig matrices are current (R3D-9). */
@@ -1259,6 +1319,8 @@ export class View3D {
       }
       // Gone (dead and finished, or out of sight); model geometry stays cached.
       this.units.delete(id);
+      // A dead shooter fires no more (one out of sight keeps its count, so its scatter carries on when it returns).
+      if (o.dying) this.shotCount.delete(id);
     }
   }
 
@@ -1589,6 +1651,7 @@ export class View3D {
       o.ring.geometry.dispose();
       (o.ring.material as THREE.Material).dispose();
       this.buildings.delete(id);
+      if (o.dying !== null) this.shotCount.delete(id);
     }
   }
 
