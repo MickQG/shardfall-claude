@@ -19,6 +19,19 @@ export enum Hv {
   Queue = 6,
 }
 
+/**
+ * One group order's shared route work (SIM-10): distance fields from the group's destination and from where it sets out,
+ * made when the first of its units is routed and used by the rest as landmarks. `rev` is the grid revision they were
+ * made on; they are made again if the grid has changed since (a building placed or destroyed).
+ */
+export interface GroupRoute {
+  /** Destination and starting tiles (free tiles). */
+  to: number;
+  from: number;
+  rev: number;
+  fields: Int32Array[] | null;
+}
+
 export interface Unit {
   id: number;
   owner: number;
@@ -30,8 +43,14 @@ export interface Unit {
   path: number[];
   /** Assigned destination tile index, or -1. */
   goal: number;
-  /** True while a path request for `goal` is queued. */
+  /** True while a route to `goal` is wanted; the unit keeps walking its old `path`, if any, until it is served (SIM-10). */
   waiting: boolean;
+  /** True while the unit's id stands in a route queue (at most once, SIM-10); may outlive `waiting` if the order is dropped. */
+  queued: boolean;
+  /** Its route request is for an order given by a player or an AI, served ahead of automatic re-routes (SIM-10). */
+  urgent: boolean;
+  /** The group order it was given, whose shared distance field speeds up its route search (SIM-10); null otherwise. */
+  group: GroupRoute | null;
   /** Haulers: run the harvest loop on their own. */
   auto: boolean;
   hv: Hv;
@@ -145,6 +164,11 @@ export interface State {
   shardSeed: Uint16Array;
   nextId: number;
   pending: Command[];
+  /** Route requests for orders given by a player or an AI, first come first served (SIM-10). */
+  orderQueue: number[];
+  /** Bumped whenever the pathing grid changes, so stale distance fields are not used (SIM-10). */
+  gridRev: number;
+  /** Automatic route requests (chasing, attack-move, haulers, rally), served after `orderQueue` (SIM-10). */
   pathQueue: number[];
   projectiles: Projectile[];
   strikes: Strike[];
@@ -185,6 +209,8 @@ export function createState(cfg: GameConfig): State {
     shardSeed: shards.slice(),
     nextId: 1,
     pending: [],
+    orderQueue: [],
+    gridRev: 0,
     pathQueue: [],
     projectiles: [],
     strikes: [],
@@ -201,7 +227,7 @@ export function createState(cfg: GameConfig): State {
 export function addUnit(s: State, owner: number, kind: string, x: number, y: number): Unit {
   const d = unitDef(kind);
   const u: Unit = {
-    id: s.nextId++, owner, kind, x, y, hp: d.hp, path: [], goal: -1, waiting: false,
+    id: s.nextId++, owner, kind, x, y, hp: d.hp, path: [], goal: -1, waiting: false, queued: false, urgent: false, group: null,
     auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, dock: -1, queuedAt: 0, dockTries: 0, home: -1, sinceHurt: 1000, target: -1, cooldown: 0, cooldown2: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
     // A slow turner starts facing the middle of the map, where the fight is (HERO-5).
     facing: d.turnRate ? Math.max(0, dirOf(((s.grid.width * FP) >> 1) - x, ((s.grid.height * FP) >> 1) - y)) : 0,
@@ -223,6 +249,7 @@ export function addBuilding(s: State, owner: number, kind: string, tx: number, t
 
 /** Recompute the pathing grid from terrain plus building footprints. */
 export function rebuildBlocked(s: State): void {
+  s.gridRev++;
   const { width, height, blocked } = s.grid;
   const terrain = s.cfg.map.blocked;
   for (let i = 0; i < width * height; i++) blocked[i] = terrain?.[i] ? 1 : 0;

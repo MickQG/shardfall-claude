@@ -5,7 +5,7 @@ import { clearOrder, orderMove } from './movement';
 import { isLowPower } from './economy';
 import { faces } from './facing';
 import { removeBuilding } from './production';
-import type { Building, State, Unit } from './state';
+import type { Building, GroupRoute, State, Unit } from './state';
 import { ELITE_REPAIR, gainXp, MAX_RANK, maxHpOf, missileDamage, unitDamage } from './units';
 
 type Entity = Unit | Building;
@@ -183,12 +183,24 @@ function acquire(s: State, owner: number, x: number, y: number, w: WeaponDef, re
   return best;
 }
 
-function chase(s: State, u: Unit, t: Entity): void {
+/** The tile a unit chasing `t` heads for: the one it stands on (a building's, its middle). */
+export function chaseTile(s: State, t: Entity): number {
   const p = pos(t);
   const tx = Math.max(0, Math.min(s.grid.width - 1, tileOf(p.x)));
   const ty = Math.max(0, Math.min(s.grid.height - 1, tileOf(p.y)));
-  orderMove(s, u, ty * s.grid.width + tx);
+  return ty * s.grid.width + tx;
 }
+
+/** Ask for a route toward `t`; `urgent` when an attack order sends it (SIM-10). */
+export function chase(s: State, u: Unit, t: Entity, urgent = false, group: GroupRoute | null = null): void {
+  orderMove(s, u, chaseTile(s, t), urgent, group);
+}
+
+/**
+ * Whether a chasing unit should ask for a new route (SIM-10): when its path ran out, or, checked every 10 ticks, when the
+ * target has moved to another tile than the one it is routed (or waiting to be routed) to.
+ */
+const rechase = (s: State, u: Unit, t: Entity): boolean => (u.path.length === 0 && !u.waiting) || ((s.tick + u.id) % 10 === 0 && u.goal !== chaseTile(s, t));
 
 /**
  * A crusher on the move keeps shooting at whatever comes into range without stopping (BAL-11): it guns enemies down on
@@ -262,7 +274,7 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
   if (def.weapon2) firePod(s, u, def.weapon2, t);
   // In range but behind a building: move for a clear shot instead of firing through it (CMB-14).
   if (d <= rangeFp(w) && !lineOfFire(s, occ, u.x, u.y, t, w, !!def.air)) {
-    if ((s.tick + u.id) % 10 === 0 || (u.path.length === 0 && !u.waiting)) chase(s, u, t);
+    if (rechase(s, u, t)) chase(s, u, t);
     return;
   }
   if (d <= rangeFp(w)) {
@@ -278,7 +290,7 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
   } else if (u.mode === 'idle' && d > rangeFp(w) + 6 * FP) {
     u.target = -1;
     clearOrder(u);
-  } else if ((s.tick + u.id) % 10 === 0 || (u.path.length === 0 && !u.waiting)) {
+  } else if (rechase(s, u, t)) {
     chase(s, u, t);
   }
 }
