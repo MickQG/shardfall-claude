@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { describe, expect, it } from 'vitest';
+import { CombatFx, LIGHT_POOL } from '../../src/render3d/fx3d';
 import { canvasMsaa, configureRenderer, createComposer } from '../../src/render3d/lighting3d';
 import { FinishPass, GlowPass, outputDefines } from '../../src/render3d/postChain3d';
 
@@ -115,5 +116,15 @@ describe('lighter post-processing chain', () => {
   it('PERF-5: the match canvas is multisampled only for Low, which draws straight to it; High smooths edges with FXAA', () => {
     expect(canvasMsaa(true)).toBe(true);
     expect(canvasMsaa(false)).toBe(false);
+  });
+
+  it('PERF-5 R3D-6 R3D-13: effect point lights come from a pool of two, made once, so the light count never changes mid-match', () => {
+    const fx = new CombatFx();
+    const lights: THREE.PointLight[] = [];
+    fx.root.traverse((o) => {
+      if (o instanceof THREE.PointLight) lights.push(o);
+    });
+    expect(LIGHT_POOL).toBe(2);
+    expect(lights.length).toBe(LIGHT_POOL);
   });
 });
