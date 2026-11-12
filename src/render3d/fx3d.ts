@@ -229,7 +229,11 @@ interface Flash {
   grow?: boolean;
 }
 
-const LIGHT_POOL = 4;
+/**
+ * Muzzle and blast point lights (R3D-6): every one, lit or idle, is a loop iteration in every lit pixel, so the pool is
+ * small; the brightest flashes keep theirs (PERF-5). Fixed for the match, so no program is rebuilt mid-match (R3D-13).
+ */
+export const LIGHT_POOL = 2;
 /** Particle budgets: enough for a large battle; beyond them ambient effects thin out first (R3D-13). */
 
 export interface FxQuality {

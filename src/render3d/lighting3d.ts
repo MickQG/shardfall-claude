@@ -1,9 +1,7 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
+import { FinishPass, GlowPass } from './postChain3d';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 /**
@@ -31,6 +29,21 @@ export function configureRenderer(renderer: THREE.WebGLRenderer): void {
   renderer.toneMappingExposure = 1.2;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 }
+
+/**
+ * Whether the match canvas is multisampled: only for a match that starts on Low, which draws straight to it. High
+ * finishes with FXAA on a full-screen quad, where canvas multisampling smooths nothing and only costs memory traffic
+ * (PERF-5).
+ */
+export const canvasMsaa = (low: boolean): boolean => low;
+
+/**
+ * How a frame reaches the canvas (PERF-5): `full` is the post chain with bloom (High); `fxaa` is the same chain with bloom
+ * skipped, tone mapping and FXAA only (Low on a canvas that is not multisampled, after a switch from High mid-match);
+ * `direct` draws straight to a multisampled canvas (Low from the start). Every combination smooths edges.
+ */
+export type PostMode = 'full' | 'fxaa' | 'direct';
+export const postMode = (bloom: boolean, msaa: boolean): PostMode => (bloom ? 'full' : msaa ? 'direct' : 'fxaa');
 
 /** Soft studio reflections for painted metal and wet chitin, under the warm sun and cool sky. */
 export function addEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer): void {
@@ -87,20 +100,27 @@ export function snapShadowTarget(x: number, z: number, texel: number): { x: numb
 
 /**
  * Bloom works on a half-float (HDR) buffer; edges are smoothed by FXAA after tone mapping. (A multisampled HDR buffer
- * looked the same but its resolve halved the frame rate on integrated graphics.)
+ * looked the same but its resolve halved the frame rate on integrated graphics.) The glow is added to the scene in the
+ * same pass that tone maps, into an 8-bit buffer that FXAA reads (PERF-5): see postChain3d.
  */
 export function createComposer(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, bloom = true): EffectComposer {
   const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
   const composer = new EffectComposer(renderer, target);
+  // No pass swaps buffers: the scene is drawn into the half-float buffer with depth, and the other one only ever holds
+  // tone-mapped colour, so it is 8-bit and needs no depth. Both follow the composer's size.
+  composer.renderTarget2.dispose();
+  composer.renderTarget2 = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
+  composer.readBuffer = composer.renderTarget1;
+  composer.writeBuffer = composer.renderTarget2;
   composer.addPass(new RenderPass(scene, camera));
+  let glow: GlowPass | null = null;
   if (bloom) {
     // Bloom is soft by nature: run its blur chain from half the screen size, a quarter of the pixels (PERF-1).
-    const pass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.5, 1.0);
-    const setSize = pass.setSize.bind(pass);
-    pass.setSize = (w: number, h: number): void => setSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
-    composer.addPass(pass);
+    glow = new GlowPass(new THREE.Vector2(256, 256), 0.6, 0.5, 1.0);
+    const setSize = glow.setSize.bind(glow);
+    glow.setSize = (w: number, h: number): void => setSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
+    composer.addPass(glow);
   }
-  composer.addPass(new OutputPass());
-  composer.addPass(new FXAAPass());
+  composer.addPass(new FinishPass(glow));
   return composer;
 }
