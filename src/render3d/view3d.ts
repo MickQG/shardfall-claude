@@ -28,8 +28,9 @@ import { noiseNormalMap, WATER } from './noiseNormal';
 import { unexploredMask } from './unexplored';
 import { RallyMarker } from './rally3d';
 import { GpuTimer } from './gpuTimer';
+import { FinishPass } from './postChain3d';
 import { PR_MAX, PR_MAX_LOW, PR_MIN, ResolutionGovernor } from './resolution';
-import { addEnvironment, canvasMsaa, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights, snapShadowTarget, SUN_OFFSET } from './lighting3d';
+import { addEnvironment, canvasMsaa, postMode, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights, snapShadowTarget, SUN_OFFSET } from './lighting3d';
 
 /**
  * How damage shows on a building at health fraction `hp` (R3D-18): soot darkens it steadily; below half it throws
@@ -279,6 +280,8 @@ export class View3D {
   private scatterGroup = new THREE.Group();
   private shadowsOn = true;
   private bloomOn = true;
+  /** Whether the canvas is multisampled (a match started on Low), which decides how Low reaches it (PERF-5). */
+  private msaa = false;
   private detailOn = true;
   /** Low renders at no more than 1 device pixel per CSS pixel: a third fewer pixels than High's 1.25. */
   private lowRes = false;
@@ -349,7 +352,8 @@ export class View3D {
     // Panels, wear and creases on units and buildings, from the shader alone (R3D-23); compiled with the rest in prewarm.
     applySurface(this.metalMat, 'metal');
     applySurface(this.organicMat, 'organic');
-    this.renderer = new THREE.WebGLRenderer({ antialias: canvasMsaa(opts.msaa === true), powerPreference: 'high-performance' });
+    this.msaa = canvasMsaa(opts.msaa === true);
+    this.renderer = new THREE.WebGLRenderer({ antialias: this.msaa, powerPreference: 'high-performance' });
     configureRenderer(this.renderer);
     // The sun's shadows are redrawn every other frame (PERF-1): at 60 fps a shadow trailing its unit by one frame is invisible.
     this.renderer.shadowMap.autoUpdate = false;
@@ -383,7 +387,7 @@ export class View3D {
     const pr = this.res.ratio;
     // With post-processing, the canvas keeps its full size and only the composer's buffers follow the governor: resizing
     // the canvas costs a frame or two (PERF-3), reallocating offscreen buffers does not. The last pass scales up to the canvas.
-    const post = this.bloomOn && this.composer !== null;
+    const post = this.viaComposer();
     this.renderer.setPixelRatio(post ? this.res.max : pr);
     this.renderer.setSize(host.clientWidth, host.clientHeight);
     this.size = { width: host.clientWidth || 1, height: host.clientHeight || 1 };
@@ -392,6 +396,11 @@ export class View3D {
     this.camera.aspect = host.clientWidth / Math.max(1, host.clientHeight);
     this.camera.updateProjectionMatrix();
     this.fx.setScale((host.clientHeight * pr) / (2 * Math.tan((FOV * Math.PI) / 360)));
+  }
+
+  /** Whether frames go through the post chain (with or without bloom) rather than straight to the canvas (PERF-5). */
+  private viaComposer(): boolean {
+    return this.composer !== null && postMode(this.bloomOn, this.msaa) !== 'direct';
   }
 
   /** The canvas size in CSS pixels, measured on resize (reading layout every frame is costly). */
@@ -505,7 +514,7 @@ export class View3D {
     this.debris.warm(true);
     this.rally.warm(true); // its programs too, or the first rally point would stall a frame
     this.renderShadows();
-    if (this.bloomOn && this.composer) {
+    if (this.viaComposer() && this.composer) {
       this.renderer.setRenderTarget(this.composer.readBuffer);
       this.renderer.compile(this.scene, this.camera);
       this.renderer.setRenderTarget(null);
@@ -1072,7 +1081,7 @@ export class View3D {
     const prep = performance.now() - cpu0;
     this.prepMs += (prep - this.prepMs) * 0.05;
     this.gpuTimer.begin();
-    if (this.bloomOn && this.composer) this.composer.render(dt);
+    if (this.viaComposer() && this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
     this.gpuTimer.end();
     this.gpuTimer.poll();
@@ -1108,6 +1117,8 @@ export class View3D {
     }
     if (vs.fx.bloom !== this.bloomOn) {
       this.bloomOn = vs.fx.bloom;
+      // Without bloom the chain only tone maps and smooths edges, unless the canvas is multisampled (PERF-5).
+      for (const p of this.composer?.passes ?? []) if (p instanceof FinishPass) p.setGlow(this.bloomOn);
       this.fit(); // the canvas follows whether post-processing is on
       // Glowing parts are brighter than white with bloom, so the bloom pass picks them up; plain white without.
       const lv = glowLevels(this.bloomOn);

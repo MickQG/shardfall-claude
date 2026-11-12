@@ -31,10 +31,19 @@ export function configureRenderer(renderer: THREE.WebGLRenderer): void {
 }
 
 /**
- * Whether the match canvas is multisampled: only for Low, which draws straight to the canvas. High finishes with FXAA
- * on a full-screen quad, where canvas multisampling smooths nothing and only costs memory traffic (PERF-5).
+ * Whether the match canvas is multisampled: only for a match that starts on Low, which draws straight to it. High
+ * finishes with FXAA on a full-screen quad, where canvas multisampling smooths nothing and only costs memory traffic
+ * (PERF-5).
  */
 export const canvasMsaa = (low: boolean): boolean => low;
+
+/**
+ * How a frame reaches the canvas (PERF-5): `full` is the post chain with bloom (High); `fxaa` is the same chain with bloom
+ * skipped, tone mapping and FXAA only (Low on a canvas that is not multisampled, after a switch from High mid-match);
+ * `direct` draws straight to a multisampled canvas (Low from the start). Every combination smooths edges.
+ */
+export type PostMode = 'full' | 'fxaa' | 'direct';
+export const postMode = (bloom: boolean, msaa: boolean): PostMode => (bloom ? 'full' : msaa ? 'direct' : 'fxaa');
 
 /** Soft studio reflections for painted metal and wet chitin, under the warm sun and cool sky. */
 export function addEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer): void {

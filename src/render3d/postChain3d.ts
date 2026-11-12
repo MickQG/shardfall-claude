@@ -107,13 +107,14 @@ const FINISH_FRAGMENT = /* glsl */ `
 precision highp float;
 uniform sampler2D tDiffuse;
 uniform sampler2D tGlow;
+uniform float glowMix;
 #include <tonemapping_pars_fragment>
 #include <colorspace_pars_fragment>
 varying vec2 vUv;
 void main() {
   gl_FragColor = texture2D(tDiffuse, vUv);
   #ifdef USE_GLOW
-    gl_FragColor.rgb += texture2D(tGlow, vUv).rgb;
+    gl_FragColor.rgb += texture2D(tGlow, vUv).rgb * glowMix;
   #endif
   #ifdef LINEAR_TONE_MAPPING
     gl_FragColor.rgb = LinearToneMapping(gl_FragColor.rgb);
@@ -152,13 +153,22 @@ export class FinishPass extends Pass {
     this.needsSwap = false;
     this.finish = new THREE.RawShaderMaterial({
       name: 'FinishShader',
-      uniforms: { tDiffuse: { value: null }, tGlow: { value: glow?.glow ?? null }, toneMappingExposure: { value: 1 } },
+      uniforms: { tDiffuse: { value: null }, tGlow: { value: glow?.glow ?? null }, glowMix: { value: 1 }, toneMappingExposure: { value: 1 } },
       vertexShader: FINISH_VERTEX,
       fragmentShader: FINISH_FRAGMENT,
       depthTest: false,
       depthWrite: false,
     });
     this.fxaa = new THREE.ShaderMaterial({ name: FXAAShader.name, uniforms: THREE.UniformsUtils.clone(FXAAShader.uniforms), vertexShader: FXAAShader.vertexShader, fragmentShader: FXAAShader.fragmentShader, depthTest: false, depthWrite: false });
+  }
+
+  /**
+   * Bloom on or off without a new program (R3D-13): off, the bloom pass is skipped and the glow weighs nothing, so the
+   * chain only tone maps and smooths edges (Low on a canvas that is not multisampled, PERF-5).
+   */
+  setGlow(on: boolean): void {
+    if (this.glow) this.glow.enabled = on;
+    this.finish.uniforms.glowMix!.value = on ? 1 : 0;
   }
 
   override setSize(width: number, height: number): void {

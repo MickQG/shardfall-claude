@@ -3,7 +3,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { describe, expect, it } from 'vitest';
 import { CombatFx, LIGHT_POOL } from '../../src/render3d/fx3d';
-import { canvasMsaa, configureRenderer, createComposer } from '../../src/render3d/lighting3d';
+import { canvasMsaa, configureRenderer, createComposer, postMode } from '../../src/render3d/lighting3d';
 import { FinishPass, GlowPass, outputDefines } from '../../src/render3d/postChain3d';
 
 /** Just enough of a WebGLRenderer for passes to run without a GPU: it records the targets drawn into. */
@@ -126,5 +126,27 @@ describe('lighter post-processing chain', () => {
     });
     expect(LIGHT_POOL).toBe(2);
     expect(lights.length).toBe(LIGHT_POOL);
+  });
+
+  it('PERF-5 R3D-12: every start and switch of preset smooths edges: Low on a plain canvas goes through the chain with FXAA only', () => {
+    // [preset at start, preset now] -> how frames reach the canvas
+    const cases: [boolean, boolean, string][] = [
+      [true, true, 'full'], // started High, still High
+      [true, false, 'fxaa'], // started High, switched to Low: no multisampling, so tone map + FXAA without bloom
+      [false, false, 'direct'], // started Low: multisampled canvas, drawn straight to it
+      [false, true, 'full'], // started Low, switched to High: the full chain on the multisampled canvas
+    ];
+    for (const [startHigh, high, mode] of cases) expect(postMode(high, canvasMsaa(!startHigh))).toBe(mode);
+    // Bloom off in the chain: its pass is skipped and the glow weighs nothing, with the same programs (no rebuild).
+    const { renderer } = stubRenderer();
+    const composer = createComposer(renderer, new THREE.Scene(), new THREE.PerspectiveCamera());
+    const glow = composer.passes[1] as GlowPass;
+    const finish = composer.passes[2] as FinishPass;
+    const material = finish.finish;
+    finish.setGlow(false);
+    expect([glow.enabled, finish.finish.uniforms.glowMix!.value]).toEqual([false, 0]);
+    finish.setGlow(true);
+    expect([glow.enabled, finish.finish.uniforms.glowMix!.value]).toEqual([true, 1]);
+    expect(finish.finish).toBe(material);
   });
 });
