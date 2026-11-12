@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildingDef, unitDef } from '../../src/data/defs';
 import { brawlConfig, skirmishConfig } from '../../src/data/maps';
 import { createGame, FP, hash, submit, tick, type Command, type Game, type GameConfig, type UnitSpawn } from '../../src/sim';
-import { isBlocked } from '../../src/sim/path';
+import { distanceField, FAR, findPath, isBlocked } from '../../src/sim/path';
 import type { Unit } from '../../src/sim/state';
 
 const MIX = ['hum_rifleman', 'hum_tank', 'hum_rocketeer', 'hum_buggy', 'hum_artillery'];
@@ -160,5 +160,60 @@ describe('order response (SIM-10)', () => {
       return hash(g);
     };
     expect(play()).toBe(play());
+  });
+});
+
+describe('route search (SIM-10, SIM-3, SIM-4)', () => {
+  const grid = createGame(skirmishConfig(1, { map: 'crossroads' })).state.grid;
+  const W = grid.width;
+  /** Cost of walking `p` from (sx,sy), failing on any step that jumps, lands on a blocked tile or cuts a blocked corner. */
+  const walk = (sx: number, sy: number, p: number[]): number => {
+    let [x, y, cost] = [sx, sy, 0];
+    for (const q of p) {
+      const [nx, ny] = [q % W, Math.floor(q / W)];
+      const [dx, dy] = [nx - x, ny - y];
+      expect(Math.max(Math.abs(dx), Math.abs(dy))).toBe(1);
+      expect(isBlocked(grid, nx, ny)).toBe(false);
+      if (dx !== 0 && dy !== 0) expect(isBlocked(grid, x + dx, y) || isBlocked(grid, x, y + dy)).toBe(false);
+      cost += dx !== 0 && dy !== 0 ? 14 : 10;
+      [x, y] = [nx, ny];
+    }
+    return cost;
+  };
+
+  it('SIM-3 SIM-10: every route is a shortest one, with or without a group order’s shared distance fields', () => {
+    let seed = 7;
+    const rnd = (k: number): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed % k;
+    };
+    for (let i = 0; i < 300; i++) {
+      const [sx, sy, gx, gy] = [rnd(W), rnd(grid.height), rnd(W), rnd(grid.height)];
+      if (isBlocked(grid, sx, sy) || isBlocked(grid, gx, gy) || (sx === gx && sy === gy)) continue;
+      const exact = distanceField(grid, sy * W + sx);
+      if (exact[gy * W + gx] === FAR) continue;
+      const lx = Math.min(W - 1, gx + 3);
+      const landmarks = isBlocked(grid, lx, gy) ? [] : [distanceField(grid, gy * W + lx), distanceField(grid, rnd(grid.height) * W + rnd(W))];
+      for (const p of [findPath(grid, sx, sy, gx, gy), findPath(grid, sx, sy, gx, gy, undefined, landmarks)]) {
+        expect(p.at(-1)).toBe(gy * W + gx);
+        expect(walk(sx, sy, p)).toBe(exact[gy * W + gx]);
+      }
+    }
+    // A case the old search got wrong (it walked 680 where 672 will do).
+    expect(walk(24, 64, findPath(grid, 24, 64, 32, 0))).toBe(672);
+  });
+
+  it('SIM-3 SIM-10: a route to a building ends on the nearest tile next to it without searching the whole map', () => {
+    const s = createGame(skirmishConfig(1, { map: 'crossroads' })).state;
+    const hq = s.buildings.find((b) => b.owner === 1 && buildingDef(b.kind).hq)!;
+    const [gx, gy] = [hq.tx + 1, hq.ty + 1];
+    const work = { expanded: 0 };
+    const p = findPath(grid, 10, 10, gx, gy, work);
+    const end = p.at(-1)!;
+    const near = (q: number): number => Math.max(Math.abs((q % W) - gx), Math.abs(Math.floor(q / W) - gy));
+    expect(near(end)).toBe(2); // the HQ is 3 by 3: its middle is two tiles from the nearest free ones
+    const exact = distanceField(grid, 10 * W + 10);
+    expect(walk(10, 10, p)).toBe(exact[end]);
+    expect(work.expanded).toBeLessThan(grid.width * grid.height / 4);
   });
 });
