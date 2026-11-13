@@ -61,6 +61,7 @@ export const CONTROLS: readonly ControlGroup[] = [
       { input: '+ / -', action: 'Game speed (single-player)' },
       { input: 'M', action: 'Mute all sound' },
       { input: 'F2', action: 'Graphics quality, High or Low' },
+      { input: 'F11', action: 'Full screen (keeps Ctrl + W from closing the tab)' },
     ],
   },
 ];

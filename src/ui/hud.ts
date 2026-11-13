@@ -1,5 +1,6 @@
 import type { CountdownRow } from './countdown';
 import { controlsHtml } from './controlsHelp';
+import { leaveOnPurpose } from './leaveGuard';
 import { ensureTheme, type SkinId } from './theme';
 const CSS = `
 #hud { position: fixed; inset: 0; pointer-events: none; font: 13px/1.3 var(--font-body); color: var(--ink); }
@@ -103,7 +104,7 @@ export function createHud(faction: SkinId = 'human'): Hud {
   root.id = 'hud';
   root.className = 'skin';
   root.dataset.faction = faction;
-  root.innerHTML = '<div id="topbar" class="panel">F1 Help</div><div id="minimap-box" class="panel"></div><div id="info" class="panel empty"></div><div id="selbox"></div><div id="topmid"><div id="countdown" role="status" aria-live="polite"></div><div id="toasts"></div></div><div id="pause"><h2>PAUSED</h2><button id="resume">Resume (P)</button><button id="quit">Quit to menu</button></div><div id="help" role="dialog" aria-label="Controls"><div class="sheet"><h2 class="hdr">Controls</h2><button class="btn close" id="help-close">F1 or Esc: close</button>' + controlsHtml() + '</div></div><div id="result"><h1></h1><div class="sub"></div><div class="actions"><button id="again">Play again</button><button id="menu-btn">Main menu</button></div></div>';
+  root.innerHTML = '<div id="topbar" class="panel">F1 Help</div><div id="minimap-box" class="panel"></div><div id="info" class="panel empty"></div><div id="selbox"></div><div id="topmid"><div id="countdown" role="status" aria-live="polite"></div><div id="toasts"></div></div><div id="pause"><h2>PAUSED</h2><button id="resume">Resume (P)</button><button id="fullscreen">Full screen (F11)</button><button id="quit">Quit to menu</button></div><div id="help" role="dialog" aria-label="Controls"><div class="sheet"><h2 class="hdr">Controls</h2><button class="btn close" id="help-close">F1 or Esc: close</button>' + controlsHtml() + '</div></div><div id="result"><h1></h1><div class="sub"></div><div class="actions"><button id="again">Play again</button><button id="menu-btn">Main menu</button></div></div>';
   document.body.appendChild(root);
   const q = (sel: string): HTMLElement => root.querySelector(sel) as HTMLElement;
   const info = q('#info');
@@ -141,8 +142,8 @@ export function createHud(faction: SkinId = 'human'): Hud {
       (el.querySelector('h1') as HTMLElement).textContent = title;
       (el.querySelector('h1') as HTMLElement).style.color = color;
       (el.querySelector('.sub') as HTMLElement).textContent = sub;
-      (el.querySelector('#again') as HTMLElement).onclick = () => location.reload();
-      (el.querySelector('#menu-btn') as HTMLElement).onclick = () => (location.search = '');
+      (el.querySelector('#again') as HTMLElement).onclick = () => leaveOnPurpose(() => location.reload());
+      (el.querySelector('#menu-btn') as HTMLElement).onclick = () => leaveOnPurpose(() => (location.search = ''));
     },
     toast(text, level) {
       const t = q('#toasts');
