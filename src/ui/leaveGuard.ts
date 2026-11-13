@@ -43,9 +43,12 @@ export function nextFullscreenChoice(choice: boolean, ev: FullscreenEvent): bool
   return ev === 'entered' ? true : ev === 'left' ? false : choice;
 }
 
-/** Whether a key press or click should put the player back in full screen (CTL-21). */
-export function shouldRestoreFullscreen(o: { choice: boolean; desktop: boolean; supported: boolean; inFullscreen: boolean }): boolean {
-  return o.choice && !o.desktop && o.supported && !o.inFullscreen;
+/**
+ * Whether a key press or click should put the player back in full screen (CTL-21). A press on the full screen button
+ * itself does not: its click toggles, and a restore just before it would turn "enter" into "leave".
+ */
+export function shouldRestoreFullscreen(o: { choice: boolean; desktop: boolean; supported: boolean; inFullscreen: boolean; onButton?: boolean }): boolean {
+  return o.choice && !o.desktop && o.supported && !o.inFullscreen && !o.onButton;
 }
 
 /** Browser shortcuts the game cancels while it has focus: Ctrl+S, D and A (they pan, CTL-10); under keyboard lock also Ctrl+W, T and N (CTL-20). */

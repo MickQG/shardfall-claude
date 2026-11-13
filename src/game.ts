@@ -233,14 +233,14 @@ function toggleFullscreen(): void {
   }
 }
 /** A key press or click puts a player who was in full screen back into it (CTL-21). */
-function restoreFullscreen(): void {
-  if (shouldRestoreFullscreen({ choice: settings.fullscreen, desktop, supported: fullscreenSupported(), inFullscreen: inFullscreen() })) void enterFullscreen();
+function restoreFullscreen(onButton = false): void {
+  if (shouldRestoreFullscreen({ choice: settings.fullscreen, desktop, supported: fullscreenSupported(), inFullscreen: inFullscreen(), onButton })) void enterFullscreen();
 }
 if (desktop || !fullscreenSupported()) {
   if (fsButton) fsButton.hidden = true;
 } else {
   if (fsButton) fsButton.onclick = toggleFullscreen;
-  window.addEventListener('pointerdown', restoreFullscreen);
+  window.addEventListener('pointerdown', (e) => restoreFullscreen(e.target === fsButton));
   document.addEventListener('fullscreenchange', () => {
     syncFullscreenButton();
     if (inFullscreen()) {
@@ -682,13 +682,14 @@ async function boot(): Promise<void> {
       return;
     }
     restoreFullscreen();
+    // S, D and A pan the map, so Ctrl with them must not reach the browser (CTL-10); under keyboard lock Ctrl + W, T and N
+    // are ours too (CTL-20). This holds during the fly-in as well.
+    if (blockedBrowserKey(e, inFullscreen())) e.preventDefault();
     // During the fly-in a key only skips it, where that is allowed (CAM-5, CAM-6).
     if (flying) {
       if (fly.skip(performance.now())) endFly();
       return;
     }
-    // S, D and A pan the map, so Ctrl with them must not reach the browser (CTL-10); under keyboard lock Ctrl + W, T and N are ours too (CTL-20).
-    if (blockedBrowserKey(e, inFullscreen())) e.preventDefault();
     // F1 shows the controls overlay and never the browser's own help; Esc closes the overlay before it does anything else (UI-18).
     if (k === 'f1') {
       e.preventDefault();

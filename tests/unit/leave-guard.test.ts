@@ -45,6 +45,11 @@ describe('full screen (CTL-20, CTL-21)', () => {
     expect(shouldRestoreFullscreen({ ...ok, supported: false })).toBe(false);
     expect(shouldRestoreFullscreen({ ...ok, inFullscreen: true })).toBe(false);
   });
+  it('CTL-21: a press on the full screen button does not restore first, so its click enters full screen instead of leaving it', () => {
+    const ok = { choice: true, desktop: false, supported: true, inFullscreen: false };
+    expect(shouldRestoreFullscreen({ ...ok, onButton: true })).toBe(false);
+    expect(shouldRestoreFullscreen({ ...ok, onButton: false })).toBe(true);
+  });
   it('CTL-21: the choice is stored with the other settings and is off by default', () => {
     expect(defaultSettings().fullscreen).toBe(false);
     const mem = new Map<string, string>();
