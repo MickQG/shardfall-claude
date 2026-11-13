@@ -63,15 +63,16 @@ test('CTL-6 CTL-7 CTL-8 CTL-9 CTL-10 CTL-11 CUR-1 CUR-3: Q selects combat units,
   expect(await cursor()).toBe(moveCursor);
   await page.keyboard.up('Control');
 
-  // CTL-10: Ctrl+S (S pans the map) must not open the browser's save dialog, so the game cancels that key press.
+  // CTL-10: Ctrl+S, Ctrl+D and Ctrl+A (they pan the map) must not reach the browser's save, bookmark and select-all, so the game cancels those key presses.
   await page.evaluate(() => {
-    const w = window as unknown as { __prevented?: boolean };
+    const w = window as unknown as { __prevented?: Record<string, boolean> };
+    w.__prevented = {};
     window.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key.toLowerCase() === 's') w.__prevented = e.defaultPrevented;
+      if (e.ctrlKey) w.__prevented![e.key.toLowerCase()] = e.defaultPrevented;
     });
   });
-  await page.keyboard.press('Control+s');
-  expect(await page.evaluate(() => (window as unknown as { __prevented?: boolean }).__prevented)).toBe(true);
+  for (const k of ['s', 'd', 'a']) await page.keyboard.press(`Control+${k}`);
+  expect(await page.evaluate(() => (window as unknown as { __prevented?: Record<string, boolean> }).__prevented)).toMatchObject({ s: true, d: true, a: true });
 
   // CTL-8: F arms attack-move (crosshair cursor); Escape disarms it without an order.
   await page.keyboard.press('f');
