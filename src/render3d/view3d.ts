@@ -16,7 +16,7 @@ import { CombatFx } from './fx3d';
 import { Debris } from './debris3d';
 import { Instancer, SHADOW_LAYER } from './instancer';
 import type { Built, Shape } from './kit';
-import { angleDiff, bodyPose, elevationReady, restingSettle, settleStep, type Settle, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HAULER_PUFF_ACCEL, HAULER_PUFF_MS, HEAD_MS, rideMotion, slew, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
+import { angleDiff, bodyPose, elevationReady, restingSettle, settleStep, type Settle, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HAULER_PUFF_ACCEL, HAULER_PUFF_MS, HEAD_MS, rideMotion, slew, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, SMOOTH_TIME, SQUAD_SMOOTH_TIME, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
@@ -1160,6 +1160,12 @@ export class View3D {
     if (this.res?.step(dt * 1000, this.prepMs, this.gpuTimer.ms)) this.fit();
   }
 
+  /** Where a unit was last drawn, in tiles (R3D-10), for measuring the drawing lag. */
+  drawnAt(id: number): { x: number; z: number } | null {
+    const o = this.units.get(id);
+    return o ? { x: o.x, z: o.z } : null;
+  }
+
   /** Render figures for tests and measurement (R3D-29): draws, triangles, CPU time, live particles and debris. */
   stats(): { cpuMs: number; draws: number; tris: number; particles: { smoke: number; glow: number }; debris: number; pr: number; gpuMs: number | null } {
     const i = this.renderer.info.render;
@@ -1264,7 +1270,7 @@ export class View3D {
       const def = o.def;
       const air = def.move === 'air';
       // The drawn position rides a spring toward the simulation's, so uneven snapshots never show as jitter (R3D-10).
-      follow(o.follow, u.tx, u.ty, dt);
+      follow(o.follow, u.tx, u.ty, dt, o.members.length > 0 ? SQUAD_SMOOTH_TIME : SMOOTH_TIME);
       o.motion = stepMotion(o.motion, o.follow.x - o.x, o.follow.z - o.z, dt, def.turn ?? 4, def.walk?.blend);
       // A unit the simulation turns (a hero, HERO-5) faces exactly where the simulation says, however it is moving.
       o.simFacing = u.yaw !== undefined;

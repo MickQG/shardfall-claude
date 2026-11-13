@@ -134,17 +134,19 @@ export function stepSquad(members: Member[], f: SquadFrame): void {
       const rate = 4 * gain;
       // Keep pace with the squad (its velocity, and its speeding up or slowing down, which would otherwise carry the
       // member past its spot when the squad stops) and close the gap to the spot.
-      const ax = f.dt > 0 ? (f.vx - m.svx) / f.dt : 0;
-      const az = f.dt > 0 ? (f.vz - m.svz) / f.dt : 0;
-      let wx = f.vx + ax / rate + ex * gain;
-      let wz = f.vz + az / rate + ez * gain;
-      const top = Math.max(0.4, speed * 1.35);
-      const w = Math.hypot(wx, wz);
-      if (w > top) [wx, wz] = [(wx / w) * top, (wz / w) * top];
-      if (err < 0.02 && speed < 0.05) [wx, wz] = [0, 0];
       // Velocity follows the steering four times faster than the steering closes the gap: critically damped, so a
       // member slows into its spot and never sails past it and comes back.
       const k = 1 - Math.exp(-rate * f.dt);
+      // The steering that brings this frame's velocity exactly to the squad's, whatever its last change.
+      const px = k > 0 ? m.svx + (f.vx - m.svx) / k : f.vx;
+      const pz = k > 0 ? m.svz + (f.vz - m.svz) / k : f.vz;
+      let wx = px + ex * gain;
+      let wz = pz + ez * gain;
+      // The cap scales with what keeping pace asks for, so a squad that stops sharply (R3D-10) is still followed exactly.
+      const top = Math.max(0.4, speed * 1.35, Math.hypot(px, pz) * 1.35);
+      const w = Math.hypot(wx, wz);
+      if (w > top) [wx, wz] = [(wx / w) * top, (wz / w) * top];
+      if (err < 0.02 && speed < 0.05) [wx, wz] = [0, 0];
       m.vx += (wx - m.vx) * k;
       m.vz += (wz - m.vz) * k;
     }
