@@ -31,6 +31,8 @@ import type { Command } from './sim';
 import { seedOf } from './ui/params';
 import { effectsEnabled, loadSettings, personalityChoiceOf, safeStorage, saveSettings } from './ui/settings';
 import { placementLive } from './ui/production';
+import { blockedBrowserKey, isDesktop, isLeaving, leaveGuard, leaveOnPurpose, nextFullscreenChoice, shouldRestoreFullscreen } from './ui/leaveGuard';
+import { enterFullscreen, fullscreenSupported, inFullscreen, leaveFullscreen, lockKeyboard } from './ui/fullscreen';
 import { FrameStats } from './ui/frameStats';
 import { Sidebar } from './ui/sidebar';
 import { Soundscape } from './ui/soundscape';
@@ -143,7 +145,7 @@ const allowed = (input: string): boolean => !flying && inputAllowed(input, { pau
 function setPaused(p: boolean): void {
   paused = p;
   sim.setPaused(p);
-  hud.showPause(p, { resume: () => setPaused(false), quit: () => (location.search = '') });
+  hud.showPause(p, { resume: () => setPaused(false), quit: () => leaveOnPurpose(() => (location.search = '')) });
   // An online match cannot be paused (NET-2): this is only a menu, and the game goes on behind it.
   if (match) {
     const box = document.getElementById('pause');
@@ -158,6 +160,7 @@ function setPaused(p: boolean): void {
 function endOnline(why: 'left' | 'timeout' | 'lost' | 'desync', tick = 0): void {
   if (resultShown) return;
   resultShown = true;
+  stopLeaveGuard();
   setPaused(false);
   const r =
     why === 'desync'
@@ -183,6 +186,75 @@ const eTap = new DoubleTap(350);
 const groupTap = new KeyTap(350);
 let resultShown = false;
 let lastAlertTick = -1;
+
+/** The desktop app has its own window handling: no leave dialog, its own F11 and no full screen button (CTL-19, CTL-20). */
+const desktop = isDesktop(location.protocol);
+
+/**
+ * Closing the tab with Ctrl + W cannot be caught, but leaving can be confirmed (CTL-19). The simulation runs in a worker
+ * and keeps ticking while the browser's dialog blocks this page, so a single-player match is paused before the handler returns.
+ */
+function onBeforeUnload(e: BeforeUnloadEvent): void {
+  const g = leaveGuard({ shown: flyStarted, over: resultShown, online: !!match, flying, desktop, leaving: isLeaving() });
+  if (!g.confirm) return;
+  if (g.pause) setPaused(true);
+  e.preventDefault();
+  e.returnValue = '';
+}
+/** Registered only while a match runs: a registered handler keeps the page out of the back/forward cache. */
+function startLeaveGuard(): void {
+  if (!desktop) window.addEventListener('beforeunload', onBeforeUnload);
+}
+function stopLeaveGuard(): void {
+  window.removeEventListener('beforeunload', onBeforeUnload);
+}
+
+/** Full screen (CTL-20, CTL-21). `unloading` tells a navigation dropping full screen from the player leaving it. */
+let unloading = false;
+window.addEventListener('pagehide', () => (unloading = true));
+const fsButton = document.getElementById('fullscreen');
+function fsChoice(ev: 'entered' | 'left' | 'unloading'): void {
+  const next = nextFullscreenChoice(settings.fullscreen, ev);
+  if (next === settings.fullscreen) return;
+  settings.fullscreen = next;
+  saveSettings(safeStorage(), settings);
+}
+function syncFullscreenButton(): void {
+  if (fsButton) fsButton.textContent = inFullscreen() ? 'Leave full screen (F11)' : 'Full screen (F11)';
+}
+function toggleFullscreen(): void {
+  if (desktop || !fullscreenSupported()) return;
+  if (inFullscreen()) {
+    fsChoice('left');
+    void leaveFullscreen();
+  } else {
+    fsChoice('entered');
+    void enterFullscreen();
+  }
+}
+/** A key press or click puts a player who was in full screen back into it (CTL-21). */
+function restoreFullscreen(onButton = false): void {
+  if (shouldRestoreFullscreen({ choice: settings.fullscreen, desktop, supported: fullscreenSupported(), inFullscreen: inFullscreen(), onButton })) void enterFullscreen();
+}
+if (desktop || !fullscreenSupported()) {
+  if (fsButton) fsButton.hidden = true;
+} else {
+  if (fsButton) fsButton.onclick = toggleFullscreen;
+  window.addEventListener('pointerdown', (e) => restoreFullscreen(e.target === fsButton));
+  document.addEventListener('fullscreenchange', () => {
+    syncFullscreenButton();
+    if (inFullscreen()) {
+      fsChoice('entered');
+      lockKeyboard();
+      return;
+    }
+    // The browser leaves full screen when a page unloads, and sometimes before `pagehide` fires: wait a moment, and a page
+    // that is going away never gets to record it. A player who left (F11, the button, holding Esc) is still here.
+    setTimeout(() => {
+      if (!inFullscreen() && !unloading && !isLeaving()) fsChoice('left');
+    }, 150);
+  });
+}
 
 const EDGE = 12;
 
@@ -362,6 +434,7 @@ function frame(prevTime: number): (t: number) => void {
     const curr = sim.curr;
     if (curr && curr.over && !resultShown) {
       resultShown = true;
+      stopLeaveGuard();
       const r = resultText(curr.winner, PLAYER);
       // Against the AI, the result names how it played (SCR-4); the game never shows it before the end.
       const vsAi = !scenario && !match;
@@ -376,7 +449,7 @@ function frame(prevTime: number): (t: number) => void {
         if (sub) sub.textContent = `${sub.textContent ?? ''} ${mapSeedLine(mapSeed)}`;
         again.hidden = false;
         again.textContent = 'Play this map again';
-        again.onclick = () => (location.search = replayMapSearch({ faction: myFaction, difficulty: level, personality: personalityChoiceOf(params.get('personality')), mapSeed }));
+        again.onclick = () => leaveOnPurpose(() => (location.search = replayMapSearch({ faction: myFaction, difficulty: level, personality: personalityChoiceOf(params.get('personality')), mapSeed })));
       }
       watch?.finished(curr.tick);
     }
@@ -602,13 +675,21 @@ async function boot(): Promise<void> {
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     audio.unlock();
+    // F11 switches full screen on the website; the desktop app handles its own (CTL-20).
+    if (k === 'f11' && !desktop && fullscreenSupported()) {
+      e.preventDefault();
+      if (!e.repeat) toggleFullscreen();
+      return;
+    }
+    restoreFullscreen();
+    // S, D and A pan the map, so Ctrl with them must not reach the browser (CTL-10); under keyboard lock Ctrl + W, T and N
+    // are ours too (CTL-20). This holds during the fly-in as well.
+    if (blockedBrowserKey(e, inFullscreen())) e.preventDefault();
     // During the fly-in a key only skips it, where that is allowed (CAM-5, CAM-6).
     if (flying) {
       if (fly.skip(performance.now())) endFly();
       return;
     }
-    // S pans the map, so Ctrl + S must not reach the browser's save dialog.
-    if (e.ctrlKey && k === 's') e.preventDefault();
     // F1 shows the controls overlay and never the browser's own help; Esc closes the overlay before it does anything else (UI-18).
     if (k === 'f1') {
       e.preventDefault();
@@ -885,6 +966,7 @@ async function boot(): Promise<void> {
   // The battlefield is drawn: the fly-in begins, and the game stays at its first tick until it ends (CAM-5). Online, both
   // players hold for the same FLY_MS before releasing, and lockstep then starts when both have (CAM-6).
   flyStarted = true;
+  startLeaveGuard();
   flyStartedAt = performance.now();
   fly.start(flyStartedAt);
   document.body.dataset.fly = fly.mode;
