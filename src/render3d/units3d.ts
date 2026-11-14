@@ -655,7 +655,9 @@ function hauler(): RigDef {
         s.box(0.2, 0.03, 0.56, 'team', { at: [0.27, 0.17, 0], bevel: 0.2 }); // the roof of the housing
         s.box(0.16, 0.025, 0.56, STEEL2, { at: [0.43, 0.14, 0], rot: [0, 0, -0.55], bevel: 0.2 }); // its sloped front visor
         s.box(0.025, 0.3, 0.56, STEEL2, { at: [0.2, 0.03, 0], bevel: 0.2 }); // its closed back
-        s.box(0.03, 0.04, 0.56, GUN, { at: [0.54, -0.07, 0], bevel: 0.2 }); // a low lip at the front
+        // A low lip across the front, carried on two brackets that run forward from the housing's side plates.
+        s.box(0.03, 0.04, 0.6, GUN, { at: [0.54, -0.07, 0], bevel: 0.2 });
+        for (const z of [0.29, -0.29]) s.box(0.14, 0.04, 0.03, GUN, { at: [0.485, -0.07, z], bevel: 0.2 });
         s.box(0.06, 0.14, 0.24, DARK, { at: [0.22, 0.1, -0.13], bevel: 0.2 }); // the throat toward the conveyor
         return s;
       },
