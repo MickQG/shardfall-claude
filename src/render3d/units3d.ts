@@ -19,10 +19,10 @@ const OLIVE = 0x5c6a4e;
 const HEAVY_CLOTH = 0x4a4f58;
 const HAZARD = 0xe0aa2c;
 const SKIN = 0xb98a6a;
-/** Vehicle colour schemes (R3D-23): the tank is olive with tan camouflage blocks, the buggy sand with a bold dark stripe, the artillery slate blue over pale grey with a hazard-banded barrel. */
-const TANK_OLIVE = 0x4f5d3a;
-const TANK_DARK = 0x38432b;
-const TANK_TAN = 0x93855a;
+/** Vehicle colour schemes (R3D-23): the tank clean green, the buggy sand with a bold dark stripe, the artillery pale; solid panels, no camouflage. */
+const TANK_GREEN = 0x5d7a4a;
+const TANK_GREEN2 = 0x4a6339;
+const TANK_DARK = 0x33432b;
 const BUGGY_SAND = 0xcdb47c;
 const BUGGY_SAND2 = 0xa88e58;
 const BUGGY_STRIPE = 0x262b33;
@@ -173,6 +173,12 @@ function runningGear(len: number, z: number, wheelR: number, count: number, y: n
   return nodes;
 }
 
+/**
+ * Bulwark Tank (R3D-36): a low, wide battle tank, an original design. Full-length armoured skirts hide the tracks but
+ * for their lower run; a flat wedge-shaped turret with no hatches sits mid-hull under one heavy cannon in a ribbed
+ * accelerator sleeve with a cyan-lit breech; a sensor blister and a blade antenna stand where a cupola would, and a lit
+ * power vent sits at the rear. Green panels, team colour on the skirts and the turret plate.
+ */
 function tank(): RigDef {
   return {
     move: 'tracked',
@@ -181,52 +187,60 @@ function tank(): RigDef {
     height: 0.52,
     weapon: 'cannon',
     shapes: {
-      track: () => trackShape(1.16, 0.15, 0.17),
-      roadwheel: () => roadWheel(0.062, 0.04),
+      // Only the lower run of the track shows under the skirt: a plain dark bed.
+      track: () => {
+        const s = shape();
+        s.box(1.16, 0.15, 0.17, TREAD, { bevel: 0.45 });
+        return s;
+      },
+      roadwheel: () => {
+        const s = shape();
+        // Seen only below the skirt, in the shadow of the hull: it casts none of its own (PERF-4).
+        s.cyl(0.07, 0.04, GUN, { rot: [Math.PI / 2, 0, 0], seg: 8, shadow: false });
+        s.cyl(0.032, 0.05, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 5, shadow: false });
+        return s;
+      },
       hull: () => {
         const s = shape();
-        s.slab([[-0.56, 0.09], [0.48, 0.09], [0.62, 0.17], [0.42, 0.28], [-0.5, 0.29], [-0.58, 0.21]], 0.6, TANK_OLIVE, { bevel: 0.025 });
-        // Tan camouflage blocks across the deck and glacis, dark olive flanks.
-        s.box(0.34, 0.012, 0.26, TANK_TAN, { at: [0.12, 0.286, 0.17], bevel: 0 });
-        s.box(0.28, 0.012, 0.22, TANK_DARK, { at: [-0.12, 0.292, -0.18], bevel: 0 });
-        s.box(0.2, 0.012, 0.2, TANK_TAN, { at: [-0.36, 0.296, 0.22], bevel: 0 });
-        s.slab([[0.44, 0.255], [0.56, 0.2], [0.6, 0.17], [0.44, 0.17]], 0.34, TANK_DARK, { at: [0, 0.006, 0], bevel: 0 });
-        // Side skirts in team colour, hazard chevrons up front.
-        for (const z of [0.36, -0.36]) {
-          s.slab([[-0.56, 0.12], [0.5, 0.12], [0.56, 0.21], [-0.54, 0.25]], 0.035, 'team', { at: [0, 0, z], bevel: 0.01 });
-          s.box(0.08, 0.02, 0.04, HAZARD, { at: [0.5, 0.2, z], bevel: 0 });
+        // A low faceted wedge: sloped glacis, flat deck, angled tail.
+        s.slab([[-0.56, 0.1], [0.5, 0.1], [0.64, 0.17], [0.46, 0.27], [-0.5, 0.29], [-0.6, 0.2]], 0.6, TANK_GREEN, { bevel: 0.025 });
+        // A lighter deck plate over the middle and a dark lower glacis.
+        s.hull([[-0.4, -0.25], [0.36, -0.25], [0.44, -0.12], [0.44, 0.12], [0.36, 0.25], [-0.4, 0.25], [-0.46, 0.14], [-0.46, -0.14]], 0.02, TANK_GREEN2, { at: [0, 0.28, 0], bevel: 0.006 });
+        s.slab([[0.5, 0.1], [0.64, 0.17], [0.58, 0.2], [0.5, 0.2]], 0.56, TANK_DARK, { bevel: 0 });
+        // Full-length armoured skirts over the tracks, in team colour, with a faceted nose and tail and a dark lower edge.
+        for (const z of [0.375, -0.375]) {
+          s.slab([[-0.58, 0.1], [0.5, 0.1], [0.6, 0.17], [0.52, 0.27], [-0.5, 0.27], [-0.6, 0.2]], 0.04, 'team', { at: [0, 0, z], bevel: 0.008 });
+          s.box(1.0, 0.014, 0.046, TANK_DARK, { at: [-0.02, 0.108, z], bevel: 0 });
+          s.box(0.014, 0.05, 0.048, CYAN, { at: [0.58, 0.19, z], glow: true, bevel: 0 }); // running lights
         }
-        s.box(0.3, 0.025, 0.42, DARK, { at: [-0.34, 0.295, 0], bevel: 0.2 }); // engine grille
-        for (let i = 0; i < 4; i++) s.box(0.012, 0.012, 0.38, GUN, { at: [-0.45 + i * 0.075, 0.31, 0], bevel: 0 });
-        s.tube(0.022, 0.08, GUN, { at: [-0.58, 0.25, 0.18] }); // exhausts
-        s.tube(0.022, 0.08, GUN, { at: [-0.58, 0.25, -0.18] });
-        s.box(0.02, 0.03, 0.05, AMBER, { at: [0.56, 0.2, 0.2], glow: true, bevel: 0 }); // headlights
-        s.box(0.02, 0.03, 0.05, AMBER, { at: [0.56, 0.2, -0.2], glow: true, bevel: 0 });
-        s.box(0.08, 0.05, 0.08, STEEL2, { at: [0.3, 0.3, -0.2] }); // driver hatch
-        s.box(0.1, 0.06, 0.14, STEEL2, { at: [-0.5, 0.31, 0.18] }); // stowage
+        // The rear power vent: a dark louvred housing with a lit core.
+        s.box(0.14, 0.04, 0.3, DARK, { at: [-0.4, 0.3, 0], bevel: 0.2 });
+        s.box(0.012, 0.022, 0.24, CYAN, { at: [-0.472, 0.3, 0], glow: true, bevel: 0 });
+        for (let i = 0; i < 3; i++) s.box(0.012, 0.012, 0.28, GUN, { at: [-0.35 + i * 0.045, 0.325, 0], bevel: 0 });
         return s;
       },
       turret: () => {
         const s = shape();
-        s.hull([[0.26, -0.13], [0.3, 0], [0.26, 0.13], [-0.16, 0.21], [-0.3, 0.14], [-0.3, -0.14], [-0.16, -0.21]], 0.15, TANK_OLIVE, { bevel: 0.025 });
-        s.box(0.22, 0.012, 0.16, TANK_TAN, { at: [-0.12, 0.156, -0.09], bevel: 0 });
-        s.box(0.16, 0.012, 0.12, TANK_DARK, { at: [0.05, 0.156, 0.1], bevel: 0 });
-        s.hull([[0.18, -0.09], [0.21, 0], [0.18, 0.09], [-0.12, 0.15], [-0.24, 0.1], [-0.24, -0.1], [-0.12, -0.15]], 0.025, 'team', { at: [0, 0.15, 0], bevel: 0.008 });
-        s.cyl(0.055, 0.05, STEEL2, { at: [-0.1, 0.19, 0.09], seg: 10 }); // cupola
-        s.box(0.03, 0.012, 0.05, CYAN, { at: [-0.06, 0.205, 0.09], glow: true, bevel: 0 }); // cupola vision block
-        s.box(0.06, 0.05, 0.05, GUN, { at: [0.1, 0.18, -0.12] }); // gunner sight
-        s.box(0.012, 0.03, 0.035, CYAN, { at: [0.133, 0.18, -0.12], glow: true, bevel: 0 });
-        s.cyl(0.006, 0.34, DARK, { at: [-0.24, 0.32, -0.12], seg: 4 }); // antenna
-        s.box(0.12, 0.08, 0.3, TANK_DARK, { at: [-0.34, 0.08, 0] }); // bustle rack
-        for (const z of [0.17, -0.17]) for (const k of [0, 1]) s.tube(0.016, 0.06, GUN, { at: [0.12 + k * 0.01, 0.12 + k * 0.03, z], rot: [0, z > 0 ? -0.5 : 0.5, 0.4] }); // smoke dischargers
+        // A flat wedge: a broad low base, then a roof that rises from the gun to the tail. No hatches.
+        s.hull([[0.3, -0.13], [0.3, 0.13], [0.18, 0.23], [-0.22, 0.23], [-0.32, 0.15], [-0.32, -0.15], [-0.22, -0.23], [0.18, -0.23]], 0.09, TANK_GREEN, { bevel: 0.02 });
+        s.hull([[0.27, -0.1], [0.27, 0.1], [0.16, 0.2], [-0.2, 0.2], [-0.29, 0.13], [-0.29, -0.13], [-0.2, -0.2], [0.16, -0.2]], 0.014, 'team', { at: [0, 0.09, 0], bevel: 0 });
+        s.slab([[-0.28, 0], [0.26, 0], [0.12, 0.06], [-0.22, 0.1]], 0.3, TANK_GREEN2, { at: [0, 0.104, 0], bevel: 0.015 });
+        // A sensor blister on the roof, a short blade antenna, and a small lit vent at the tail.
+        s.ball(0.045, CANOPY, { at: [0.02, 0.17, -0.1], scale: [1.3, 0.8, 1], cut: 0.55, seg: 8 });
+        s.box(0.012, 0.014, 0.05, CYAN, { at: [0.068, 0.178, -0.1], glow: true, bevel: 0 });
+        s.box(0.02, 0.16, 0.012, DARK, { at: [-0.2, 0.26, 0.1], rot: [0, 0, 0.12], bevel: 0 });
+        s.box(0.012, 0.02, 0.14, CYAN, { at: [-0.322, 0.13, 0], glow: true, bevel: 0 });
         return s;
       },
       barrel: () => {
         const s = shape();
-        s.box(0.1, 0.09, 0.13, TANK_DARK, { at: [0.02, 0, 0] }); // mantlet
-        s.tube(0.028, 0.5, GUN, { at: [0.3, 0, 0], r2: 0.032, seg: 10 });
-        s.tube(0.04, 0.09, GUN, { at: [0.3, 0, 0], seg: 10 }); // fume extractor
-        s.box(0.07, 0.055, 0.075, DARK, { at: [0.57, 0, 0], bevel: 0.2 }); // muzzle brake
+        s.box(0.1, 0.1, 0.16, TANK_DARK, { at: [0.02, 0, 0], bevel: 0.3 }); // mantlet
+        s.box(0.05, 0.018, 0.1, CYAN, { at: [0.0, 0.058, 0], glow: true, bevel: 0 }); // lit breech
+        s.tube(0.036, 0.52, GUN, { at: [0.31, 0, 0], r2: 0.04 });
+        // The ribbed accelerator sleeve: collars along the thick barrel with thin lit gaps.
+        for (let i = 0; i < 4; i++) s.tube(0.052, 0.03, STEEL2, { at: [0.18 + i * 0.1, 0, 0], seg: 8, shadow: false });
+        for (const x of [0.23, 0.33, 0.43]) s.tube(0.043, 0.012, CYAN, { at: [x, 0, 0], seg: 8, glow: true });
+        s.tube(0.048, 0.06, DARK, { at: [0.585, 0, 0], seg: 8, shadow: false }); // muzzle collar
         return s;
       },
     },
@@ -235,7 +249,7 @@ function tank(): RigDef {
         {
           anim: { k: 'body' },
           kids: [
-            ...runningGear(1.16, 0.29, 0.062, 5, 0.085),
+            ...runningGear(1.16, 0.29, 0.07, 5, 0.085),
             { geo: 'hull' },
             {
               anim: { k: 'turret' },
@@ -251,10 +265,11 @@ function tank(): RigDef {
 }
 
 /**
- * Hammer Artillery (R3D-32): a modern self-propelled howitzer, an original design. A long, low tracked hull on seven
- * road wheels carries a large, enclosed, faceted turret set toward the rear; the long barrel, with a multi-baffle muzzle
- * brake, reaches out over the hull front and rests in a travel lock on the glacis until the gun has a target. No open
- * deck, no outriggers, no crew. The barrel rides an elevating cradle, so shots leave the muzzle at its current angle.
+ * Hammer Artillery (R3D-32): a rail-gun artillery piece, an original design. A long, low tracked hull on seven road
+ * wheels under armoured skirts carries a large, enclosed, faceted turret set toward the rear; the long rail gun, two
+ * parallel rails in a braced frame with cyan-lit coil rings, reaches out over the hull front and rests in a travel lock
+ * on the glacis until the gun has a target. Sealed pale shells, no open deck, no outriggers, no crew. The barrel rides an
+ * elevating cradle, so shots leave the muzzle at its current angle.
  */
 /** Barrel elevation in the travel lock (nearly level) and fully raised, radians (R3D-32). */
 export const HAMMER_LOCK = 0.035;
