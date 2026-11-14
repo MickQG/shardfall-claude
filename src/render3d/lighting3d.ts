@@ -126,7 +126,7 @@ export function createComposer(renderer: THREE.WebGLRenderer, scene: THREE.Scene
 }
 
 /** Linear red, green, blue of the ambient light the ground gets in place of the specular share it no longer computes (PERF-7). */
-export const GROUND_AMBIENT: readonly [number, number, number] = [1.95, 1.84, 2.28];
+export const GROUND_AMBIENT: readonly [number, number, number] = [0.5, 0.4, 0.78];
 
 /**
  * The map's ground (PERF-7): a Lambert material, diffuse light only. A surface this rough barely shows specular or
@@ -135,16 +135,13 @@ export const GROUND_AMBIENT: readonly [number, number, number] = [1.95, 1.84, 2.
  */
 export function groundMaterial(map: THREE.Texture, relief: THREE.Texture): THREE.MeshLambertMaterial {
   const mat = new THREE.MeshLambertMaterial({ map, normalMap: relief, normalScale: new THREE.Vector2(0.7, 0.7) });
-  // The ground samples no environment map at all: three 0.186 would give Lambert the scene environment's diffuse light
-  // (one prefiltered-cube lookup per pixel, `lights_fragment_maps`), so that chunk and the functions behind it are
-  // cut out. The ground faces up nearly everywhere, so a constant ambient term takes the place of both that diffuse
-  // light and the specular share of the physically based model, fitted so the brightness and tint match.
+  // three 0.186 gives Lambert the scene environment's diffuse light too, but not the specular and reflection share the
+  // physically based model added; a constant ambient term stands in for that, fitted so the ground's brightness and
+  // tint match (within about 1/255 on average).
   const ambient = new THREE.Vector3(...GROUND_AMBIENT);
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGroundAmbient = { value: ambient };
     shader.fragmentShader = 'uniform vec3 uGroundAmbient;\n' + shader.fragmentShader
-      .replace('#include <lights_fragment_maps>', '')
-      .replace('#include <envmap_physical_pars_fragment>', '')
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.indirectDiffuse += uGroundAmbient * BRDF_Lambert( material.diffuseColor );');
   };
   mat.customProgramCacheKey = () => 'ground-diffuse';
