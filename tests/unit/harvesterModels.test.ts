@@ -192,14 +192,15 @@ describe('R3D-30: the Shard Hauler', () => {
         if (p.geo.type === 'CylinderGeometry') expect(size.y > 0.25 && size.x < 0.1 && size.z < 0.1, `${name}: a stack`).toBe(false);
       }
     }
-    // The conveyor: a bed under a roof, its inner side closed and its outer side split by a window strip a crystal wide.
+    // The conveyor: a slim duct, a bed between closed sides under a roof split along its middle by a window strip a crystal
+    // wide, so the crystals show from above.
     const body = def.shapes.body!().pieces;
     const long = body.filter((p) => {
       p.geo.computeBoundingBox();
       const s = p.geo.boundingBox!.getSize(new THREE.Vector3());
       return s.x > 0.8 && s.z < 0.25 && s.y > 0.4; // slanted along the belt: a long, narrow, tall box
     });
-    expect(long.length, 'bed, inner wall, window bars and roof, as parts of one covered belt').toBeGreaterThanOrEqual(4);
+    expect(long.length, 'bed, both sides and the two halves of the roof, as parts of one covered duct').toBeGreaterThanOrEqual(5);
     // The cooling vent sits on the cab's rear deck, on a part of the body.
     const [vx, vy, vz] = HAULER_VENT;
     const vent = body.find((p) => {

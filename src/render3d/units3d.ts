@@ -218,7 +218,11 @@ function tank(): RigDef {
         // The rear power vent: a dark louvred housing with a lit core.
         s.box(0.14, 0.04, 0.3, DARK, { at: [-0.4, 0.3, 0], bevel: 0.2 });
         s.box(0.012, 0.022, 0.24, CYAN, { at: [-0.472, 0.3, 0], glow: true, bevel: 0 });
-        for (let i = 0; i < 3; i++) s.box(0.012, 0.012, 0.28, GUN, { at: [-0.35 + i * 0.045, 0.325, 0], bevel: 0 });
+        for (let i = 0; i < 3; i++) s.box(0.012, 0.012, 0.28, GUN, { at: [-0.445 + i * 0.045, 0.325, 0], bevel: 0 });
+        s.box(0.12, 0.004, 0.25, CYAN, { at: [-0.4, 0.3215, 0], glow: true, bevel: 0 }); // the lit core, seen between the louvres from above
+        // Panel seams on the deck: across it ahead of the turret, and along it either side of the vent.
+        s.box(0.01, 0.004, 0.44, TANK_DARK, { at: [0.38, 0.301, 0], bevel: 0 });
+        for (const z of [0.17, -0.17]) s.box(0.3, 0.004, 0.01, TANK_DARK, { at: [-0.3, 0.301, z], bevel: 0 });
         return s;
       },
       turret: () => {
@@ -267,10 +271,10 @@ function tank(): RigDef {
 }
 
 /**
- * Hammer Artillery (R3D-32): a rail-gun artillery piece, an original design. A long, low tracked hull on seven road
- * wheels under armoured skirts carries a large, enclosed, faceted turret set toward the rear; the long rail gun, two
- * parallel rails in a braced frame with cyan-lit coil rings, reaches out over the hull front and rests in a travel lock
- * on the glacis until the gun has a target. Sealed pale shells, no open deck, no outriggers, no crew. The barrel rides an
+ * Hammer Artillery (R3D-32): a long-barrelled coil-gun artillery piece, an original design. A long, low tracked hull on
+ * seven road wheels under armoured skirts carries a large, enclosed, faceted turret set toward the rear; the long, round
+ * barrel, out of a rounded breech housing with a few cyan-lit coil rings along it, reaches out over the hull front and
+ * rests in a travel lock on the glacis until the gun has a target. Sealed pale shells, no open deck, no outriggers, no crew. The barrel rides an
  * elevating cradle, so shots leave the muzzle at its current angle.
  */
 /** Barrel elevation in the travel lock (nearly level) and fully raised, radians (R3D-32). */
@@ -279,6 +283,8 @@ export const HAMMER_RAISED = 0.68;
 /** Where the barrel hinges in the turret, and the muzzle's distance along the barrel from that hinge (R3D-32). */
 export const HAMMER_TRUNNION: V3 = [0.44, 0.2, 0];
 export const HAMMER_MUZZLE = 1.14;
+/** Where along the barrel its lit coil rings stand: few and wide-spaced, unlike the tank's close-ribbed sleeve (R3D-32). */
+const COILS = [0.54, 0.76, 0.98] as const;
 
 function artillery(): RigDef {
   const LEN = 1.5;
@@ -306,14 +312,20 @@ function artillery(): RigDef {
           s.box(1.0, 0.012, 0.046, ARTY_SLATE, { at: [-0.04, 0.108, z], bevel: 0 });
           s.box(0.014, 0.04, 0.046, CYAN, { at: [0.775, 0.19, z], glow: true, bevel: 0 }); // running lights
         }
-        // The travel lock on the glacis: two posts and a saddle the barrel's rails rest above.
-        for (const z of [0.07, -0.07]) s.box(0.07, 0.13, 0.035, GUN, { at: [0.52, 0.365, z], bevel: 0.2 });
-        s.box(0.1, 0.025, 0.2, DARK, { at: [0.52, 0.4425, 0], bevel: 0.2 });
+        // The travel lock on the glacis: two posts and a saddle the barrel rests on.
+        for (const z of [0.07, -0.07]) s.box(0.07, 0.15, 0.035, GUN, { at: [0.52, 0.375, z], bevel: 0.2 });
+        s.box(0.1, 0.025, 0.2, DARK, { at: [0.52, 0.4625, 0], bevel: 0.2 });
         // A driver's sensor blister on the glacis and a sealed, lit power vent at the stern.
         s.ball(0.05, CANOPY, { at: [0.36, 0.31, 0.2], scale: [1.4, 0.7, 1.2], cut: 0.55, seg: 8 });
         s.box(0.012, 0.016, 0.07, CYAN, { at: [0.41, 0.322, 0.2], glow: true, bevel: 0 });
         s.box(0.3, 0.025, 0.34, DARK, { at: [-0.5, 0.32, 0], bevel: 0.2 });
         s.box(0.012, 0.016, 0.28, CYAN, { at: [-0.652, 0.32, 0], glow: true, bevel: 0 });
+        for (const x of [-0.6, -0.5, -0.4]) s.box(0.03, 0.006, 0.26, CYAN, { at: [x, 0.334, 0], glow: true, bevel: 0 }); // its lit slots, seen from above
+        // Faceting: raised wedge plates on the glacis either side of the lock, and dark seams where deck and glacis meet
+        // and along the deck.
+        for (const z of [0.2, -0.2]) s.slab([[0.44, 0.3], [0.5, 0.3], [0.76, 0.212], [0.76, 0.228], [0.58, 0.322], [0.44, 0.322]], 0.16, ARTY_PALE, { at: [0, 0, z], bevel: 0.01 });
+        s.box(0.012, 0.006, 0.6, ARTY_SLATE, { at: [0.48, 0.322, 0], bevel: 0 });
+        for (const z of [0.12, -0.12]) s.box(0.5, 0.005, 0.01, ARTY_SLATE, { at: [0.1, 0.322, z], bevel: 0 });
         for (const z of [0.18, -0.18]) s.box(0.016, 0.02, 0.04, CYAN, { at: [0.8, 0.2, z], glow: true, bevel: 0 });
         s.box(0.012, 0.03, 0.1, RED, { at: [-0.762, 0.22, 0.14], glow: true, bevel: 0 });
         s.box(0.012, 0.03, 0.1, RED, { at: [-0.762, 0.22, -0.14], glow: true, bevel: 0 });
@@ -326,17 +338,27 @@ function artillery(): RigDef {
         s.hull([[-0.38, -0.18], [-0.3, -0.26], [0.26, -0.26], [0.36, -0.14], [0.36, 0.14], [0.26, 0.26], [-0.3, 0.26], [-0.38, 0.18]], 0.26, ARTY_PALE, { at: [0, 0.04, 0], bevel: 0.02 });
         s.slab([[-0.32, 0], [0.3, 0], [0.12, 0.09], [-0.26, 0.09]], 0.36, ARTY_PALE2, { at: [0, 0.29, 0], bevel: 0.015 });
         s.box(0.4, 0.012, 0.08, 'team', { at: [-0.04, 0.385, 0], bevel: 0 });
-        // The capacitor housing at the rear: a boxed bank of three cells with lit faces, under a lit strip.
-        s.box(0.08, 0.2, 0.34, ARTY_SLATE, { at: [-0.41, 0.19, 0], bevel: 0.2 });
-        for (const z of [-0.1, 0, 0.1]) s.box(0.012, 0.15, 0.05, CYAN, { at: [-0.452, 0.19, z], glow: true, bevel: 0 });
-        s.box(0.012, 0.016, 0.3, CYAN, { at: [-0.452, 0.3, 0], glow: true, bevel: 0 });
-        // The sensor array on the roof: a tilted panel with three lenses, and a small lit dome beside it.
-        s.box(0.12, 0.016, 0.2, GUN, { at: [0.1, 0.4, 0.06], rot: [0, 0, -0.35], bevel: 0.3 });
-        for (const z of [-0.03, 0.06, 0.15]) s.box(0.012, 0.02, 0.04, CYAN, { at: [0.158, 0.41, z], rot: [0, 0, -0.35], glow: true, bevel: 0 });
+        // The capacitor housing at the rear: a boxed bank of three cells with lit faces at the back and lit tops, seen from above.
+        s.box(0.1, 0.26, 0.38, ARTY_SLATE, { at: [-0.42, 0.2, 0], bevel: 0.15 });
+        for (const z of [-0.11, 0, 0.11]) {
+          s.box(0.012, 0.13, 0.05, CYAN, { at: [-0.472, 0.18, z], glow: true, bevel: 0 });
+          s.box(0.06, 0.006, 0.07, CYAN, { at: [-0.43, 0.333, z], glow: true, bevel: 0 });
+        }
+        s.box(0.012, 0.016, 0.32, CYAN, { at: [-0.472, 0.3, 0], glow: true, bevel: 0 });
+        // A dark seam across the roof wedge where its sloped front meets the top.
+        s.box(0.01, 0.006, 0.34, ARTY_SLATE, { at: [0.11, 0.384, 0], bevel: 0 });
+        // The sensor array on the roof: a dark mount carrying a tilted panel with three lenses, and a small lit dome beside it.
+        s.box(0.12, 0.03, 0.2, ARTY_SLATE, { at: [0.0, 0.395, 0.08], bevel: 0.2 });
+        s.box(0.13, 0.018, 0.22, GUN, { at: [0.06, 0.42, 0.08], rot: [0, 0, -0.4], bevel: 0.3 });
+        for (const z of [0.0, 0.08, 0.16]) s.box(0.014, 0.024, 0.05, CYAN, { at: [0.122, 0.425, z], rot: [0, 0, -0.4], glow: true, bevel: 0 });
         s.ball(0.04, CANOPY, { at: [-0.14, 0.39, -0.12], scale: [1.2, 0.8, 1.2], cut: 0.55, seg: 8 });
         s.box(0.01, 0.014, 0.05, CYAN, { at: [-0.1, 0.396, -0.12], glow: true, bevel: 0 });
         s.box(0.02, 0.16, 0.012, DARK, { at: [-0.3, 0.46, 0.2], rot: [0, 0, 0.1], bevel: 0 }); // short blade antenna
-        for (const z of [0.265, -0.265]) s.box(0.3, 0.012, 0.012, CYAN, { at: [0.0, 0.17, z], glow: true, bevel: 0 }); // flank light strips
+        // Faceted cheek plates on the flanks, each with a light strip.
+        for (const z of [0.272, -0.272]) {
+          s.slab([[-0.26, 0.07], [0.2, 0.07], [0.28, 0.15], [0.2, 0.26], [-0.26, 0.26]], 0.03, ARTY_PALE2, { at: [0, 0, z], bevel: 0.008 });
+          s.box(0.3, 0.012, 0.006, CYAN, { at: [-0.04, 0.2, z + Math.sign(z) * 0.016], glow: true, bevel: 0 });
+        }
         return s;
       },
       cradle: () => {
@@ -346,23 +368,18 @@ function artillery(): RigDef {
         return s;
       },
       barrel: () => {
-        // The rail gun: two rails in a braced frame, lit coil rings along it, and a squared muzzle block.
+        // The coil gun: a long, round barrel of moderate thickness, slimmer and longer than the tank's cannon, out of a rounded
+        // breech housing; three wide-spaced collars carry its lit coil rings, and a plain collar defines the muzzle.
         const s = shape();
-        for (const z of [0.034, -0.034]) s.box(1.12, 0.042, 0.04, GUN, { at: [0.58, 0, z], bevel: 0.25 });
-        s.box(0.3, 0.06, 0.1, STEEL2, { at: [0.2, 0, 0], bevel: 0.25 }); // the breech block between the rails
-        // The frame's long members, linking the braces into a lattice round the rails.
-        for (const y of [0.05, -0.05]) for (const z of [0.08, -0.08]) s.box(0.8, 0.012, 0.012, STEEL2, { at: [0.68, y, z], bevel: 0, shadow: false });
-        // Braces in the frame: a top and bottom bar and two posts.
-        for (const x of [0.4, 0.68, 0.96]) {
-          for (const y of [0.05, -0.05]) s.box(0.024, 0.014, 0.17, STEEL2, { at: [x, y, 0], bevel: 0 });
-          for (const z of [0.08, -0.08]) s.box(0.024, 0.1, 0.014, STEEL2, { at: [x, 0, z], bevel: 0 });
+        s.tube(0.038, 0.88, GUN, { at: [0.71, 0, 0], r2: 0.033, seg: 12 });
+        s.tube(0.068, 0.26, ARTY_SLATE, { at: [0.15, 0, 0], r2: 0.064, seg: 14 }); // the breech housing
+        s.ball(0.064, ARTY_SLATE, { at: [0.28, 0, 0], scale: [0.7, 1, 1], seg: 12 }); // its rounded nose
+        s.tube(0.07, 0.016, CYAN, { at: [0.1, 0, 0], seg: 14, glow: true }); // a lit band round it
+        for (const x of COILS) {
+          s.tube(0.054, 0.08, ARTY_SLATE, { at: [x, 0, 0], seg: 12 });
+          s.tube(0.057, 0.024, CYAN, { at: [x, 0, 0], seg: 12, glow: true });
         }
-        // Lit coil rings: a glowing rectangle round both rails.
-        for (const x of [0.5, 0.58, 0.8, 0.88, 1.04]) {
-          for (const y of [0.052, -0.052]) s.box(0.02, 0.012, 0.17, CYAN, { at: [x, y, 0], glow: true, bevel: 0 });
-          for (const z of [0.082, -0.082]) s.box(0.02, 0.1, 0.012, CYAN, { at: [x, 0, z], glow: true, bevel: 0 });
-        }
-        s.box(0.06, 0.07, 0.15, DARK, { at: [1.12, 0, 0], bevel: 0.2 }); // the muzzle block
+        s.tube(0.042, 0.065, DARK, { at: [1.112, 0, 0], r2: 0.046, seg: 12 }); // the muzzle collar
         return s;
       },
     },
@@ -496,7 +513,18 @@ function buggy(): RigDef {
 export const HAULER_HOPPER: [number, number, number] = [-0.42, 0.33, 0];
 export const HAULER_TIP = 0.785;
 /** Where the rear hatch hinges (the top of the raked back) and how far it folds up and forward over the open bed; the head's arms pivot at HAULER_ARM: body-frame points (R3D-30). */
-export const HAULER_HATCH: [number, number, number] = [-0.2, 0.62, 0];
+export const HAULER_HATCH: [number, number, number] = [-0.155, 0.675, 0];
+/** The top of the hopper's walls, body frame: above the cab roof, so the bin and its glowing load read as the hauler's biggest part. */
+const HOPPER_TOP = 0.675;
+/** The raked back: its length from the hinge to the hatch's hinge, and how much of it at the bottom is fixed (the rest is the hatch). */
+const RAKE_DIR: [number, number] = [HAULER_HATCH[0] - HAULER_HOPPER[0], HAULER_HATCH[1] - HAULER_HOPPER[1]];
+const RAKE_LEN = Math.hypot(...RAKE_DIR);
+const BACK_LOW = 0.15;
+/** A body-frame point on the raked back, `along` it from the hinge and `out` from its middle toward its outer (rear) face. */
+const rakeAt = (along: number, out = 0): V3 => {
+  const [dx, dy] = [RAKE_DIR[0] / RAKE_LEN, RAKE_DIR[1] / RAKE_LEN];
+  return [HAULER_HOPPER[0] + dx * along - dy * out, HAULER_HOPPER[1] + dy * along + dx * out, 0];
+};
 export const HAULER_HATCH_SWING = 1.5;
 export const HAULER_ARM: V3 = [0.84, 0.27, 0];
 /** Where the cooling vent breathes its vapour on throttle (R3D-30): a body-frame point on the cab's rear deck. */
@@ -569,17 +597,19 @@ function hauler(): RigDef {
         // The cooling vent on the cab's rear deck: a louvred housing with a lit slot.
         s.box(0.06, 0.05, 0.2, DARK, { at: [HAULER_VENT[0], 0.525, 0.165], bevel: 0.2 });
         s.box(0.012, 0.012, 0.16, CYAN, { at: [0.3, 0.55, 0.165], glow: true, bevel: 0 });
-        // The covered conveyor from the head up into the hopper: a bed, closed sides but for an open window strip on the
-        // outer side that shows the crystals riding up, and a roof. Its cleats are a separate scrolling part.
+        // The covered conveyor from the head up into the hopper: a slim closed duct on the far side of the cab, its roof split
+        // along the middle by an open window strip, lit at its edges, through which the crystals are seen riding up from
+        // above. Its cleats are a separate scrolling part.
         const belt = (len: number, h: number, d: number, paint: number | 'team', u: number, v: number, w: number, glow = false): void => {
           s.box(len, h, d, paint, { at: bp(u, v, w), rot: [0, 0, BELT], bevel: glow ? 0 : 0.15, glow });
         };
-        belt(1.0, 0.03, 0.18, DARK, 0, 0, CZ);
-        belt(1.0, 0.18, 0.02, STEEL2, 0, 0.075, CZ + 0.09);
-        belt(1.0, 0.025, 0.02, STEEL2, 0, 0, CZ - 0.09);
-        belt(1.0, 0.055, 0.02, STEEL2, 0, 0.14, CZ - 0.09);
-        belt(1.0, 0.015, 0.2, STEEL, 0, 0.17, CZ);
-        belt(1.0, 0.006, 0.012, LOAD, 0, 0.1125, CZ - 0.09, true); // a lit sill along the window
+        belt(1.0, 0.025, 0.14, DARK, 0, 0, CZ); // the bed
+        for (const w of [0.062, -0.062]) belt(1.0, 0.1, 0.016, STEEL2, 0, 0.055, CZ + w); // the closed sides
+        for (const w of [0.047, -0.047]) {
+          belt(1.0, 0.016, 0.045, STEEL, 0, 0.11, CZ + w); // the roof either side of the window
+          belt(0.96, 0.006, 0.006, LOAD, 0, 0.12, CZ + Math.sign(w) * 0.027, true); // a lit sill along each edge of the window
+        }
+        belt(0.06, 0.13, 0.17, STEEL2, -0.47, 0.055, CZ); // the hood over its top end, spilling into the hopper
         for (const x of [0.46, 0.8]) {
           const top = 0.5 - (x - 0.62) * 0.5 - 0.03; // up to just under the bed
           s.box(0.03, top - 0.33, 0.03, GUN, { at: [x, (top + 0.33) / 2, CZ], bevel: 0.2 });
@@ -590,24 +620,26 @@ function hauler(): RigDef {
       hopper: () => {
         // The hopper: a smooth-sided bin with a floor, team bands and a lit rim. It tips up at the front about a hinge at its
         // rear to unload; its back is raked forward and the lower part of it is fixed, the upper part being the hatch.
+        // It is the biggest thing on the chassis: as wide as the hull belts, standing above the cab roof at the front.
         const s = shape();
-        s.box(0.58, 0.03, 0.58, STEEL, { at: [-0.13, 0.335, 0], bevel: 0.2 });
-        for (const z of [0.29, -0.29]) {
-          s.slab([[-0.42, 0.32], [0.16, 0.32], [0.16, 0.6], [-0.2, 0.62]], 0.04, STEEL, { at: [0, 0, z], bevel: 0.01 });
-          s.box(0.5, 0.07, 0.046, 'team', { at: [-0.1, 0.46, z], bevel: 0.2 });
-          s.box(0.36, 0.014, 0.05, LOAD, { at: [-0.02, 0.616, z], rot: [0, 0, -0.055], glow: true, bevel: 0 }); // the lit rim
+        const top = HOPPER_TOP;
+        s.box(0.58, 0.03, 0.62, STEEL, { at: [-0.13, 0.335, 0], bevel: 0.2 });
+        for (const z of [0.31, -0.31]) {
+          s.slab([[-0.42, 0.32], [0.16, 0.32], [0.16, top], [HAULER_HATCH[0], top], [HAULER_HATCH[0] - 0.02, top - 0.03]], 0.04, STEEL, { at: [0, 0, z], bevel: 0.01 });
+          s.box(0.5, 0.08, 0.046, 'team', { at: [-0.1, 0.45, z], bevel: 0.2 });
+          s.box(0.34, 0.016, 0.052, LOAD, { at: [0.0, top - 0.004, z], glow: true, bevel: 0 }); // the lit rim
         }
-        s.box(0.04, 0.3, 0.58, STEEL, { at: [0.14, 0.47, 0], bevel: 0.1 }); // the hopper's front wall
-        s.box(0.012, 0.014, 0.6, LOAD, { at: [0.16, 0.606, 0], glow: true, bevel: 0 });
-        // The fixed lower part of the raked back.
-        s.box(0.03, 0.13, 0.58, STEEL, { at: [-0.382, 0.372, 0], rot: [0, 0, RAKE], bevel: 0.15 });
+        s.box(0.04, top - 0.32, 0.62, STEEL, { at: [0.14, (top + 0.32) / 2, 0], bevel: 0.1 }); // the hopper's front wall
+        s.box(0.012, 0.014, 0.64, LOAD, { at: [0.16, top - 0.012, 0], glow: true, bevel: 0 });
+        // The fixed lower part of the raked back, from the hinge up along the rake.
+        s.box(0.03, BACK_LOW, 0.62, STEEL, { at: rakeAt(BACK_LOW / 2), rot: [0, 0, RAKE], bevel: 0.15 });
         return s;
       },
       hatch: () => {
         // The rear hatch: the upper part of the raked back, hinged along its top edge; it folds up and forward over the open bed.
         const s = shape();
-        s.box(0.03, 0.24, 0.56, STEEL2, { at: [-0.27, 0.523, 0], rot: [0, 0, RAKE], bevel: 0.15 });
-        s.box(0.012, 0.012, 0.5, LOAD, { at: [-0.205, 0.607, 0], rot: [0, 0, RAKE], glow: true, bevel: 0 });
+        s.box(0.03, RAKE_LEN - BACK_LOW - 0.005, 0.6, STEEL2, { at: rakeAt((RAKE_LEN + BACK_LOW) / 2), rot: [0, 0, RAKE], bevel: 0.15 });
+        s.box(0.012, 0.012, 0.54, LOAD, { at: rakeAt(RAKE_LEN - 0.035, 0.018), rot: [0, 0, RAKE], glow: true, bevel: 0 });
         return s;
       },
       head: () => {
@@ -642,23 +674,25 @@ function hauler(): RigDef {
         const s = shape();
         for (let i = 0; i < 10; i++) {
           const x = -0.45 + i * 0.1;
-          s.box(0.02, 0.035, 0.15, GUN, { at: [x, 0.05, 0], bevel: 0 });
-          s.cone(0.026, 0.07, i % 2 ? LOAD : LOAD2, { at: [x + 0.05, 0.06, ((i % 3) - 1) * 0.04], seg: 5, glow: true });
+          s.box(0.02, 0.035, 0.1, GUN, { at: [x, 0.03, 0], bevel: 0 });
+          // Each crystal rides up the middle, its tip in the roof's open window.
+          s.cone(0.026, 0.07, i % 2 ? LOAD : LOAD2, { at: [x + 0.05, 0.055, ((i % 3) - 1) * 0.008], seg: 5, glow: true });
         }
         return s;
       },
       cargo: () => {
         const s = shape();
-        // A heap of glowing crystals standing proud of the hopper when full (it rises from the floor with the load).
+        // A heap of glowing crystals mounded well above the hopper's rim when full, filling its open top (it rises from the
+        // floor with the load).
         for (let i = 0; i < 12; i++) {
           const cx = i % 4;
           const cz = Math.floor(i / 4);
-          const x = -0.2 + cx * 0.1 + (cz % 2) * 0.03;
-          const z = (cz - 1) * 0.17;
-          const h = 0.17 + 0.12 * (1 - Math.abs(cx - 1.5) / 1.5) * (1 - Math.abs(cz - 1) * 0.5);
+          const x = -0.13 + cx * 0.075 + (cz % 2) * 0.03;
+          const z = (cz - 1) * 0.19;
+          const h = 0.3 + 0.17 * (1 - Math.abs(cx - 1.5) / 1.5) * (1 - Math.abs(cz - 1) * 0.5);
           const tilt: [number, number, number] = [0.3 * (i % 2 ? 1 : -1), 0, 0.22 * ((i % 3) - 1)];
-          s.cyl(0.05, h, LOAD, { at: [x, 0.35 + h / 2, z], rot: tilt, seg: 6, glow: true });
-          s.cone(0.05, 0.09, LOAD2, { at: [x, 0.35 + h + 0.03, z], rot: tilt, seg: 6, glow: true });
+          s.cyl(0.058, h, LOAD, { at: [x, 0.35 + h / 2, z], rot: tilt, seg: 6, glow: true });
+          s.cone(0.058, 0.1, LOAD2, { at: [x, 0.35 + h + 0.035, z], rot: tilt, seg: 6, glow: true });
         }
         return s;
       },
@@ -685,7 +719,7 @@ function hauler(): RigDef {
               anim: { k: 'tip', pivot: HAULER_HOPPER, max: HAULER_TIP },
               kids: [
                 { geo: 'hatch', anim: { k: 'tip', pivot: HAULER_HATCH, max: HAULER_HATCH_SWING } },
-                { geo: 'cargo', anim: { k: 'cargo', pivot: [-0.15, 0.35, 0], slide: 0.12 } },
+                { geo: 'cargo', anim: { k: 'cargo', pivot: [-0.15, 0.35, 0], slide: 0.3 } },
               ],
             },
           ],

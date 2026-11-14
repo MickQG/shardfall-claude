@@ -238,30 +238,43 @@ describe('R3D-36: the Bulwark Tank', () => {
   });
 });
 
-describe('R3D-32: the Hammer Artillery as a rail-gun piece', () => {
+describe('R3D-32: the Hammer Artillery as a long-barrelled coil gun', () => {
   const def = UNIT_RIGS.hum_artillery!();
   const hull = def.shapes.hull!().pieces;
   const turret = def.shapes.turret!().pieces;
   const barrel = def.shapes.barrel!().pieces;
 
-  it('R3D-32: the barrel is a rail gun: two parallel rails in a braced frame with cyan-lit coil rings, no tube or muzzle brake, and no hazard bands', () => {
-    // Two long rails, level with each other and either side of the axis.
-    const rails = barrel.map(boxOf).filter((b) => b.getSize(new THREE.Vector3()).x > 1.0);
-    expect(rails).toHaveLength(2);
-    const [a, b] = rails.map((r) => r.getCenter(new THREE.Vector3()));
-    expect(a!.z).toBeCloseTo(-b!.z, 6);
-    expect(Math.abs(a!.z)).toBeGreaterThan(0.02);
-    expect(a!.y).toBeCloseTo(b!.y, 6);
-    // Nothing round at all along the barrel (the old tube, sleeve, hazard rings and brake core were cylinders).
-    expect(barrel.filter((p) => p.geo.type === 'CylinderGeometry')).toHaveLength(0);
-    // The braced frame: cross braces between the rails' sides, and long members linking them.
-    const braces = barrel.filter((p) => !p.glow && p.paint !== 0x3b4248).map(boxOf);
-    expect(braces.length).toBeGreaterThanOrEqual(9);
-    // Cyan coil rings: several glowing rectangles of four bars each along the rails.
-    const coil = barrel.filter((p) => p.glow && p.paint === CYAN);
-    expect(coil.length).toBeGreaterThanOrEqual(16);
-    const xs = new Set(coil.map((p) => boxOf(p).getCenter(new THREE.Vector3()).x.toFixed(2)));
-    expect(xs.size).toBeGreaterThanOrEqual(4);
+  it('R3D-32: the barrel is long and round, of moderate thickness, out of a rounded breech housing, with a few wide-spaced cyan-lit coil rings, no muzzle brake and no hazard bands', () => {
+    // One long round tube: a cylinder most of the barrel's length, thicker than the old thin rails but no fatter than the tank's cannon.
+    const tubes = barrel.filter((p) => p.geo.type === 'CylinderGeometry' && !p.glow).map(boxOf);
+    const long = tubes.filter((b) => b.getSize(new THREE.Vector3()).x > 0.7);
+    expect(long).toHaveLength(1);
+    const tube = long[0]!.getSize(new THREE.Vector3());
+    expect(Math.abs(tube.z - tube.y), 'round: as wide as it is tall (a many-sided cylinder)').toBeLessThan(0.005);
+    expect(tube.y, 'moderate thickness').toBeGreaterThan(0.06);
+    expect(tube.y, 'moderate thickness').toBeLessThan(0.09);
+    // Slimmer and longer than the Bulwark Tank's cannon.
+    const cannon = UNIT_RIGS.hum_tank!().shapes.barrel!().pieces.filter((p) => p.geo.type === 'CylinderGeometry').map(boxOf).find((b) => b.getSize(new THREE.Vector3()).x > 0.4)!;
+    const c = cannon.getSize(new THREE.Vector3());
+    expect(tube.x).toBeGreaterThan(c.x * 1.4);
+    expect(tube.y).toBeLessThanOrEqual(c.y + 1e-6);
+    // No box section at all: nothing long and square along the barrel (the old rails, frame and muzzle block).
+    expect(barrel.filter((p) => p.geo.type !== 'CylinderGeometry' && boxOf(p).getSize(new THREE.Vector3()).x > 0.2)).toHaveLength(0);
+    // The rounded breech housing where it leaves the turret: a fat round piece at the barrel's root with a round nose.
+    const breech = tubes.filter((b) => b.max.x < 0.35 && b.getSize(new THREE.Vector3()).y > 0.12);
+    expect(breech.length).toBeGreaterThanOrEqual(1);
+    expect(barrel.filter((p) => p.geo.type === 'SphereGeometry').map(boxOf).filter((b) => b.max.x < 0.4)).toHaveLength(1);
+    // A few lit coil rings, wider than the tube and wide-spaced (unlike the tank's close-ribbed sleeve), and a lit band on the breech.
+    const rings = barrel.filter((p) => p.glow && p.paint === CYAN && p.geo.type === 'CylinderGeometry').map((p) => boxOf(p).getCenter(new THREE.Vector3()).x).filter((x) => x > 0.4).sort((a, b) => a - b);
+    expect(rings.length).toBeGreaterThanOrEqual(3);
+    expect(rings.length).toBeLessThanOrEqual(4);
+    for (let k = 1; k < rings.length; k++) expect(rings[k]! - rings[k - 1]!).toBeGreaterThan(0.15);
+    expect(barrel.filter((p) => p.glow && p.paint === CYAN).map(boxOf).filter((b) => b.max.x < 0.35)).not.toHaveLength(0);
+    // A clean muzzle: the barrel ends in one plain collar at the muzzle point, no brake.
+    const end = Math.max(...barrel.map((p) => boxOf(p).max.x));
+    expect(end).toBeGreaterThan(1.12);
+    expect(end).toBeLessThan(1.17);
+    expect(barrel.map(boxOf).filter((b) => b.min.x > 1.05)).toHaveLength(1);
     // No hazard-yellow band anywhere on the piece.
     for (const make of Object.values(def.shapes)) for (const p of make().pieces) expect([0xf2c53a, 0xe0aa2c], 'hazard band').not.toContain(p.paint);
   });
