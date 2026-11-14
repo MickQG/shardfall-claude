@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { GROUND_AMBIENT, groundMaterial } from '../../src/render3d/lighting3d';
 
 const patched = (mat: THREE.Material): { fragmentShader: string; uniforms: Record<string, { value: unknown }> } => {
-  const shader = { fragmentShader: '#include <lights_fragment_end>\n#include <envmap_fragment>\n#include <opaque_fragment>', uniforms: {} as Record<string, { value: unknown }> };
+  const shader = { fragmentShader: '#include <lights_fragment_end>\n#include <opaque_fragment>', uniforms: {} as Record<string, { value: unknown }> };
   mat.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, undefined as unknown as THREE.WebGLRenderer);
   return shader;
 };
@@ -26,9 +26,8 @@ describe('ground material (PERF-7)', () => {
     expect(mat.normalScale.y).toBeCloseTo(0.7);
   });
 
-  it('PERF-7: the environment reflection is left out and a constant ambient term replaces the environment\'s diffuse light', () => {
+  it('PERF-7: a constant ambient term stands in for the specular share the physically based model added', () => {
     const shader = patched(groundMaterial(map, relief));
-    expect(shader.fragmentShader).not.toContain('#include <envmap_fragment>');
     expect(shader.fragmentShader).toContain('reflectedLight.indirectDiffuse += uGroundAmbient');
     expect((shader.uniforms.uGroundAmbient!.value as THREE.Vector3).toArray()).toEqual([...GROUND_AMBIENT]);
   });

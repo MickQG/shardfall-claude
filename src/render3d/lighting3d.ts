@@ -125,7 +125,7 @@ export function createComposer(renderer: THREE.WebGLRenderer, scene: THREE.Scene
   return composer;
 }
 
-/** Linear red, green, blue of the ambient light the ground gets in place of the environment's diffuse light (PERF-7). */
+/** Linear red, green, blue of the ambient light the ground gets in place of the specular share it no longer computes (PERF-7). */
 export const GROUND_AMBIENT: readonly [number, number, number] = [0.5, 0.4, 0.78];
 
 /**
@@ -135,14 +135,13 @@ export const GROUND_AMBIENT: readonly [number, number, number] = [0.5, 0.4, 0.78
  */
 export function groundMaterial(map: THREE.Texture, relief: THREE.Texture): THREE.MeshLambertMaterial {
   const mat = new THREE.MeshLambertMaterial({ map, normalMap: relief, normalScale: new THREE.Vector2(0.7, 0.7) });
-  // Lambert would also mix the environment's reflection into the colour; the ground wants only its diffuse light.
-  // Lambert gets no diffuse light from the scene environment (the physically based model did, at 0.32): a constant
-  // ambient term stands in for it, fitted so the ground's brightness and tint match (within about 1/255 on average).
+  // three 0.186 gives Lambert the scene environment's diffuse light too, but not the specular and reflection share the
+  // physically based model added; a constant ambient term stands in for that, fitted so the ground's brightness and
+  // tint match (within about 1/255 on average).
   const ambient = new THREE.Vector3(...GROUND_AMBIENT);
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGroundAmbient = { value: ambient };
     shader.fragmentShader = 'uniform vec3 uGroundAmbient;\n' + shader.fragmentShader
-      .replace('#include <envmap_fragment>', '')
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.indirectDiffuse += uGroundAmbient * BRDF_Lambert( material.diffuseColor );');
   };
   mat.customProgramCacheKey = () => 'ground-diffuse';
