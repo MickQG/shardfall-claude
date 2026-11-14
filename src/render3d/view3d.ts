@@ -31,7 +31,7 @@ import { RallyMarker } from './rally3d';
 import { GpuTimer } from './gpuTimer';
 import { FinishPass } from './postChain3d';
 import { PR_MAX, PR_MAX_LOW, PR_MIN, ResolutionGovernor } from './resolution';
-import { addEnvironment, canvasMsaa, postMode, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights, snapShadowTarget, SUN_OFFSET } from './lighting3d';
+import { addEnvironment, canvasMsaa, groundMaterial, postMode, configureRenderer, configureSunShadow, createComposer, GLOW, glowLevels, HIVE_GLOW, matchLights, snapShadowTarget, SUN_OFFSET } from './lighting3d';
 
 /**
  * How damage shows on a building at health fraction `hp` (R3D-18): soot darkens it steadily; below half it throws
@@ -564,7 +564,7 @@ export class View3D {
     const relief = noiseNormalMap(128, 8, 5, 1);
     relief.repeat.set(W / 3, snap.mapHeight / 3);
     const m = terrainMeshes(input);
-    const ground = new THREE.Mesh(geometry(m.ground), new THREE.MeshStandardMaterial({ map, normalMap: relief, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.93, metalness: 0 }));
+    const ground = new THREE.Mesh(geometry(m.ground), groundMaterial(map, relief));
     ground.receiveShadow = true;
     const cliffMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, flatShading: true });
     const cliffs = new THREE.Mesh(geometry(m.cliffs), cliffMat);
