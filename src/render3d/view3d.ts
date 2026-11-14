@@ -18,7 +18,7 @@ import { Instancer, SHADOW_LAYER } from './instancer';
 import type { Built, Shape } from './kit';
 import { angleDiff, bodyPose, elevationReady, restingSettle, settleStep, type Settle, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HAULER_PUFF_ACCEL, HAULER_PUFF_MS, HEAD_MS, rideMotion, slew, podOpen, POD_OPEN_MS, salvoOf, heroHeave, flightAfterWait, follow, gaitPhase, gunYaw, readyToFire, restingMotion, SMOOTH_TIME, SQUAD_SMOOTH_TIME, stepMotion, TURRET_RATE, turnToward, turretOnBody, walkerFacing, type Follow, type MotionState } from './motion';
 import { newMember, stepSquad, type Member } from './squad3d';
-import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
+import { poseRig, recoil, rigTree, strikeAfter, strikeSideOf, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { HAULER_VENT, UNIT_RIGS } from './units3d';
@@ -161,6 +161,9 @@ interface UnitObj {
   podSince: number;
   muzzleTurn: number;
   lunge: number;
+  /** When its last claw blow began and how many it has thrown, so the arms alternate (R3D-37). */
+  strikeAt: number;
+  strikes: number;
   load: number;
   /** When the load last rose (mining) and fell (unloading), ms (R3D-19). */
   mineAt: number;
@@ -748,6 +751,8 @@ export class View3D {
       podSince: -1e9,
       muzzleTurn: 0,
       lunge: -1e9,
+      strikeAt: -1e9,
+      strikes: 0,
       load: u.load,
       mineAt: -1e9,
       unloadAt: -1e9,
@@ -812,7 +817,11 @@ export class View3D {
       if (src && isUnit(src)) {
         // Every standing squad member fires from its own weapon, a beat apart, at its own point.
         for (let i = 0; i < src.alive; i++) this.pending.push({ at: now + i * 55, src, figure: i, e, look, to: this.shotEnd(e.src, shot, i, kind, tx, base, tz, dx, dz) });
-        if (look === 'claw') src.lunge = now;
+        if (look === 'claw') {
+          src.lunge = now;
+          src.strikeAt = now;
+          src.strikes++;
+        }
       } else this.pending.push({ at: now, src, figure: 0, e, look, to: this.shotEnd(e.src, shot, 0, kind, tx, base, tz, dx, dz) });
       return;
     }
@@ -1484,6 +1493,8 @@ export class View3D {
         turret: turretOnBody(o.turretYaw, !mm && def.move === 'walker' ? (o.figureYaw[i] ?? m.heading) : m.heading),
         kick: recoil(t - (o.lastFire[i] ?? -1e9)),
         lunge: t - o.lunge < 260 ? Math.sin(((t - o.lunge) / 260) * Math.PI) : 0,
+        strike: strikeAfter(t - o.strikeAt),
+        strikeSide: strikeSideOf(o.strikes),
         pitch: pose.pitch + heave.pitch,
         roll: pose.roll,
         bob: pose.bob + heave.bob,

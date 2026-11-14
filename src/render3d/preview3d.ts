@@ -4,7 +4,7 @@ import { OWNER_COLORS } from '../render/colors';
 import { FP, TICKS_PER_SECOND } from '../sim';
 import { CombatFx } from './fx3d';
 import { bodyPose, elevationReady, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HEAD_MS, rideMotion, slew, missileLaunchAt, podOpen, salvoOf, POD_OPEN_MS, follow, heroHeave, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, turnToward, turretOnBody, TURRET_RATE, walkerFacing, type Follow, type MotionState } from './motion';
-import { poseRig, recoil, rigTree, turretReach, type RigDef, type RigTree } from './rig';
+import { poseRig, recoil, rigTree, strikeAfter, strikeSideOf, turretReach, type RigDef, type RigTree } from './rig';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { BUILDING_RIGS } from './buildings3d';
 import { UNIT_RIGS } from './units3d';
@@ -105,6 +105,9 @@ interface Live {
   aim: number;
   lastFire: number[];
   lunge: number;
+  /** When its last claw blow began and how many it has thrown, so the arms alternate (R3D-37). */
+  strikeAt: number;
+  strikes: number;
   nextShot: number;
   muzzleTurn: number;
   pending: { at: number; figure: number }[];
@@ -329,7 +332,11 @@ export class UnitPreview {
       const body = !squad && def.move === 'walker' ? s.figureYaw : mo.heading;
       if (readyToFire(turreted, gunYaw(body, s.turretYaw, reach), s.aim, now - s.nextShot) && elevationReady(def.weapon === 'howitzer', s.elev, now - s.nextShot)) {
         for (let i = 0; i < m.trees.length; i++) s.pending.push({ at: now + i * 55, figure: i });
-        if (def.weapon === 'claw') s.lunge = now;
+        if (def.weapon === 'claw') {
+          s.lunge = now;
+          s.strikeAt = now;
+          s.strikes++;
+        }
         s.nextShot = now + (d ? shotEvery(d) : 1000);
       }
     }
@@ -378,6 +385,8 @@ export class UnitPreview {
         turret: turretOnBody(s.turretYaw, !mm && walker ? s.figureYaw : mo.heading),
         kick: recoil(now - (s.lastFire[i] ?? -1e9)),
         lunge: now - s.lunge < 260 ? Math.sin(((now - s.lunge) / 260) * Math.PI) : 0,
+        strike: strikeAfter(now - s.strikeAt),
+        strikeSide: strikeSideOf(s.strikes),
         pitch: pose.pitch + heave.pitch,
         roll: pose.roll,
         bob: pose.bob + heave.bob,
@@ -549,6 +558,8 @@ export class UnitPreview {
       aim: 0,
       lastFire: [],
       lunge: -1e9,
+      strikeAt: -1e9,
+      strikes: 0,
       nextShot: Infinity,
       muzzleTurn: 0,
       pending: [],

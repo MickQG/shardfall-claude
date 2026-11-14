@@ -11,8 +11,17 @@ import type { WalkStyle } from './motion';
 export type Axis = 'x' | 'y' | 'z';
 
 export type Anim =
-  /** Takes the hull's pitch, roll, bob and lunge; sinks by `drop` when kneeling. */
-  | { k: 'body'; drop?: number; level?: boolean; sway?: number }
+  /** Takes the hull's pitch, roll, bob and lunge; sinks by `drop` when kneeling. `still` ignores the lunge (a hip girdle
+   * that a striking creature's legs hang from, R3D-37). */
+  | { k: 'body'; drop?: number; level?: boolean; sway?: number; still?: boolean }
+  /**
+   * A bending limb joint (R3D-37): swings about `axis` with the gait phase by `swing`, and flexes by up to `flex` with the
+   * same stride, `lag` radians of gait behind, so knees and elbows bend through the step. On the striking side (`side`)
+   * the claw blow takes over: the joint turns by `wind` at the wind-up and by `hit` at contact (AIM-4).
+   */
+  | { k: 'limb'; axis: Axis; swing: number; phase: number; flex?: number; lag?: number; side?: 1 | -1; wind?: number; hit?: number }
+  /** A torso that twists about Y toward the striking side and leans forward about its hips into a claw blow (R3D-37). */
+  | { k: 'torso'; twist: number; lean: number; windTwist: number; windLean: number }
   /** Turns toward the aim, relative to the hull; a swivel mount turns at most `max` radians either way (AIM-2). */
   | { k: 'turret'; max?: number }
   /** Recoils backwards along its own -X when firing. */
@@ -22,8 +31,8 @@ export type Anim =
   /** Front wheels: yaw with the hull's turning. */
   | { k: 'steer' }
   /** Legs: swing about `axis` with the gait phase, lifting by `lift` on the forward stroke; kneeling turns the leg by
-   * `kneel` and lowers its hip by `drop`. */
-  | { k: 'gait'; axis: Axis; amp: number; phase: number; lift?: number; kneel?: number; drop?: number; ease?: boolean }
+   * `kneel` and lowers its hip by `drop`. A `carry` leg is hung from a body that lunges but is not its child, and moves forward with it, so the hip stays joined (AIM-4). */
+  | { k: 'gait'; axis: Axis; amp: number; phase: number; lift?: number; kneel?: number; drop?: number; ease?: boolean; carry?: boolean }
   /**
    * A jointed leg that plants its foot (HERO-6): the node is the hip and draws the thigh, its first kid (at the knee)
    * the shin, and that kid's first kid (at the ankle) the foot. `knee` is the knee's rest offset from the hip and `ankle`
@@ -32,7 +41,7 @@ export type Anim =
    * then swings forward lifted by `lift`; two-bone IK poses thigh and shin, and the foot stays level. The hip rides up
    * and down with the hull. The node may splay about X; its rest turn about Z is not used.
    */
-  | { k: 'step'; phase: number; fore?: number; reach: number; lift: number; knee: readonly [number, number]; ankle: readonly [number, number]; sole: number }
+  | { k: 'step'; carry?: boolean; phase: number; fore?: number; reach: number; lift: number; knee: readonly [number, number]; ankle: readonly [number, number]; sole: number }
   /** A missile pod: tilts its mouth up by `open` radians as the pod opens (HERO-7). */
   | { k: 'pod'; open: number }
   /** Rotors, radar dishes: spin with time. */
@@ -184,6 +193,10 @@ export interface RigPose {
   kick: number;
   /** Melee lunge 0..1. */
   lunge: number;
+  /** A claw blow in progress (R3D-37): how far through it, 0..1 (see `strikeWeights`); absent or 0 when none. */
+  strike?: number;
+  /** Which arm strikes: +1 the right (+Z) arm, -1 the left. */
+  strikeSide?: 1 | -1;
   /** Body pitch, roll and lift from the motion model. */
   pitch: number;
   roll: number;
@@ -290,10 +303,10 @@ export function poseRig(tree: RigTree, p: RigPose): void {
     switch (an.k) {
       case 'body':
         // A level body (the Gorger, R3D-31) never lunges, pitches or bows: it only sways slowly from side to side.
-        obj.position.set(a.pos.x + (an.level ? 0 : p.lunge * p.reach) - p.kick * 0.01, a.pos.y + p.bob - (p.crouch ?? 0) * (an.drop ?? 0), a.pos.z);
+        obj.position.set(a.pos.x + (an.level || an.still ? 0 : p.lunge * p.reach) - p.kick * 0.01, a.pos.y + p.bob - (p.crouch ?? 0) * (an.drop ?? 0), a.pos.z);
         {
           const rx = a.rot.x + p.roll + (an.sway ? an.sway * Math.sin((p.time / 1000) * SWAY_RATE) : 0);
-          const rz = an.level ? a.rot.z : a.rot.z + p.pitch - p.kick * (p.walker ? 0 : 0.03) - p.lunge * 0.15;
+          const rz = an.level ? a.rot.z : a.rot.z + p.pitch - p.kick * (p.walker ? 0 : 0.03) - (an.still ? 0 : p.lunge * 0.15);
           const r = obj.rotation;
           if (r.x !== rx || r.y !== a.rot.y || r.z !== rz) r.set(rx, a.rot.y, rz);
         }
@@ -317,7 +330,22 @@ export function poseRig(tree: RigTree, p: RigPose): void {
       case 'gait': {
         const c = p.crouch ?? 0;
         turn(obj, an.axis, a.rot[an.axis] + Math.sin(p.phase + an.phase) * an.amp * p.stride + c * (an.kneel ?? 0));
+        if (an.carry) obj.position.x = a.pos.x + p.lunge * p.reach;
         if (an.lift || an.drop) obj.position.y = a.pos.y + (an.lift ?? 0) * footLift(p.phase + an.phase, !!an.ease) * p.stride - c * (an.drop ?? 0);
+        break;
+      }
+      case 'limb': {
+        const [w, h] = an.side !== undefined && p.strikeSide === an.side ? strikeWeights(p.strike ?? 0) : [0, 0];
+        // The blow takes the limb over from the gait as it comes on.
+        const gait = p.stride * (Math.sin(p.phase + an.phase) * an.swing + (an.flex ? an.flex * (0.5 + 0.5 * Math.sin(p.phase + an.phase + (an.lag ?? 0))) : 0));
+        turn(obj, an.axis, a.rot[an.axis] + gait * (1 - Math.min(1, w + h)) + w * (an.wind ?? 0) + h * (an.hit ?? 0));
+        break;
+      }
+      case 'torso': {
+        const [w, h] = strikeWeights(p.strike ?? 0);
+        const side = p.strikeSide ?? 1;
+        turn(obj, 'y', a.rot.y + side * (w * an.windTwist + h * an.twist));
+        turn(obj, 'z', a.rot.z - (w * an.windLean + h * an.lean));
         break;
       }
       case 'step': {
@@ -337,6 +365,7 @@ export function poseRig(tree: RigTree, p: RigPose): void {
         const thigh = Math.atan2(ky, kx) - Math.atan2(an.knee[1], an.knee[0]);
         const total = Math.atan2(ty - ky, tx - kx) - Math.atan2(an.ankle[1], an.ankle[0]);
         obj.position.y = hipY;
+        if (an.carry) obj.position.x = a.pos.x + p.lunge * p.reach;
         turn(obj, 'z', thigh);
         turn(shin!, 'z', total - thigh);
         // Level: undo the leg's swing and its splay.
@@ -407,6 +436,31 @@ export function poseRig(tree: RigTree, p: RigPose): void {
       }
     }
   }
+}
+
+/** How long a claw blow takes, ms, and how far through it the contact is (R3D-37): the claws land 128 ms after the shot, as the lunge peaked. */
+export const STRIKE_MS = 320;
+export const STRIKE_HIT = 0.4;
+
+/** How far through a claw blow (0..1, `RigPose.strike`) a unit is `sinceMs` after its shot; 0 when none is under way. */
+export const strikeAfter = (sinceMs: number): number => (sinceMs > 0 && sinceMs < STRIKE_MS ? sinceMs / STRIKE_MS : 0);
+
+/** Which arm throws the `n`th blow (1, 2, 3...): the right (+Z) arm and the left alternate, starting with the right (R3D-37). */
+export const strikeSideOf = (n: number): 1 | -1 => (n % 2 ? 1 : -1);
+
+/**
+ * The blow's two key poses and how much of each applies at `t` (0..1) through it: [wind-up, contact]. The arm rises to the
+ * wind-up (eased), slams from it to the contact at STRIKE_HIT (accelerating), then eases back to rest. Both are zero at
+ * the ends, so a unit not striking stands in its normal pose.
+ */
+export function strikeWeights(t: number): [number, number] {
+  if (!(t > 0 && t < 1)) return [0, 0];
+  if (t < 0.2) return [smoothstep(t / 0.2), 0];
+  if (t < STRIKE_HIT) {
+    const u = ((t - 0.2) / (STRIKE_HIT - 0.2)) ** 2;
+    return [1 - u, u];
+  }
+  return [0, 1 - smoothstep((t - STRIKE_HIT) / (1 - STRIKE_HIT))];
 }
 
 /** Recoil over time since a shot: snaps back within 40 ms, then eases out. */
