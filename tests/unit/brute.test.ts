@@ -12,12 +12,16 @@ const BRUTE_SHAPES_BEFORE = 3;
 
 const def = UNIT_RIGS.ali_brute!();
 
-/** The rig node with `geo` on the given side (+1 the right, +Z, listed first by the rig; -1 the left). */
+/**
+ * The rig node with `geo` on the given side (+1 the right, +Z, listed first by the rig; -1 the left). The one paw shape is both
+ * the hand ('hand') and the foot ('foot'): the rig lists the feet before the hands.
+ */
 function node(t: RigTree, geo: string, side: 1 | -1): THREE.Object3D {
-  const all = t.drawn.filter((d) => d.geo === geo).map((d) => d.obj);
-  expect(all.length, geo).toBe(2);
+  const paw = geo === 'hand' || geo === 'foot';
+  const all = t.drawn.filter((d) => d.geo === (paw ? 'paw' : geo)).map((d) => d.obj);
+  expect(all.length, geo).toBe(paw ? 4 : 2);
   t.root.updateMatrixWorld(true);
-  return all.find((o) => Math.sign(new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).z) === side)!;
+  return all[(geo === 'hand' ? 2 : 0) + (side > 0 ? 0 : 1)]!;
 }
 
 const at = (o: THREE.Object3D): THREE.Vector3 => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
@@ -25,7 +29,7 @@ const at = (o: THREE.Object3D): THREE.Vector3 => new THREE.Vector3().setFromMatr
 /** Where a hand's claws are, in the model's frame (the hand node's own forward point). */
 const claws = (t: RigTree, side: 1 | -1): THREE.Vector3 => {
   t.root.updateMatrixWorld(true);
-  return new THREE.Vector3(0.2, -0.07, 0).applyMatrix4(node(t, 'hand', side).matrixWorld);
+  return new THREE.Vector3(0.2, -0.04, 0).applyMatrix4(node(t, 'hand', side).matrixWorld);
 };
 
 /** The same point in the torso's own frame, which turns with a blow: it shows whether an arm itself moved. */
@@ -72,7 +76,7 @@ describe('the Brute (R3D-37)', () => {
   it('R3D-37: every joint is a rounded knuckle that the segments sink into', () => {
     // Each segment's shape ends in a ball at the joint below it, and the next segment's strut begins at that centre.
     const ball = (geo: string): boolean => def.shapes[geo]!().pieces.some((p) => p.geo instanceof THREE.SphereGeometry);
-    for (const geo of ['uarm', 'farm', 'thigh', 'shin', 'pelvis', 'body']) expect(ball(geo), geo).toBe(true);
+    for (const geo of ['uarm', 'farm', 'thigh', 'shin', 'body']) expect(ball(geo), geo).toBe(true);
     // Each knuckle is a chunky ball, wider than a hand.
     for (const geo of ['uarm', 'farm', 'thigh', 'shin']) {
       const knuckle = def.shapes[geo]!().pieces.find((p) => p.geo instanceof THREE.SphereGeometry)!;
@@ -81,12 +85,10 @@ describe('the Brute (R3D-37)', () => {
     }
   });
 
-  it('R3D-37: the legs hang from a pelvis the torso sits on, so the legs belong to the hips and not to the torso that twists', () => {
+  it('R3D-37: the legs hang from the hips the torso sits on, so the legs belong to the hips and not to the torso that twists', () => {
     const t = rigTree(def);
-    const pelvis = t.drawn.find((d) => d.geo === 'pelvis')!.obj;
-    const body = t.drawn.find((d) => d.geo === 'body')!.obj;
-    for (const side of [1, -1] as const) expect(node(t, 'thigh', side).parent).toBe(pelvis);
-    expect(body.parent).toBe(pelvis);
+    const hips = t.drawn.find((d) => d.geo === 'body')!.obj.parent!;
+    for (const side of [1, -1] as const) expect(node(t, 'thigh', side).parent).toBe(hips);
     // The shots leave from where they did before the rebuild: the same point ahead of the torso, at rest.
     t.root.updateMatrixWorld(true);
     const m = at(t.muzzles[0]!);
@@ -134,19 +136,19 @@ describe('the Brute (R3D-37)', () => {
     poseRig(t, STILL);
     t.root.updateMatrixWorld(true);
     const parts = ['thigh', 'shin', 'foot'].flatMap((g) => ([1, -1] as const).map((s) => node(t, g, s)));
-    const pelvis = t.drawn.find((d) => d.geo === 'pelvis')!.obj;
     const body = t.drawn.find((d) => d.geo === 'body')!.obj;
     const before = parts.map((o) => at(o));
-    const pelvisAt = at(pelvis);
+    const hips = body.parent!;
+    const hipsAt = at(hips);
     const waist = body;
     const yaw0 = waist.rotation.y;
     for (const side of [1, -1] as const) {
       for (const k of [0.05, 0.19, 0.3, STRIKE_HIT, 0.6, 0.9]) {
         poseRig(t, { ...STILL, strike: k, strikeSide: side });
         t.root.updateMatrixWorld(true);
-        // Hips, knees and ankles have not moved, and the pelvis they hang from is where it was.
+        // Hips, knees and ankles have not moved, and the hips they hang from are where they were.
         parts.forEach((o, i) => expect(at(o).distanceTo(before[i]!), `${side} ${k}`).toBeLessThan(1e-9));
-        expect(at(pelvis).distanceTo(pelvisAt)).toBeLessThan(1e-9);
+        expect(at(hips).distanceTo(hipsAt)).toBeLessThan(1e-9);
       }
       poseRig(t, { ...STILL, strike: STRIKE_HIT, strikeSide: side });
       // The striking shoulder comes forward: the torso turns toward the arm that strikes, and leans forward.
@@ -180,6 +182,6 @@ describe('the Brute (R3D-37)', () => {
     expect(shadow).toBeLessThanOrEqual(BRUTE_SHADOW_TRIANGLES_BEFORE);
     // Left and right share every limb shape; the extra draw calls are one per distinct shape (R3D-13).
     expect(uses.size).toBeGreaterThan(BRUTE_SHAPES_BEFORE);
-    expect(uses.size).toBeLessThanOrEqual(8);
+    expect(uses.size).toBeLessThanOrEqual(6);
   });
 });
