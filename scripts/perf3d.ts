@@ -50,6 +50,8 @@ async function main(): Promise<void> {
   const args: string[] = process.env.PERF_GL === 'swiftshader' ? ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] : ['--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
   if (process.env.PERF_NOVSYNC === '1') args.push('--disable-frame-rate-limit', '--disable-gpu-vsync');
   if (process.env.PERF_HEADED === '1') args.push('--window-position=-32000,-32000');
+  // Measuring never plays the game's sound on the machine running it.
+  args.push('--mute-audio');
   const browser = await chromium.launch({ args, headless: process.env.PERF_HEADED !== '1' });
   try {
     for (const name of SCENARIOS) {
