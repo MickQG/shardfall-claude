@@ -2,8 +2,11 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { GROUND_AMBIENT, groundMaterial } from '../../src/render3d/lighting3d';
 
+/** A shader's source with every `#include <chunk>` expanded, as the compiler would see it. */
+const expand = (src: string): string => src.replace(/#include <(\w+)>/g, (_, name: string) => expand((THREE.ShaderChunk as Record<string, string>)[name] ?? ''));
+
 const patched = (mat: THREE.Material): { fragmentShader: string; uniforms: Record<string, { value: unknown }> } => {
-  const shader = { fragmentShader: '#include <lights_fragment_end>\n#include <opaque_fragment>', uniforms: {} as Record<string, { value: unknown }> };
+  const shader = { fragmentShader: THREE.ShaderLib.lambert.fragmentShader, uniforms: {} as Record<string, { value: unknown }> };
   mat.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, undefined as unknown as THREE.WebGLRenderer);
   return shader;
 };
@@ -30,6 +33,17 @@ describe('ground material (PERF-7)', () => {
     const shader = patched(groundMaterial(map, relief));
     expect(shader.fragmentShader).toContain('reflectedLight.indirectDiffuse += uGroundAmbient');
     expect((shader.uniforms.uGroundAmbient!.value as THREE.Vector3).toArray()).toEqual([...GROUND_AMBIENT]);
+  });
+
+  it('PERF-7: the ground\'s fragment shader samples no environment map: the irradiance lookup and its functions are gone from the source', () => {
+    const plain = expand(THREE.ShaderLib.lambert.fragmentShader);
+    expect(plain).toContain('getIBLIrradiance( geometryNormal )'); // three's own Lambert does the lookup
+    const src = expand(patched(groundMaterial(map, relief)).fragmentShader);
+    expect(src).not.toContain('getIBLIrradiance');
+    expect(src).not.toContain('getIBLRadiance');
+    expect(src).not.toMatch(/textureCubeUV\s*\(\s*envMap/);
+    expect(src).toContain('uGroundAmbient');
+    expect(src).toContain('reflectedLight.indirectDiffuse += uGroundAmbient');
   });
 
   it('PERF-7: the ground\'s program is not shared with other Lambert materials', () => {
