@@ -20,7 +20,7 @@ export { BUILD_RANGE, canPlace, type Footprint, type PlacementContext } from './
 export { canQueue } from './production';
 export { QUEUE_MAX, STATS_EVERY } from './state';
 export { maxHpOf, MAX_RANK, rankFor, RANK_XP, squadAlive, unitDamage } from './units';
-export { ORDERS_PER_TICK, PATH_WORK, PATHS_MAX, PATHS_PER_TICK } from './movement';
+export { FIELDS_PER_TICK, GROUP_NEAR, GROUP_WORK, ORDERS_PER_TICK, PATH_WORK, PATHS_MAX, PATHS_PER_TICK } from './movement';
 
 export const TICKS_PER_SECOND = 20;
 

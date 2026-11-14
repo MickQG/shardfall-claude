@@ -9,11 +9,16 @@ import { createGame, FP, snapshot, submit, tick } from '../../src/sim';
  * when the simulation, AI or data change (and on every push to main), not with the fast unit tests.
  */
 
+/** A side that lost this many haulers to the enemy on one home field from minute 4 on had that field overrun. */
+const OVERRUN_LOSSES = 2;
+
 /**
- * Distinct haulers each player had on each of its two home fields between minutes 5 and 6 of a Medium game, or null
- * when the game ended (one side eliminated) before minute 6: then there is no window to look at.
+ * Distinct haulers each player had on each of its two home fields between minutes 5 and 6 of a Medium game. There is
+ * no window to look at, and the result is a reason instead, when the game ended (one side eliminated) before minute 6,
+ * or when the enemy's army overran a home field from minute 4 on: the AI keeps its haulers off a field with an enemy
+ * army on it, so such a field says nothing about how the AI shares its haulers out.
  */
-function fieldUse(map: MapId, seed: number, factions: [Faction, Faction]): number[][] | null {
+function fieldUse(map: MapId, seed: number, factions: [Faction, Faction]): number[][] | 'over before minute 6' | 'a home field was overrun' {
   const cfg = skirmishConfig(seed, { map, factions });
   const g = createGame(cfg);
   const ais = [0, 1].map((p) => new AI(p, factions[p]!, DIFFICULTIES.medium, cfg.map, seed));
@@ -21,23 +26,34 @@ function fieldUse(map: MapId, seed: number, factions: [Faction, Faction]): numbe
   const fields = starts.map((s) => homeFields(cfg.map, s).map((f) => new Set(f.tiles)));
   const on = fields.map((fs) => fs.map(() => new Set<number>()));
   const W = cfg.map.width;
+  // Haulers standing on one of their own home fields last tick, by id: [owner, field]. One gone the next tick was killed there.
+  let standing = new Map<number, [number, number]>();
+  const lost = fields.map((fs) => fs.map(() => 0));
   for (let t = 0; t < 20 * 60 * 6; t++) {
     for (const [p, ai] of ais.entries()) if ((t + p * 7) % ai.diff.thinkEvery === 0) for (const c of ai.think(snapshot(g, p))) submit(g, c);
     tick(g);
-    if (g.state.over) return null;
-    if (t < 20 * 60 * 5 || t % 10) continue;
+    if (g.state.over) return 'over before minute 6';
+    if (t < 20 * 60 * 4) continue;
+    const now = new Map<number, [number, number]>();
+    const alive = new Set<number>();
     for (const u of g.state.units) {
       if (u.kind !== 'hum_hauler' && u.kind !== 'ali_gorger') continue;
+      alive.add(u.id);
       const i = Math.floor(u.y / FP) * W + Math.floor(u.x / FP);
       fields[u.owner]!.forEach((f, k) => {
-        if (f.has(i)) on[u.owner]![k]!.add(u.id);
+        if (!f.has(i)) return;
+        now.set(u.id, [u.owner, k]);
+        if (t >= 20 * 60 * 5 && t % 10 === 0) on[u.owner]![k]!.add(u.id);
       });
     }
+    for (const [id, [owner, k]] of standing) if (!alive.has(id)) lost[owner]![k]!++;
+    standing = now;
   }
+  if (lost.some((fs) => fs.some((n) => n >= OVERRUN_LOSSES))) return 'a home field was overrun';
   return on.map((fs) => fs.map((s) => s.size));
 }
 
-/** Matches per map and side, and the seeds tried in order for them: those ended before minute 6 are passed over. */
+/** Matches per map and side, and the seeds tried in order for them: those with no window to judge are passed over. */
 const MATCHES = 2;
 const SEEDS = [1, 2, 3, 4, 5, 6];
 
@@ -56,19 +72,20 @@ describe('AI economy in full matches', () => {
     let ok = true;
     for (const { id: map } of MAPS)
       for (const factions of [['human', 'alien'], ['alien', 'human']] as [Faction, Faction][]) {
-        // A game won by a rush before minute 6 has no window to judge; the next seed stands in, so every map and side
-        // still gets MATCHES games that reach it.
+        // A game won by a rush before minute 6, or with a home field overrun, has no window to judge; the next seed
+        // stands in, so every map and side still gets MATCHES games that reach it.
         let played = 0;
         for (const seed of SEEDS) {
           if (played === MATCHES) break;
           const use = fieldUse(map, seed, factions);
-          rows.push(`${map} s${seed} ${factions[0]}: ${use ? JSON.stringify(use) : 'over before minute 6'}`);
-          if (!use) continue;
+          rows.push(`${map} s${seed} ${factions[0]}: ${typeof use === 'string' ? use : JSON.stringify(use)}`);
+          if (typeof use === 'string') continue;
           played++;
           for (const p of use) for (const n of p) if (n < 2) ok = false;
         }
         if (played < MATCHES) ok = false;
       }
+    console.log(`AI-18 haulers per home field, per side\n${rows.join('\n')}`);
     expect(ok, rows.join('\n')).toBe(true);
   }, 900_000);
 

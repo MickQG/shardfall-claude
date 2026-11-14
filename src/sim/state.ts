@@ -20,16 +20,15 @@ export enum Hv {
 }
 
 /**
- * One group order's shared route work (SIM-10): distance fields from the group's destination and from where it sets out,
- * made when the first of its units is routed and used by the rest as landmarks. `rev` is the grid revision they were
- * made on; they are made again if the grid has changed since (a building placed or destroyed).
+ * One group order's shared route work (SIM-10): the distance field to the group's destination tile, made when the first
+ * of its units is routed; every member walks down it and finishes with a short search to its own tile. `rev` is the grid
+ * revision it was made on; it is made again if the grid has changed since (a building placed or destroyed).
  */
 export interface GroupRoute {
-  /** Destination and starting tiles (free tiles). */
+  /** Destination tile: a free tile, or a building's middle tile (the field then starts from the tiles next to it). */
   to: number;
-  from: number;
   rev: number;
-  fields: Int32Array[] | null;
+  field: Int32Array | null;
 }
 
 export interface Unit {

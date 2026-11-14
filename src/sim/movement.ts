@@ -1,7 +1,7 @@
 import { unitDef } from '../data/defs';
 import { crushable, isCrusher } from './crush';
 import { centerOf, FP, isqrt, tileOf } from './fixed';
-import { distanceField, findPath, isBlocked, type Grid } from './path';
+import { descend, distanceField, FAR, findPath, isBlocked, nearestFreeTiles, type Grid } from './path';
 import { Hv, type GroupRoute, type State, type Unit } from './state';
 
 /** Free tiles around (tx,ty) in deterministic ring order, nearest first. */
@@ -49,70 +49,124 @@ export function clearOrder(u: Unit): void {
   u.group = null;
 }
 
-/** Group orders of at least this many ground units share one distance field for their route searches (SIM-10). */
+/** Group orders of at least this many ground units share one distance field for their routes (SIM-10). */
 export const GROUP_FIELD_MIN = 8;
 
 /**
- * Shared route work for a group order sending `units` to tile `to`, or null when there are too few ground units for it
- * to pay (SIM-10). The starting landmark is the free tile nearest the middle of the group.
+ * Shared route work for a group order sending `units` to tile `to` (a building's middle tile when attacking one), or
+ * null when there are too few ground units for it to pay (SIM-10).
  */
-export function groupRoute(s: State, units: readonly Unit[], to: number | undefined): GroupRoute | null {
-  const g = s.grid;
+export function groupRoute(_s: State, units: readonly Unit[], to: number | undefined): GroupRoute | null {
   const ground = units.filter((u) => !unitDef(u.kind).air);
-  if (ground.length < GROUP_FIELD_MIN || to === undefined || isBlocked(g, to % g.width, Math.floor(to / g.width))) return null;
-  let x = 0;
-  let y = 0;
-  for (const u of ground) {
-    x += tileOf(u.x);
-    y += tileOf(u.y);
-  }
-  const [from] = ringTiles(g, Math.floor(x / ground.length), Math.floor(y / ground.length), 1);
-  if (from === undefined) return null;
-  return { to, from, rev: -1, fields: null };
+  if (ground.length < GROUP_FIELD_MIN || to === undefined) return null;
+  return { to, rev: -1, field: null };
 }
 
 /**
- * Route finding per tick (SIM-10). Searches are served while the nodes expanded this tick stay under PATH_WORK, but never
- * more than PATHS_MAX of them. At least PATHS_PER_TICK are served whatever they cost, and orders at least ORDERS_PER_TICK,
- * so that 200 units ordered at once are all routed within 10 ticks.
+ * Route finding per tick (SIM-10). Full searches are served while the nodes expanded this tick stay under PATH_WORK, but
+ * never more than PATHS_MAX of them; at least PATHS_PER_TICK are served whatever they cost, and orders at least
+ * ORDERS_PER_TICK. A group order's distance field is one such search (at most FIELDS_PER_TICK of them a tick); once it
+ * is made, each member's route walks down it and finishes with a short search to its own tile (GROUP_NEAR), cheap
+ * enough that every member is routed in the tick the field is made, within GROUP_WORK.
  */
 export const PATH_WORK = 8000;
 export const PATHS_PER_TICK = 6;
 export const ORDERS_PER_TICK = 20;
 export const PATHS_MAX = 64;
+export const FIELDS_PER_TICK = 2;
+export const GROUP_WORK = 40000;
+/**
+ * A group member walks down the group's field until it is this many tiles from its own tile, or no farther from the
+ * group's destination than its own tile is plus this many tiles, then searches the rest (SIM-10).
+ */
+export const GROUP_NEAR = 8;
+/**
+ * A member whose own tile is more than this much farther (in travel cost, 10 a straight step) from the group's
+ * destination than a straight line (its tile lies behind an obstacle from there) gets a full search instead (SIM-10).
+ */
+export const GROUP_DETOUR = 40;
+
+const octile = (ax: number, ay: number, bx: number, by: number): number => {
+  const dx = Math.abs(ax - bx);
+  const dy = Math.abs(ay - by);
+  return 10 * (dx + dy) - 6 * Math.min(dx, dy);
+};
+
+/**
+ * A group member's route from (sx,sy) to its own tile (gx,gy) near the group's destination `to`, using the group's
+ * distance field `field` to `to` (SIM-10). It walks down the field (a shortest way to `to`) and finishes with a search
+ * guided by the field, so it costs a few dozen tiles of work, not a few hundred. The route is at most twice the travel
+ * cost between (gx,gy) and `to` longer than a shortest one (SIM-3): walking down the field to a tile p and on to the
+ * goal costs field[s] - field[p] + d(p, goal), while no route is shorter than field[s] - field[goal]; and d(p, goal) is
+ * at most field[p] + field[goal]. A member whose tile is reached from `to` only by a detour gets a full search.
+ */
+export function groupPath(g: Grid, field: Int32Array, to: number, sx: number, sy: number, gx: number, gy: number, work?: { expanded: number }): number[] {
+  const W = g.width;
+  const goal = gy * W + gx;
+  // To a building: straight down the field to the nearest of the tiles next to it, a shortest route (SIM-3).
+  if (isBlocked(g, gx, gy) && goal === to && (field[sy * W + sx] as number) !== FAR) return descend(g, field, sx, sy, gx, gy, -1, work);
+  const at = field[goal] as number;
+  if (at === FAR || (field[sy * W + sx] as number) === FAR || at > octile(gx, gy, to % W, Math.floor(to / W)) + GROUP_DETOUR) return findPath(g, sx, sy, gx, gy, work, [field]);
+  const lead = descend(g, field, sx, sy, gx, gy, GROUP_NEAR, work, at + GROUP_NEAR * 10);
+  if (lead.length === 0) return findPath(g, sx, sy, gx, gy, work, [field]);
+  const p = lead[lead.length - 1] as number;
+  const tail = findPath(g, p % W, Math.floor(p / W), gx, gy, work, [field]);
+  return lead.concat(tail);
+}
 
 export function servePathQueue(s: State): void {
   if (s.orderQueue.length === 0 && s.pathQueue.length === 0) return;
   const byId = new Map<number, Unit>();
   for (const u of s.units) byId.set(u.id, u);
+  const g = s.grid;
+  const W = g.width;
   const work = { expanded: 0 };
   let served = 0;
   let orders = 0;
-  while (served < PATHS_MAX) {
+  let fields = 0;
+  for (;;) {
     const urgent = s.orderQueue.length > 0;
     const q = urgent ? s.orderQueue : s.pathQueue;
     if (q.length === 0) break;
-    if (work.expanded >= PATH_WORK && served >= PATHS_PER_TICK && !(urgent && orders < ORDERS_PER_TICK)) break;
-    const id = q.shift() as number;
-    const u = byId.get(id);
+    const head = byId.get(q[0] as number);
+    const group = head?.waiting && !unitDef(head.kind).air ? head.group : null;
+    const ready = !!group && group.field !== null && group.rev === s.gridRev;
+    if (ready) {
+      // A member of a group whose field is made: cheap, served within the group allowance.
+      if (work.expanded >= GROUP_WORK) break;
+    } else {
+      if (served >= PATHS_MAX) break;
+      if (work.expanded >= PATH_WORK && served >= PATHS_PER_TICK && !(urgent && orders < ORDERS_PER_TICK)) break;
+      // A group's field waits for the next tick once this tick has made its share; the queue waits behind it, in order.
+      if (group && fields >= FIELDS_PER_TICK) break;
+    }
+    q.shift();
+    const u = head;
     if (!u) continue;
     u.queued = false;
     u.urgent = false;
     if (!u.waiting) continue; // the order was dropped while it stood in line
     u.waiting = false;
-    // The new route starts from the tile the unit stands on now, so it turns onto it without stepping back (SIM-10).
-    const group = u.group;
     u.group = null;
+    const sx = tileOf(u.x);
+    const sy = tileOf(u.y);
+    const gx = u.goal % W;
+    const gy = Math.floor(u.goal / W);
+    // The new route starts from the tile the unit stands on now, so it turns onto it without stepping back (SIM-10).
     if (unitDef(u.kind).air) u.path = [u.goal];
-    else {
-      // The first of a group to be routed makes the group's distance field (counted against this tick's work).
-      if (group && (group.fields === null || group.rev !== s.gridRev)) {
-        group.fields = [distanceField(s.grid, group.to, work), distanceField(s.grid, group.from, work)];
+    else if (group) {
+      if (!ready) {
+        // The first of a group to be routed makes the group's distance field.
+        const tx = group.to % W;
+        const ty = Math.floor(group.to / W);
+        // To a building (its middle tile is blocked): from every free tile a route to it may end on (SIM-3).
+        group.field = distanceField(g, isBlocked(g, tx, ty) ? nearestFreeTiles(g, tx, ty) : group.to, work);
         group.rev = s.gridRev;
+        fields++;
       }
-      u.path = findPath(s.grid, tileOf(u.x), tileOf(u.y), u.goal % s.grid.width, Math.floor(u.goal / s.grid.width), work, group?.fields ?? []);
-    }
-    served++;
+      u.path = groupPath(g, group.field as Int32Array, group.to, sx, sy, gx, gy, work);
+    } else u.path = findPath(g, sx, sy, gx, gy, work);
+    if (!ready) served++;
     if (urgent) orders++;
   }
 }

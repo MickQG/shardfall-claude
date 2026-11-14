@@ -8,7 +8,7 @@ import type { Command } from '../sim';
  */
 
 /** Bumped whenever the protocol or the simulation changes in a way that would desync older clients. */
-export const NET_VERSION = 8;
+export const NET_VERSION = 9;
 /** Ticks per lockstep turn: 125 ms of real time at the online game speed of ×0.8 (UX-3). */
 export const TURN_TICKS = 2;
 export const TURN_MS = TURN_TICKS * tickMsAt(ONLINE_SPEED);
