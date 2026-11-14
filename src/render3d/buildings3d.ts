@@ -39,8 +39,8 @@ const shape = (): Shape => new Shape();
 /**
  * A refinery's dock (ECO-7, R3D-22) is drawn as its own model on the pad tile the simulation chose, beside the side of
  * the footprint facing the shards. Dock models stand on the pad's centre with +X pointing out, away from the building,
- * whose wall is at x = -0.5. How far in from the pad's centre each dock takes in the load: the Aegis hopper at the
- * wall, the Vrax feeding maw just short of it.
+ * whose wall is at x = -0.5. How far in from the pad's centre each dock takes in the load: the Aegis receiving trough at
+ * the wall, the Vrax feeding maw just short of it.
  */
 export const DOCK_INTAKE: Readonly<Record<string, number>> = { hum_refinery: 0.45, ali_extractor: 0.42 };
 
@@ -1243,7 +1243,7 @@ export function reedShape(variant: number): Shape {
   return s;
 }
 
-/** The Aegis dock (R3D-22): a hazard-striped pad with bollards, and a hopper at the wall that takes the tipped load. */
+/** The Aegis dock (R3D-22): a hazard-striped pad with bollards, and a low, wide receiving trough at the wall that takes the tipped load. */
 function humDock(): RigDef {
   return def(1, 1, 0.6, {
     body: () => {
@@ -1254,11 +1254,13 @@ function humDock(): RigDef {
         s.cyl(0.035, 0.24, HAZARD, { at: [0.38, 0.12, z], seg: 8 });
         s.cyl(0.03, 0.03, AMBER, { at: [0.38, 0.255, z], seg: 8, glow: true });
       }
-      // The hopper: a sloped steel funnel against the wall, its mouth facing the pad, and a conveyor up into the plant.
-      s.slab([[-0.5, 0.0], [-0.3, 0.0], [-0.22, 0.42], [-0.5, 0.48]], 0.7, STEEL2, { bevel: 0.02 });
-      s.box(0.05, 0.05, 0.7, 'team', { at: [-0.24, 0.44, 0], bevel: 0.2 });
-      s.box(0.04, 0.2, 0.5, DARK, { at: [-0.27, 0.28, 0], bevel: 0 });
-      s.tube(0.04, 0.5, GUN, { at: [-0.45, 0.55, 0], rot: [0, 0, 1.2] });
+      // The receiving trough: low and wide against the wall, sloping down toward the pad, so a tipped hopper and its open
+      // hatch pass over it. It stands between the hauler's wheels; a lit lip marks the intake, a pipe across the back takes the load into the plant.
+      s.slab([[-0.5, 0.0], [-0.28, 0.0], [-0.3, 0.07], [-0.36, 0.14], [-0.5, 0.16]], 0.48, STEEL, { bevel: 0.015 });
+      for (const z of [0.255, -0.255]) s.slab([[-0.5, 0.0], [-0.28, 0.0], [-0.3, 0.09], [-0.36, 0.17], [-0.5, 0.19]], 0.03, STEEL, { at: [0, 0, z], bevel: 0.006 });
+      s.box(0.03, 0.02, 0.5, 'team', { at: [-0.29, 0.085, 0], rot: [0, 0, -0.9], bevel: 0 });
+      s.box(0.016, 0.014, 0.4, CYAN, { at: [-0.485, 0.17, 0], glow: true, bevel: 0 });
+      s.cyl(0.04, 0.5, GUN, { at: [-0.54, 0.2, 0], rot: [Math.PI / 2, 0, 0], seg: 8 });
       return s;
     },
   }, []);
