@@ -29,7 +29,8 @@ const BUGGY_STRIPE = 0x262b33;
 const BUGGY_WHITE = 0xece6d4;
 const ARTY_SLATE = 0x4b525c;
 const ARTY_PALE = 0xb4bcc2;
-const ARTY_BAND = 0xf2c53a;
+const ARTY_PALE2 = 0x9ba6af;
+const ARTY_LIGHT = 0xcfd5d9;
 const CYAN = 0x6fe2ff;
 const AMBER = 0xffb347;
 const RED = 0xff4a3a;
@@ -142,8 +143,9 @@ function trackShape(len: number, h: number, w: number): Shape {
 
 function roadWheel(r: number, w: number): Shape {
   const s = shape();
-  s.cyl(r, w, GUN, { rot: [Math.PI / 2, 0, 0], seg: 12 });
-  s.cyl(r * 0.45, w + 0.01, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 6 });
+  // Seen only below the skirts, in the hull's shadow: casts none of its own (PERF-4).
+  s.cyl(r, w, GUN, { rot: [Math.PI / 2, 0, 0], seg: 12, shadow: false });
+  s.cyl(r * 0.45, w + 0.01, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 6, shadow: false });
   return s;
 }
 
@@ -292,43 +294,49 @@ function artillery(): RigDef {
       hull: () => {
         const s = shape();
         s.box(1.42, 0.08, 0.42, GUN, { at: [0, 0.12, 0], bevel: 0.2 }); // belly between the tracks
-        // The faceted hull: a low wedge with a shallow glacis.
-        s.slab([[-0.74, 0.15], [0.7, 0.15], [0.8, 0.2], [0.46, 0.3], [-0.7, 0.3], [-0.76, 0.24]], 0.5, ARTY_SLATE, { bevel: 0.02 });
-        // A pale grey roof deck over the slate hull, and a hazard stripe across the glacis.
-        s.box(0.9, 0.012, 0.4, ARTY_PALE, { at: [-0.22, 0.298, 0], bevel: 0 });
-        for (let i = 0; i < 4; i++) s.box(0.04, 0.012, 0.1, i % 2 ? DARK : ARTY_BAND, { at: [0.64, 0.255, -0.15 + i * 0.1], bevel: 0, rot: [0, 0, -0.5] });
-        // Sponsons over the tracks, closed by smooth side skirts with a team stripe.
-        for (const z of [0.325, -0.325]) {
-          s.box(1.36, 0.1, 0.18, ARTY_SLATE, { at: [-0.02, 0.24, z], bevel: 0.25 });
-          s.box(1.0, 0.026, 0.012, 'team', { at: [-0.05, 0.27, z * 1.285], bevel: 0 });
+        // The faceted hull: a low pale wedge with a shallow glacis, wide enough to roof the tracks.
+        s.slab([[-0.74, 0.15], [0.7, 0.15], [0.8, 0.2], [0.46, 0.3], [-0.7, 0.3], [-0.76, 0.24]], 0.74, ARTY_PALE2, { bevel: 0.03 });
+        // A lighter, chamfered deck plate, and the dark lower glacis.
+        s.hull([[-0.68, -0.3], [0.4, -0.3], [0.48, -0.2], [0.48, 0.2], [0.4, 0.3], [-0.68, 0.3], [-0.73, 0.2], [-0.73, -0.2]], 0.02, ARTY_LIGHT, { at: [0, 0.3, 0], bevel: 0.005 });
+        s.slab([[0.7, 0.15], [0.8, 0.2], [0.74, 0.23], [0.7, 0.23]], 0.7, ARTY_SLATE, { bevel: 0 });
+        // Armoured skirts over the tracks with a team stripe; the road wheels show below them.
+        for (const z of [0.385, -0.385]) {
+          s.slab([[-0.74, 0.1], [0.72, 0.1], [0.78, 0.17], [0.7, 0.28], [-0.72, 0.28], [-0.78, 0.2]], 0.04, ARTY_PALE, { at: [0, 0, z], bevel: 0.008 });
+          s.box(1.0, 0.03, 0.046, 'team', { at: [-0.04, 0.2, z], bevel: 0 });
+          s.box(1.0, 0.012, 0.046, ARTY_SLATE, { at: [-0.04, 0.108, z], bevel: 0 });
+          s.box(0.014, 0.04, 0.046, CYAN, { at: [0.775, 0.19, z], glow: true, bevel: 0 }); // running lights
         }
-        // The travel lock on the glacis: two posts and a pad the barrel rests above.
-        for (const z of [0.06, -0.06]) s.box(0.07, 0.17, 0.035, GUN, { at: [0.52, 0.365, z], bevel: 0.2 });
-        s.box(0.1, 0.025, 0.16, DARK, { at: [0.52, 0.455, 0], bevel: 0.2 });
-        // Driver's optics and sensor block on the glacis, engine deck louvres, small cyan lenses.
-        s.box(0.08, 0.05, 0.1, GUN, { at: [0.34, 0.325, 0.15], bevel: 0.25 });
-        s.box(0.012, 0.022, 0.05, CYAN, { at: [0.382, 0.326, 0.15], glow: true, bevel: 0 });
-        s.box(0.34, 0.016, 0.36, DARK, { at: [-0.5, 0.305, 0], bevel: 0.2 });
-        for (const z of [0.18, -0.18]) s.box(0.016, 0.02, 0.04, CYAN, { at: [0.752, 0.19, z], glow: true, bevel: 0 });
+        // The travel lock on the glacis: two posts and a saddle the barrel's rails rest above.
+        for (const z of [0.07, -0.07]) s.box(0.07, 0.13, 0.035, GUN, { at: [0.52, 0.365, z], bevel: 0.2 });
+        s.box(0.1, 0.025, 0.2, DARK, { at: [0.52, 0.4425, 0], bevel: 0.2 });
+        // A driver's sensor blister on the glacis and a sealed, lit power vent at the stern.
+        s.ball(0.05, CANOPY, { at: [0.36, 0.31, 0.2], scale: [1.4, 0.7, 1.2], cut: 0.55, seg: 8 });
+        s.box(0.012, 0.016, 0.07, CYAN, { at: [0.41, 0.322, 0.2], glow: true, bevel: 0 });
+        s.box(0.3, 0.025, 0.34, DARK, { at: [-0.5, 0.32, 0], bevel: 0.2 });
+        s.box(0.012, 0.016, 0.28, CYAN, { at: [-0.652, 0.32, 0], glow: true, bevel: 0 });
+        for (const z of [0.18, -0.18]) s.box(0.016, 0.02, 0.04, CYAN, { at: [0.8, 0.2, z], glow: true, bevel: 0 });
         s.box(0.012, 0.03, 0.1, RED, { at: [-0.762, 0.22, 0.14], glow: true, bevel: 0 });
         s.box(0.012, 0.03, 0.1, RED, { at: [-0.762, 0.22, -0.14], glow: true, bevel: 0 });
         return s;
       },
       turret: () => {
-        // Large, enclosed and angular: a chamfered plan block with a sloped roof wedge, a rear bustle and optics.
+        // Large, enclosed and angular: a chamfered plan block with a sloped roof wedge, a sensor array and a capacitor housing.
         const s = shape();
         s.cyl(0.3, 0.04, STEEL2, { at: [0, 0.02, 0], seg: 16 });
         s.hull([[-0.38, -0.18], [-0.3, -0.26], [0.26, -0.26], [0.36, -0.14], [0.36, 0.14], [0.26, 0.26], [-0.3, 0.26], [-0.38, 0.18]], 0.26, ARTY_PALE, { at: [0, 0.04, 0], bevel: 0.02 });
-        s.slab([[-0.32, 0], [0.3, 0], [0.12, 0.09], [-0.26, 0.09]], 0.36, ARTY_SLATE, { at: [0, 0.29, 0], bevel: 0.015 });
+        s.slab([[-0.32, 0], [0.3, 0], [0.12, 0.09], [-0.26, 0.09]], 0.36, ARTY_PALE2, { at: [0, 0.29, 0], bevel: 0.015 });
         s.box(0.4, 0.012, 0.08, 'team', { at: [-0.04, 0.385, 0], bevel: 0 });
-        s.box(0.07, 0.17, 0.3, GUN, { at: [-0.4, 0.17, 0], bevel: 0.3 }); // rear bustle
-        // Optics: a commander's sight block and a gunner's sensor block, each with a small cyan lens.
-        s.box(0.1, 0.07, 0.12, GUN, { at: [-0.12, 0.42, 0.12], bevel: 0.25 });
-        s.box(0.012, 0.035, 0.07, CYAN, { at: [-0.066, 0.425, 0.12], glow: true, bevel: 0 });
-        s.box(0.11, 0.05, 0.09, GUN, { at: [0.16, 0.4, -0.1], bevel: 0.25 });
-        s.box(0.012, 0.025, 0.05, CYAN, { at: [0.216, 0.4, -0.1], glow: true, bevel: 0 });
-        s.cyl(0.006, 0.2, DARK, { at: [-0.3, 0.48, 0.2], seg: 4 }); // short antenna
-        for (const z of [0.285, -0.285]) for (const x of [0.2, 0.25]) s.tube(0.014, 0.06, DARK, { at: [x, 0.25, z], seg: 6 }); // smoke dischargers
+        // The capacitor housing at the rear: a boxed bank of three cells with lit faces, under a lit strip.
+        s.box(0.08, 0.2, 0.34, ARTY_SLATE, { at: [-0.41, 0.19, 0], bevel: 0.2 });
+        for (const z of [-0.1, 0, 0.1]) s.box(0.012, 0.15, 0.05, CYAN, { at: [-0.452, 0.19, z], glow: true, bevel: 0 });
+        s.box(0.012, 0.016, 0.3, CYAN, { at: [-0.452, 0.3, 0], glow: true, bevel: 0 });
+        // The sensor array on the roof: a tilted panel with three lenses, and a small lit dome beside it.
+        s.box(0.12, 0.016, 0.2, GUN, { at: [0.1, 0.4, 0.06], rot: [0, 0, -0.35], bevel: 0.3 });
+        for (const z of [-0.03, 0.06, 0.15]) s.box(0.012, 0.02, 0.04, CYAN, { at: [0.158, 0.41, z], rot: [0, 0, -0.35], glow: true, bevel: 0 });
+        s.ball(0.04, CANOPY, { at: [-0.14, 0.39, -0.12], scale: [1.2, 0.8, 1.2], cut: 0.55, seg: 8 });
+        s.box(0.01, 0.014, 0.05, CYAN, { at: [-0.1, 0.396, -0.12], glow: true, bevel: 0 });
+        s.box(0.02, 0.16, 0.012, DARK, { at: [-0.3, 0.46, 0.2], rot: [0, 0, 0.1], bevel: 0 }); // short blade antenna
+        for (const z of [0.265, -0.265]) s.box(0.3, 0.012, 0.012, CYAN, { at: [0.0, 0.17, z], glow: true, bevel: 0 }); // flank light strips
         return s;
       },
       cradle: () => {
@@ -338,14 +346,23 @@ function artillery(): RigDef {
         return s;
       },
       barrel: () => {
+        // The rail gun: two rails in a braced frame, lit coil rings along it, and a squared muzzle block.
         const s = shape();
-        s.tube(0.03, 1.0, GUN, { at: [0.5, 0, 0], r2: 0.034, seg: 10 });
-        s.tube(0.04, 0.4, ARTY_PALE, { at: [0.22, 0, 0], seg: 10 }); // thermal sleeve
-        // A hazard band of alternating yellow and black rings near the muzzle.
-        for (let i = 0; i < 6; i++) s.tube(0.036, 0.04, i % 2 ? DARK : ARTY_BAND, { at: [0.78 + i * 0.04, 0, 0], seg: 10 });
-        s.tube(0.047, 0.12, GUN, { at: [0.6, 0, 0], seg: 10 }); // fume extractor
-        s.tube(0.036, 0.13, DARK, { at: [1.065, 0, 0], seg: 8 }); // muzzle brake core and its three baffles
-        for (const x of [1.02, 1.065, 1.11]) s.box(0.014, 0.1, 0.1, GUN, { at: [x, 0, 0], bevel: 0.2 });
+        for (const z of [0.034, -0.034]) s.box(1.12, 0.042, 0.04, GUN, { at: [0.58, 0, z], bevel: 0.25 });
+        s.box(0.3, 0.06, 0.1, STEEL2, { at: [0.2, 0, 0], bevel: 0.25 }); // the breech block between the rails
+        // The frame's long members, linking the braces into a lattice round the rails.
+        for (const y of [0.05, -0.05]) for (const z of [0.08, -0.08]) s.box(0.8, 0.012, 0.012, STEEL2, { at: [0.68, y, z], bevel: 0, shadow: false });
+        // Braces in the frame: a top and bottom bar and two posts.
+        for (const x of [0.4, 0.68, 0.96]) {
+          for (const y of [0.05, -0.05]) s.box(0.024, 0.014, 0.17, STEEL2, { at: [x, y, 0], bevel: 0 });
+          for (const z of [0.08, -0.08]) s.box(0.024, 0.1, 0.014, STEEL2, { at: [x, 0, z], bevel: 0 });
+        }
+        // Lit coil rings: a glowing rectangle round both rails.
+        for (const x of [0.5, 0.58, 0.8, 0.88, 1.04]) {
+          for (const y of [0.052, -0.052]) s.box(0.02, 0.012, 0.17, CYAN, { at: [x, y, 0], glow: true, bevel: 0 });
+          for (const z of [0.082, -0.082]) s.box(0.02, 0.1, 0.012, CYAN, { at: [x, 0, z], glow: true, bevel: 0 });
+        }
+        s.box(0.06, 0.07, 0.15, DARK, { at: [1.12, 0, 0], bevel: 0.2 }); // the muzzle block
         return s;
       },
     },
