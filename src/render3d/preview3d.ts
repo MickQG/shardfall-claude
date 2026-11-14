@@ -354,10 +354,10 @@ export class UnitPreview {
         s.drum += dt * 14;
         s.load = Math.min(1, s.load + (dt * 1000) / MINE_MS);
         if (organic && now - s.lunge > 700) s.lunge = now; // a chomp
-        this.fx.harvest(1, organic ? this.ahead(h, 0.75, 0.06, this.v) : this.ahead(h, 1.0, 0.1, this.v), organic ? this.ahead(h, 0.55, 0.32, this.v2) : this.ahead(h, -0.1, 0.7, this.v2), organic, false, now);
+        this.fx.harvest(1, organic ? this.ahead(h, 0.75, 0.06, this.v) : this.ahead(h, 1.2, 0.1, this.v), organic ? this.ahead(h, 0.55, 0.32, this.v2) : this.ahead(h, -0.1, 0.7, this.v2), organic, false, now);
       } else if (unloading) {
         s.load = Math.max(0, s.load - (dt * 1000) / UNLOAD_MS);
-        if (s.tip > 0.3) this.fx.harvest(1, organic ? this.ahead(h, 0.6, 0.3, this.v) : this.ahead(h, -0.85, 0.5, this.v), organic ? this.ahead(h, 0.95, 0.05, this.v2) : this.ahead(h, -1.35, 0.05, this.v2), organic, true, now);
+        if (s.tip > 0.3) this.fx.harvest(1, organic ? this.ahead(h, 0.6, 0.3, this.v) : this.ahead(h, -0.5, 0.45, this.v), organic ? this.ahead(h, 0.95, 0.05, this.v2) : this.ahead(h, -0.42, 0.18, this.v2), organic, true, now);
       }
     }
     // The rig, posed exactly as poseUnit poses it in a match.

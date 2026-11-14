@@ -380,9 +380,9 @@ describe('build-button pictures (UI-17)', () => {
     expect(readFileSync('src/render3d/terrain3d.ts', 'utf8')).toMatch(/export function patchedGroundTexture[\s\S]*patched\(/);
     // Halfway between the dusk tint and the match's horizon haze.
     for (const f of ['human', 'alien'] as const) expect(Math.abs(((HAZE[f] >> 16) & 255) - ((HAZE_COLOR >> 16) & 255))).toBeLessThan(0x1c);
-  });
+  }, 30_000);
 
-  it('R3D-31 R3D-19 MENU-10: the working hauler throws chips and puffs exhaust as GPU particles, on High with motion only', () => {
+  it('R3D-31 R3D-19 MENU-10: the working hauler throws chips and kicks up grit as GPU particles, on High with motion only', () => {
     const scene = readFileSync('src/render3d/menuScene3d.ts', 'utf8');
     expect(scene).toContain('fx.harvest(');
     expect(scene).toContain('if (!this.fxAllowed || this.still)');

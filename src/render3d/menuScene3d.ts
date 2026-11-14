@@ -68,7 +68,7 @@ export const FOG_FAR = 80;
 export const GROUND_RADIUS = 160;
 const GROUND: Record<SceneFaction, readonly [number, number, number]> = { human: [92, 90, 72], alien: [84, 70, 72] };
 /** Where a working harvester throws and drops: model-forward offsets (tiles ahead, up) of its cutter or maw, its hopper, and its tail. */
-export const WORK_SPOTS = { metal: { cut: [1.0, 0.1], hop: [-0.1, 0.7], tail: [-1.3, 0.35] }, organic: { cut: [0.75, 0.06], hop: [0.55, 0.32], tail: [-0.8, 0.3] } } as const;
+export const WORK_SPOTS = { metal: { cut: [1.2, 0.1], hop: [-0.1, 0.7], tail: [-0.7, 0.35] }, organic: { cut: [0.75, 0.06], hop: [0.55, 0.32], tail: [-0.8, 0.3] } } as const;
 
 /** One mining cycle of the hauler, ms (as the unit sheet's preview). */
 const MINE_MS = 2400;
@@ -137,12 +137,12 @@ class Scene3d implements MenuScene {
   private glow = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, color: new THREE.Color().setScalar(glowLevels(true).glow) });
   private hiveGlow = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, color: new THREE.Color().setScalar(glowLevels(true).hive) });
   private groundMat = new THREE.MeshStandardMaterial({ roughness: 0.93, metalness: 0, normalMap: noiseNormalMap(128, 8, 5, 1), normalScale: new THREE.Vector2(0.7, 0.7) });
-  /** The harvesters' chips, grit and exhaust (R3D-19): GPU particles, High with motion only. */
+  /** The harvesters' chips and grit (R3D-19): GPU particles, High with motion only. */
   private fx: CombatFx | null = null;
   private fxAllowed: boolean;
   private v = new THREE.Vector3();
   private v2 = new THREE.Vector3();
-  private exhaustAt = 0;
+  private gritAt = 0;
   private sun: THREE.DirectionalLight;
   private stage = new THREE.Group();
   /** Geometry owned by the ground (index 0) and by the current stage. */
@@ -310,14 +310,14 @@ class Scene3d implements MenuScene {
     return out.set(f.x + Math.cos(f.heading) * spot[0] * s, spot[1] * s, f.z + Math.sin(f.heading) * spot[0] * s);
   }
 
-  /** The working hauler's chips and grit at the cutter or maw, and a puff of exhaust now and then (R3D-19). */
+  /** The working hauler's chips and grit at the cutter or maw, and a puff of grit at its tail now and then (R3D-19). */
   private workFx(f: Figure, now: number): void {
     const fx = this.fx;
     if (!fx) return;
     const spots = WORK_SPOTS[f.def.organic ? 'organic' : 'metal'];
     fx.harvest(1, this.ahead(f, spots.cut, this.v), this.ahead(f, spots.hop, this.v2), !!f.def.organic, false, now);
-    if (!f.def.organic && now - this.exhaustAt > 320) {
-      this.exhaustAt = now;
+    if (!f.def.organic && now - this.gritAt > 320) {
+      this.gritAt = now;
       fx.dust(this.ahead(f, spots.tail, this.v), 0.7, now);
     }
   }

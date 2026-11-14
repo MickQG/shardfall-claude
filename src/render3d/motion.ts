@@ -287,7 +287,7 @@ export function rideMotion(ride: number, stride: number, t: number, seed: number
   return { pitch: k * 0.5 * Math.sin(t * 0.0053 + seed), roll: k * Math.sin(t * 0.0037 + seed * 2), bob: k * 0.3 * Math.abs(Math.sin(t * 0.0079 + seed)) };
 }
 
-/** The hauler puffs exhaust when its throttle opens past this acceleration, tiles/s², and no more often than this, ms (R3D-30). */
+/** The hauler's cooling vent breathes vapour when its throttle opens past this acceleration, tiles/s², and no more often than this, ms (R3D-30). */
 export const HAULER_PUFF_ACCEL = 0.6;
 export const HAULER_PUFF_MS = 450;
 

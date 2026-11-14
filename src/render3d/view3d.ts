@@ -21,7 +21,7 @@ import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, strikeAfter, strikeSideOf, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
-import { UNIT_RIGS } from './units3d';
+import { HAULER_VENT, UNIT_RIGS } from './units3d';
 import { DEFAULT_TARGET, scatterKind, shotScatter, wallEnd, type Offset, type ScatterKind, type ScatterTarget } from './scatter';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
 import { applySurface, modelMaterials, setSurface } from './surface3d';
@@ -177,7 +177,7 @@ interface UnitObj {
   drum: number;
   /** How far into its work a harvester is, 0..1, eased over 0.4 s: the hauler's head is lowered, the gorger feeds (R3D-30, R3D-31). */
   work: number;
-  /** The howitzer's barrel elevation, 0 in its travel lock .. 1 raised (R3D-32), and when the hauler last puffed exhaust. */
+  /** The howitzer's barrel elevation, 0 in its travel lock .. 1 raised (R3D-32), and when the hauler last breathed vapour. */
   elev: number;
   /** The hauler's stop settle (R3D-30). */
   settle: Settle;
@@ -1329,11 +1329,12 @@ export class View3D {
         this.fx.dust(this.v.set(o.x - Math.cos(h) * def.radius * 0.6, 0, o.z - Math.sin(h) * def.radius * 0.6), def.radius * 1.2, t);
       }
       if (o.capacity > 0) this.harvestFx(u.id, o, t, dt);
-      // The hauler's stack puffs dark smoke as it throttles up (R3D-30), now and then.
+      // The hauler's cooling vent breathes a short burst of pale vapour as it throttles up (R3D-30), now and then.
       if (o.kind === 'hum_hauler' && o.motion.accel > HAULER_PUFF_ACCEL && t - o.lastPuff > HAULER_PUFF_MS && this.inView(o.x, 0, o.z, 1)) {
         o.lastPuff = t;
         const h = o.motion.heading;
-        this.fx.burn(this.v.set(o.x + Math.cos(h) * 0.14 - Math.sin(h) * 0.3, o.groundY + 0.72, o.z + Math.sin(h) * 0.14 + Math.cos(h) * 0.3), false, 0.22, t);
+        const [vx, vy, vz] = HAULER_VENT;
+        for (let i = 0; i < 2; i++) this.fx.steam(this.v.set(o.x + Math.cos(h) * vx - Math.sin(h) * vz, o.groundY + vy + i * 0.04, o.z + Math.sin(h) * vx + Math.cos(h) * vz), t);
       }
       if (this.inView(o.x, o.root.position.y, o.z, def.radius + (o.members.length ? 0.5 : 0))) this.drawUnit(o, this.tint.setRGB(1, 1, 1), t);
     }
@@ -1408,12 +1409,12 @@ export class View3D {
     if (mining && organic && t - o.lunge > 700) o.lunge = t; // a chomp
     const g = o.groundY;
     if (mining) {
-      const from = organic ? this.v.set(o.x + fx * 0.75, g + 0.06, o.z + fz * 0.75) : this.v.set(o.x + fx * 1.0, g + 0.1, o.z + fz * 1.0);
+      const from = organic ? this.v.set(o.x + fx * 0.75, g + 0.06, o.z + fz * 0.75) : this.v.set(o.x + fx * 1.2, g + 0.1, o.z + fz * 1.2);
       const into = organic ? this.v2.set(o.x + fx * 0.55, g + 0.32, o.z + fz * 0.55) : this.v2.set(o.x - fx * 0.1, g + 0.7, o.z - fz * 0.1);
       this.fx.harvest(id, from, into, organic, false, t);
     } else if (unloading && t - o.unloadAt < 300 && o.tip > 0.3) {
-      const from = organic ? this.v.set(o.x + fx * 0.6, g + 0.3, o.z + fz * 0.6) : this.v.set(o.x - fx * 0.85, g + 0.5, o.z - fz * 0.85);
-      const onto = organic ? this.v2.set(o.x + fx * 0.95, g + 0.05, o.z + fz * 0.95) : this.v2.set(o.x - fx * 1.35, g + 0.05, o.z - fz * 1.35);
+      const from = organic ? this.v.set(o.x + fx * 0.6, g + 0.3, o.z + fz * 0.6) : this.v.set(o.x - fx * 0.5, g + 0.45, o.z - fz * 0.5);
+      const onto = organic ? this.v2.set(o.x + fx * 0.95, g + 0.05, o.z + fz * 0.95) : this.v2.set(o.x - fx * 0.42, g + 0.18, o.z - fz * 0.42);
       this.fx.harvest(id, from, onto, organic, true, t);
     }
   }
