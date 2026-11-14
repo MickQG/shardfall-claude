@@ -121,8 +121,8 @@ function infantry(rocket: boolean): RigDef {
     root: {
       kids: [
         // Firing crouch: the hips sink and the legs brace, one forward and one back, feet on the ground.
-        { geo: 'leg', at: [0, 0.182, 0.026], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: 0, kneel: 0.85, drop: 0.07 } },
-        { geo: 'leg', at: [0, 0.182, -0.026], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: Math.PI, kneel: -0.85, drop: 0.07 } },
+        { geo: 'leg', at: [0, 0.182, 0.026], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: 0, kneel: 0.85, drop: 0.07, carry: true } },
+        { geo: 'leg', at: [0, 0.182, -0.026], anim: { k: 'gait', axis: 'z', amp: 0.3, phase: Math.PI, kneel: -0.85, drop: 0.07, carry: true } },
         { geo: 'body', at: [0, 0.18, 0], anim: { k: 'body', drop: 0.07 }, kids: [{ muzzle: true, at: rocket ? [0.17, 0.14, 0.07] : [0.23, 0.08, 0.025] }] },
       ],
     },
@@ -646,7 +646,7 @@ function paladinLeg(x: number, side: 1 | -1, phase: number, fore: number): RigNo
     geo: 'thigh',
     at: [x, 0.53, side * PALADIN_HIP],
     rot: [-side * 0.16, 0, 0],
-    anim: { k: 'step', phase, fore, reach: PALADIN_STRIDE / (4 * PALADIN_SCALE), lift: 0.06, knee: PALADIN_KNEE, ankle: PALADIN_ANKLE, sole: PALADIN_SOLE },
+    anim: { k: 'step', carry: true, phase, fore, reach: PALADIN_STRIDE / (4 * PALADIN_SCALE), lift: 0.06, knee: PALADIN_KNEE, ankle: PALADIN_ANKLE, sole: PALADIN_SOLE },
     kids: [{ geo: 'shin', at: PALADIN_KNEE3, kids: [{ geo: 'foot', at: PALADIN_ANKLE3 }] }],
   };
 }
@@ -671,6 +671,8 @@ function paladin(): RigDef {
       thigh: () => {
         const s = shape();
         s.cyl(0.1, 0.15, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 14 });
+        // A hip pin through the joint, reaching in to the hull's side so the leg stays joined to it (AIM-4) and out to a cap.
+        s.cyl(0.055, 0.25, GUN, { rot: [Math.PI / 2, 0, 0], seg: 10 });
         s.strut([0, 0, 0], PALADIN_KNEE3, 0.095, STEEL, { r2: 0.082 });
         s.box(0.2, 0.2, 0.13, 'team', { at: [-0.085, -0.12, 0], rot: [0, 0, 0.62], bevel: 0.2 });
         s.cyl(0.082, 0.14, GUN, { at: PALADIN_KNEE3, rot: [Math.PI / 2, 0, 0], seg: 12 });
@@ -891,8 +893,8 @@ function spitter(): RigDef {
     },
     root: {
       kids: [
-        { geo: 'leg', at: [-0.01, 0.2, 0.04], anim: { k: 'gait', axis: 'z', amp: 0.5, phase: 0 } },
-        { geo: 'leg', at: [-0.01, 0.2, -0.04], anim: { k: 'gait', axis: 'z', amp: 0.5, phase: Math.PI } },
+        { geo: 'leg', at: [-0.01, 0.2, 0.04], anim: { k: 'gait', axis: 'z', amp: 0.5, phase: 0, carry: true } },
+        { geo: 'leg', at: [-0.01, 0.2, -0.04], anim: { k: 'gait', axis: 'z', amp: 0.5, phase: Math.PI, carry: true } },
         { anim: { k: 'body' }, geo: 'body', at: [0, 0.2, 0], kids: [{ muzzle: true, at: [0.19, 0.115, 0] }] },
       ],
     },
@@ -936,16 +938,59 @@ function stalker(): RigDef {
     root: {
       kids: [
         { anim: { k: 'body' }, geo: 'body', at: [0, 0.32, 0], kids: [{ muzzle: true, at: [0.65, -0.05, 0] }] },
-        { geo: 'leg', at: [0.18, 0.31, 0.1], anim: { k: 'gait', axis: 'z', amp: 0.75, phase: 0 } },
-        { geo: 'leg', at: [0.18, 0.31, -0.1], anim: { k: 'gait', axis: 'z', amp: 0.75, phase: Math.PI } },
-        { geo: 'leg', at: [-0.22, 0.31, 0.11], anim: { k: 'gait', axis: 'z', amp: 0.75, phase: Math.PI } },
-        { geo: 'leg', at: [-0.22, 0.31, -0.11], anim: { k: 'gait', axis: 'z', amp: 0.75, phase: 0 } },
+        { geo: 'leg', at: [0.18, 0.31, 0.1], anim: { k: 'gait', axis: 'z', amp: 0.75, phase: 0, carry: true } },
+        { geo: 'leg', at: [0.18, 0.31, -0.1], anim: { k: 'gait', axis: 'z', amp: 0.75, phase: Math.PI, carry: true } },
+        { geo: 'leg', at: [-0.22, 0.31, 0.11], anim: { k: 'gait', axis: 'z', amp: 0.75, phase: Math.PI, carry: true } },
+        { geo: 'leg', at: [-0.22, 0.31, -0.11], anim: { k: 'gait', axis: 'z', amp: 0.75, phase: 0, carry: true } },
       ],
     },
   };
 }
 
+/**
+ * The Brute (R3D-37): a hulking, hunched Vrax bruiser, an original design. A heavy torso under a team-coloured armoured
+ * back with a hump of bone spikes, a low tusked head between massive shoulders and two long, heavy arms; it walks upright
+ * on two thick legs. Every limb is a chain of rig nodes (shoulder, elbow, wrist; hip, knee, ankle) with a rounded knuckle at
+ * each joint that the segments sink into, so it bends without ever coming apart (AIM-4). The legs hang from a hips node and
+ * the torso sits on it, so the claw blow twists the torso over legs that stay planted and attached.
+ */
+/** Brute joints, each in the frame of the limb above it: elbow and wrist from the shoulder, knee and ankle from the hip. */
+const BRUTE_SHOULDER: V3 = [0.2, 0.14, 0.31];
+const BRUTE_ELBOW: V3 = [0.07, -0.26, 0];
+const BRUTE_WRIST: V3 = [0.06, -0.25, 0];
+const BRUTE_HIP: V3 = [-0.22, -0.04, 0.17];
+const BRUTE_KNEE: V3 = [0.05, -0.17, 0];
+const BRUTE_ANKLE: V3 = [-0.05, -0.12, 0];
+
 function brute(): RigDef {
+  /** One arm: shoulder, elbow and wrist nodes, with the blow's key angles on the striking side. */
+  const arm = (side: 1 | -1, phase: number): RigNode => ({
+    geo: 'uarm',
+    at: [BRUTE_SHOULDER[0], BRUTE_SHOULDER[1], BRUTE_SHOULDER[2] * side],
+    anim: { k: 'limb', axis: 'z', swing: 0.4, phase, side, wind: 1.9, hit: 0.75 },
+    kids: [
+      {
+        geo: 'farm',
+        at: BRUTE_ELBOW,
+        anim: { k: 'limb', axis: 'z', swing: 0, phase, flex: 0.5, lag: Math.PI / 2, side, wind: 1.5, hit: 0.15 },
+        kids: [{ geo: 'paw', at: [BRUTE_WRIST[0], BRUTE_WRIST[1] - 0.04, 0], anim: { k: 'limb', axis: 'z', swing: 0, phase, flex: 0.25, lag: Math.PI / 2, side, wind: 0.2, hit: -0.3 } }],
+      },
+    ],
+  });
+  /** One leg: hip, knee and ankle nodes; the knee folds back and the foot tips up as the leg swings forward. */
+  const leg = (side: 1 | -1, phase: number): RigNode => ({
+    geo: 'thigh',
+    at: [BRUTE_HIP[0], BRUTE_HIP[1], BRUTE_HIP[2] * side],
+    anim: { k: 'limb', axis: 'z', swing: 0.32, phase },
+    kids: [
+      {
+        geo: 'shin',
+        at: BRUTE_KNEE,
+        anim: { k: 'limb', axis: 'z', swing: 0, phase, flex: -0.8, lag: Math.PI / 2 },
+        kids: [{ geo: 'paw', at: BRUTE_ANKLE, anim: { k: 'limb', axis: 'z', swing: -0.15, phase, flex: 0.35, lag: Math.PI / 2 } }],
+      },
+    ],
+  });
   return {
     move: 'walker',
     organic: true,
@@ -955,55 +1000,78 @@ function brute(): RigDef {
     height: 0.95,
     weapon: 'claw',
     shapes: {
-      arm: () => {
+      // Upper arm: a heavy strut from the shoulder sinking into the elbow knuckle, under a team-coloured shoulder plate.
+      uarm: () => {
         const s = shape();
-        s.ball(0.11, CHITIN2, { at: [0, -0.04, 0], seg: 10 }); // shoulder
-        s.box(0.12, 0.3, 0.12, CHITIN, { at: [0.04, -0.2, 0], rot: [0, 0, 0.25], bevel: 0.4 });
-        s.box(0.14, 0.26, 0.14, CHITIN2, { at: [0.08, -0.43, 0], rot: [0, 0, -0.15], bevel: 0.4 });
-        s.ball(0.1, BELLY, { at: [0.1, -0.56, 0], scale: [1.2, 0.8, 1.1], seg: 10 }); // fist
-        for (const z of [-0.05, 0, 0.05]) s.cone(0.022, 0.1, BONE, { at: [0.2, -0.58, z], rot: [0, 0, -Math.PI / 2], seg: 5 });
-        s.box(0.16, 0.05, 0.15, 'team', { at: [0.02, 0.03, 0], bevel: 0.4 }); // shoulder plate
+        s.strut([0, 0, 0], [BRUTE_ELBOW[0] * 0.9, BRUTE_ELBOW[1] * 0.9, 0], 0.1, CHITIN, { r2: 0.085, seg: 6 });
+        s.ball(0.088, CHITIN2, { at: BRUTE_ELBOW, seg: 7, shadow: false });
+        s.ball(0.15, CHITIN2, { seg: 8 }); // shoulder knuckle, concentric with the arm's turning point
+        s.cyl(0.152, 0.1, 'team', { rot: [Math.PI / 2, 0, 0], seg: 10, shadow: false }); // a team-coloured shoulder plate, turning with the arm about its own axis // pauldron
         return s;
       },
-      leg: () => {
+      farm: () => {
         const s = shape();
-        s.box(0.16, 0.22, 0.15, CHITIN, { at: [-0.02, -0.1, 0], bevel: 0.4 });
-        s.box(0.12, 0.2, 0.12, CHITIN2, { at: [0.02, -0.27, 0], bevel: 0.4 });
-        s.box(0.18, 0.05, 0.14, BELLY, { at: [0.05, -0.365, 0], bevel: 0.4 });
+        s.strut([BRUTE_WRIST[0] * 0.1, BRUTE_WRIST[1] * 0.1, 0], [BRUTE_WRIST[0] * 0.9, BRUTE_WRIST[1] * 0.9, 0], 0.082, CHITIN2, { r2: 0.07, seg: 6 });
+        s.ball(0.076, CHITIN, { at: BRUTE_WRIST, seg: 7, shadow: false });
+        return s;
+      },
+      thigh: () => {
+        const s = shape();
+        s.ball(0.09, CHITIN2, { seg: 8, shadow: false }); // the hip knuckle, turning about its own centre
+        s.strut([0, 0, 0], BRUTE_KNEE, 0.085, CHITIN, { r2: 0.077, seg: 6 });
+        s.ball(0.085, CHITIN2, { at: BRUTE_KNEE, seg: 7, shadow: false });
+        return s;
+      },
+      shin: () => {
+        const s = shape();
+        s.strut([0, 0, 0], BRUTE_ANKLE, 0.07, CHITIN2, { r2: 0.056, seg: 6 });
+        s.ball(0.058, CHITIN, { at: BRUTE_ANKLE, seg: 7, shadow: false });
+        return s;
+      },
+      // A broad, three-clawed paw: the fist on each arm and the foot on each leg are this one shape (one draw call, R3D-13).
+      paw: () => {
+        const s = shape();
+        s.ball(0.075, BELLY, { at: [0.06, -0.0085, 0], scale: [1.7, 0.65, 1.2], seg: 8 });
+        for (const z of [-0.05, 0, 0.05]) s.cone(0.018, 0.08, BONE, { at: [0.17, -0.04, z], rot: [0, 0, -Math.PI / 2], seg: 5, shadow: false });
         return s;
       },
       body: () => {
         const s = shape();
-        s.ball(0.32, CHITIN, { at: [0, 0, 0], scale: [1.05, 0.8, 0.95], seg: 14 }); // torso
-        s.ball(0.32, 'teamDark', { at: [-0.04, 0.03, 0], scale: [1.0, 0.8, 0.82], seg: 14, cut: 0.38 }); // back armour
-        for (let i = 0; i < 4; i++) s.cone(0.05, 0.2 - i * 0.025, BONE, { at: [0.08 - i * 0.12, 0.28 - i * 0.02, 0], rot: [0, 0, 0.5], seg: 6 }); // hump spikes
-        for (const z of [0.18, -0.18]) s.cone(0.04, 0.16, BONE, { at: [0.06, 0.2, z], rot: [z > 0 ? 0.7 : -0.7, 0, 0.2], seg: 6 });
-        s.ball(0.12, CHITIN2, { at: [0.3, -0.06, 0], scale: [1.2, 0.85, 1], seg: 10 }); // head, low between the shoulders
+        // A belly ball centred on the torso's own turning point, so the torso can turn and lean over the hips without ever
+        // cutting into them, and reaching down to the hip knuckles of the thighs.
+        s.ball(0.26, BELLY, { seg: 10 });
+        s.ball(0.32, CHITIN, { at: [0, 0, 0], scale: [1.05, 0.8, 0.95], seg: 12, cut: 0.525 }); // torso, its underside left to the belly ball
+        s.ball(0.32, 'teamDark', { at: [-0.04, 0.03, 0], scale: [1.0, 0.8, 0.82], seg: 10, cut: 0.38, shadow: false }); // back armour
+        for (let i = 0; i < 4; i++) s.cone(0.05, 0.2 - i * 0.025, BONE, { at: [0.08 - i * 0.12, 0.28 - i * 0.02, 0], rot: [0, 0, 0.5], seg: 6, shadow: false }); // hump spikes
+        for (const z of [0.18, -0.18]) s.cone(0.04, 0.16, BONE, { at: [0.06, 0.2, z], rot: [z > 0 ? 0.7 : -0.7, 0, 0.2], seg: 6, shadow: false });
+                s.ball(0.12, CHITIN2, { at: [0.3, -0.06, 0], scale: [1.2, 0.85, 1], seg: 10 }); // head, low between the shoulders
         for (const z of [0.07, -0.07]) {
-          s.cone(0.03, 0.18, BONE, { at: [0.42, -0.08, z], rot: [z > 0 ? 0.6 : -0.6, 0, -1.4], seg: 6 }); // tusks
+          s.cone(0.03, 0.18, BONE, { at: [0.42, -0.08, z], rot: [z > 0 ? 0.6 : -0.6, 0, -1.4], seg: 6, shadow: false }); // tusks
           s.ball(0.02, GREEN, { at: [0.42, -0.0, z * 0.6], seg: 6, glow: true });
         }
         // Glowing veins along the flanks.
         for (const z of [0.29, -0.29]) for (let i = 0; i < 3; i++) s.tube(0.012, 0.22, GREEN, { at: [-0.1 + i * 0.1, -0.05 + i * 0.03, z * (0.95 - i * 0.05)], rot: [0, 0, 0.5 - i * 0.3], glow: true, seg: 5 });
-        s.ball(0.2, BELLY, { at: [-0.16, -0.12, 0], scale: [1.1, 0.8, 1.1], seg: 10 }); // haunch
         return s;
       },
     },
     root: {
       kids: [
         {
-          anim: { k: 'body' },
-          at: [0, 0.5, 0],
+          // The hips carry the legs and the torso; they ignore the lunge, so the legs stay put in a blow.
+          anim: { k: 'body', still: true },
+          at: [0, 0.38, 0],
           kids: [
-            { geo: 'body' },
-            // Knuckles that rest on the ground rather than in it, swinging clear of the legs (AIM-2).
-            { geo: 'arm', at: [0.2, 0.14, 0.36], anim: { k: 'gait', axis: 'z', amp: 0.45, phase: 0 } },
-            { geo: 'arm', at: [0.2, 0.14, -0.36], anim: { k: 'gait', axis: 'z', amp: 0.45, phase: Math.PI } },
-            { muzzle: true, at: [0.5, -0.4, 0] },
+            leg(1, Math.PI),
+            leg(-1, 0),
+            {
+              // The torso twists and leans into each claw blow; the arms hang from it, swinging against the legs.
+              anim: { k: 'torso', twist: 0.2, lean: 0.11, windTwist: -0.1, windLean: 0 },
+              geo: 'body',
+              at: [0, 0.12, 0],
+              kids: [arm(1, 0), arm(-1, Math.PI), { muzzle: true, at: [0.5, -0.4, 0] }],
+            },
           ],
         },
-        { geo: 'leg', at: [-0.22, 0.38, 0.17], anim: { k: 'gait', axis: 'z', amp: 0.4, phase: Math.PI } },
-        { geo: 'leg', at: [-0.22, 0.38, -0.17], anim: { k: 'gait', axis: 'z', amp: 0.4, phase: 0 } },
       ],
     },
   };
