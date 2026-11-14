@@ -9,7 +9,8 @@ interface Hook {
 
 test('DSK-4: the desktop app starts, loads the game, runs the simulation and reports no console errors', async () => {
   const exe = process.env.SHARDFALL_EXE;
-  const gl = ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
+  // Software rendering, and muted so the test never plays the game's sound on the machine running it.
+  const gl = ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--mute-audio'];
   const app = await electron.launch({
     ...(exe ? { executablePath: exe, args: gl } : { args: ['desktop/main.cjs', ...gl] }),
     env: { ...process.env, SHARDFALL_QUERY: '?faction=human&scenario=calm&seed=3' },
