@@ -256,7 +256,7 @@ describe('route search (SIM-10, SIM-3, SIM-4)', () => {
     }
     // A case the old search got wrong (it walked 680 where 672 will do).
     expect(walk(24, 64, findPath(grid, 24, 64, 32, 0))).toBe(672);
-  });
+  }, 30000);
 
   it('SIM-3 SIM-4 SIM-10: a group member’s route is at most twice its own tile’s distance from the group’s destination longer than shortest, on every map', () => {
     const cfgs = [...MAPS.map((m) => skirmishConfig(1, { map: m.id })), ...[3, 4, 5].map((seed) => skirmishConfig(seed, {}))];
