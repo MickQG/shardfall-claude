@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
 import { angleDiff, bodyPose, gunYaw, readyToFire, restingMotion, turretOnBody, walkerFacing } from '../../src/render3d/motion';
 import { MAX_STEER, poseRig, rigTree, turretReach, walk, type RigDef, type RigPose, type RigTree } from '../../src/render3d/rig';
+import type { Shape } from '../../src/render3d/kit';
 import { PALADIN_SWIVEL, UNIT_RIGS } from '../../src/render3d/units3d';
 
 const STILL: RigPose = { turret: 0, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: 0, stride: 0, dist: 0, turnRate: 0, time: 0, reach: 0, walker: false };
@@ -48,6 +49,52 @@ describe('shots go where the gun points', () => {
     }
   });
 });
+
+/** Every pose AIM-2 and AIM-4 check a unit in: aiming all round, a full stride, steering, leaning, recoiling, lunging, kneeling, unloading. */
+export function aimPoses(def: RigDef): [string, RigPose][] {
+  const walker = def.move === 'walker';
+  const hero = def.weapon === 'heroCannon' || def.weapon === 'heroAcid';
+  const lean = walker ? 0.04 : 0.08;
+  const poses: [string, RigPose][] = [];
+  for (let a = -Math.PI; a < Math.PI; a += Math.PI / 8) poses.push([`turret ${a.toFixed(2)}`, { ...STILL, walker, turret: a }]);
+  for (let ph = 0; ph < Math.PI * 2; ph += Math.PI / 6) {
+    // A walker with its own walk (HERO-6) bobs and sways its hull with each step as well.
+    const own = def.walk ? bodyPose('walker', { ...restingMotion(), stride: 1 }, ph, 0, 0, def.walk) : { pitch: 0, roll: 0, bob: 0 };
+    poses.push([`gait ${ph.toFixed(2)}`, { ...STILL, walker, phase: ph, stride: 1, dist: ph, ...own }]);
+  }
+  poses.push(
+    ['recoil', { ...STILL, walker, kick: 1 }],
+    ['lunge', { ...STILL, walker, lunge: 1, reach: def.radius * 0.25 }],
+    ['kneel', { ...STILL, walker, crouch: 1 }],
+    ['unload', { ...STILL, walker, tip: 1 }],
+    // The new harvesting and gun motions (R3D-30..32): head lowered and chewing, limbs reaching, a wave, barrel raised.
+    ['head down', { ...STILL, walker, head: 1, time: 100, drum: 1 }],
+    ['feeding', { ...STILL, walker, feed: 1, time: 450 }],
+    ['feeding, other beat', { ...STILL, walker, feed: 1, time: 150 }],
+    ['unload wave', { ...STILL, walker, tip: 1, time: 600 }],
+    ['barrel raised', { ...STILL, walker, elev: 1 }],
+    ['barrel raised and firing', { ...STILL, walker, elev: 1, kick: 1, turret: 1.2 }],
+    ['turning', { ...STILL, walker, turnRate: 3, turned: 2, dist: 1 }],
+    ['lean forward', { ...STILL, walker, pitch: hero ? 0.16 : lean, bob: hero ? -0.07 : 0 }],
+    ['lean back', { ...STILL, walker, pitch: hero ? -0.16 : -lean, bob: hero ? -0.07 : 0 }],
+    ['roll', { ...STILL, walker, roll: walker ? 0.012 : 0.1 }],
+    ['walk and fire', { ...STILL, walker, phase: 1, stride: 1, dist: 1, kick: 1, pitch: hero ? 0.2 : lean }],
+  );
+  return poses;
+}
+
+/** The claw blow of a creature that has one (the Brute, R3D-37) with either arm, from the wind-up through contact to the recovery, standing and mid-stride. */
+export function strikePoses(def: RigDef): [string, RigPose][] {
+  if (!rigTree(def).anims.some((a) => a.anim.k === 'torso')) return [];
+  const poses: [string, RigPose][] = [];
+  for (const side of [1, -1] as const) {
+    for (const t of [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.65, 0.8, 0.95]) {
+      poses.push([`strike ${side > 0 ? 'right' : 'left'} arm at ${t}`, { ...STILL, walker: def.move === 'walker', strike: t, strikeSide: side }]);
+      poses.push([`strike ${side > 0 ? 'right' : 'left'} arm at ${t} mid-stride`, { ...STILL, walker: def.move === 'walker', strike: t, strikeSide: side, phase: 1.3, stride: 1, dist: 1.3 }]);
+    }
+  }
+  return poses;
+}
 
 describe('models do not clip', () => {
   /** Each drawn part's pieces: their points and, for solid pieces, a convex hull, in the part's own frame. */
@@ -114,33 +161,7 @@ describe('models do not clip', () => {
       const t = rigTree(def);
       const ps = parts(def, t);
       const walker = def.move === 'walker';
-      const hero = def.weapon === 'heroCannon' || def.weapon === 'heroAcid';
-      const lean = walker ? 0.04 : 0.08;
-      const poses: [string, RigPose][] = [];
-      for (let a = -Math.PI; a < Math.PI; a += Math.PI / 8) poses.push([`turret ${a.toFixed(2)}`, { ...STILL, walker, turret: a }]);
-      for (let ph = 0; ph < Math.PI * 2; ph += Math.PI / 6) {
-        // A walker with its own walk (HERO-6) bobs and sways its hull with each step as well.
-        const own = def.walk ? bodyPose('walker', { ...restingMotion(), stride: 1 }, ph, 0, 0, def.walk) : { pitch: 0, roll: 0, bob: 0 };
-        poses.push([`gait ${ph.toFixed(2)}`, { ...STILL, walker, phase: ph, stride: 1, dist: ph, ...own }]);
-      }
-      poses.push(
-        ['recoil', { ...STILL, walker, kick: 1 }],
-        ['lunge', { ...STILL, walker, lunge: 1, reach: def.radius * 0.25 }],
-        ['kneel', { ...STILL, walker, crouch: 1 }],
-        ['unload', { ...STILL, walker, tip: 1 }],
-        // The new harvesting and gun motions (R3D-30..32): head lowered and chewing, limbs reaching, a wave, barrel raised.
-        ['head down', { ...STILL, walker, head: 1, time: 100, drum: 1 }],
-        ['feeding', { ...STILL, walker, feed: 1, time: 450 }],
-        ['feeding, other beat', { ...STILL, walker, feed: 1, time: 150 }],
-        ['unload wave', { ...STILL, walker, tip: 1, time: 600 }],
-        ['barrel raised', { ...STILL, walker, elev: 1 }],
-        ['barrel raised and firing', { ...STILL, walker, elev: 1, kick: 1, turret: 1.2 }],
-        ['turning', { ...STILL, walker, turnRate: 3, turned: 2, dist: 1 }],
-        ['lean forward', { ...STILL, walker, pitch: hero ? 0.16 : lean, bob: hero ? -0.07 : 0 }],
-        ['lean back', { ...STILL, walker, pitch: hero ? -0.16 : -lean, bob: hero ? -0.07 : 0 }],
-        ['roll', { ...STILL, walker, roll: walker ? 0.012 : 0.1 }],
-        ['walk and fire', { ...STILL, walker, phase: 1, stride: 1, dist: 1, kick: 1, pitch: hero ? 0.2 : lean }],
-      );
+      const poses = [...aimPoses(def), ...strikePoses(def)];
       const rest = depths(t, ps, { ...STILL, walker });
       for (const [name, pose] of poses) {
         for (const [key, d] of depths(t, ps, pose)) {
@@ -211,4 +232,154 @@ describe('models do not clip', () => {
     expect(turretReach(UNIT_RIGS.hum_tank!())).toBe(Infinity);
     expect(MAX_STEER).toBeLessThanOrEqual(0.3);
   });
+});
+
+describe('models do not come apart', () => {
+  /** How finely surfaces are sampled, model units: points of two surfaces are compared, so a measured gap overstates the true one by up to about this. */
+  const SPACING = 0.012;
+
+  /** Points spread over every triangle of a shape (corners, edges and an interior grid no coarser than SPACING), in the shape's own frame. */
+  function surface(shape: Shape): Float32Array {
+    const out: number[] = [];
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    for (const piece of shape.pieces) {
+      const pos = piece.geo.getAttribute('position');
+      const idx = piece.geo.getIndex();
+      const n = idx ? idx.count : pos.count;
+      for (let i = 0; i < n; i += 3) {
+        const at = (k: number): number => (idx ? idx.getX(i + k) : i + k);
+        a.fromBufferAttribute(pos, at(0));
+        b.fromBufferAttribute(pos, at(1));
+        c.fromBufferAttribute(pos, at(2));
+        const steps = Math.max(1, Math.ceil(Math.max(a.distanceTo(b), b.distanceTo(c), c.distanceTo(a)) / SPACING));
+        for (let u = 0; u <= steps; u++) {
+          for (let v = 0; u + v <= steps; v++) {
+            const wa = (steps - u - v) / steps;
+            out.push(a.x * wa + b.x * (u / steps) + c.x * (v / steps), a.y * wa + b.y * (u / steps) + c.y * (v / steps), a.z * wa + b.z * (u / steps) + c.z * (v / steps));
+          }
+        }
+      }
+    }
+    return Float32Array.from(out);
+  }
+
+  /**
+   * The parts of a posed model that are not joined to its body (empty when it is one connected piece). Two parts are joined
+   * when some point of one's surface lies within `gap` tiles of a point on the other's. Starting from the body, parts are
+   * added as they touch one already reached; a part never reached is apart. Points are compared through a grid of cells `gap`
+   * wide, so every pair within `gap` is found. Sampling can only overstate a gap, never hide one: a join that is found is real
+   * to within `gap`, and a gap wider than `gap` plus the sampling spacing is always reported.
+   */
+  function apart(def: RigDef, t: RigTree, samples: Map<string, Float32Array>, pose: RigPose, gap: number): string[] {
+    poseRig(t, pose);
+    t.root.updateMatrixWorld(true);
+    const ps = t.drawn.filter((d) => !d.cargo);
+    const g = gap / (def.scale ?? 1);
+    const g2 = g * g;
+    const v = new THREE.Vector3();
+    const boxes: THREE.Box3[] = [];
+    const world = ps.map((d) => {
+      const src = samples.get(d.geo)!;
+      const w = new Float32Array(src.length);
+      const box = new THREE.Box3();
+      for (let k = 0; k < src.length; k += 3) {
+        v.set(src[k]!, src[k + 1]!, src[k + 2]!).applyMatrix4(d.obj.matrixWorld);
+        w[k] = v.x;
+        w[k + 1] = v.y;
+        w[k + 2] = v.z;
+        box.expandByPoint(v);
+      }
+      boxes.push(box.expandByScalar(g));
+      return w;
+    });
+    // A hash of the integer cell; a clash only adds a candidate, and every candidate is measured.
+    const hash = (x: number, y: number, z: number): number => (x * 73856093) ^ (y * 19349663) ^ (z * 83492791);
+    const grids = new Map<number, Map<number, number[]>>();
+    const grid = (i: number): Map<number, number[]> => {
+      let m = grids.get(i);
+      if (!m) {
+        m = new Map();
+        const w = world[i]!;
+        for (let k = 0; k < w.length; k += 3) {
+          const h = hash(Math.floor(w[k]! / g), Math.floor(w[k + 1]! / g), Math.floor(w[k + 2]! / g));
+          const c = m.get(h);
+          if (c) c.push(k);
+          else m.set(h, [k]);
+        }
+        grids.set(i, m);
+      }
+      return m;
+    };
+    /** Whether any point of part `a` lies within `gap` of a point of part `b`. */
+    const touch = (a: number, b: number): boolean => {
+      if (!boxes[a]!.intersectsBox(boxes[b]!)) return false;
+      const wa = world[a]!;
+      const wb = world[b]!;
+      const m = grid(b);
+      for (let k = 0; k < wa.length; k += 3) {
+        const x = wa[k]!;
+        const y = wa[k + 1]!;
+        const z = wa[k + 2]!;
+        const cx = Math.floor(x / g);
+        const cy = Math.floor(y / g);
+        const cz = Math.floor(z / g);
+        for (let dx = -1; dx <= 1; dx++)
+          for (let dy = -1; dy <= 1; dy++)
+            for (let dz = -1; dz <= 1; dz++) {
+              const c = m.get(hash(cx + dx, cy + dy, cz + dz));
+              if (!c) continue;
+              for (const q of c) {
+                const ex = wb[q]! - x;
+                const ey = wb[q + 1]! - y;
+                const ez = wb[q + 2]! - z;
+                if (ex * ex + ey * ey + ez * ez <= g2) return true;
+              }
+            }
+      }
+      return false;
+    };
+    const main = ps.findIndex((d) => d.geo === 'body' || d.geo === 'hull');
+    const reached = new Set<number>([Math.max(0, main)]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (let u = 0; u < ps.length; u++) {
+        if (reached.has(u)) continue;
+        for (const r of reached) {
+          if (touch(u, r)) {
+            reached.add(u);
+            grew = true;
+            break;
+          }
+        }
+      }
+    }
+    return ps.flatMap((d, i) => (reached.has(i) ? [] : [d.geo]));
+  }
+
+  /** Parts that float free of the body by design, per unit kind, with the reason: none today. */
+  const FLOATING: Record<string, readonly string[]> = {};
+  /** Walkers that come apart in some pose and are not repaired here, with the reason (to be filed separately): none today. */
+  const KNOWN: Record<string, string> = {};
+
+  it('AIM-4: on every walking unit, in every pose and every attack pose, each limb meets the next and the body (no gap over 0.03 tiles)', () => {
+    const problems: string[] = [];
+    let walkers = 0;
+    for (const [kind, mk] of Object.entries(UNIT_RIGS)) {
+      const def = mk();
+      if (def.move !== 'walker') continue;
+      walkers++;
+      const t = rigTree(def);
+      const samples = new Map<string, Float32Array>();
+      for (const d of t.drawn) if (!samples.has(d.geo)) samples.set(d.geo, surface(def.shapes[d.geo]!()));
+      const found = new Set<string>();
+      for (const [name, pose] of [...aimPoses(def), ...strikePoses(def)]) {
+        for (const geo of apart(def, t, samples, pose, 0.03)) if (!(FLOATING[kind] ?? []).includes(geo)) found.add(`${geo} (${name})`);
+      }
+      if (found.size > 0 && !KNOWN[kind]) problems.push(`${kind}: ${[...found].slice(0, 6).join(', ')}${found.size > 6 ? ` and ${found.size - 6} more` : ''}`);
+    }
+    expect(walkers).toBeGreaterThanOrEqual(8);
+    expect(problems).toEqual([]);
+  }, 300_000);
 });
