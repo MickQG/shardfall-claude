@@ -488,92 +488,142 @@ function buggy(): RigDef {
   };
 }
 
-/** Where the hauler's hopper hinges to tip and how far it tips up at the front to unload, radians: short of the conveyor's end above it (R3D-30). */
-export const HAULER_HOPPER: [number, number, number] = [-0.78, 0.33, 0];
-export const HAULER_TIP = 0.4;
-/** Where the hauler's rear hatch hinges and its head's arms pivot: body-frame points (R3D-30). */
-export const HAULER_HATCH: [number, number, number] = [-0.8, 0.62, 0];
-export const HAULER_ARM: V3 = [0.66, 0.27, 0];
+/**
+ * Where the hauler's hopper hinges to tip and how far it tips up at the front to unload, radians: about 45 degrees, the
+ * hinge at the hopper's rear floor edge (R3D-30). The hopper's back is raked forward, so as it tips the top of that back
+ * comes up over the hinge rather than swinging out behind the hauler into the refinery (R3D-22).
+ */
+export const HAULER_HOPPER: [number, number, number] = [-0.42, 0.33, 0];
+export const HAULER_TIP = 0.785;
+/** Where the rear hatch hinges (the top of the raked back) and how far it folds up and forward over the open bed; the head's arms pivot at HAULER_ARM: body-frame points (R3D-30). */
+export const HAULER_HATCH: [number, number, number] = [-0.2, 0.62, 0];
+export const HAULER_HATCH_SWING = 1.5;
+export const HAULER_ARM: V3 = [0.84, 0.27, 0];
+/** Where the cooling vent breathes its vapour on throttle (R3D-30): a body-frame point on the cab's rear deck. */
+export const HAULER_VENT: V3 = [0.27, 0.56, 0.165];
 /** How far a lowered head's arms turn down from level, and how far the arms rise to clear the ground, radians (R3D-30). */
 const HEAD_DOWN = -0.445;
 const HEAD_UP = 0.645;
+/** The shard colours of the load and the lit rims: the same glowing colours the crystals themselves wear. */
+const LOAD = 0x47e8c4;
+const LOAD2 = 0x7ff0dc;
+
+/** A tyre in an armoured hub: a guard ring and cap over the rim with a small lit core (R3D-30). */
+function hubTire(r: number, w: number): Shape {
+  const s = shape();
+  s.cyl(r, w, RUBBER, { rot: [Math.PI / 2, 0, 0], seg: 14 });
+  s.cyl(r * 0.68, w + 0.014, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 8 });
+  s.cyl(r * 0.46, w + 0.03, STEEL, { rot: [Math.PI / 2, 0, 0], seg: 8 });
+  s.cyl(r * 0.16, w + 0.04, CYAN, { rot: [Math.PI / 2, 0, 0], seg: 6, glow: true });
+  // Tread blocks so the spin reads.
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    s.box(0.03, 0.022, w + 0.006, RUBBER, { at: [Math.cos(a) * r, Math.sin(a) * r, 0], rot: [0, 0, a], bevel: 0 });
+  }
+  return s;
+}
 
 /**
- * Shard Hauler (R3D-30): a heavy, armoured industrial harvester, an original design. A long chassis on six big wheels
- * carries a raised armoured cab at the front-left and a large boxed hopper behind it. Across the front, a housed toothed
- * drum hangs on two hydraulic arms: raised clear while driving, lowered onto the ground to mine, feeding a conveyor that
- * carries crystals up into the hopper. A rear hatch opens to discharge.
+ * Shard Hauler (R3D-30): a heavy, sealed mining machine, an original design. Six large wheels in armoured hubs carry a
+ * long sealed chassis; a wedge cab under a tinted canopy sits at the front-left like the Scout Buggy's, behind it a
+ * smooth-sided hopper with a lit rim. Across the front, an enclosed drum housing hangs on two sealed arms: raised clear
+ * while driving, lowered onto the ground to mine, feeding a covered conveyor with an open window strip that carries the
+ * crystals up into the hopper. To unload the whole hopper tips up at the front about its rear hinge and the hatch folds
+ * clear. No exhaust stack, no exposed hydraulics.
  */
 function hauler(): RigDef {
   const R = 0.14;
   const wheel = (x: number, z: number, front: boolean): RigNode =>
     front ? { anim: { k: 'steer' }, at: [x, R, z], kids: [{ geo: 'wheel', anim: { k: 'wheel', r: R } }] } : { geo: 'wheel', at: [x, R, z], anim: { k: 'wheel', r: R } };
   const BELT = -0.4636;
+  const CZ = -0.13;
+  /** A point on the conveyor in its own frame (u along the belt, v up from it), as a body-frame position. */
+  const bp = (u: number, v: number, w: number): V3 => [0.62 + u * Math.cos(BELT) - v * Math.sin(BELT), 0.5 + u * Math.sin(BELT) + v * Math.cos(BELT), w];
+  // The raked back of the hopper runs from the hinge up and forward to the hatch's hinge.
+  const RAKE = -Math.atan2(HAULER_HATCH[0] - HAULER_HOPPER[0], HAULER_HATCH[1] - HAULER_HOPPER[1]);
   return {
     move: 'wheeled',
     turn: 5,
     radius: 0.85,
     height: 0.78,
     shapes: {
-      wheel: () => tire(R, 0.12, HAZARD),
+      wheel: () => hubTire(R, 0.12),
       body: () => {
         const s = shape();
-        s.box(1.5, 0.14, 0.5, GUN, { at: [-0.02, 0.23, 0], bevel: 0.15 }); // the chassis frame, between the wheels
-        s.box(0.1, 0.12, 0.5, GUN, { at: [0.7, 0.22, 0], bevel: 0.2 }); // bumper and arm mounts
-        for (const x of [0.46, -0.04, -0.54]) for (const z of [0.34, -0.34]) s.box(0.34, 0.03, 0.15, STEEL2, { at: [x, 0.32, z], bevel: 0.3 }); // fenders
+        s.box(1.26, 0.12, 0.54, GUN, { at: [0.2, 0.27, 0], bevel: 0.15 }); // the sealed chassis between the wheels
+        s.box(0.1, 0.12, 0.6, GUN, { at: [0.88, 0.27, 0], bevel: 0.2 }); // nose and arm mounts
+        // A continuous armoured belt along each flank, over the wheels, with a team stripe and a lit seam.
+        for (const z of [0.32, -0.32]) {
+          s.slab([[-0.43, 0.315], [0.82, 0.315], [0.88, 0.36], [0.82, 0.415], [-0.4, 0.415], [-0.43, 0.38]], 0.07, STEEL, { at: [0, 0, z], bevel: 0.01 });
+          s.box(1.0, 0.03, 0.074, 'team', { at: [0.18, 0.375, z], bevel: 0 });
+          s.box(1.0, 0.008, 0.074, CYAN, { at: [0.18, 0.324, z], glow: true, bevel: 0 });
+        }
         // The fixed bulkhead in front of the hopper.
-        s.box(0.05, 0.28, 0.6, STEEL2, { at: [0.08, 0.46, 0], bevel: 0.2 });
-        // The armoured cab, front-left: sloped front, dark visor, side window, team roof and a beacon.
-        s.slab([[0.14, 0.3], [0.66, 0.3], [0.68, 0.4], [0.58, 0.62], [0.2, 0.66]], 0.27, STEEL, { at: [0, 0, 0.165], bevel: 0.02 });
-        s.box(0.03, 0.16, 0.23, DARK, { at: [0.635, 0.51, 0.165], rot: [0, 0, 0.43], bevel: 0.1 });
-        s.box(0.22, 0.09, 0.01, DARK, { at: [0.4, 0.52, 0.302], bevel: 0 });
-        s.box(0.42, 0.02, 0.29, 'team', { at: [0.39, 0.665, 0.165], bevel: 0.3 });
-        s.box(0.05, 0.025, 0.07, AMBER, { at: [0.3, 0.69, 0.165], glow: true, bevel: 0.3 });
-        s.cyl(0.005, 0.2, DARK, { at: [0.24, 0.78, 0.26], seg: 4 });
-        for (const z of [0.09, 0.24]) s.box(0.02, 0.04, 0.05, AMBER, { at: [0.69, 0.36, z], glow: true, bevel: 0 });
-        s.cyl(0.028, 0.34, GUN, { at: [0.14, 0.47, 0.3], seg: 8 }); // exhaust stack
-        s.cyl(0.036, 0.02, DARK, { at: [0.14, 0.65, 0.3], seg: 8 });
-        // The conveyor trough from the head up into the hopper, on legs; its cleats are a separate scrolling part.
-        s.box(1.0, 0.04, 0.18, DARK, { at: [0.41, 0.495, -0.13], rot: [0, 0, BELT], bevel: 0.1 });
-        for (const z of [0.09, -0.09]) s.box(1.0, 0.065, 0.025, STEEL2, { at: [0.41, 0.515, -0.13 + z], rot: [0, 0, BELT], bevel: 0.2 });
-        for (const x of [0.6, 0.24]) s.box(0.03, 0.2, 0.03, GUN, { at: [x, 0.36, -0.13] });
-        s.box(0.015, 0.025, 0.05, RED, { at: [-0.755, 0.25, 0.14], glow: true, bevel: 0 }); // tail lights
-        s.box(0.015, 0.025, 0.05, RED, { at: [-0.755, 0.25, -0.14], glow: true, bevel: 0 });
+        s.box(0.04, 0.3, 0.6, STEEL, { at: [0.2, 0.47, 0], bevel: 0.2 });
+        // The wedge cab, front-left: a faceted nose under a tinted canopy, a team roof plate and a lit strip.
+        s.slab([[0.24, 0.33], [0.8, 0.33], [0.86, 0.38], [0.78, 0.5], [0.24, 0.5]], 0.27, STEEL, { at: [0, 0, 0.165], bevel: 0.02 });
+        s.slab([[0.32, 0.5], [0.7, 0.5], [0.54, 0.66], [0.36, 0.67], [0.32, 0.62]], 0.25, CANOPY, { at: [0, 0, 0.165], bevel: 0.015 });
+        s.box(0.24, 0.015, 0.25, 'team', { at: [0.43, 0.675, 0.165], bevel: 0.2 });
+        s.box(0.2, 0.01, 0.02, CYAN, { at: [0.43, 0.684, 0.165], glow: true, bevel: 0 });
+        for (const z of [0.09, 0.24]) s.box(0.014, 0.03, 0.05, AMBER, { at: [0.86, 0.4, z], glow: true, bevel: 0 });
+        // The cooling vent on the cab's rear deck: a louvred housing with a lit slot.
+        s.box(0.06, 0.05, 0.2, DARK, { at: [HAULER_VENT[0], 0.525, 0.165], bevel: 0.2 });
+        s.box(0.012, 0.012, 0.16, CYAN, { at: [0.3, 0.55, 0.165], glow: true, bevel: 0 });
+        // The covered conveyor from the head up into the hopper: a bed, closed sides but for an open window strip on the
+        // outer side that shows the crystals riding up, and a roof. Its cleats are a separate scrolling part.
+        const belt = (len: number, h: number, d: number, paint: number | 'team', u: number, v: number, w: number, glow = false): void => {
+          s.box(len, h, d, paint, { at: bp(u, v, w), rot: [0, 0, BELT], bevel: glow ? 0 : 0.15, glow });
+        };
+        belt(1.0, 0.03, 0.18, DARK, 0, 0, CZ);
+        belt(1.0, 0.18, 0.02, STEEL2, 0, 0.075, CZ + 0.09);
+        belt(1.0, 0.025, 0.02, STEEL2, 0, 0, CZ - 0.09);
+        belt(1.0, 0.055, 0.02, STEEL2, 0, 0.14, CZ - 0.09);
+        belt(1.0, 0.015, 0.2, STEEL, 0, 0.17, CZ);
+        belt(1.0, 0.006, 0.012, LOAD, 0, 0.1125, CZ - 0.09, true); // a lit sill along the window
+        for (const x of [0.46, 0.8]) {
+          const top = 0.5 - (x - 0.62) * 0.5 - 0.03; // up to just under the bed
+          s.box(0.03, top - 0.33, 0.03, GUN, { at: [x, (top + 0.33) / 2, CZ], bevel: 0.2 });
+        }
+        for (const z of [0.14, -0.14]) s.box(0.012, 0.025, 0.05, RED, { at: [-0.435, 0.27, z], glow: true, bevel: 0 }); // tail lights
         return s;
       },
       hopper: () => {
-        // The hopper: a boxed bin with a floor, team bands and a rim. It tips up at the front about a hinge at its rear to
-        // unload; it stops a little short of the bulkhead so it swings clear.
+        // The hopper: a smooth-sided bin with a floor, team bands and a lit rim. It tips up at the front about a hinge at its
+        // rear to unload; its back is raked forward and the lower part of it is fixed, the upper part being the hatch.
         const s = shape();
-        s.box(0.8, 0.03, 0.58, STEEL, { at: [-0.37, 0.335, 0], bevel: 0.2 });
+        s.box(0.58, 0.03, 0.58, STEEL, { at: [-0.13, 0.335, 0], bevel: 0.2 });
         for (const z of [0.29, -0.29]) {
-          s.slab([[-0.78, 0.32], [0.04, 0.32], [0.04, 0.62], [-0.78, 0.62]], 0.04, STEEL, { at: [0, 0, z], bevel: 0.01 });
-          s.box(0.74, 0.07, 0.048, 'team', { at: [-0.36, 0.5, z], bevel: 0.2 });
-          s.box(0.82, 0.03, 0.05, DARK, { at: [-0.37, 0.63, z], bevel: 0.2 });
-          s.box(0.05, 0.3, 0.05, GUN, { at: [-0.8, 0.47, z], bevel: 0.2 });
-          for (let i = 0; i < 4; i++) s.box(0.06, 0.03, 0.052, i % 2 ? DARK : HAZARD, { at: [-0.66 + i * 0.07, 0.36, z], bevel: 0 });
+          s.slab([[-0.42, 0.32], [0.16, 0.32], [0.16, 0.6], [-0.2, 0.62]], 0.04, STEEL, { at: [0, 0, z], bevel: 0.01 });
+          s.box(0.5, 0.07, 0.046, 'team', { at: [-0.1, 0.46, z], bevel: 0.2 });
+          s.box(0.36, 0.014, 0.05, LOAD, { at: [-0.02, 0.616, z], rot: [0, 0, -0.055], glow: true, bevel: 0 }); // the lit rim
         }
+        s.box(0.04, 0.3, 0.58, STEEL, { at: [0.14, 0.47, 0], bevel: 0.1 }); // the hopper's front wall
+        s.box(0.012, 0.014, 0.6, LOAD, { at: [0.16, 0.606, 0], glow: true, bevel: 0 });
+        // The fixed lower part of the raked back.
+        s.box(0.03, 0.13, 0.58, STEEL, { at: [-0.382, 0.372, 0], rot: [0, 0, RAKE], bevel: 0.15 });
         return s;
       },
       hatch: () => {
-        // The rear hatch, hinged along its top edge: hazard-striped and swinging up and out to discharge.
+        // The rear hatch: the upper part of the raked back, hinged along its top edge; it folds up and forward over the open bed.
         const s = shape();
-        s.box(0.04, 0.3, 0.52, STEEL2, { at: [-0.8, 0.47, 0], bevel: 0.15 });
-        for (let i = 0; i < 3; i++) s.box(0.046, 0.03, 0.5, i % 2 ? DARK : HAZARD, { at: [-0.8, 0.37 + i * 0.07, 0], bevel: 0 });
+        s.box(0.03, 0.24, 0.56, STEEL2, { at: [-0.27, 0.523, 0], rot: [0, 0, RAKE], bevel: 0.15 });
+        s.box(0.012, 0.012, 0.5, LOAD, { at: [-0.205, 0.607, 0], rot: [0, 0, RAKE], glow: true, bevel: 0 });
         return s;
       },
       head: () => {
-        // The harvesting head, in the arms' own frame (X along the arms, pivot at the origin): two hydraulic arms with
-        // rams, and the hood and side plates that house the drum at the far end.
+        // The harvesting head, in the arms' own frame (X along the arms, pivot at the origin): two sealed arms and an
+        // enclosed housing over the back and sides of the drum at the far end.
         const s = shape();
         for (const z of [0.27, -0.27]) {
-          s.box(0.36, 0.05, 0.045, GUN, { at: [0.18, 0, z], bevel: 0.2 });
-          s.strut([0.06, 0.1, z * 0.9], [0.26, 0.03, z], 0.014, STEEL);
-          s.cyl(0.04, 0.05, STEEL2, { at: [0, 0, z], rot: [Math.PI / 2, 0, 0], seg: 8 });
-          s.box(0.26, 0.18, 0.03, STEEL2, { at: [0.36, 0.04, z * 1.06], bevel: 0.2 });
+          s.box(0.36, 0.08, 0.06, STEEL2, { at: [0.18, 0, z], bevel: 0.3 });
+          s.cyl(0.052, 0.07, STEEL, { at: [0, 0, z], rot: [Math.PI / 2, 0, 0], seg: 8 });
+          s.cyl(0.15, 0.025, STEEL2, { at: [0.36, 0.04, z * 1.1], rot: [Math.PI / 2, 0, 0], seg: 10 }); // the housing's side plate
+          s.cyl(0.04, 0.03, CYAN, { at: [0.36, 0.04, z * 1.1 + Math.sign(z) * 0.012], rot: [Math.PI / 2, 0, 0], seg: 6, glow: true });
         }
-        s.box(0.16, 0.03, 0.56, 'team', { at: [0.25, 0.16, 0], bevel: 0.2 }); // a hood over the back of the drum only, so its teeth show
-        s.box(0.03, 0.05, 0.56, HAZARD, { at: [0.54, -0.04, 0], bevel: 0.2 }); // a low lip at the front
+        s.box(0.2, 0.03, 0.56, 'team', { at: [0.27, 0.17, 0], bevel: 0.2 }); // the roof of the housing
+        s.box(0.16, 0.025, 0.56, STEEL2, { at: [0.43, 0.14, 0], rot: [0, 0, -0.55], bevel: 0.2 }); // its sloped front visor
+        s.box(0.025, 0.3, 0.56, STEEL2, { at: [0.2, 0.03, 0], bevel: 0.2 }); // its closed back
+        s.box(0.03, 0.04, 0.56, GUN, { at: [0.54, -0.07, 0], bevel: 0.2 }); // a low lip at the front
         s.box(0.06, 0.14, 0.24, DARK, { at: [0.22, 0.1, -0.13], bevel: 0.2 }); // the throat toward the conveyor
         return s;
       },
@@ -583,59 +633,59 @@ function hauler(): RigDef {
         s.cyl(0.085, 0.5, STEEL2, { rot: [Math.PI / 2, 0, 0], seg: 10 });
         for (let i = 0; i < 10; i++) {
           const a = (i / 10) * Math.PI * 2;
-          s.box(0.05, 0.045, 0.46, i % 2 ? HAZARD : GUN, { at: [Math.cos(a) * 0.1, Math.sin(a) * 0.1, 0], rot: [0, 0, a], bevel: 0 });
+          s.box(0.05, 0.045, 0.46, i % 2 ? STEEL : GUN, { at: [Math.cos(a) * 0.1, Math.sin(a) * 0.1, 0], rot: [0, 0, a], bevel: 0 });
         }
         return s;
       },
       cleats: () => {
-        // The conveyor's cleats, with crystals riding on them; the node slides them along the trough.
+        // The conveyor's cleats, with crystals riding on them; the node slides them along the bed. The crystals glow.
         const s = shape();
         for (let i = 0; i < 10; i++) {
           const x = -0.45 + i * 0.1;
-          s.box(0.02, 0.035, 0.15, HAZARD, { at: [x, 0.05, 0], bevel: 0 });
-          s.cone(0.026, 0.07, i % 2 ? 0x47e8c4 : 0x7ff0dc, { at: [x + 0.05, 0.06, ((i % 3) - 1) * 0.04], seg: 5 });
+          s.box(0.02, 0.035, 0.15, GUN, { at: [x, 0.05, 0], bevel: 0 });
+          s.cone(0.026, 0.07, i % 2 ? LOAD : LOAD2, { at: [x + 0.05, 0.06, ((i % 3) - 1) * 0.04], seg: 5, glow: true });
         }
         return s;
       },
       cargo: () => {
         const s = shape();
-        // A heap of crystals standing proud of the hopper when full (it rises from the floor with the load).
+        // A heap of glowing crystals standing proud of the hopper when full (it rises from the floor with the load).
         for (let i = 0; i < 12; i++) {
           const cx = i % 4;
           const cz = Math.floor(i / 4);
-          const x = -0.6 + cx * 0.17 + (cz % 2) * 0.05;
+          const x = -0.2 + cx * 0.1 + (cz % 2) * 0.03;
           const z = (cz - 1) * 0.17;
           const h = 0.17 + 0.12 * (1 - Math.abs(cx - 1.5) / 1.5) * (1 - Math.abs(cz - 1) * 0.5);
           const tilt: [number, number, number] = [0.3 * (i % 2 ? 1 : -1), 0, 0.22 * ((i % 3) - 1)];
-          s.cyl(0.05, h, 0x47e8c4, { at: [x, 0.35 + h / 2, z], rot: tilt, seg: 6 });
-          s.cone(0.05, 0.09, 0x7ff0dc, { at: [x, 0.35 + h + 0.03, z], rot: tilt, seg: 6 });
+          s.cyl(0.05, h, LOAD, { at: [x, 0.35 + h / 2, z], rot: tilt, seg: 6, glow: true });
+          s.cone(0.05, 0.09, LOAD2, { at: [x, 0.35 + h + 0.03, z], rot: tilt, seg: 6, glow: true });
         }
         return s;
       },
     },
     root: {
       kids: [
-        wheel(0.46, 0.34, true),
-        wheel(0.46, -0.34, true),
-        wheel(-0.04, 0.34, false),
-        wheel(-0.04, -0.34, false),
-        wheel(-0.54, 0.34, false),
-        wheel(-0.54, -0.34, false),
+        wheel(0.7, 0.34, true),
+        wheel(0.7, -0.34, true),
+        wheel(0.2, 0.34, false),
+        wheel(0.2, -0.34, false),
+        wheel(-0.3, 0.34, false),
+        wheel(-0.3, -0.34, false),
         {
           anim: { k: 'body' },
           geo: 'body',
           kids: [
             // The head hangs lowered at rest and lifts clear on its arms while driving; the drum turns at its far end.
             { geo: 'head', at: HAULER_ARM, rot: [0, 0, HEAD_DOWN], anim: { k: 'arm', up: HEAD_UP, bob: 0.025 }, kids: [{ geo: 'drum', at: [0.36, 0, 0], anim: { k: 'drum' } }] },
-            { geo: 'cleats', at: [0.41, 0.52, -0.13], rot: [0, 0, BELT], anim: { k: 'scroll', pitch: 0.1, per: -0.045 } },
-            // Unloading, the hopper tips up at the front about its rear hinge and its hatch swings up and out, so the load
-            // slides out of the back; the crystal heap sits in the hopper, rises as it fills and tips with it.
+            { geo: 'cleats', at: bp(0, 0.025, CZ), rot: [0, 0, BELT], anim: { k: 'scroll', pitch: 0.1, per: -0.045 } },
+            // Unloading, the hopper tips up at the front about its rear hinge and its hatch folds up and forward, so the load
+            // slides out of the back; the crystal heap sits in the hopper, rises as it fills, slides rearward as it empties and tips with it.
             {
               geo: 'hopper',
               anim: { k: 'tip', pivot: HAULER_HOPPER, max: HAULER_TIP },
               kids: [
-                { geo: 'hatch', anim: { k: 'tip', pivot: HAULER_HATCH, max: -1.1 } },
-                { geo: 'cargo', anim: { k: 'cargo', pivot: [-0.3, 0.35, 0] } },
+                { geo: 'hatch', anim: { k: 'tip', pivot: HAULER_HATCH, max: HAULER_HATCH_SWING } },
+                { geo: 'cargo', anim: { k: 'cargo', pivot: [-0.15, 0.35, 0], slide: 0.12 } },
               ],
             },
           ],

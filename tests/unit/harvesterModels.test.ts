@@ -1,9 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
 import { ELEV_DOWN_MS, ELEV_HOLD_MS, ELEV_UP_MS, elevTarget, HEAD_MS, rideMotion, slew } from '../../src/render3d/motion';
 import { feedCycle, poseRig, rigTree, swallowBeat, type RigDef, type RigPose, type RigTree } from '../../src/render3d/rig';
-import { HAMMER_LOCK, HAMMER_MUZZLE, HAMMER_RAISED, HAMMER_TRUNNION, UNIT_RIGS } from '../../src/render3d/units3d';
+import { HAMMER_LOCK, HAMMER_MUZZLE, HAMMER_RAISED, HAMMER_TRUNNION, HAULER_HATCH, HAULER_HATCH_SWING, HAULER_HOPPER, HAULER_TIP, HAULER_VENT, UNIT_RIGS } from '../../src/render3d/units3d';
 
 const STILL: RigPose = { turret: 0, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: 0, stride: 0, dist: 0, turnRate: 0, time: 0, reach: 0, walker: false };
 
@@ -104,38 +105,114 @@ describe('R3D-30: the Shard Hauler', () => {
     expect(Math.abs(at(1000) - cleats.pos.x)).toBeLessThan(pitch + 1e-6);
   });
 
-  it('R3D-30: to unload, the whole hopper tips up at the front about its rear hinge, carrying the hatch and the heap, and lies flat again after', () => {
+  it('R3D-30: to unload, the whole hopper tips up at the front to about 45 degrees about its rear hinge, carrying the hatch and the heap, and lies flat again after', () => {
     const t = rigTree(def);
-    const hopper = t.anims.find((a) => a.anim.k === 'tip' && a.anim.max > 0)!;
+    const hopper = t.anims.find((a) => a.anim.k === 'tip' && a.anim.max > 0 && a.obj === node(t, 'hopper').obj)!;
     expect(node(t, 'hopper').obj).toBe(hopper.obj);
     expect(node(t, 'hatch').obj.parent).toBe(hopper.obj);
     expect(node(t, 'cargo').obj.parent).toBe(hopper.obj);
+    // About 45 degrees (it was 23).
+    expect(HAULER_TIP).toBeGreaterThan(0.72);
+    expect(HAULER_TIP).toBeLessThan(0.85);
     poseRig(t, { ...STILL, tip: 0 });
     const flat = bounds(def, t, ['hopper']);
     poseRig(t, { ...STILL, tip: 1 });
+    expect(hopper.obj.rotation.z).toBeCloseTo(HAULER_TIP, 9);
     const up = bounds(def, t, ['hopper']);
     expect(up.max.y).toBeGreaterThan(flat.max.y + 0.2); // the front end is well up
     expect(up.min.y).toBeGreaterThan(flat.min.y - 0.03); // the rear stays on its hinge, it does not drop through the chassis
     expect(up.max.x).toBeLessThan(flat.max.x + 1e-6); // it swings back and up, away from the bulkhead and cab
-    expect(up.max.y).toBeLessThan(1.0); // a tip, not a flip
+    // The front end rises to about 0.93 at 45 degrees: a tip, not a flip, and still below the cab-high conveyor's peak plus a margin.
+    expect(up.max.y).toBeGreaterThan(0.85);
+    expect(up.max.y).toBeLessThan(1.0);
+    // The hinge itself stays put, and the raked back leans up to stand over it rather than out behind it.
+    const hinge = new THREE.Vector3(...HAULER_HOPPER);
+    hopper.obj.updateMatrix();
+    expect(hinge.clone().applyMatrix4(hopper.obj.matrix).distanceTo(hinge)).toBeLessThan(1e-9);
+    expect(up.min.x).toBeGreaterThan(flat.min.x - 0.1);
     poseRig(t, { ...STILL, tip: 0 });
     expect(bounds(def, t, ['hopper']).max.y).toBeCloseTo(flat.max.y, 6);
   });
 
-  it('R3D-30: it unloads through a rear hatch that opens out of the back, and the heap in the hopper grows with the load', () => {
+  it('R3D-30: the rear hatch is hinged at the top of the raked back and folds up and forward clear of the opening, never out behind, as the hopper tips', () => {
     const t = rigTree(def);
-    const hatch = t.anims.find((a) => a.anim.k === 'tip' && a.anim.max < 0)!;
-    expect(hatch.anim.k === 'tip' && hatch.anim.max).toBeLessThan(0);
+    const hopper = node(t, 'hopper').obj;
+    const hatch = t.anims.find((a) => a.anim.k === 'tip' && a.obj.parent === hopper)!;
+    expect(hatch.anim.k === 'tip' && hatch.anim.max).toBeCloseTo(HAULER_HATCH_SWING, 9);
+    expect(HAULER_HATCH_SWING).toBeGreaterThan(1);
     poseRig(t, { ...STILL, tip: 0 });
     const closed = bounds(def, t, ['hatch']);
+    poseRig(t, { ...STILL, tip: 0.5 });
+    const half = bounds(def, t, ['hatch']);
     poseRig(t, { ...STILL, tip: 1 });
     const open = bounds(def, t, ['hatch']);
-    expect(open.min.x).toBeLessThan(closed.min.x - 0.2); // swung out behind the hopper
+    // Its lower edge lifts clear of the opening, and at no point does it swing behind the hauler's tail.
+    expect(open.min.y).toBeGreaterThan(closed.min.y + 0.15);
+    // (The tail of the hauler is at about -0.46; the refinery's wall is a hand's width behind it, R3D-22.)
+    for (const b of [closed, half, open]) expect(b.min.x).toBeGreaterThan(-0.5);
+    // The hinge stays where it is while the hatch folds about it.
+    hatch.obj.updateMatrix();
+    const pivot = new THREE.Vector3(...HAULER_HATCH);
+    expect(pivot.clone().applyMatrix4(hatch.obj.matrix).distanceTo(pivot)).toBeLessThan(1e-9);
+  });
+
+  it('R3D-30: the glowing heap in the hopper grows with the load and slides toward the rear as the tipped hopper empties', () => {
+    const t = rigTree(def);
     const cargo = t.anims.find((a) => a.anim.k === 'cargo')!;
     poseRig(t, { ...STILL, load: 0.1 });
     const small = cargo.obj.scale.y;
     poseRig(t, { ...STILL, load: 1 });
     expect(cargo.obj.scale.y).toBeGreaterThan(small + 0.2);
+    // Emptying while tipped it moves toward the hinge end (-X in the hopper's frame); not while the hopper lies flat.
+    poseRig(t, { ...STILL, load: 0.3, tip: 0 });
+    const flat = cargo.obj.position.x;
+    poseRig(t, { ...STILL, load: 0.3, tip: 1 });
+    expect(cargo.obj.position.x).toBeLessThan(flat - 0.05);
+    // The load and the hopper's rim are lit shard-coloured: they use the glowing material, with no new one.
+    expect(def.shapes.cargo!().pieces.every((p) => p.glow)).toBe(true);
+    expect(def.shapes.hopper!().pieces.filter((p) => p.glow).length).toBeGreaterThanOrEqual(3);
+    expect(def.shapes.cleats!().pieces.filter((p) => p.glow).length).toBeGreaterThanOrEqual(10);
+    const shard = def.shapes.cargo!().pieces.map((p) => p.paint);
+    expect(new Set(shard).size).toBeGreaterThanOrEqual(2);
+    for (const c of shard) {
+      const col = new THREE.Color(c as number);
+      expect(col.g, 'shard-coloured: green-cyan').toBeGreaterThan(col.r + 0.2);
+    }
+  });
+
+  it('R3D-30: it is sealed: no exhaust stack, no exposed hydraulic rams, a covered conveyor with an open window strip, and a cooling vent on the cab deck', () => {
+    for (const [name, make] of Object.entries(def.shapes)) {
+      const pieces = make().pieces;
+      // Rams and struts are slanted rods, which the kit marks with their own size.
+      expect(pieces.filter((p) => p.size), `${name} has no slanted rods`).toHaveLength(0);
+      for (const p of pieces) {
+        p.geo.computeBoundingBox();
+        const size = p.geo.boundingBox!.getSize(new THREE.Vector3());
+        // The old exhaust stack was a tall thin vertical cylinder on the cab.
+        if (p.geo.type === 'CylinderGeometry') expect(size.y > 0.25 && size.x < 0.1 && size.z < 0.1, `${name}: a stack`).toBe(false);
+      }
+    }
+    // The conveyor: a bed under a roof, its inner side closed and its outer side split by a window strip a crystal wide.
+    const body = def.shapes.body!().pieces;
+    const long = body.filter((p) => {
+      p.geo.computeBoundingBox();
+      const s = p.geo.boundingBox!.getSize(new THREE.Vector3());
+      return s.x > 0.8 && s.z < 0.25 && s.y > 0.4; // slanted along the belt: a long, narrow, tall box
+    });
+    expect(long.length, 'bed, inner wall, window bars and roof, as parts of one covered belt').toBeGreaterThanOrEqual(4);
+    // The cooling vent sits on the cab's rear deck, on a part of the body.
+    const [vx, vy, vz] = HAULER_VENT;
+    const vent = body.find((p) => {
+      p.geo.computeBoundingBox();
+      return p.geo.boundingBox!.expandByScalar(0.05).containsPoint(new THREE.Vector3(vx, vy, vz));
+    });
+    expect(vent, 'a body piece at the vent').toBeDefined();
+    expect(vz).toBeGreaterThan(0.05);
+    // And it breathes pale vapour (the steam effect) on throttle, not smoke from a stack.
+    const view = readFileSync('src/render3d/view3d.ts', 'utf8');
+    expect(view).toContain('HAULER_VENT');
+    expect(view).toMatch(/hauler's cooling vent breathes a short burst of pale vapour[\s\S]{0,700}this\.fx\.steam\(/);
+    expect(view).not.toMatch(/hum_hauler' && o\.motion\.accel[\s\S]{0,500}this\.fx\.burn\(/);
   });
 });
 

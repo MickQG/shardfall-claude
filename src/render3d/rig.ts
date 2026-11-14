@@ -43,8 +43,8 @@ export type Anim =
   | { k: 'breathe'; amp: number; rate: number }
   /** Shown only while the unit carries shards. */
   /** Carried shards: a pile that rises from `pivot` (or, `swell`, a belly that swells) with the load (R3D-19). */
-  | { k: 'cargo'; pivot?: [number, number, number]; swell?: boolean }
-  /** A tipping bed: raised about the hinge at `pivot` by up to `max` radians while unloading (R3D-19). */
+  | { k: 'cargo'; pivot?: [number, number, number]; swell?: boolean; slide?: number }
+  /** A tipping bed: raised about the hinge at `pivot` by up to `max` radians while unloading (R3D-19); a hatch on it folds the other way with a `max` of its own (R3D-30). */
   | { k: 'tip'; pivot: [number, number, number]; max: number }
   /** A cutter drum: turns while mining (R3D-19). */
   | { k: 'drum' }
@@ -400,7 +400,9 @@ export function poseRig(tree: RigTree, p: RigPose): void {
         const sxz = (an.swell ? 0.55 + 0.45 * f : 0.7 + 0.3 * f) * squeeze;
         const sy = an.swell ? sxz : 0.15 + 0.85 * f;
         obj.scale.set(sxz, sy, sxz);
-        obj.position.set(a.pos.x + px * (1 - sxz), a.pos.y + py * (1 - sy), a.pos.z + pz * (1 - sxz));
+        // A tipped bed's load slides toward its low end (the rear, -X in the bed's frame) as it empties (R3D-30).
+        const slide = an.slide ? -an.slide * (1 - f) * (p.tip ?? 0) : 0;
+        obj.position.set(a.pos.x + px * (1 - sxz) + slide, a.pos.y + py * (1 - sy), a.pos.z + pz * (1 - sxz));
         break;
       }
     }

@@ -354,23 +354,24 @@ describe('fog, damage, harvesters and deaths', () => {
       poseRig(t, { ...STILL, load: 1 });
       expect(cargo.obj.scale.y, kind).toBeGreaterThan(small + 0.2);
     }
-    // The hauler opens its rear hatch about the top hinge to unload, and its cutter drum turns while mining.
+    // The hauler's rear hatch folds about its top hinge to unload (R3D-30), and its cutter drum turns while mining.
     const hauler = rigTree(UNIT_RIGS.hum_hauler!());
-    const hatch = hauler.anims.find((a) => a.anim.k === 'tip' && a.anim.max < 0)!;
+    const bed = hauler.drawn.find((d) => d.geo === 'hopper')!.obj;
+    const hatch = hauler.anims.find((a) => a.anim.k === 'tip' && a.obj.parent === bed)!;
     const drum = hauler.anims.find((a) => a.anim.k === 'drum')!;
     poseRig(hauler, { ...STILL, tip: 0, drum: 0 });
     expect(hatch.obj.rotation.z).toBe(0);
     poseRig(hauler, { ...STILL, tip: 1, drum: 2 });
-    expect(hatch.obj.rotation.z).toBeLessThan(-0.5); // the bottom swings out of the back, so the load spills out
+    expect(hatch.obj.rotation.z).toBeGreaterThan(1); // it folds up and forward over the open bed, clear of the opening
     expect(drum.obj.rotation.z).toBeCloseTo(-2, 6);
-    // The hinge stays where it is while the hatch swings up about it...
+    // The hinge stays where it is while the hatch folds about it...
     hatch.obj.updateMatrix();
     const hinge = new THREE.Vector3(...HAULER_HATCH).applyMatrix4(hatch.obj.matrix);
     expect(hinge.x).toBeCloseTo(HAULER_HATCH[0], 6);
     expect(hinge.y).toBeCloseTo(HAULER_HATCH[1], 6);
-    // ...and its lower edge, once at the hopper floor, swings out behind the hopper's back.
-    const edge = new THREE.Vector3(-0.8, 0.32, 0).applyMatrix4(hatch.obj.matrix);
-    expect(edge.x).toBeLessThan(-1);
+    // ...and its lower edge, hanging below the hinge when shut, ends up forward of it, no longer in the way of the load.
+    const edge = new THREE.Vector3(-0.34, 0.43, 0).applyMatrix4(hatch.obj.matrix);
+    expect(edge.x).toBeGreaterThan(hinge.x + 0.1);
     const fx = new CombatFx();
     const hopper = new THREE.Vector3(5, 0.6, 5);
     const crystal = new THREE.Vector3(6, 0.2, 5);
