@@ -354,24 +354,21 @@ describe('fog, damage, harvesters and deaths', () => {
       poseRig(t, { ...STILL, load: 1 });
       expect(cargo.obj.scale.y, kind).toBeGreaterThan(small + 0.2);
     }
-    // The hauler's rear hatch folds about its top hinge to unload (R3D-30), and its cutter drum turns while mining.
+    // The hauler's rear hatch slides down the back of the hopper to unload (R3D-30), and its cutter drum turns while mining.
     const hauler = rigTree(UNIT_RIGS.hum_hauler!());
     const bed = hauler.drawn.find((d) => d.geo === 'hopper')!.obj;
-    const hatch = hauler.anims.find((a) => a.anim.k === 'tip' && a.obj.parent === bed)!;
+    const hatch = hauler.anims.find((a) => a.anim.k === 'gate' && a.obj.parent === bed)!;
     const drum = hauler.anims.find((a) => a.anim.k === 'drum')!;
     poseRig(hauler, { ...STILL, tip: 0, drum: 0 });
-    expect(hatch.obj.rotation.z).toBe(0);
+    const shut = hatch.obj.position.clone();
     poseRig(hauler, { ...STILL, tip: 1, drum: 2 });
-    expect(hatch.obj.rotation.z).toBeGreaterThan(1); // it folds up and forward over the open bed, clear of the opening
+    expect(hatch.obj.rotation.z).toBe(0); // it does not fold: it slides
     expect(drum.obj.rotation.z).toBeCloseTo(-2, 6);
-    // The hinge stays where it is while the hatch folds about it...
+    // Its upper edge, at the top of the back when shut, ends up well down the back: out of the load's way.
     hatch.obj.updateMatrix();
-    const hinge = new THREE.Vector3(...HAULER_HATCH).applyMatrix4(hatch.obj.matrix);
-    expect(hinge.x).toBeCloseTo(HAULER_HATCH[0], 6);
-    expect(hinge.y).toBeCloseTo(HAULER_HATCH[1], 6);
-    // ...and its lower edge, hanging below the hinge when shut, ends up forward of it, no longer in the way of the load.
-    const edge = new THREE.Vector3(-0.34, 0.43, 0).applyMatrix4(hatch.obj.matrix);
-    expect(edge.x).toBeGreaterThan(hinge.x + 0.1);
+    const top = new THREE.Vector3(...HAULER_HATCH).applyMatrix4(hatch.obj.matrix);
+    expect(top.y).toBeLessThan(HAULER_HATCH[1] - 0.12);
+    expect(hatch.obj.position.distanceTo(shut)).toBeGreaterThan(0.15);
     const fx = new CombatFx();
     const hopper = new THREE.Vector3(5, 0.6, 5);
     const crystal = new THREE.Vector3(6, 0.2, 5);

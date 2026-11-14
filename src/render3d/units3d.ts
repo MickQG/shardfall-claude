@@ -512,20 +512,31 @@ function buggy(): RigDef {
  */
 export const HAULER_HOPPER: [number, number, number] = [-0.42, 0.33, 0];
 export const HAULER_TIP = 0.785;
-/** Where the rear hatch hinges (the top of the raked back) and how far it folds up and forward over the open bed; the head's arms pivot at HAULER_ARM: body-frame points (R3D-30). */
+/** The top of the hopper's raked back, where the closed hatch's upper edge sits; the head's arms pivot at HAULER_ARM: body-frame points (R3D-30). */
 export const HAULER_HATCH: [number, number, number] = [-0.155, 0.675, 0];
 /** The top of the hopper's walls, body frame: above the cab roof, so the bin and its glowing load read as the hauler's biggest part. */
 const HOPPER_TOP = 0.675;
-/** The raked back: its length from the hinge to the hatch's hinge, and how much of it at the bottom is fixed (the rest is the hatch). */
+/**
+ * The raked back: its length from the hinge to its top, and how much of it at the bottom is fixed. The upper half is the
+ * opening, closed by the hatch: a gate on the outside of the back that slides down over the fixed lower half.
+ */
 const RAKE_DIR: [number, number] = [HAULER_HATCH[0] - HAULER_HOPPER[0], HAULER_HATCH[1] - HAULER_HOPPER[1]];
 const RAKE_LEN = Math.hypot(...RAKE_DIR);
-const BACK_LOW = 0.15;
+const BACK_LOW = RAKE_LEN / 2;
+/** How far outside the back's middle the hatch's own middle rides, so it passes over the fixed lower half without touching it. */
+const HATCH_OUT = 0.027;
 /** A body-frame point on the raked back, `along` it from the hinge and `out` from its middle toward its outer (rear) face. */
 const rakeAt = (along: number, out = 0): V3 => {
   const [dx, dy] = [RAKE_DIR[0] / RAKE_LEN, RAKE_DIR[1] / RAKE_LEN];
   return [HAULER_HOPPER[0] + dx * along - dy * out, HAULER_HOPPER[1] + dy * along + dx * out, 0];
 };
-export const HAULER_HATCH_SWING = 1.5;
+/**
+ * The rear hatch slides down the outside of the raked back to open (R3D-30): how far, and the share of the hopper's tip by
+ * which it is fully down. It stops with its lower edge just above the hopper's hinge, so it never reaches below the hopper
+ * or out behind the hauler into the refinery (R3D-22).
+ */
+export const HAULER_HATCH_SLIDE = BACK_LOW - 0.01;
+export const HAULER_HATCH_BY = 0.3;
 export const HAULER_ARM: V3 = [0.84, 0.27, 0];
 /** Where the cooling vent breathes its vapour on throttle (R3D-30): a body-frame point on the cab's rear deck. */
 export const HAULER_VENT: V3 = [0.27, 0.56, 0.165];
@@ -556,8 +567,8 @@ function hubTire(r: number, w: number): Shape {
  * long sealed chassis; a wedge cab under a tinted canopy sits at the front-left like the Scout Buggy's, behind it a
  * smooth-sided hopper with a lit rim. Across the front, an enclosed drum housing hangs on two sealed arms: raised clear
  * while driving, lowered onto the ground to mine, feeding a covered conveyor with an open window strip that carries the
- * crystals up into the hopper. To unload the whole hopper tips up at the front about its rear hinge and the hatch folds
- * clear. No exhaust stack, no exposed hydraulics.
+ * crystals up into the hopper. To unload the whole hopper tips up at the front about its rear hinge and the hatch slides
+ * down its back. No exhaust stack, no exposed hydraulics.
  */
 function hauler(): RigDef {
   const R = 0.14;
@@ -631,15 +642,17 @@ function hauler(): RigDef {
         }
         s.box(0.04, top - 0.32, 0.62, STEEL, { at: [0.14, (top + 0.32) / 2, 0], bevel: 0.1 }); // the hopper's front wall
         s.box(0.012, 0.014, 0.64, LOAD, { at: [0.16, top - 0.012, 0], glow: true, bevel: 0 });
-        // The fixed lower part of the raked back, from the hinge up along the rake.
+        // The fixed lower half of the raked back, from the hinge up along the rake, and the two guide rails the hatch slides on.
         s.box(0.03, BACK_LOW, 0.62, STEEL, { at: rakeAt(BACK_LOW / 2), rot: [0, 0, RAKE], bevel: 0.15 });
+        for (const z of [0.312, -0.312]) s.box(0.02, RAKE_LEN, 0.018, GUN, { at: [rakeAt(RAKE_LEN / 2, HATCH_OUT)[0], rakeAt(RAKE_LEN / 2, HATCH_OUT)[1], z], rot: [0, 0, RAKE], bevel: 0 });
         return s;
       },
       hatch: () => {
-        // The rear hatch: the upper part of the raked back, hinged along its top edge; it folds up and forward over the open bed.
+        // The rear hatch: a gate over the upper half of the raked back, riding just outside it; it slides down over the
+        // fixed lower half to open (the node moves it), never inward over the bed and never out behind the hauler.
         const s = shape();
-        s.box(0.03, RAKE_LEN - BACK_LOW - 0.005, 0.6, STEEL2, { at: rakeAt((RAKE_LEN + BACK_LOW) / 2), rot: [0, 0, RAKE], bevel: 0.15 });
-        s.box(0.012, 0.012, 0.54, LOAD, { at: rakeAt(RAKE_LEN - 0.035, 0.018), rot: [0, 0, RAKE], glow: true, bevel: 0 });
+        s.box(0.02, RAKE_LEN - BACK_LOW - 0.005, 0.6, STEEL2, { at: rakeAt((RAKE_LEN + BACK_LOW) / 2, HATCH_OUT), rot: [0, 0, RAKE], bevel: 0.15 });
+        s.box(0.012, 0.012, 0.54, LOAD, { at: rakeAt(RAKE_LEN - 0.035, HATCH_OUT + 0.012), rot: [0, 0, RAKE], glow: true, bevel: 0 });
         return s;
       },
       head: () => {
@@ -720,7 +733,7 @@ function hauler(): RigDef {
               geo: 'hopper',
               anim: { k: 'tip', pivot: HAULER_HOPPER, max: HAULER_TIP },
               kids: [
-                { geo: 'hatch', anim: { k: 'tip', pivot: HAULER_HATCH, max: HAULER_HATCH_SWING } },
+                { geo: 'hatch', anim: { k: 'gate', along: [-RAKE_DIR[0] / RAKE_LEN, -RAKE_DIR[1] / RAKE_LEN], travel: HAULER_HATCH_SLIDE, by: HAULER_HATCH_BY } },
                 { geo: 'cargo', anim: { k: 'cargo', pivot: [-0.15, 0.35, 0], slide: 0.3 } },
               ],
             },

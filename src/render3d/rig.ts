@@ -53,8 +53,10 @@ export type Anim =
   /** Shown only while the unit carries shards. */
   /** Carried shards: a pile that rises from `pivot` (or, `swell`, a belly that swells) with the load (R3D-19). */
   | { k: 'cargo'; pivot?: [number, number, number]; swell?: boolean; slide?: number }
-  /** A tipping bed: raised about the hinge at `pivot` by up to `max` radians while unloading (R3D-19); a hatch on it folds the other way with a `max` of its own (R3D-30). */
+  /** A tipping bed: raised about the hinge at `pivot` by up to `max` radians while unloading (R3D-19). */
   | { k: 'tip'; pivot: [number, number, number]; max: number }
+  /** A sliding hatch on a tipping bed: it slides `travel` along `along` (a unit direction in the bed's frame) and is fully open once the bed's tip reaches `by` of its way (R3D-30). */
+  | { k: 'gate'; along: [number, number]; travel: number; by: number }
   /** A cutter drum: turns while mining (R3D-19). */
   | { k: 'drum' }
   /** A hydraulic arm: raised by `up` radians clear of the ground while driving, lowered as `head` goes to 1; `bob` nods it while it chews (R3D-30). */
@@ -381,6 +383,12 @@ export function poseRig(tree: RigTree, p: RigPose): void {
         const sn = Math.sin(ang);
         turn(obj, 'z', a.rot.z + ang);
         obj.position.set(a.pos.x + hx - (hx * c - hy * sn), a.pos.y + hy - (hx * sn + hy * c), a.pos.z);
+        break;
+      }
+      case 'gate': {
+        // Slide along the bed's back, quickly: fully open early in the tip.
+        const f = Math.min(1, Math.max(0, (p.tip ?? 0) / an.by)) * an.travel;
+        obj.position.set(a.pos.x + an.along[0] * f, a.pos.y + an.along[1] * f, a.pos.z);
         break;
       }
       case 'drum':

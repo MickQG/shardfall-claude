@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
 import { ELEV_DOWN_MS, ELEV_HOLD_MS, ELEV_UP_MS, elevTarget, HEAD_MS, rideMotion, slew } from '../../src/render3d/motion';
 import { feedCycle, poseRig, rigTree, swallowBeat, type RigDef, type RigPose, type RigTree } from '../../src/render3d/rig';
-import { HAMMER_LOCK, HAMMER_MUZZLE, HAMMER_RAISED, HAMMER_TRUNNION, HAULER_HATCH, HAULER_HATCH_SWING, HAULER_HOPPER, HAULER_TIP, HAULER_VENT, UNIT_RIGS } from '../../src/render3d/units3d';
+import { HAMMER_LOCK, HAMMER_MUZZLE, HAMMER_RAISED, HAMMER_TRUNNION, HAULER_HATCH, HAULER_HATCH_BY, HAULER_HATCH_SLIDE, HAULER_HOPPER, HAULER_TIP, HAULER_VENT, UNIT_RIGS } from '../../src/render3d/units3d';
 
 const STILL: RigPose = { turret: 0, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: 0, stride: 0, dist: 0, turnRate: 0, time: 0, reach: 0, walker: false };
 
@@ -134,26 +134,36 @@ describe('R3D-30: the Shard Hauler', () => {
     expect(bounds(def, t, ['hopper']).max.y).toBeCloseTo(flat.max.y, 6);
   });
 
-  it('R3D-30: the rear hatch is hinged at the top of the raked back and folds up and forward clear of the opening, never out behind, as the hopper tips', () => {
+  it('R3D-30: the rear hatch slides quickly down the outside of the hopper back as it tips: it never folds, never reaches below the hopper and never goes out behind the hauler', () => {
     const t = rigTree(def);
     const hopper = node(t, 'hopper').obj;
-    const hatch = t.anims.find((a) => a.anim.k === 'tip' && a.obj.parent === hopper)!;
-    expect(hatch.anim.k === 'tip' && hatch.anim.max).toBeCloseTo(HAULER_HATCH_SWING, 9);
-    expect(HAULER_HATCH_SWING).toBeGreaterThan(1);
-    poseRig(t, { ...STILL, tip: 0 });
-    const closed = bounds(def, t, ['hatch']);
-    poseRig(t, { ...STILL, tip: 0.5 });
-    const half = bounds(def, t, ['hatch']);
-    poseRig(t, { ...STILL, tip: 1 });
-    const open = bounds(def, t, ['hatch']);
-    // Its lower edge lifts clear of the opening, and at no point does it swing behind the hauler's tail.
-    expect(open.min.y).toBeGreaterThan(closed.min.y + 0.15);
-    // (The tail of the hauler is at about -0.46; the refinery's wall is a hand's width behind it, R3D-22.)
-    for (const b of [closed, half, open]) expect(b.min.x).toBeGreaterThan(-0.5);
-    // The hinge stays where it is while the hatch folds about it.
-    hatch.obj.updateMatrix();
-    const pivot = new THREE.Vector3(...HAULER_HATCH);
-    expect(pivot.clone().applyMatrix4(hatch.obj.matrix).distanceTo(pivot)).toBeLessThan(1e-9);
+    const hatch = t.anims.find((a) => a.anim.k === 'gate' && a.obj.parent === hopper)!;
+    expect(hatch.anim.k === 'gate' && hatch.anim.travel).toBeCloseTo(HAULER_HATCH_SLIDE, 9);
+    // It opens the upper half of the back, and is fully down within the first third of the tip.
+    expect(HAULER_HATCH_SLIDE).toBeGreaterThan(0.18);
+    expect(HAULER_HATCH_BY).toBeLessThanOrEqual(0.34);
+    // Within the hopper's own frame it only slides: straight down the rake, with no turn.
+    const at = (tip: number): THREE.Vector3 => {
+      poseRig(t, { ...STILL, tip });
+      expect(hatch.obj.rotation.z).toBe(0);
+      return hatch.obj.position.clone();
+    };
+    const shut = at(0);
+    const early = at(HAULER_HATCH_BY);
+    const full = at(1);
+    expect(early.distanceTo(shut)).toBeCloseTo(HAULER_HATCH_SLIDE, 9);
+    expect(full.distanceTo(early)).toBeLessThan(1e-9); // already fully down early in the tip
+    expect(early.y).toBeLessThan(shut.y - 0.12);
+    expect(early.x).toBeLessThan(shut.x); // down the rake is down and to the rear, along the back
+    // Open, its lower edge stops just above the hopper's hinge: nothing hangs below the hopper's floor line at the back.
+    const down = new THREE.Vector3(...HAULER_HOPPER).sub(new THREE.Vector3(...HAULER_HATCH)).normalize();
+    const lowerEdge = new THREE.Vector3(...HAULER_HATCH).addScaledVector(down, new THREE.Vector3(...HAULER_HOPPER).distanceTo(new THREE.Vector3(...HAULER_HATCH)) / 2 + HAULER_HATCH_SLIDE);
+    expect(lowerEdge.y).toBeGreaterThan(HAULER_HOPPER[1]);
+    // In the world it stays in front of the refinery's wall at every tip (the wall is 0.5 behind the hauler's middle, R3D-22).
+    for (const tip of [0, 0.15, 0.3, 0.5, 0.75, 1]) {
+      poseRig(t, { ...STILL, tip });
+      expect(bounds(def, t, ['hatch']).min.x, `tip ${tip}`).toBeGreaterThan(-0.5);
+    }
   });
 
   it('R3D-30: the glowing heap in the hopper grows with the load and slides toward the rear as the tipped hopper empties', () => {
