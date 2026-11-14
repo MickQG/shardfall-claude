@@ -3,6 +3,7 @@
 - **Shard** – the single harvestable crystal resource; spent as credits.
 - **Credits** – a player's banked shards.
 - **Hauler** – the unit that carries shards from a shard field to a refinery (Shard Hauler, Gorger). _Avoid_: harvester.
+- **Hopper** – the Shard Hauler's load box: it fills in plain sight as the hauler mines and tips up to pour the load out at the dock pad. _Avoid_: cargo, bed.
 - **Home field** – a shard field beside a player's start; every start has two.
 - **Dock pad** – the one place at a refinery where a hauler unloads; other haulers wait their turn beside it.
 - **Tick** – one fixed simulation step; game time is counted in ticks (20 to a game second).
