@@ -313,7 +313,8 @@ export interface Remembered {
 interface Wave {
   tx: number;
   ty: number;
-  startPower: number;
+  /** The strongest it has been, reinforcements included (AI-23): the retreat test compares with this. */
+  peak: number;
   lastOrder: number;
   /** The units in the wave, and how many set out (AI-11). */
   members: Set<number>;
@@ -329,6 +330,33 @@ export const WAVE_SPREAD = 4;
 export const GATHER_R = 9;
 export const GATHER_SHARE = 0.75;
 export const GATHER_WAIT = 900;
+
+/**
+ * Hold and defend (AI-23). The AI holds at its base while the enemy army it has seen within HOLD_SEEN ticks is worth at
+ * least HOLD_RATIO of its own, or its base was attacked within HOLD_ATTACKED ticks; its hold point is HOLD_AHEAD tiles
+ * toward the enemy from its turrets (or its front building), within HOLD_REACH tiles of its buildings.
+ */
+export const HOLD_SEEN = 20 * 120;
+export const HOLD_RATIO = 0.8;
+export const HOLD_ATTACKED = 20 * 30;
+export const HOLD_AHEAD = 3;
+export const HOLD_REACH = 5;
+/** A wave comes home when an enemy force worth RECALL_SHARE of its whole army is seen within RECALL_RANGE tiles of its buildings (AI-23). */
+export const RECALL_RANGE = 20;
+export const RECALL_SHARE = 0.5;
+/** How lately (ticks) "seen" means for the recall: what it sees now, or has just seen. */
+export const RECALL_SEEN = 100;
+/** A wave is in contact with an armed enemy unit this close (tiles) to one of its units (AI-23). */
+export const CONTACT = 8;
+/** The retreat test counts enemies within this many tiles of the wave's centre (AI-8, AI-23). */
+export const LOCAL_R = 11;
+/** Stalemate (AI-23): no wave out and no attack on the base for this long (ticks), and five of each production building or an army worth this much. */
+export const STALEMATE_QUIET = 20 * 180;
+export const STALEMATE_ARMY = 25000;
+/** Raider's raid sets out only where the defenders seen within RAID_GUARD_R tiles in the last RAID_GUARD_AGE ticks are worth less than RAID_GUARD_SHARE of the raid (AI-23). */
+export const RAID_GUARD_R = 10;
+export const RAID_GUARD_AGE = 20 * 60;
+export const RAID_GUARD_SHARE = 0.5;
 
 export interface AiStats {
   waves: number;
@@ -495,6 +523,11 @@ export class AI {
   private centre: { x: number; y: number } = { x: 0, y: 0 };
   private attacks = 0;
   private lastWaveEnd = 0;
+  /** Tick its last wave set out (AI-23: the stalemate rule); the start of the game until one has. */
+  private lastWaveAt = 0;
+  /** Whether it holds now, and its hold point (AI-23), as of its last decision. */
+  private holding = false;
+  private holdAt: { tx: number; ty: number } | null = null;
   /** Seeded personality so repeated games differ a little: attack timing, staging distance. */
   private readonly jitter: { wave: number; ratio: number; stage: number };
 
@@ -556,6 +589,17 @@ export class AI {
     // Doomsday's strike and the order sending its wave into it go first, ahead of everything else (AI-15).
     const first = this.first.splice(0);
     return [...first, ...out.slice(0, Math.max(0, this.diff.maxCommands - crush.length - first.length)), ...crush];
+  }
+
+  /** Whether it held at its base on its last decision, and where (AI-23): for tests and measurement only. */
+  get hold(): { holding: boolean; point: { tx: number; ty: number } | null } {
+    return { holding: this.holding, point: this.holdAt };
+  }
+
+  /** Its wave out, if any: objective, units and the strongest it has been (AI-11, AI-23): for tests and measurement only. */
+  get waveState(): { tx: number; ty: number; members: readonly number[]; peak: number } | null {
+    const w = this.wave;
+    return w ? { tx: w.tx, ty: w.ty, members: [...w.members], peak: w.peak } : null;
   }
 
   /** What the AI is playing now: its personality, or Balanced once it has adapted (AI-16). */
@@ -1180,9 +1224,121 @@ export class AI {
     return this.nearestFree(start.tx, start.ty);
   }
 
+  /** Value (credits) of the armed enemy units it has seen within `within` ticks (AI-23): what it knows of their army. */
+  private seenArmy(c: Ctx, within = HOLD_SEEN): number {
+    let v = 0;
+    for (const e of this.intel.values()) {
+      const d = UNIT_DEFS[e.kind];
+      if (d?.weapon && d.capacity === undefined && c.tick - e.t <= within) v += d.cost;
+    }
+    return v;
+  }
+
+  /**
+   * Its hold point (AI-23): on the enemy side of its base, HOLD_AHEAD tiles toward the enemy from its turrets (their
+   * middle) when it has any, else from its building nearest the enemy; on open ground within HOLD_REACH tiles of its
+   * buildings.
+   */
+  private holdPoint(c: Ctx): { tx: number; ty: number } {
+    const W = this.map.width;
+    const H = this.map.height;
+    const hc = this.centre;
+    const ex = W - 2 * hc.x;
+    const ey = H - 2 * hc.y;
+    const len = Math.hypot(ex, ey) || 1;
+    const ux = ex / len;
+    const uy = ey / len;
+    const mid = (b: BuildingSnap): { x: number; y: number } => ({ x: b.tx + buildingDef(b.kind).w / 2, y: b.ty + buildingDef(b.kind).h / 2 });
+    const turrets = c.buildings.filter((b) => buildingDef(b.kind).weapon);
+    let anchor: { x: number; y: number };
+    if (turrets.length > 0) {
+      anchor = { x: turrets.reduce((t, b) => t + mid(b).x, 0) / turrets.length, y: turrets.reduce((t, b) => t + mid(b).y, 0) / turrets.length };
+    } else {
+      const ahead = (b: BuildingSnap): number => (mid(b).x - hc.x) * ux + (mid(b).y - hc.y) * uy;
+      anchor = mid([...c.buildings].sort((a, b) => ahead(b) - ahead(a) || a.id - b.id)[0] as BuildingSnap);
+    }
+    const near = (x: number, y: number): boolean => c.buildings.some((b) => edgeDist(b, x + 0.5, y + 0.5) <= HOLD_REACH);
+    const under = (x: number, y: number): boolean => c.buildings.some((b) => x >= b.tx && y >= b.ty && x < b.tx + buildingDef(b.kind).w && y < b.ty + buildingDef(b.kind).h);
+    const open = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < W && y < H && !this.map.blocked?.[y * W + x] && !under(x, y);
+    // From the point ahead back toward the anchor, the first open tile near its buildings.
+    for (let k = HOLD_AHEAD; k >= 0; k--) {
+      const x = Math.floor(anchor.x + ux * k);
+      const y = Math.floor(anchor.y + uy * k);
+      for (let r = 0; r <= 3; r++)
+        for (let dy = -r; dy <= r; dy++)
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            if (open(x + dx, y + dy) && near(x + dx, y + dy)) return { tx: x + dx, ty: y + dy };
+          }
+    }
+    return this.nearestFree(Math.floor(anchor.x), Math.floor(anchor.y));
+  }
+
+  /** Whether it holds (AI-23): the enemy army it has seen lately is worth HOLD_RATIO of its own, or its base was attacked lately. */
+  private holdNow(c: Ctx, own: number): boolean {
+    const seen = this.seenArmy(c);
+    return (seen > 0 && seen >= HOLD_RATIO * own) || c.tick - this.lastThreat < HOLD_ATTACKED;
+  }
+
+  /** An enemy force worth RECALL_SHARE of its whole army seen near its buildings: a wave out comes home (AI-23). */
+  private baseInDanger(c: Ctx, own: number): boolean {
+    let v = 0;
+    for (const e of this.intel.values()) {
+      const d = UNIT_DEFS[e.kind];
+      if (!d?.weapon || d.capacity !== undefined || c.tick - e.t > RECALL_SEEN) continue;
+      const x = e.x / FP;
+      const y = e.y / FP;
+      if (c.buildings.some((b) => edgeDist(b, x, y) <= RECALL_RANGE)) v += d.cost;
+    }
+    return v > 0 && v >= RECALL_SHARE * own;
+  }
+
+  /**
+   * Whether a beaten wave can get away (AI-23): out of contact (no armed enemy unit within CONTACT tiles of its units), or
+   * its slowest unit is faster than the fastest enemy unit seen within LOCAL_R tiles of it (and those in contact).
+   */
+  private canEscape(c: Ctx, members: readonly UnitSnap[], cx: number, cy: number): boolean {
+    const contact = c.foes.filter((f) => unitDef(f.kind).weapon && members.some((u) => dist(u.x / FP, u.y / FP, f.x / FP, f.y / FP) <= CONTACT));
+    if (contact.length === 0) return true;
+    let fastest = 0;
+    for (const f of contact) fastest = Math.max(fastest, unitDef(f.kind).speed);
+    for (const e of this.intel.values()) {
+      const d = UNIT_DEFS[e.kind];
+      if (d?.weapon && c.tick - e.t <= 1800 && dist(tileOf(e.x), tileOf(e.y), Math.floor(cx), Math.floor(cy)) <= LOCAL_R) fastest = Math.max(fastest, d.speed);
+    }
+    const slowest = members.reduce((m, u) => Math.min(m, unitDef(u.kind).speed), Infinity);
+    return slowest > fastest;
+  }
+
+  /**
+   * Where Raider's raid goes (AI-14, AI-23): the nearest part of the enemy economy it knows where the defenders it has
+   * seen within RAID_GUARD_R tiles in the last RAID_GUARD_AGE ticks (units, and defences at their cost and a half) are
+   * worth less than RAID_GUARD_SHARE of the raid; else the next it knows; null if none, and it waits.
+   */
+  private raidTarget(c: Ctx, raid: number): { tx: number; ty: number } | null {
+    const guarded = (t: { tx: number; ty: number }): number => {
+      let v = 0;
+      for (const e of this.intel.values()) {
+        const d = UNIT_DEFS[e.kind];
+        if (d?.weapon && d.capacity === undefined && c.tick - e.t <= RAID_GUARD_AGE && dist(tileOf(e.x), tileOf(e.y), t.tx, t.ty) <= RAID_GUARD_R) v += d.cost;
+      }
+      for (const b of c.enemyBuildings) if (buildingDef(b.kind).weapon && edgeDist(b, t.tx + 0.5, t.ty + 0.5) <= RAID_GUARD_R) v += buildingDef(b.kind).cost * 1.5;
+      return v;
+    };
+    return this.economyTargets(c).find((t) => guarded(t) < RAID_GUARD_SHARE * raid) ?? null;
+  }
+
   private attackLogic(c: Ctx, out: Command[]): void {
     const stage = this.staging as { tx: number; ty: number };
     const army = c.army;
+    // The steamroll opponent keeps its own attack rule, never holds and never retreats (HAR-5); every other AI holds
+    // against a stronger enemy and gathers at its hold point then (AI-23).
+    const ordinary = this.doctrine.retreats;
+    const own = this.armyPower(army);
+    this.holdAt = ordinary ? this.holdPoint(c) : null;
+    this.holding = ordinary && this.holdNow(c, own);
+    const holdAt = this.holdAt ?? stage;
+    const gather = this.holding ? holdAt : stage;
     if (army.length === 0) {
       if (this.wave) this.wave = null;
       return;
@@ -1195,24 +1351,35 @@ export class AI {
 
     if (this.wave) {
       const w = this.wave;
-      // The wave is the units that set out together (AI-11); others are reinforcements.
+      // The wave is the units that set out together (AI-11) and the reinforcements that joined it; others wait.
       const members = army.filter((u) => w.members.has(u.id));
       const rest = army.filter((u) => !w.members.has(u.id));
       const p = this.armyPower(members);
+      // Its strength counts its reinforcements: the strongest it has been (AI-23).
+      w.peak = Math.max(w.peak, p);
       const { x: cx, y: cy } = members.length ? centre(members) : { x: stage.tx, y: stage.ty };
-      const local = this.enemyPowerNear(c, Math.floor(cx), Math.floor(cy), 11);
+      const local = this.enemyPowerNear(c, Math.floor(cx), Math.floor(cy), LOCAL_R);
       // Doomsday commits while its strike is charged or has just landed: the strike, not a retreat, answers resistance (AI-15).
       const committed = this.plan === 'doomsday' && (c.buildings.some((b) => buildingDef(b.kind).superweapon && b.charge >= 100) || (this.lastStrike >= 0 && c.tick - this.lastStrike < 400));
-      // The steamroll opponent never pulls a wave back (HAR-5): it drives on until the wave is gone, then forms the next.
-      if (!this.doctrine.retreats) {
+      if (!ordinary) {
+        // The steamroll opponent never pulls a wave back (HAR-5): it drives on until the wave is gone, then forms the next.
         if (members.length === 0) {
           this.wave = null;
           this.lastWaveEnd = c.tick;
           return;
         }
-      } else if (members.length <= 2 || (!committed && (p <= 0.45 * w.startPower || local >= 1.5 * p))) {
+      } else if (members.length > 0 && this.baseInDanger(c, own)) {
+        // An enemy force worth half its army near its buildings: the wave comes home to fight at the hold point (AI-23).
+        order('attackmove', members, holdAt.tx, holdAt.ty);
+        this.wave = null;
+        this.waveCooldown = c.tick + 500;
+        this.lastWaveEnd = c.tick;
+        return;
+      } else if ((members.length <= 2 || (!committed && (p <= 0.45 * w.peak || local >= 1.5 * p))) && this.canEscape(c, members, cx, cy)) {
+        // A beaten wave turns back only when it can get away; in contact with enemies as fast as its slowest unit it fights
+        // on (AI-23). It falls back fighting, to the hold point (AI-8, AI-23).
         this.stats.retreats++;
-        order('move', members, stage.tx, stage.ty);
+        order('attackmove', members, holdAt.tx, holdAt.ty);
         this.wave = null;
         this.waveCooldown = c.tick + 1200;
         this.lastWaveEnd = c.tick;
@@ -1220,6 +1387,11 @@ export class AI {
           this.raidsLost++;
           this.waveCooldown = c.tick + 600;
         }
+        return;
+      } else if (members.length === 0) {
+        // Nothing left of it: the next wave forms at the gathering point.
+        this.wave = null;
+        this.lastWaveEnd = c.tick;
         return;
       }
       if (c.tick - w.lastOrder >= WAVE_STEP) {
@@ -1244,24 +1416,26 @@ export class AI {
         const d = dist(cx, cy, w.tx, w.ty);
         const k = strung ? 0 : d <= WAVE_HOP + 2 ? 1 : WAVE_HOP / d;
         order('attackmove', members, cx + (w.tx - cx) * k, cy + (w.ty - cy) * k);
-        // Reinforcements gather at the staging point and join in groups, never one at a time.
-        const home = rest.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) < 10);
-        if (home.length >= Math.max(3, Math.ceil(0.25 * w.size))) {
+        // Reinforcements gather at the gathering point and join in groups, never one at a time (AI-11); and only while the
+        // wave is at least as strong as the enemy it has seen near it, so none are fed into a losing fight (AI-23).
+        const home = rest.filter((u) => dist(tileOf(u.x), tileOf(u.y), gather.tx, gather.ty) < 10);
+        const join = !ordinary || p >= local;
+        if (join && home.length >= Math.max(3, Math.ceil(0.25 * w.size))) {
           order('attackmove', home, cx, cy);
           for (const u of home) w.members.add(u.id);
-        } else order('attackmove', rest.filter((u) => u.dest === null && !home.includes(u)), stage.tx, stage.ty);
+        } else order('attackmove', rest.filter((u) => u.dest === null && !home.includes(u)), gather.tx, gather.ty);
       }
       return;
     }
 
     if (!threatened) {
-      // Gather at the staging point.
-      const away = army.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7);
-      if (away.length > 0 && c.tick % 3 === 0) order('attackmove', away, stage.tx, stage.ty);
+      // Gather at the staging point, or at the hold point while it holds (AI-11, AI-23).
+      const away = army.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), gather.tx, gather.ty) > 7);
+      if (away.length > 0 && c.tick % 3 === 0) order('attackmove', away, gather.tx, gather.ty);
     }
 
     if (threatened || c.tick < this.waveCooldown) return;
-    const p = this.armyPower(army);
+    const p = own;
     const raiding = this.plan === 'raider';
     const sw = c.buildings.find((b) => buildingDef(b.kind).superweapon && b.charge >= 100);
     // Doomsday with a charged superweapon sends its wave at what it will strike (AI-15).
@@ -1271,8 +1445,14 @@ export class AI {
     if (raiding) threshold = 0;
     if (striking) threshold = Math.min(threshold, 1500);
     const known = this.nearestEnemyBuilding(c, stage.tx, stage.ty);
-    const aim = raiding ? this.economyTarget(c) : striking && sw ? this.bestStrike(c, sw, null, true) : null;
-    const target = aim ?? (known ? { tx: known.tx, ty: known.ty } : this.enemyStart());
+    // A raid goes only where the defenders it has seen are worth less than half of it; else it waits (AI-23).
+    const raidAim = raiding ? this.raidTarget(c, p) : null;
+    if (raiding && !raidAim) {
+      this.gatherSince = -1;
+      return;
+    }
+    const aim = raidAim ?? (striking && sw ? this.bestStrike(c, sw, null, true) : null);
+    let target = aim ?? (known ? { tx: known.tx, ty: known.ty } : this.enemyStart());
     // Attack only on fresh intel: what we have recently seen of their army (anywhere), plus their defences at the target.
     // Without it we are blind, and a blind attack into a defender with reinforcements is how armies get lost.
     const recent = [...this.intel.values()].filter((e) => UNIT_DEFS[e.kind]?.weapon && c.tick - e.t <= 1200);
@@ -1286,19 +1466,40 @@ export class AI {
     if (striking) est = 0.5 * ((blind ? 0 : 1.15 * seen) + defences);
     // The steamroll opponent sets out once its army is big enough, whatever it knows of the enemy (HAR-5).
     const launch = this.doctrine.launch;
-    const ready = launch ? launch(p, army.filter((u) => unitDef(u.kind).crusher).length) : shouldAttack(p, est, army.length, threshold, this.jitter.ratio) && !(raiding && army.length < RAID_MIN_ARMY);
+    let ready = launch ? launch(p, army.filter((u) => unitDef(u.kind).crusher).length) : shouldAttack(p, est, army.length, threshold, this.jitter.ratio) && !(raiding && army.length < RAID_MIN_ARMY);
+    // Holding, it launches no wave (AI-23); Raider's raids (AI-14, limited above) and Doomsday's strike (AI-15) still go.
+    if (ordinary && this.holding && !raiding && !striking) ready = false;
+    // Stalemate (AI-23): after three quiet minutes, with five barracks and five factories or a big army, it attacks at
+    // parity with the enemy army it has seen plus the defences at the target.
+    if (!ready && ordinary && army.length >= 5 && c.tick - this.lastWaveAt >= STALEMATE_QUIET && c.tick - this.lastThreat >= STALEMATE_QUIET) {
+      const plants = (kind: string): number => c.buildings.filter((b) => b.kind === kind).length;
+      const big = (plants(this.kit.barracks) >= GROWTH_MAX && plants(this.kit.factory) >= GROWTH_MAX) || p >= STALEMATE_ARMY;
+      const parity = this.seenArmy(c) + defences;
+      if (big && p >= parity) {
+        ready = true;
+        est = parity;
+      }
+    }
     if (!ready) {
       this.gatherSince = -1;
       return;
     }
-    // Strong enough: set out only once most of the army has gathered at the staging point (AI-11), or after a while.
-    const gathered = army.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) <= GATHER_R);
+    // Strong enough: set out only once most of the army has gathered (AI-11), or after a while.
+    const gathered = army.filter((u) => dist(tileOf(u.x), tileOf(u.y), gather.tx, gather.ty) <= GATHER_R);
     if (this.gatherSince < 0) this.gatherSince = c.tick;
     // A charged strike does not wait for stragglers: the army goes in together with it (AI-15).
     if (!striking && gathered.length < GATHER_SHARE * army.length && c.tick - this.gatherSince < GATHER_WAIT) return;
     this.gatherSince = -1;
     const wave = gathered.length >= 3 && !striking && !launch ? gathered : army;
+    const wp = this.armyPower(wave);
+    // What sets out is the raid: its target must still be one it may go for (AI-23).
+    if (raiding && wave.length < army.length) {
+      const t = this.raidTarget(c, wp);
+      if (!t) return;
+      target = t;
+    }
     this.stats.waves++;
+    this.lastWaveAt = c.tick;
     if (this.stats.firstWaveAt < 0) this.stats.firstWaveAt = c.tick;
     if (c.tick < RAIDER_OPENING_END) {
       this.stats.earlyWaves++;
@@ -1306,29 +1507,33 @@ export class AI {
     }
     if (p < 0.8 * est) this.stats.suicides++;
     if (wave.length < 5) this.stats.lone++;
-    this.wave = { tx: target.tx, ty: target.ty, startPower: this.armyPower(wave), lastOrder: c.tick, members: new Set(wave.map((u) => u.id)), size: wave.length, held: false };
+    this.wave = { tx: target.tx, ty: target.ty, peak: wp, lastOrder: c.tick, members: new Set(wave.map((u) => u.id)), size: wave.length, held: false };
     const { x, y } = centre(wave);
     const d = dist(x, y, target.tx, target.ty);
     order('attackmove', wave, x + ((target.tx - x) * Math.min(d, WAVE_HOP)) / Math.max(1, d), y + ((target.ty - y) * Math.min(d, WAVE_HOP)) / Math.max(1, d));
   }
 
-
   /** The nearest part of the enemy economy we know of: a refinery, or a hauler seen lately (AI-14). */
   private economyTarget(c: Ctx): { tx: number; ty: number } | null {
+    return this.economyTargets(c)[0] ?? null;
+  }
+
+  /**
+   * The parts of the enemy economy it knows, nearest its staging point first: refineries, and haulers seen lately; or,
+   * none known, the shard field nearest the enemy start (AI-14).
+   */
+  private economyTargets(c: Ctx): { tx: number; ty: number }[] {
     const stage = this.staging as { tx: number; ty: number };
-    let best: { tx: number; ty: number } | null = null;
-    let bd = Infinity;
+    const all: { tx: number; ty: number; d: number; k: number }[] = [];
     const consider = (tx: number, ty: number): void => {
-      const d = dist(tx, ty, stage.tx, stage.ty);
-      if (d < bd) {
-        bd = d;
-        best = { tx, ty };
-      }
+      all.push({ tx, ty, d: dist(tx, ty, stage.tx, stage.ty), k: all.length });
     };
     for (const b of c.enemyBuildings) if (buildingDef(b.kind).refinery) consider(b.tx + 1, b.ty + 1);
     for (const e of this.intel.values()) if (UNIT_DEFS[e.kind]?.capacity !== undefined && c.tick - e.t <= 1200) consider(tileOf(e.x), tileOf(e.y));
+    if (all.length > 0) return all.sort((p, q) => p.d - q.d || p.k - q.k).map(({ tx, ty }) => ({ tx, ty }));
     // Unseen, the enemy mines the shard field nearest its start: the map shows the fields to every player (MENU-1).
-    return best ?? this.enemyField();
+    const f = this.enemyField();
+    return f ? [f] : [];
   }
 
   private field: { tx: number; ty: number } | null | undefined;

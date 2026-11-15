@@ -1,7 +1,7 @@
 import { appendFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { DIFFICULTIES, PERSONALITIES, type Personality } from '../../src/ai/ai';
-import { lengthReport, playMatch, type EconomyAt, type MatchOptions, type MatchResult } from '../../src/ai/harness';
+import { lengthReport, playMatch, type ArmyAt, type EconomyAt, type MatchOptions, type MatchResult } from '../../src/ai/harness';
 import { STEAMROLL_DIFFICULTY, STEAMROLL_TUNING, type SteamrollTuning } from '../../src/ai/steamroll';
 import type { Faction } from '../../src/data/defs';
 import { playMatches } from './pool';
@@ -31,6 +31,11 @@ const LAUNCH_BY = 20 * 60 * 15;
 export const PROVISIONAL_LAUNCH_PRODUCTION_RATIO = 1;
 /** Credits the Hard AI has banked or paid into queues not started, at the median, below this (the baseline: about 20 000). */
 export const PROVISIONAL_LAUNCH_IDLE = 20000;
+// PROVISIONAL targets for AI-23 at the opponent's first attack, to be set from the baseline in issue #177.
+/** Army value (credits) the Hard AI has lost before the opponent's first attack, at the median, below this. */
+export const PROVISIONAL_LAUNCH_LOST = 6000;
+/** Share of the Hard AI's army value within 12 tiles of its own buildings at that attack, at the median, at least. */
+export const PROVISIONAL_LAUNCH_HOME = 0.5;
 
 /** One personality's 32 games on a four-core runner, with margin. */
 const SERIES_TIMEOUT = 3_000_000;
@@ -138,17 +143,21 @@ function launchLine(g: SteamrollGame, at: readonly [EconomyAt, EconomyAt]): stri
   return `at the attack: production AI ${production(ai)} / opponent ${production(opp)}, AI banked ${ai.credits} cr and ${ai.queued} cr in queues not started, army AI ${ai.army} cr / opponent ${opp.army} cr`;
 }
 
+/** The Hard AI's army at the opponent's first attack (AI-23): lost before it, share at home, artillery and heroes. */
+const armyLine = (a: ArmyAt): string => `AI army lost before it ${a.lost} cr, at home ${(100 * a.home).toFixed(0)}%, artillery ${a.artillery}, heroes ${a.heroes}`;
+
 /** At the opponent's first attack (AI-22), over the games in which it attacked: the AI's and the opponent's stock. */
-export function atLaunchTally(games: readonly SteamrollGame[], rs: readonly MatchResult[]): { games: number; ai: EconomyAt[]; opp: EconomyAt[] } {
-  const rows = rs.flatMap((r, i) => (r.atLaunch ? [{ ai: r.atLaunch.at[games[i]!.seat], opp: r.atLaunch.at[1 - games[i]!.seat]! }] : []));
-  return { games: rows.length, ai: rows.map((x) => x.ai), opp: rows.map((x) => x.opp) };
+export function atLaunchTally(games: readonly SteamrollGame[], rs: readonly MatchResult[]): { games: number; ai: EconomyAt[]; opp: EconomyAt[]; army: ArmyAt[] } {
+  const rows = rs.flatMap((r, i) => (r.atLaunch ? [{ ai: r.atLaunch.at[games[i]!.seat], opp: r.atLaunch.at[1 - games[i]!.seat]!, army: r.atLaunch.army[games[i]!.seat] }] : []));
+  return { games: rows.length, ai: rows.map((x) => x.ai), opp: rows.map((x) => x.opp), army: rows.map((x) => x.army) };
 }
 
 function launchSummary(t: ReturnType<typeof atLaunchTally>): string {
   const m = (xs: readonly EconomyAt[], f: (e: EconomyAt) => number): number => median(xs.map(f));
   return (
     `at the opponent's first attack (${t.games} games), medians: production buildings AI ${m(t.ai, production)} / opponent ${m(t.opp, production)}; ` +
-    `AI banked ${m(t.ai, (e) => e.credits)} cr, in queues not started ${m(t.ai, (e) => e.queued)} cr; army AI ${m(t.ai, (e) => e.army)} cr / opponent ${m(t.opp, (e) => e.army)} cr`
+    `AI banked ${m(t.ai, (e) => e.credits)} cr, in queues not started ${m(t.ai, (e) => e.queued)} cr; army AI ${m(t.ai, (e) => e.army)} cr / opponent ${m(t.opp, (e) => e.army)} cr; ` +
+    `AI army lost before it ${median(t.army.map((a) => a.lost))} cr, at home ${(100 * median(t.army.map((a) => a.home))).toFixed(0)}%, artillery ${median(t.army.map((a) => a.artillery))}, heroes ${median(t.army.map((a) => a.heroes))}`
   );
 }
 
@@ -163,7 +172,7 @@ function gameLine(g: SteamrollGame, r: MatchResult): string {
     `attack ${first ? `${minutes(first.tick)} min, ${first.value} cr, ${first.crushers} crushers` : 'none'} (${sr?.launches.length ?? 0} in all)`,
     `peak haulers ${sr?.peakHaulers ?? 0} refineries ${sr?.peakRefineries ?? 0} barracks ${sr?.peakBarracks ?? 0} factories ${sr?.peakFactories ?? 0}`,
     `peak army AI ${r.peak.armyValue[g.seat]} cr / opponent ${r.peak.armyValue[1 - g.seat]} cr`,
-    ...(r.atLaunch ? [launchLine(g, r.atLaunch.at)] : []),
+    ...(r.atLaunch ? [launchLine(g, r.atLaunch.at), armyLine(r.atLaunch.army[g.seat])] : []),
   ].join('; ');
 }
 
@@ -194,7 +203,7 @@ function report(p: Personality, games: readonly SteamrollGame[], rs: readonly Ma
 
 describe('the Hard AI against the steamroll opponent', () => {
   for (const p of PERSONALITIES) {
-    it(`HAR-5, AI-22: against ${p}, the steamroll opponent trains only rifle and anti-armour squads, crushers and haulers, never retreats, attacks, and replays the same game`, async () => {
+    it(`HAR-5, AI-22, AI-23: against ${p}, the steamroll opponent trains only rifle and anti-armour squads, crushers and haulers, never retreats, attacks, and replays the same game`, async () => {
       const started = Date.now();
       const { games, results: rs } = await steamrollSeries(p);
       report(p, games, rs, (Date.now() - started) / 60000);
@@ -218,6 +227,12 @@ describe('the Hard AI against the steamroll opponent', () => {
         if (r.ticks >= LAUNCH_BY) expect(s.steamroll?.launches.length, where).toBeGreaterThan(0);
         // The harness takes stock at its first attack (AI-22, measurement).
         if (r.atLaunch) expect(r.atLaunch.tick, where).toBe(s.steamroll?.launches[0]?.tick);
+        // ... and of both armies (AI-23): losses so far and the share at home are real measures.
+        for (const a of r.atLaunch?.army ?? []) {
+          expect(a.lost, where).toBeGreaterThanOrEqual(0);
+          expect(a.home, where).toBeGreaterThanOrEqual(0);
+          expect(a.home, where).toBeLessThanOrEqual(1);
+        }
       });
 
       // Production first (AI-22), PROVISIONAL (see above): at the opponent's first attack the AI has at least as many
@@ -226,6 +241,9 @@ describe('the Hard AI against the steamroll opponent', () => {
       if (at.games > 0) {
         expect(median(at.ai.map(production))).toBeGreaterThanOrEqual(PROVISIONAL_LAUNCH_PRODUCTION_RATIO * median(at.opp.map(production)));
         expect(median(at.ai.map((e) => e.credits + e.queued))).toBeLessThan(PROVISIONAL_LAUNCH_IDLE);
+        // Hold and defend (AI-23), PROVISIONAL: it has fed less of its army away before the attack, and meets it at home.
+        expect(median(at.army.map((a) => a.lost))).toBeLessThan(PROVISIONAL_LAUNCH_LOST);
+        expect(median(at.army.map((a) => a.home))).toBeGreaterThanOrEqual(PROVISIONAL_LAUNCH_HOME);
       }
 
       // The same seeds and settings give the same game (HAR-1): the shortest game, replayed.

@@ -81,8 +81,22 @@ export interface MatchResult {
   /** How each player's economy and production grew (AI-22): read off the game state, which the harness may see. */
   economy: [EconomyLog, EconomyLog];
   /** Both players' stock (AI-22) at the first attack a steamroll opponent (HAR-5) launched, or null if none did. */
-  atLaunch: { tick: number; by: number; at: [EconomyAt, EconomyAt] } | null;
+  atLaunch: { tick: number; by: number; at: [EconomyAt, EconomyAt]; army: [ArmyAt, ArmyAt] } | null;
 }
+
+/** One player's army at the steamroll opponent's first attack (AI-23), read from the true state. */
+export interface ArmyAt {
+  /** Value (credits, full cost) of its armed units lost so far. */
+  lost: number;
+  /** Share (0..1) of its army value (by health) within HOME_RANGE tiles of its own buildings; 0 with no army. */
+  home: number;
+  /** Artillery pieces and heroes it has in the field. */
+  artillery: number;
+  heroes: number;
+}
+
+/** How near (tiles, to a building's footprint) its own buildings a unit counts as at home (AI-23 measurement). */
+export const HOME_RANGE = 12;
 
 /** The minutes of game time at which the harness takes stock of each player's economy (AI-22). */
 export const ECONOMY_MINUTES = [3, 4, 5, 6, 8, 10, 12] as const;
@@ -149,6 +163,49 @@ export function playMatch(o: MatchOptions): MatchResult {
   const refineriesSeen = [new Set<number>(), new Set<number>()];
   const s = game.state;
   let atLaunch: MatchResult['atLaunch'] = null;
+  // Armed units alive at the last look, by id, with owner and cost; their cost is counted lost when they are gone (AI-23).
+  const alive = new Map<number, { owner: number; cost: number }>();
+  const lost = [0, 0];
+  const sweep = (): void => {
+    const now = new Set<number>();
+    for (const u of s.units) {
+      const d = unitDef(u.kind);
+      if (!d.weapon || d.capacity !== undefined) continue;
+      now.add(u.id);
+      if (!alive.has(u.id)) alive.set(u.id, { owner: u.owner, cost: d.cost });
+    }
+    for (const [id, a] of alive) {
+      if (now.has(id)) continue;
+      lost[a.owner] = (lost[a.owner] as number) + a.cost;
+      alive.delete(id);
+    }
+  };
+  /** One player's army now (AI-23). */
+  const armyAt = (p: number): ArmyAt => {
+    const mine = s.buildings.filter((b) => b.owner === p);
+    let all = 0;
+    let home = 0;
+    let artillery = 0;
+    let heroes = 0;
+    for (const u of s.units) {
+      const d = unitDef(u.kind);
+      if (u.owner !== p || !d.weapon || d.capacity !== undefined) continue;
+      const v = (d.cost * u.hp) / d.hp;
+      all += v;
+      const x = u.x / FP;
+      const y = u.y / FP;
+      if (
+        mine.some((b) => {
+          const bd = buildingDef(b.kind);
+          return Math.hypot(Math.max(b.tx - x, 0, x - (b.tx + bd.w)), Math.max(b.ty - y, 0, y - (b.ty + bd.h))) <= HOME_RANGE;
+        })
+      )
+        home += v;
+      if (d.role === 'artillery') artillery++;
+      if (d.hero) heroes++;
+    }
+    return { lost: lost[p] as number, home: all > 0 ? home / all : 0, artillery, heroes };
+  };
   /** One player's stock now (AI-22). */
   const stock = (p: number, minute: number): EconomyAt => {
     const kit = kits[p] as Kit;
@@ -207,10 +264,14 @@ export function playMatch(o: MatchOptions): MatchResult {
         orders[p]++;
       }
       // The steamroll opponent's first attack (HAR-5): both players' stock as it sets out (AI-22).
-      if (atLaunch === null && launched === 0 && (ai.stats.steamroll?.launches.length ?? 0) > 0) atLaunch = { tick: s.tick, by: p, at: [stock(0, s.tick / 1200), stock(1, s.tick / 1200)] };
+      if (atLaunch === null && launched === 0 && (ai.stats.steamroll?.launches.length ?? 0) > 0) {
+        sweep();
+        atLaunch = { tick: s.tick, by: p, at: [stock(0, s.tick / 1200), stock(1, s.tick / 1200)], army: [armyAt(0), armyAt(1)] };
+      }
     }
     tick(game);
     if (s.tick % 10 !== 0) continue;
+    if (atLaunch === null) sweep();
 
     const t = s.tick;
     if (t >= SCOUT_SAMPLE_FROM && t % SCOUT_SAMPLE === 0) {
