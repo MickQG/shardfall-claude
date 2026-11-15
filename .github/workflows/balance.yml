@@ -1,0 +1,80 @@
+name: Balance
+
+# Full-match measurements for balance work (HAR-6): started by hand against any branch, never a check of a pull request.
+# Usage: gh workflow run balance.yml --ref <branch> -f test=<match test file> [-f name=<test name>] [-f shards=<n>]
+#        [-f vars="KEY=VALUE KEY=VALUE"]
+# Each job plays one shard of the test (MATCH_SHARD=k/n) and the test prints its tally to the run summary.
+on:
+  workflow_dispatch:
+    inputs:
+      test:
+        description: Match test file to play, as in "npm run test:matches -- <test>"
+        required: true
+        default: steamroll
+      name:
+        description: Only tests whose name contains this (optional)
+        required: false
+        default: ''
+      shards:
+        description: Parallel jobs (1 to 20); each gets MATCH_SHARD=k/n
+        required: true
+        default: '6'
+      vars:
+        description: Variables for the test, as space-separated KEY=VALUE (optional)
+        required: false
+        default: ''
+
+# Read-only token: this workflow only measures (SEC-4).
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.s.outputs.shards }}
+    steps:
+      # Inputs reach the shell only through environment variables, and are validated before use.
+      - id: s
+        env:
+          N: ${{ inputs.shards }}
+          TEST: ${{ inputs.test }}
+        run: |
+          case "$N" in ''|*[!0-9]*) echo "shards must be a whole number"; exit 1;; esac
+          if [ "$N" -lt 1 ] || [ "$N" -gt 20 ]; then echo "shards must be 1 to 20"; exit 1; fi
+          if ! echo "$TEST" | grep -qE '^[A-Za-z0-9_.-]+$'; then echo "bad test name"; exit 1; fi
+          echo "shards=[$(seq -s, 1 "$N")]" >> "$GITHUB_OUTPUT"
+
+  play:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    name: play (shard ${{ matrix.shard }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Variables
+        env:
+          N: ${{ inputs.shards }}
+          VARS: ${{ inputs.vars }}
+        run: |
+          echo "MATCH_SHARD=${{ matrix.shard }}/$N" >> "$GITHUB_ENV"
+          for kv in $VARS; do
+            if ! echo "$kv" | grep -qE '^[A-Z][A-Z0-9_]*=[A-Za-z0-9_.,:/+-]*$'; then echo "bad variable: $kv"; exit 1; fi
+            case "$kv" in GITHUB_*|RUNNER_*|ACTIONS_*|NODE_OPTIONS=*|PATH=*|CI=*|MATCH_SHARD=*) echo "reserved variable: $kv"; exit 1;; esac
+            echo "$kv" >> "$GITHUB_ENV"
+          done
+      - name: Play
+        env:
+          TEST: ${{ inputs.test }}
+          NAME: ${{ inputs.name }}
+        run: |
+          if [ -n "$NAME" ]; then npm run test:matches -- "$TEST" -t "$NAME"; else npm run test:matches -- "$TEST"; fi
