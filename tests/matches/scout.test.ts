@@ -4,6 +4,7 @@ import { DIFFICULTIES, type Difficulty } from '../../src/ai/ai';
 import type { MatchOptions, MatchResult } from '../../src/ai/harness';
 import type { Faction } from '../../src/data/defs';
 import { MAPS } from '../../src/data/maps';
+import { aiRules } from './aiRules';
 import { playMatches } from './pool';
 
 /**
@@ -46,7 +47,7 @@ export function scoutGames(): MatchOptions[] {
   const d = DIFFICULTIES[level()];
   const both: [Difficulty, Difficulty] = [d, d];
   const [k, n] = (env('MATCH_SHARD') || '1/1').split('/').map(Number) as [number, number];
-  const all = MAPS.flatMap(({ id: map }) => [1, 2].flatMap((seed) => sides.map((factions): MatchOptions => ({ seed, map, factions, difficulties: both, maxTicks: SCOUT_TICKS, standingScout: standing() }))));
+  const all = MAPS.flatMap(({ id: map }) => [1, 2].flatMap((seed) => sides.map((factions): MatchOptions => ({ seed, map, factions, difficulties: both, maxTicks: SCOUT_TICKS, standingScout: standing(), rules: aiRules() }))));
   return all.filter((_, i) => i % n === k - 1);
 }
 

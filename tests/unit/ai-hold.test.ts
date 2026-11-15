@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI, CONTACT, DIFFICULTIES, GATHER_R, GROWTH_MAX, HOLD_RATIO, HOLD_REACH, RAID_GUARD_SHARE, RECALL_RANGE, RECALL_SHARE, STALEMATE_ARMY, STALEMATE_QUIET, type Personality } from '../../src/ai/ai';
+import { AI, CONTACT, DIFFICULTIES, GATHER_R, GROWTH_MAX, HOLD_RATIO, HOLD_REACH, RAID_GUARD_SHARE, RECALL_RANGE, RECALL_SHARE, STALEMATE_ARMY, STALEMATE_QUIET, plantOutput, type AiRules, type Personality } from '../../src/ai/ai';
 import { buildingDef, unitDef } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
 import { createGame, FP, snapshot, submit, tick, type BuildingSnap, type Command, type Game } from '../../src/sim';
@@ -53,7 +53,7 @@ function base(o: Base = {}): Game {
   return g;
 }
 
-const ai = (personality: Personality = 'balanced'): AI => new AI(0, 'human', DIFFICULTIES.hard, MAP, 6, personality);
+const ai = (personality: Personality = 'balanced', rules?: Partial<AiRules>): AI => new AI(0, 'human', DIFFICULTIES.hard, MAP, 6, personality, { rules });
 const many = (kind: string, n: number): string[] => [...Array(n)].map(() => kind);
 
 /** An enemy unit it sees, at a tile. */
@@ -123,9 +123,9 @@ const toBase = (g: Game, x: number, y: number): number =>
  * A base with this army at its staging point that has sent it out as a wave, against a weak enemy seen far off; `out`
  * ticks more take the wave away from the base, beyond the reach of the recall (d).
  */
-function launched(army: string[], o: Base = {}, out = 0): { g: Game; who: AI; wave: number[] } {
+function launched(army: string[], o: Base = {}, out = 0, rules?: Partial<AiRules>): { g: Game; who: AI; wave: number[] } {
   const g = base({ army, ...o });
-  const who = ai();
+  const who = ai('balanced', rules);
   run(g, who, 24 + out, [FAR]);
   expect(who.stats.waves).toBe(1);
   return { g, who, wave: [...who.waveState!.members] };
@@ -317,4 +317,96 @@ describe('hold and defend (AI-23)', () => {
     const both = raid([...guard(A), ...guard(B)]);
     expect(both.stats.waves).toBe(0); // it waits
   }, LONG);
+
+  describe('each rule switched off restores the behaviour before it (measurement only)', () => {
+    it('AI-23 (a): with wavePeak off the retreat test compares the wave with what set out', () => {
+      const { g, who, wave } = launched(many('hum_tank', 6), {}, 0, { wavePeak: false });
+      const extra = [...Array(6)].map((_, i) => addUnit(g.state, 0, 'hum_tank', (atStage(i)[0] + 0.5) * FP, (atStage(i)[1] + 0.5) * FP).id);
+      run(g, who, 70, [FAR]);
+      const gone = [...wave, ...extra].slice(0, 7);
+      g.state.units = g.state.units.filter((u) => !gone.includes(u.id));
+      run(g, who, 16, [FAR]);
+      // Five tanks left is more than 45% of the six that set out: it goes on.
+      expect(who.stats.retreats).toBe(0);
+      expect(who.waveState).not.toBeNull();
+    }, LONG);
+
+    it('AI-23 (b): with noFeed off reinforcements join a wave facing a stronger enemy', () => {
+      const { g, who, wave } = launched(many('hum_tank', 6), {}, 200, { noFeed: false });
+      const extra = [...Array(4)].map((_, i) => addUnit(g.state, 0, 'hum_tank', (atStage(i)[0] + 0.5) * FP, (atStage(i)[1] + 0.5) * FP).id);
+      const brutes = (gm: Game): Foe[] => {
+        const c = centreOf(gm, wave);
+        return [FAR, ...[...Array(7)].map((_, i) => ({ kind: 'ali_brute', tx: Math.floor(c.x + 4 + (i % 3)), ty: Math.floor(c.y + 4 + Math.floor(i / 3)) }))];
+      };
+      run(g, who, 130, brutes);
+      expect(who.waveState!.members).toEqual(expect.arrayContaining(extra));
+    }, LONG);
+
+    it('AI-23 (c): with hold off it gathers at the staging point against a stronger army seen; holdRatio moves the line', () => {
+      const g = base({ army: many('hum_tank', 6) });
+      const who = ai('balanced', { hold: false });
+      run(g, who, 200, [FAR, ...fogArmy('ali_brute', 5)]);
+      expect(who.hold.holding).toBe(false);
+      for (const u of mine(g)) expect(Math.hypot(tile(u.x) - 20, tile(u.y) - 20)).toBeLessThanOrEqual(GATHER_R);
+      // At 0.9, five Brutes (4 150, 86% of 4 800) are not enough.
+      const who2 = ai('balanced', { holdRatio: 0.9 });
+      run(base({ army: many('hum_tank', 6) }), who2, 40, [FAR, ...fogArmy('ali_brute', 5)]);
+      expect(who2.hold.holding).toBe(false);
+    }, LONG);
+
+    it('AI-23 (c): with enemyEstimate 1 it remembers the largest army it had in its intel, and holds after the enemy has gone out of sight', () => {
+      // Five Brutes seen in its sight once, then gone from where it sees: forgotten at once, unless it keeps a peak memory.
+      const once = (gm: Game): Foe[] => (gm.state.tick < 3010 ? [FAR, ...[0, 1, 2, 3, 4].map((i) => ({ kind: 'ali_brute', tx: 24 + (i % 3), ty: 24 + Math.floor(i / 3) }))] : [FAR]);
+      const plain = ai('balanced', { stalemate: false });
+      const g = base({ army: many('hum_tank', 6) });
+      run(g, plain, 60, once);
+      expect(plain.hold.holding).toBe(false);
+      const peak = ai('balanced', { enemyEstimate: 1 });
+      run(base({ army: many('hum_tank', 6) }), peak, 60, once);
+      expect(peak.hold.holding).toBe(true);
+      expect(peak.stats.waves).toBe(0);
+      // Mode 2 counts what the enemy's barracks and factories can have built: 60% of their output since first seen.
+      expect(plantOutput('hum_barracks')).toBeCloseTo(unitDef('hum_rifleman').cost / unitDef('hum_rifleman').buildTime);
+      expect(plantOutput('ali_pit')).toBeCloseTo(unitDef('ali_brute').cost / unitDef('ali_brute').buildTime);
+      expect(plantOutput('ali_nest')).toBeCloseTo(unitDef('ali_skitter').cost / unitDef('ali_skitter').buildTime);
+      expect(plantOutput('hum_lab')).toBe(0);
+    }, LONG);
+
+    it('AI-23 (d): with recall off a wave out does not come home for an enemy force near the base', () => {
+      const spot = [...Array(3)].map((_, i) => ({ kind: 'ali_brute', tx: 4 + i, ty: 34 }));
+      const { g, who } = launched(many('hum_tank', 6), {}, 0, { recall: false });
+      run(g, who, 16, [FAR, ...spot]);
+      expect(who.waveState).not.toBeNull();
+    }, LONG);
+
+    it('AI-23 (e): with escapeOnly off a beaten wave in contact turns back however fast the enemy; with fightingRetreat off it moves to the staging point', () => {
+      const ahead = (ids: number[]) => (gm: Game): Foe[] => {
+        const c = centreOf(gm, ids);
+        const s = Math.SQRT1_2;
+        return [FAR, ...[...Array(8)].map((_, i) => ({ kind: 'ali_brute', tx: Math.floor(c.x + 4 * s + (i % 6) - 2.5), ty: Math.floor(c.y + 4 * s - (i % 6) + 2.5 + Math.floor(i / 6)) }))];
+      };
+      const slow = launched(many('hum_rocketeer', 8), {}, 300, { escapeOnly: false, fightingRetreat: false });
+      const log = run(slow.g, slow.who, 40, ahead(slow.wave));
+      expect(slow.who.stats.retreats).toBe(1);
+      const back = log.find((c) => c.type === 'move' && slow.wave.every((id) => c.units.includes(id)));
+      expect(back?.type).toBe('move');
+      if (back?.type === 'move') expect(Math.hypot(tile(back.x) - 20, tile(back.y) - 20)).toBeLessThanOrEqual(3);
+    }, LONG);
+
+    it('AI-23 (f): with stalemate off it does not attack at parity after quiet minutes', () => {
+      const g = base({ tick: 4000, barracks: 5, factories: 5, army: many('hum_tank', 10) });
+      const who = ai('balanced', { stalemate: false });
+      run(g, who, 1400, [FAR, ...fogArmy('ali_brute', 8)]);
+      expect(who.stats.waves).toBe(0);
+    }, LONG);
+
+    it('AI-23 (g): with raidGuard off Raider raids the nearest target it knows, however guarded', () => {
+      const A = { tx: 40, ty: 40 };
+      const B = { tx: 70, ty: 26 };
+      const g = base({ army: many('hum_tank', 8) });
+      const who = ai('raider', { raidGuard: false });
+      run(g, who, 24, [FAR, { kind: 'ali_gorger', ...A }, { kind: 'ali_gorger', ...B }, ...[0, 1, 2, 3].map((i) => ({ kind: 'ali_brute', tx: A.tx + 2 + (i % 2), ty: A.ty + 2 + (i >> 1) }))]);
+      expect(who.waveState).toMatchObject(A);
+    }, LONG);
+  });
 });

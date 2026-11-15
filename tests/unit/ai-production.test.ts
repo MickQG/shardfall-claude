@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI, ARTILLERY_IN_PRODUCTION, DIFFICULTIES, GROWTH_BANK, GROWTH_MAX, LAB_FROM, QUEUE_DEEP, QUEUE_DEEP_BANK, QUEUE_SHALLOW, TURRETS_FROM, type Personality } from '../../src/ai/ai';
+import { AI, ARTILLERY_IN_PRODUCTION, DIFFICULTIES, GROWTH_BANK, GROWTH_MAX, LAB_FROM, QUEUE_DEEP, QUEUE_DEEP_BANK, QUEUE_SHALLOW, TURRETS_FROM, type AiRules, type Personality } from '../../src/ai/ai';
 import { SteamrollAI } from '../../src/ai/steamroll';
 import { unitDef } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
@@ -69,12 +69,12 @@ function base(o: Base = {}): Game {
 }
 
 const MAP = skirmishConfig(6, { factions: ['human', 'alien'] }).map;
-const ai = (personality: Personality = 'balanced'): AI => new AI(0, 'human', DIFFICULTIES.hard, MAP, 6, personality);
+const ai = (personality: Personality = 'balanced', rules?: Partial<AiRules>): AI => new AI(0, 'human', DIFFICULTIES.hard, MAP, 6, personality, { rules });
 
 /** The structure the headquarters orders on one decision, or null. */
-function hqOrder(g: Game, personality: Personality = 'balanced'): string | null {
+function hqOrder(g: Game, personality: Personality = 'balanced', rules?: Partial<AiRules>): string | null {
   const hq = g.state.buildings.find((b) => b.owner === 0 && b.kind === 'hum_hq')!;
-  const c = ai(personality)
+  const c = ai(personality, rules)
     .think(snapshot(g, 0))
     .find((x): x is Extract<Command, { type: 'produce' }> => x.type === 'produce' && x.source === hq.id);
   return c?.kind ?? null;
@@ -217,5 +217,34 @@ describe('production first (AI-22)', () => {
     const sr = new SteamrollAI(0, 'human', MAP, 6);
     decide(g, sr, 8, 20000);
     expect(Math.max(...unitQueue(g, 'hum_barracks'), ...unitQueue(g, 'hum_factory'))).toBeGreaterThan(QUEUE_DEEP);
+  });
+
+  describe('each rule switched off restores the behaviour before it (measurement only)', () => {
+    it('AI-22: with labAt 99 the lab comes at five production buildings only once the growth rule has nothing to build', () => {
+      const late = { labAt: 99 };
+      expect(hqOrder(base({ barracks: 2, factories: 3, busy: true, credits: 2500 }), 'balanced', late)).toBe('hum_barracks');
+      expect(hqOrder(base({ barracks: 4, factories: 4, busy: true, credits: 2500 }), 'balanced', late)).toBe('hum_factory');
+      expect(hqOrder(base({ barracks: 2, factories: 3, credits: 2500 }), 'balanced', late)).toBe('hum_lab');
+      expect(hqOrder(base({ barracks: 2, factories: 2, credits: 2500 }), 'balanced', late)).toBe('hum_factory');
+    });
+
+    it("AI-22: with doomFactories off Doomsday's idle barracks hold the growth rule back", () => {
+      const army = [...[...Array(4)].map(() => 'hum_tank'), ...[...Array(26)].map(() => 'hum_rifleman')];
+      const g = base({ barracks: 2, factories: 3, lab: true, turrets: 6, busy: true, army, credits: 2000 });
+      for (const b of g.state.buildings) if (b.owner === 0 && b.kind === 'hum_barracks') b.queue.length = 0;
+      expect(['hum_barracks', 'hum_factory']).not.toContain(hqOrder(g, 'doomsday', { doomFactories: false }));
+    });
+
+    it('AI-22: queueDepth, queueDepthRich and artilleryCap set the queue depths and the artillery cap', () => {
+      const g = base({ barracks: 2, factories: 3, lab: true, turrets: 6 });
+      decide(g, ai('balanced', { queueDepth: 4 }), 10, 2900);
+      for (const n of unitQueue(g, 'hum_barracks')) expect(n).toBe(4);
+      const rich = base({ barracks: 2, factories: 3, lab: true, turrets: 6 });
+      decide(rich, ai('balanced', { queueDepthRich: 1 }), 8, 20000);
+      for (const n of unitQueue(rich, 'hum_barracks')) expect(n).toBe(1);
+      const guns = base({ barracks: 2, factories: 5, lab: true, turrets: 6, haulers: 8, infantrySeen: 24 });
+      decide(guns, ai('balanced', { artilleryCap: 0 }), 10, 20000);
+      expect(guns.state.buildings.filter((b) => b.owner === 0).flatMap((b) => b.queue.filter((q) => q.kind === 'hum_artillery'))).toHaveLength(0);
+    });
   });
 });

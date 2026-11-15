@@ -4,6 +4,7 @@ import { DIFFICULTIES, type Difficulty } from '../../src/ai/ai';
 import { ECONOMY_MINUTES, lengthReport, type EconomyAt, type EconomyLog, type MatchOptions, type MatchResult, type Violations } from '../../src/ai/harness';
 import type { Faction } from '../../src/data/defs';
 import { MAPS } from '../../src/data/maps';
+import { aiRules } from './aiRules';
 import { playMatches } from './pool';
 
 /**
@@ -38,7 +39,7 @@ const sides: [Faction, Faction][] = [
 
 export function economyGames(): MatchOptions[] {
   const [k, n] = (env('MATCH_SHARD') || '1/1').split('/').map(Number) as [number, number];
-  const all = MAPS.flatMap(({ id: map }) => [1, 2].flatMap((seed) => sides.map((factions): MatchOptions => ({ seed, map, factions, difficulties: medium, maxTicks: ECONOMY_TICKS }))));
+  const all = MAPS.flatMap(({ id: map }) => [1, 2].flatMap((seed) => sides.map((factions): MatchOptions => ({ seed, map, factions, difficulties: medium, maxTicks: ECONOMY_TICKS, rules: aiRules() }))));
   return all.filter((_, i) => i % n === k - 1);
 }
 

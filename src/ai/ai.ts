@@ -300,6 +300,25 @@ export function shouldAttack(myPower: number, enemyEstimate: number, armyCount: 
 }
 
 const tileOf = (v: number): number => Math.floor(v / FP);
+
+/**
+ * Credits a tick of a production building's full output is worth (rules.enemyEstimate 2): a barracks at the cost over
+ * the build time of its faction's rifle squad, a factory at those of its crusher; 0 for any other building.
+ */
+const outputs = new Map<string, number>();
+export function plantOutput(kind: string): number {
+  const known = outputs.get(kind);
+  if (known !== undefined) return known;
+  const d = BUILDING_DEFS[kind];
+  let rate = 0;
+  if (d) {
+    const k = kitOf(d.faction);
+    const unit = Object.values(UNIT_DEFS).find((u) => u.faction === d.faction && !u.hero && (kind === k.barracks ? u.builtAt === kind && (u.role === 'infantry' || u.role === 'raider') : kind === k.factory && u.builtAt === kind && u.crusher));
+    if (unit) rate = unit.cost / unit.buildTime;
+  }
+  outputs.set(kind, rate);
+  return rate;
+}
 const dist = (ax: number, ay: number, bx: number, by: number): number => Math.hypot(ax - bx, ay - by);
 
 /** A remembered sighting of an enemy unit: its kind, where and when it was last seen (AI-2: only what the AI saw). */
@@ -315,6 +334,8 @@ interface Wave {
   ty: number;
   /** The strongest it has been, reinforcements included (AI-23): the retreat test compares with this. */
   peak: number;
+  /** Its strength as it set out: the retreat test compares with this when rules.wavePeak is off (AI-8). */
+  start: number;
   lastOrder: number;
   /** The units in the wave, and how many set out (AI-11). */
   members: Set<number>;
@@ -413,7 +434,69 @@ export interface AiStats {
 export interface AiOptions {
   /** The standing scout (AI-21), on unless false; off only in measurement (the harness), to compare with the old scouting. */
   standingScout?: boolean;
+  /** Its rules (AI-22, AI-23), each switchable for measurement; DEFAULT_RULES where not given. */
+  rules?: Partial<AiRules>;
 }
+
+/**
+ * The rules of AI-22 and AI-23 as switches, so the harness can measure each one alone (HAR-5). DEFAULT_RULES is how the
+ * game plays; an "off" value restores the behaviour before that rule. The steamroll opponent keeps its own build and
+ * attack (HAR-5).
+ */
+export interface AiRules {
+  /** Production buildings before the lab comes ahead of growth (AI-22); 99: the lab only once growth has nothing to build, at LAB_FROM. */
+  labAt: number;
+  /** Doomsday's idle barracks do not hold back growth: it adds factories (AI-22). */
+  doomFactories: boolean;
+  /** (AI-23 a) The retreat test compares a wave with the strongest it has been; off: with what set out. */
+  wavePeak: boolean;
+  /** (AI-23 b) Reinforcements join only a wave at least as strong as the enemy near it. */
+  noFeed: boolean;
+  /** (AI-23 c) Hold at the base while the enemy army seen within holdWindow ticks is worth holdRatio of its own. */
+  hold: boolean;
+  holdRatio: number;
+  holdWindow: number;
+  /** (AI-23 d) A wave out comes home when a big enemy force is near the base. */
+  recall: boolean;
+  /** (AI-23 e) A wave in contact turns back only if it can outrun the enemy; off: AI-8's retreat conditions alone. */
+  escapeOnly: boolean;
+  /** (AI-23 e) A retreat attack-moves to the hold point; off: a plain move to the staging point. */
+  fightingRetreat: boolean;
+  /** (AI-23 f) Attack at parity after three quiet minutes. */
+  stalemate: boolean;
+  /** (AI-23 g) Raider raids only weakly guarded targets. */
+  raidGuard: boolean;
+  /** (AI-22) Unit queue depth, and the depth above QUEUE_DEEP_BANK credits banked; at most this many artillery in production. */
+  queueDepth: number;
+  queueDepthRich: number;
+  artilleryCap: number;
+  /** How it values the enemy army for its attack decision and its hold: 0 what it has seen lately; 1 also its peak memory; 2 also what the enemy can have built (see enemyArmy). */
+  enemyEstimate: number;
+}
+
+export const DEFAULT_RULES: Readonly<AiRules> = {
+  labAt: LAB_FROM,
+  doomFactories: true,
+  wavePeak: true,
+  noFeed: true,
+  hold: true,
+  holdRatio: HOLD_RATIO,
+  holdWindow: HOLD_SEEN,
+  recall: true,
+  escapeOnly: true,
+  fightingRetreat: true,
+  stalemate: true,
+  raidGuard: true,
+  queueDepth: QUEUE_SHALLOW,
+  queueDepthRich: QUEUE_DEEP,
+  artilleryCap: ARTILLERY_IN_PRODUCTION,
+  enemyEstimate: 0,
+};
+
+/** How far back (ticks) the peak memory of the enemy army reaches (enemyEstimate 1). */
+export const ESTIMATE_MEMORY = 6000;
+/** Share of a production building's full output counted as built (enemyEstimate 2). */
+export const ESTIMATE_OUTPUT = 0.6;
 
 /** Intel freshness (AI-21) is counted from this tick: how often a sighting of an armed enemy unit is at most INTEL_FRESH ticks old. */
 export const INTEL_FROM = 20 * 60 * 5;
@@ -530,6 +613,15 @@ export class AI {
   private holdAt: { tx: number; ty: number } | null = null;
   /** Seeded personality so repeated games differ a little: attack timing, staging distance. */
   private readonly jitter: { wave: number; ratio: number; stage: number };
+  /** Its rules (AiRules): DEFAULT_RULES with the options' changes. */
+  readonly rules: Readonly<AiRules>;
+  /** Enemy army value (credits) in its intel at each decision, for the peak memory (enemyEstimate 1): a falling queue of [tick, value]. */
+  private intelPeaks: [number, number][] = [];
+  /** Enemy barracks and factories it has seen (enemyEstimate 2): kind, first and last tick it knew of them. */
+  private plantsSeen = new Map<number, { kind: string; first: number; last: number }>();
+  /** Value (credits) of enemy armed units it has seen die (enemyEstimate 2), and the armed units it saw at its last decision. */
+  private enemyDied = 0;
+  private lastFoes = new Map<number, { kind: string; x: number; y: number }>();
 
   constructor(
     readonly player: number,
@@ -544,6 +636,7 @@ export class AI {
     const r = new Rng(seed * 7919 + player * 104729 + 13);
     const f = (): number => r.int(1000) / 1000;
     this.jitter = { wave: 0.9 + 0.35 * f(), ratio: 1.15 + 0.3 * f(), stage: 11 + Math.floor(4 * f()) };
+    this.rules = { ...DEFAULT_RULES, ...options.rules };
   }
 
   /** Decide this tick's orders from a fog-limited snapshot. */
@@ -568,6 +661,7 @@ export class AI {
       hq, credits: pl.credits, powerOut: pl.powerOut, powerIn: pl.powerIn, counts, army, haulers,
     };
     this.updateIntel(c);
+    this.estimateBook(c);
     this.scoutBook(c);
     this.setupPoints(c);
     this.updatePlan(c);
@@ -798,9 +892,11 @@ export class AI {
     const production = n(k.barracks) + n(k.factory);
     // Raider spends on its army, not on tech, until its opening is over (AI-14).
     const teching = this.plan !== 'raider';
-    // The lab comes as soon as it has five production buildings, ahead of any further barracks or factory (AI-22); it
-    // saves for it (see production).
-    const labDue = teching && n(k.lab) === 0 && production >= LAB_FROM;
+    // The lab comes as soon as it has five production buildings (rules.labAt), ahead of any further barracks or factory
+    // (AI-22); it saves for it (see production). With labAt above LAB_FROM it comes at LAB_FROM once growth has nothing
+    // to build, as AI-22 first had it.
+    const labNow = teching && n(k.lab) === 0;
+    const labDue = labNow && production >= this.rules.labAt;
     // Then another barracks or factory whenever every one is busy and the bank is full, whichever it has fewer of (AI-22).
     const grow = labDue ? null : this.growth(c);
     if (grow) return powered(grow);
@@ -808,7 +904,7 @@ export class AI {
     // Turrets wait for six production buildings or an attack on the base (AI-22); after an attack they come ahead of the lab.
     const turrets = production >= TURRETS_FROM || this.attacks > 0;
     if (this.attacks > 0 && n(k.turret) < turretsWanted) return k.turret;
-    if (labDue) return powered(k.lab);
+    if (labNow && production >= Math.min(LAB_FROM, this.rules.labAt)) return powered(k.lab);
     if (turrets && n(k.turret) < turretsWanted) return k.turret;
     // Doomsday's superweapon is optional: only when it can spare the money and its army is strong (AI-15).
     if (teching && n(k.superweapon) === 0 && n(k.lab) > 0 && (!tech || this.canAffordDoom(c))) {
@@ -834,7 +930,7 @@ export class AI {
     const nf = plants.length - nb;
     // Barracks Doomsday leaves idle on purpose (AI-15: no infantry beyond its rifle floor) do not hold the rule back: it
     // then adds factories while every factory is busy (AI-22).
-    if (this.plan === 'doomsday' && nf > 0 && this.infantryHeld(c)) {
+    if (this.rules.doomFactories && this.plan === 'doomsday' && nf > 0 && this.infantryHeld(c)) {
       if (plants.some((b) => b.kind === k.factory && b.queue.length === 0)) return null;
       return nf < GROWTH_MAX ? k.factory : null;
     }
@@ -1016,7 +1112,7 @@ export class AI {
     const hold = next && c.hq.queue.length === 0 ? Math.min(buildingDef(next).cost, doom && next === this.kit.superweapon ? Infinity : doom || next === this.kit.lab ? 1100 : 750) : 0;
     // The steamroll opponent keeps the queues and reserve it was calibrated with (HAR-5).
     const steamroll = this.doctrine.pick !== undefined;
-    // Artillery in production now (AI-22): at most ARTILLERY_IN_PRODUCTION at once.
+    // Artillery in production now (AI-22): at most ARTILLERY_IN_PRODUCTION (rules.artilleryCap) at once.
     let guns = 0;
     for (const b of c.buildings) for (const q of b.queue) if (UNIT_DEFS[q.kind] && roleOf(unitDef(q.kind)) === 'art') guns++;
     const urgent = this.urgent(c);
@@ -1036,14 +1132,14 @@ export class AI {
     for (const b of c.buildings) {
       // Shallow queues (AI-22): credits are not locked in orders that will not start soon. The steamroll opponent keeps
       // the deeper queues it was calibrated with (HAR-5).
-      const depth = steamroll ? (c.credits > 3000 ? 5 : c.credits > 2000 ? 4 : c.credits > 1100 ? 3 : 2) : c.credits > QUEUE_DEEP_BANK ? QUEUE_DEEP : QUEUE_SHALLOW;
+      const depth = steamroll ? (c.credits > 3000 ? 5 : c.credits > 2000 ? 4 : c.credits > 1100 ? 3 : 2) : c.credits > QUEUE_DEEP_BANK ? this.rules.queueDepthRich : this.rules.queueDepth;
       if (b.queue.length >= depth || b.queue.length >= QUEUE_MAX) continue;
       const trainable = Object.keys(UNIT_DEFS).filter((k) => unitDef(k).builtAt === b.kind && unitDef(k).faction === this.faction && this.doctrine.trains(k));
       if (trainable.length === 0) continue;
       // A hero only while the player has none, alive or queued (HERO-1).
-      // No more artillery while ARTILLERY_IN_PRODUCTION pieces are in production (AI-22); the steamroll opponent trains none.
+      // No more artillery while rules.artilleryCap pieces are in production (AI-22); the steamroll opponent trains none.
       const allowed = trainable.filter(
-        (k) => unitDef(k).requires.every((r) => c.buildings.some((x) => x.kind === r)) && !(unitDef(k).hero && (queued.has(k) || c.own.some((u) => u.kind === k))) && !(roleOf(unitDef(k)) === 'art' && guns >= ARTILLERY_IN_PRODUCTION),
+        (k) => unitDef(k).requires.every((r) => c.buildings.some((x) => x.kind === r)) && !(unitDef(k).hero && (queued.has(k) || c.own.some((u) => u.kind === k))) && !(roleOf(unitDef(k)) === 'art' && guns >= this.rules.artilleryCap),
       );
       // Its hero takes the field whenever it is available and affordable with credits to spare (HERO-1).
       const hero = allowed.find((k) => unitDef(k).hero && c.credits >= unitDef(k).cost + 400);
@@ -1225,13 +1321,60 @@ export class AI {
   }
 
   /** Value (credits) of the armed enemy units it has seen within `within` ticks (AI-23): what it knows of their army. */
-  private seenArmy(c: Ctx, within = HOLD_SEEN): number {
+  private seenArmy(c: Ctx, within: number): number {
     let v = 0;
     for (const e of this.intel.values()) {
       const d = UNIT_DEFS[e.kind];
       if (d?.weapon && d.capacity === undefined && c.tick - e.t <= within) v += d.cost;
     }
     return v;
+  }
+
+  /**
+   * The enemy army value (credits) it reckons with for its attack decision and its hold (rules.enemyEstimate):
+   * - 0: the armed enemy units it has seen within `within` ticks (seenArmy);
+   * - 1: the larger of that and its peak memory, the largest such total its intel held at any one decision in the last
+   *   ESTIMATE_MEMORY ticks, so an army it glimpsed whole is not forgotten when its scout moves on;
+   * - 2: the larger of 1 and what the enemy can have built: the sum over the enemy barracks and factories it has seen
+   *   (remembered ones included) of ESTIMATE_OUTPUT x (cost / build time of that faction's rifle squad for a barracks, of
+   *   its crusher for a factory) x (ticks from when it first saw the building to when it last knew of it), minus the value
+   *   of the enemy armed units it has seen die (in view at one decision, gone at the next while their tile is in sight).
+   */
+  private enemyArmy(c: Ctx, within: number): number {
+    const seen = this.seenArmy(c, within);
+    const mode = this.rules.enemyEstimate;
+    if (mode <= 0) return seen;
+    const peak = Math.max(seen, this.intelPeaks[0]?.[1] ?? 0);
+    if (mode < 2) return peak;
+    let built = 0;
+    for (const b of this.plantsSeen.values()) built += plantOutput(b.kind) * (b.last - b.first);
+    return Math.max(peak, ESTIMATE_OUTPUT * built - this.enemyDied);
+  }
+
+  /** Bookkeeping for enemyArmy (rules.enemyEstimate 1 and 2), after the intel is brought up to date. */
+  private estimateBook(c: Ctx): void {
+    const mode = this.rules.enemyEstimate;
+    if (mode <= 0) return;
+    const now = this.seenArmy(c, Infinity);
+    const q = this.intelPeaks;
+    while (q.length > 0 && (q[q.length - 1] as [number, number])[1] <= now) q.pop();
+    q.push([c.tick, now]);
+    while ((q[0] as [number, number])[0] < c.tick - ESTIMATE_MEMORY) q.shift();
+    if (mode < 2) return;
+    for (const b of c.enemyBuildings) {
+      if (plantOutput(b.kind) === 0) continue;
+      const e = this.plantsSeen.get(b.id);
+      if (e) e.last = c.tick;
+      else this.plantsSeen.set(b.id, { kind: b.kind, first: c.tick, last: c.tick });
+    }
+    const W = c.snap.mapWidth;
+    const foes = new Map<number, { kind: string; x: number; y: number }>();
+    for (const u of c.foes) if (unitDef(u.kind).weapon && unitDef(u.kind).capacity === undefined) foes.set(u.id, { kind: u.kind, x: u.x, y: u.y });
+    for (const [id, f] of this.lastFoes) {
+      if (foes.has(id)) continue;
+      if (((c.snap.fog?.[tileOf(f.y) * W + tileOf(f.x)] ?? 0) & VISIBLE) !== 0) this.enemyDied += unitDef(f.kind).cost;
+    }
+    this.lastFoes = foes;
   }
 
   /**
@@ -1274,10 +1417,11 @@ export class AI {
     return this.nearestFree(Math.floor(anchor.x), Math.floor(anchor.y));
   }
 
-  /** Whether it holds (AI-23): the enemy army it has seen lately is worth HOLD_RATIO of its own, or its base was attacked lately. */
+  /** Whether it holds (AI-23): the enemy army it values (enemyArmy) is worth rules.holdRatio of its own, or its base was attacked lately. */
   private holdNow(c: Ctx, own: number): boolean {
-    const seen = this.seenArmy(c);
-    return (seen > 0 && seen >= HOLD_RATIO * own) || c.tick - this.lastThreat < HOLD_ATTACKED;
+    if (!this.rules.hold) return false;
+    const seen = this.enemyArmy(c, this.rules.holdWindow);
+    return (seen > 0 && seen >= this.rules.holdRatio * own) || c.tick - this.lastThreat < HOLD_ATTACKED;
   }
 
   /** An enemy force worth RECALL_SHARE of its whole army seen near its buildings: a wave out comes home (AI-23). */
@@ -1368,18 +1512,19 @@ export class AI {
           this.lastWaveEnd = c.tick;
           return;
         }
-      } else if (members.length > 0 && this.baseInDanger(c, own)) {
+      } else if (this.rules.recall && members.length > 0 && this.baseInDanger(c, own)) {
         // An enemy force worth half its army near its buildings: the wave comes home to fight at the hold point (AI-23).
         order('attackmove', members, holdAt.tx, holdAt.ty);
         this.wave = null;
         this.waveCooldown = c.tick + 500;
         this.lastWaveEnd = c.tick;
         return;
-      } else if ((members.length <= 2 || (!committed && (p <= 0.45 * w.peak || local >= 1.5 * p))) && this.canEscape(c, members, cx, cy)) {
+      } else if ((members.length <= 2 || (!committed && (p <= 0.45 * (this.rules.wavePeak ? w.peak : w.start) || local >= 1.5 * p))) && (!this.rules.escapeOnly || this.canEscape(c, members, cx, cy))) {
         // A beaten wave turns back only when it can get away; in contact with enemies as fast as its slowest unit it fights
         // on (AI-23). It falls back fighting, to the hold point (AI-8, AI-23).
         this.stats.retreats++;
-        order('attackmove', members, holdAt.tx, holdAt.ty);
+        if (this.rules.fightingRetreat) order('attackmove', members, holdAt.tx, holdAt.ty);
+        else order('move', members, stage.tx, stage.ty);
         this.wave = null;
         this.waveCooldown = c.tick + 1200;
         this.lastWaveEnd = c.tick;
@@ -1419,7 +1564,7 @@ export class AI {
         // Reinforcements gather at the gathering point and join in groups, never one at a time (AI-11); and only while the
         // wave is at least as strong as the enemy it has seen near it, so none are fed into a losing fight (AI-23).
         const home = rest.filter((u) => dist(tileOf(u.x), tileOf(u.y), gather.tx, gather.ty) < 10);
-        const join = !ordinary || p >= local;
+        const join = !ordinary || !this.rules.noFeed || p >= local;
         if (join && home.length >= Math.max(3, Math.ceil(0.25 * w.size))) {
           order('attackmove', home, cx, cy);
           for (const u of home) w.members.add(u.id);
@@ -1446,8 +1591,9 @@ export class AI {
     if (striking) threshold = Math.min(threshold, 1500);
     const known = this.nearestEnemyBuilding(c, stage.tx, stage.ty);
     // A raid goes only where the defenders it has seen are worth less than half of it; else it waits (AI-23).
-    const raidAim = raiding ? this.raidTarget(c, p) : null;
-    if (raiding && !raidAim) {
+    const guard = this.rules.raidGuard;
+    const raidAim = raiding ? (guard ? this.raidTarget(c, p) : this.economyTarget(c)) : null;
+    if (raiding && guard && !raidAim) {
       this.gatherSince = -1;
       return;
     }
@@ -1460,7 +1606,11 @@ export class AI {
     const defences = c.enemyBuildings.reduce((s, b) => (buildingDef(b.kind).weapon && dist(b.tx, b.ty, target.tx, target.ty) <= 14 ? s + buildingDef(b.kind).cost * 1.5 : s), 0);
     const blind = recent.length === 0;
     const stalemate = c.tick - this.lastWaveEnd > 7000;
-    let est = blind ? (stalemate ? 1.1 * p : 3 * p) : 1.15 * seen + defences + 250;
+    // The enemy army it reckons with (rules.enemyEstimate): what it has seen lately, or more (enemyArmy). Blind, it waits
+    // for a clear advantage, or for what it reckons with if that is more.
+    const reckoned = Math.max(seen, this.enemyArmy(c, 1200));
+    const valued = 1.15 * reckoned + defences + 250;
+    let est = blind ? Math.max(stalemate ? 1.1 * p : 3 * p, reckoned > 0 ? valued : 0) : valued;
     // A raid goes for the economy and slips past the army rather than fighting it (AI-14); a strike clears the way (AI-15).
     if (raiding) est = (blind ? 0 : 0.6 * seen) + defences;
     if (striking) est = 0.5 * ((blind ? 0 : 1.15 * seen) + defences);
@@ -1471,10 +1621,10 @@ export class AI {
     if (ordinary && this.holding && !raiding && !striking) ready = false;
     // Stalemate (AI-23): after three quiet minutes, with five barracks and five factories or a big army, it attacks at
     // parity with the enemy army it has seen plus the defences at the target.
-    if (!ready && ordinary && army.length >= 5 && c.tick - this.lastWaveAt >= STALEMATE_QUIET && c.tick - this.lastThreat >= STALEMATE_QUIET) {
+    if (!ready && ordinary && this.rules.stalemate && army.length >= 5 && c.tick - this.lastWaveAt >= STALEMATE_QUIET && c.tick - this.lastThreat >= STALEMATE_QUIET) {
       const plants = (kind: string): number => c.buildings.filter((b) => b.kind === kind).length;
       const big = (plants(this.kit.barracks) >= GROWTH_MAX && plants(this.kit.factory) >= GROWTH_MAX) || p >= STALEMATE_ARMY;
-      const parity = this.seenArmy(c) + defences;
+      const parity = this.enemyArmy(c, HOLD_SEEN) + defences;
       if (big && p >= parity) {
         ready = true;
         est = parity;
@@ -1493,7 +1643,7 @@ export class AI {
     const wave = gathered.length >= 3 && !striking && !launch ? gathered : army;
     const wp = this.armyPower(wave);
     // What sets out is the raid: its target must still be one it may go for (AI-23).
-    if (raiding && wave.length < army.length) {
+    if (raiding && guard && wave.length < army.length) {
       const t = this.raidTarget(c, wp);
       if (!t) return;
       target = t;
@@ -1507,7 +1657,7 @@ export class AI {
     }
     if (p < 0.8 * est) this.stats.suicides++;
     if (wave.length < 5) this.stats.lone++;
-    this.wave = { tx: target.tx, ty: target.ty, peak: wp, lastOrder: c.tick, members: new Set(wave.map((u) => u.id)), size: wave.length, held: false };
+    this.wave = { tx: target.tx, ty: target.ty, peak: wp, start: wp, lastOrder: c.tick, members: new Set(wave.map((u) => u.id)), size: wave.length, held: false };
     const { x, y } = centre(wave);
     const d = dist(x, y, target.tx, target.ty);
     order('attackmove', wave, x + ((target.tx - x) * Math.min(d, WAVE_HOP)) / Math.max(1, d), y + ((target.ty - y) * Math.min(d, WAVE_HOP)) / Math.max(1, d));

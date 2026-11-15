@@ -4,6 +4,7 @@ import { DIFFICULTIES, PERSONALITIES, type Personality } from '../../src/ai/ai';
 import { lengthReport, playMatch, type ArmyAt, type EconomyAt, type MatchOptions, type MatchResult } from '../../src/ai/harness';
 import { STEAMROLL_DIFFICULTY, STEAMROLL_TUNING, type SteamrollTuning } from '../../src/ai/steamroll';
 import type { Faction } from '../../src/data/defs';
+import { aiRules, rulesLine } from './aiRules';
 import { playMatches } from './pool';
 
 /**
@@ -17,6 +18,7 @@ import { playMatches } from './pool';
  * - STEAMROLL_SEAT: `0` or `1`, the Hard AI's seat;
  * - STEAMROLL_VARIANT: knobs of the opponent to change, for calibration, such as `launch:18000,crushers:8,bonus:15` (`=` works
  *   too); any key of SteamrollTuning, all numbers;
+ * - AI_RULES: changes to the Hard AI's rules (AiRules), such as `hold:0,labAt:99` (see aiRules.ts);
  * - MATCH_SHARD: `k/n`, to play only the k-th of n shares of the selected games.
  * Pick the personality with `-t raider` (or balanced, doomsday).
  */
@@ -83,6 +85,7 @@ export function steamrollGames(personality: Personality): SteamrollGame[] {
           personalities: seat === 0 ? [personality, 'balanced'] : ['balanced', personality],
           opponents: seat === 0 ? ['ai', 'steamroll'] : ['steamroll', 'ai'],
           steamroll: tuning,
+          rules: aiRules(),
           maxTicks: STEAMROLL_TICKS,
         };
         return { o, seat, personality, faction };
@@ -179,13 +182,14 @@ function gameLine(g: SteamrollGame, r: MatchResult): string {
 /** Prints the tally, every game's facts and their medians, and adds them to the CI job summary when there is one. */
 function report(p: Personality, games: readonly SteamrollGame[], rs: readonly MatchResult[], minutesTaken: number): void {
   const lengths = lengthReport(rs.map((r) => r.ticks));
-  const shard = ['MATCH_SHARD', 'STEAMROLL_SEEDS', 'STEAMROLL_AI_FACTION', 'STEAMROLL_SEAT', 'STEAMROLL_VARIANT'].map((k) => `${k}=${env(k) || '-'}`).join(' ');
+  const shard = ['MATCH_SHARD', 'STEAMROLL_SEEDS', 'STEAMROLL_AI_FACTION', 'STEAMROLL_SEAT', 'STEAMROLL_VARIANT', 'AI_RULES'].map((k) => `${k}=${env(k) || '-'}`).join(' ');
   const opp = rs.map((r, i) => r.ai[1 - games[i]!.seat]!.steamroll);
   const firsts = opp.flatMap((s) => (s?.launches[0] ? [s.launches[0]] : []));
   const peakAi = rs.map((r, i) => r.peak.armyValue[games[i]!.seat] as number);
   const peakOpp = rs.map((r, i) => r.peak.armyValue[1 - games[i]!.seat] as number);
   const out = [
     `HAR-5 ${p}: Hard AI against the steamroll opponent, ${rs.length} games (${shard}), tuning ${JSON.stringify({ ...STEAMROLL_TUNING, ...variant() })}, ${STEAMROLL_TICKS} ticks at most, played in ${minutesTaken.toFixed(1)} min`,
+    rulesLine(),
     line(p, tally(games, rs)),
     ...(['human', 'alien'] as const).map((f) => line(`AI ${f}`, tally(games, rs, (g) => g.faction === f))),
     `by: ${rs.filter((r) => r.reason === 'elimination').length} elimination, ${rs.filter((r) => r.reason === 'material').length} material, ${rs.filter((r) => r.reason === 'draw').length} undecided`,

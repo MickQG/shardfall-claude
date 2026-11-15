@@ -2,7 +2,7 @@ import { buildingDef, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
 import { skirmishConfig, type MapId } from '../data/maps';
 import { createGame, FP, hash, Rng, snapshot, submit, tick, type Game } from '../sim';
 import { Hv } from '../sim/state';
-import { AI, type AiStats, type Difficulty, type Personality } from './ai';
+import { AI, type AiRules, type AiStats, type Difficulty, type Personality } from './ai';
 import { kitOf, type Kit } from './kit';
 import { STEAMROLL_DIFFICULTY, STEAMROLL_TUNING, SteamrollAI, type SteamrollTuning } from './steamroll';
 
@@ -43,6 +43,8 @@ export interface MatchOptions {
   steamroll?: Partial<SteamrollTuning>;
   /** Test only: false turns the AIs' standing scout off (AI-21), to measure the old scouting; on by default. */
   standingScout?: boolean;
+  /** Measurement only: changes to the rules of every ordinary AI in the match (AiRules); the steamroll opponent ignores them. */
+  rules?: Partial<AiRules>;
 }
 
 /**
@@ -146,7 +148,7 @@ export function playMatch(o: MatchOptions): MatchResult {
   const cfg = skirmishConfig(o.seed, { factions: o.factions, bonuses: [diffs[0].bonus, diffs[1].bonus], map: o.map, mapSeed: o.mapSeed });
   const game = createGame(cfg);
   const ais = [0, 1].map((p) =>
-    steam(p) ? new SteamrollAI(p, o.factions[p] as Faction, cfg.map, o.seed, tuning) : new AI(p, o.factions[p] as Faction, diffs[p] as Difficulty, cfg.map, o.seed, o.personalities?.[p] ?? 'balanced', { standingScout: o.standingScout ?? true }),
+    steam(p) ? new SteamrollAI(p, o.factions[p] as Faction, cfg.map, o.seed, tuning) : new AI(p, o.factions[p] as Faction, diffs[p] as Difficulty, cfg.map, o.seed, o.personalities?.[p] ?? 'balanced', { standingScout: o.standingScout ?? true, rules: o.rules }),
   ) as [AI, AI];
   // Random think phases per match: when mirrored armies meet, a few ticks of timing decide the fight, so a fixed offset would hand one side every game.
   const pr = new Rng(o.seed * 31 + 7);
