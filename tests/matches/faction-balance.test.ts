@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Difficulty } from '../../src/ai/ai';
 import { unitDef, type Faction } from '../../src/data/defs';
+import { aiRules } from './aiRules';
 import { playMatches } from './pool';
 
 /**
@@ -13,7 +14,7 @@ describe('faction balance in full matches', () => {
     const { DIFFICULTIES } = await import('../../src/ai/ai');
     const { MAPS } = await import('../../src/data/maps');
     const wins = { human: 0, alien: 0 };
-    const games = MAPS.flatMap(({ id: map }) => [1, 2].flatMap((seed) => ([['human', 'alien'], ['alien', 'human']] as const).map((factions) => ({ seed, map, factions: [...factions] as [Faction, Faction], difficulties: [DIFFICULTIES.hard, DIFFICULTIES.hard] as [Difficulty, Difficulty], maxTicks: 20000 }))));
+    const games = MAPS.flatMap(({ id: map }) => [1, 2].flatMap((seed) => ([['human', 'alien'], ['alien', 'human']] as const).map((factions) => ({ seed, map, factions: [...factions] as [Faction, Faction], difficulties: [DIFFICULTIES.hard, DIFFICULTIES.hard] as [Difficulty, Difficulty], maxTicks: 20000, rules: aiRules() }))));
     const results = await playMatches(games);
     results.forEach((r, i) => {
       const side = r.winner === null ? undefined : games[i]!.factions[r.winner];

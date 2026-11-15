@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { DIFFICULTIES, type Personality } from '../../src/ai/ai';
+import { aiRules } from './aiRules';
 import { playMatches } from './pool';
 
 describe('AI artillery in full matches', () => {
   it('AI-19: against an infantry-heavy opponent artillery is a clearly larger share of the army value', async () => {
     const sides = [[1, 'human', 'alien'], [1, 'alien', 'human'], [2, 'human', 'alien']] as const;
     // Balanced against Raider (infantry-heavy), Medium against Medium, fourteen minutes.
-    const rs = await playMatches(sides.map(([seed, a, b]) => ({ seed, factions: [a, b] as ['human' | 'alien', 'human' | 'alien'], difficulties: [DIFFICULTIES.medium, DIFFICULTIES.medium] as [typeof DIFFICULTIES.medium, typeof DIFFICULTIES.medium], maxTicks: 20 * 60 * 14, personalities: ['balanced', 'raider'] as [Personality, Personality] })));
+    const rs = await playMatches(sides.map(([seed, a, b]) => ({ seed, factions: [a, b] as ['human' | 'alien', 'human' | 'alien'], difficulties: [DIFFICULTIES.medium, DIFFICULTIES.medium] as [typeof DIFFICULTIES.medium, typeof DIFFICULTIES.medium], maxTicks: 20 * 60 * 14, personalities: ['balanced', 'raider'] as [Personality, Personality], rules: aiRules() })));
     const share = rs.map((r) => {
       const p = r.ai[0].produced;
       const v = [p.inf * 90, p.at * 235, p.tank * 815, p.art * 850, p.hero * 2000, p.scout * 235];
