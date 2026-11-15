@@ -33,6 +33,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `027-fly-in.md` | Camera fly-in at match start: hold game time, skip in single-player, fixed online, fog, reduced motion | 27 |
 | `028-world.md` | World detail: model surface detail, terrain, horizon, GPU particles, debris, zoom-linked tilt, harvester, Hammer and Scout Buggy models | 28 |
 | `029-unit-restyle.md` | Unit restyle: Aegis vehicles as grounded science fiction (Shard Hauler, Bulwark Tank, Hammer Artillery), hopper tip and refinery trough; the Brute with real joints and a claw blow; parts never come apart; triangle limits | 29 |
-| `030-ai-against-steamroll.md` | The AI against a steamroll (one massed, mixed army around crushers): the harness steamroll opponent | 30 |
+| `030-ai-against-steamroll.md` | The AI against a steamroll (one massed, mixed army around crushers): the harness steamroll opponent; every AI keeps a standing scout that watches the enemy base and stays alive | 30 |
 
 Umbrella spec: GitHub issue #1.

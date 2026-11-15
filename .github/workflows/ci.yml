@@ -78,6 +78,8 @@ jobs:
           - { name: steamroll raider, run: npm run test:matches -- steamroll -t raider }
           - { name: steamroll balanced, run: npm run test:matches -- steamroll -t balanced }
           - { name: steamroll doomsday, run: npm run test:matches -- steamroll -t doomsday }
+          - { name: scout hard, run: SCOUT_DIFFICULTY=hard npm run test:matches -- scout }
+          - { name: scout medium, run: npm run test:matches -- scout }
     name: matches (${{ matrix.name }})
     steps:
       - uses: actions/checkout@v4

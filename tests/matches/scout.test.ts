@@ -17,14 +17,17 @@ import { playMatches } from './pool';
  * - MATCH_SHARD: `k/n`, to play only game i with i mod n equal to k - 1, so CI can split the series.
  */
 
-// PROVISIONAL targets for AI-21, to be confirmed from CI (issue #175). They apply with the standing scout on.
-/** Hard: scouts lost per AI per game, on average, at most; share of sampled time a standing scout is alive, at least. */
-export const PROVISIONAL_HARD_LOST = 2;
-export const PROVISIONAL_HARD_ALIVE = 0.7;
-/** Medium: scouts lost per AI per game, on average, at most (the old scouting lost about 3). */
-export const PROVISIONAL_MEDIUM_LOST = 3;
-/** Mean intel coverage, at least (the old scouting's, plus a margin, once measured). */
-export const PROVISIONAL_COVERAGE = 0;
+// Targets for AI-21 (issue #175), set from the measured series (12 games each, every map, both sides). They apply with
+// the standing scout on. Measured at Hard: 1.0 scouts lost per AI per game (old scouting 2.7), alive at least 95% of the
+// time, coverage 51% (old 44%); at Medium: 1.1 lost (old 3.1), alive about 96%, coverage 45% (old 40%).
+/** Hard: scouts lost per AI per game, on average, at most; share of sampled time a standing scout is alive, at least; mean intel coverage, at least. */
+export const HARD_LOST = 2;
+export const HARD_ALIVE = 0.85;
+export const HARD_COVERAGE = 0.4;
+/** Medium: the same. */
+export const MEDIUM_LOST = 2.5;
+export const MEDIUM_ALIVE = 0.8;
+export const MEDIUM_COVERAGE = 0.36;
 
 /** Twelve minutes: scouting, the first waves and the middle game. */
 export const SCOUT_TICKS = 20 * 60 * 12;
@@ -120,11 +123,9 @@ describe('the standing scout in full matches', () => {
       }
     }
     if (!standing()) return; // the old scouting, measured for comparison only
-    // PROVISIONAL (see above).
-    if (level() === 'hard') {
-      expect(t.lostMean).toBeLessThanOrEqual(PROVISIONAL_HARD_LOST);
-      expect(t.aliveMean).toBeGreaterThanOrEqual(PROVISIONAL_HARD_ALIVE);
-    } else expect(t.lostMean).toBeLessThanOrEqual(PROVISIONAL_MEDIUM_LOST);
-    expect(t.coverageMean).toBeGreaterThanOrEqual(PROVISIONAL_COVERAGE);
+    const hard = level() === 'hard';
+    expect(t.lostMean).toBeLessThanOrEqual(hard ? HARD_LOST : MEDIUM_LOST);
+    expect(t.aliveMean).toBeGreaterThanOrEqual(hard ? HARD_ALIVE : MEDIUM_ALIVE);
+    expect(t.coverageMean).toBeGreaterThanOrEqual(hard ? HARD_COVERAGE : MEDIUM_COVERAGE);
   }, SERIES_TIMEOUT);
 });
