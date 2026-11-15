@@ -22,4 +22,25 @@ describe('pipeline', () => {
     expect(deploy).toContain('pull_request');
     expect(deploy).toContain('action: close');
   });
+
+  it('HAR-6: the Balance workflow plays match tests on demand, in shards, with a read-only token and no pasted inputs', () => {
+    const wf = readFileSync('.github/workflows/balance.yml', 'utf8').replace(/\r\n/g, '\n');
+    // Started by hand only: never a check of a pull request or a push.
+    expect(wf).toContain('workflow_dispatch:');
+    expect(wf).not.toMatch(/^\s*(pull_request|push|schedule):/m);
+    for (const input of ['test:', 'name:', 'shards:', 'vars:']) expect(wf).toContain(input);
+    expect(wf).toMatch(/permissions:\n\s+contents: read/);
+    expect(wf).not.toContain('write');
+    // One job per shard, each told which share to play.
+    expect(wf).toContain('shard: ${{ fromJSON(needs.plan.outputs.shards) }}');
+    expect(wf).toContain('MATCH_SHARD=${{ matrix.shard }}/$N');
+    expect(wf).toContain('npm run test:matches -- "$TEST"');
+    // Inputs reach the shell only as environment variables (never pasted into a script), and are validated.
+    const withInputs = wf.split('\n').filter((l) => l.includes('${{ inputs.'));
+    expect(withInputs.length).toBeGreaterThan(0);
+    for (const line of withInputs) expect(line).toMatch(/^\s+(N|TEST|NAME|VARS): \$\{\{ inputs\.\w+ \}\}$/);
+    expect(wf).toContain('shards must be 1 to 20');
+    expect(wf).toContain('bad variable');
+    expect(wf).toContain('bad test name');
+  });
 });
