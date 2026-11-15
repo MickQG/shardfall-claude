@@ -287,7 +287,20 @@ export interface AiStats {
   superweaponOrder: { haulers: number; army: number } | null;
   /** The steamroll opponent only (HAR-5): tick its fourth crusher stood (or -1), and infantry it ordered after that. */
   steamroll?: { massedAt: number; infantryAfter: number };
+  /** Units it sent scouting (of any kind) that died while scouting (AI-21). */
+  scoutsLost: number;
+  /** Ticks each finished scouting term lasted, until the unit died or rejoined the army (AI-21). */
+  scoutLifetimes: number[];
+  /** Ticks the units scouting now set out, so a lifetime can be read at the end of a match (AI-21). */
+  scoutingSince: number[];
+  /** Its decisions from minute 5 on, and those on which its newest sighting of an armed enemy unit was at most INTEL_FRESH ticks old (AI-21). */
+  intelThinks: number;
+  intelFresh: number;
 }
+
+/** Intel freshness (AI-21) is counted from this tick: how often a sighting of an armed enemy unit is at most INTEL_FRESH ticks old. */
+export const INTEL_FROM = 20 * 60 * 5;
+export const INTEL_FRESH = 20 * 60;
 
 /**
  * What an AI may train and build, and whether it pulls back a beaten wave. Every ordinary AI may do everything; only the
@@ -337,7 +350,7 @@ type Ctx = {
 export class AI {
   readonly kit: Kit;
   protected readonly doctrine: Doctrine = FULL_DOCTRINE;
-  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null };
+  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0 };
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
   private adapted = false;
   private raidsLost = 0;
@@ -357,6 +370,10 @@ export class AI {
   /** The scout's route (AI-17): a flank point first, then the enemy start; trips alternate flanks. */
   private scoutRoute: { tx: number; ty: number }[] = [];
   private scoutTrips = 0;
+  /** Units scouting now and the tick each set out, for the statistics only (AI-21). */
+  private scouting = new Map<number, number>();
+  /** Tick it last saw an armed enemy unit, or -1 (AI-21). */
+  private lastArmedSeen = -1;
   private defend = { tick: -1000, x: 0, y: 0 };
   private lastThreat = -100000;
   private idle = new Map<number, { x: number; y: number; n: number }>();
@@ -407,6 +424,7 @@ export class AI {
       hq, credits: pl.credits, powerOut: pl.powerOut, powerIn: pl.powerIn, counts, army, haulers,
     };
     this.updateIntel(c);
+    this.scoutBook(c);
     this.setupPoints(c);
     this.updatePlan(c);
 
@@ -456,6 +474,38 @@ export class AI {
       const visible = ((snap.fog?.[tileOf(e.y) * W + tileOf(e.x)] ?? 0) & VISIBLE) !== 0;
       if (visible || c.tick - e.t > 2400) this.intel.delete(id);
     }
+  }
+
+  /** Bookkeeping for the scouting statistics (AI-21): scouts lost, how long each scouted, and how fresh its sightings are. */
+  private scoutBook(c: Ctx): void {
+    if (c.foes.some((u) => unitDef(u.kind).weapon)) this.lastArmedSeen = c.tick;
+    if (c.tick >= INTEL_FROM) {
+      this.stats.intelThinks++;
+      if (this.lastArmedSeen >= 0 && c.tick - this.lastArmedSeen <= INTEL_FRESH) this.stats.intelFresh++;
+    }
+    for (const [id, from] of this.scouting) {
+      if (c.own.some((u) => u.id === id)) continue;
+      this.stats.scoutsLost++;
+      this.endScouting(id, c.tick - from);
+    }
+  }
+
+  private startScouting(id: number, tick: number): void {
+    if (this.scouting.has(id)) return;
+    this.scouting.set(id, tick);
+    this.stats.scoutingSince = [...this.scouting.values()];
+  }
+
+  private endScouting(id: number, ticks: number): void {
+    this.scouting.delete(id);
+    this.stats.scoutLifetimes.push(ticks);
+    this.stats.scoutingSince = [...this.scouting.values()];
+  }
+
+  /** A scouting unit rejoins the army (AI-21 statistics). */
+  private rejoin(id: number, tick: number): void {
+    const from = this.scouting.get(id);
+    if (from !== undefined) this.endScouting(id, tick - from);
   }
 
   private setupPoints(c: Ctx): void {
@@ -1123,7 +1173,10 @@ export class AI {
       if (danger || done) {
         this.scoutRoute = [];
         go(me.id, stage);
-        if (done || dist(tileOf(me.x), tileOf(me.y), stage.tx, stage.ty) < 8) this.scoutId = -1;
+        if (done || dist(tileOf(me.x), tileOf(me.y), stage.tx, stage.ty) < 8) {
+          this.rejoin(me.id, c.tick);
+          this.scoutId = -1;
+        }
         return;
       }
       // On to the next leg of the route once this one is reached (or the unit has stopped short of it).
@@ -1145,6 +1198,7 @@ export class AI {
     if (!pick) return;
     this.scoutId = pick.id;
     this.lastScout = c.tick;
+    this.startScouting(pick.id, c.tick);
     // The scout leaves the army now, so this turn's wave or gather orders do not call it back (AI-17).
     c.army = c.army.filter((u) => u.id !== pick.id);
     // Around the enemy's front rather than through it: a flank point halfway there, off to one side (AI-17).
