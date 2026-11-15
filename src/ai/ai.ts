@@ -50,7 +50,8 @@ export const RIFLE_INTEL = 20 * 30;
 /**
  * Production first (AI-22). With every barracks and factory busy and more than GROWTH_BANK credits banked, the next
  * building is another barracks or factory, up to GROWTH_MAX of each. Turrets wait for TURRETS_FROM production buildings
- * (or an attack on the base), the lab for LAB_FROM (Doomsday's comes straight after its second factory).
+ * (or an attack on the base); the lab comes at LAB_FROM, ahead of any further barracks or factory (Doomsday's comes
+ * straight after its second factory).
  */
 export const GROWTH_BANK = 1500;
 export const GROWTH_MAX = 5;
@@ -751,17 +752,19 @@ export class AI {
     if (n(k.barracks) < 2) return powered(k.barracks);
     if (n(k.factory) < 3) return powered(k.factory);
     const production = n(k.barracks) + n(k.factory);
+    // Raider spends on its army, not on tech, until its opening is over (AI-14).
+    const teching = this.plan !== 'raider';
+    // The lab comes as soon as it has five production buildings, ahead of any further barracks or factory (AI-22); it
+    // saves for it (see production).
+    const labDue = teching && n(k.lab) === 0 && production >= LAB_FROM;
     // Then another barracks or factory whenever every one is busy and the bank is full, whichever it has fewer of (AI-22).
-    const grow = this.growth(c);
+    const grow = labDue ? null : this.growth(c);
     if (grow) return powered(grow);
     if (refineries < 3 && haulers >= 4 && c.credits > 1100) return powered(k.refinery);
     // Turrets wait for six production buildings or an attack on the base (AI-22); after an attack they come ahead of the lab.
     const turrets = production >= TURRETS_FROM || this.attacks > 0;
     if (this.attacks > 0 && n(k.turret) < turretsWanted) return k.turret;
-    // Raider spends on its army, not on tech, until its opening is over (AI-14).
-    const teching = this.plan !== 'raider';
-    // The lab once it has five production buildings; it saves for it (see production).
-    if (teching && n(k.lab) === 0 && production >= LAB_FROM) return powered(k.lab);
+    if (labDue) return powered(k.lab);
     if (turrets && n(k.turret) < turretsWanted) return k.turret;
     // Doomsday's superweapon is optional: only when it can spare the money and its army is strong (AI-15).
     if (teching && n(k.superweapon) === 0 && n(k.lab) > 0 && (!tech || this.canAffordDoom(c))) {
@@ -783,9 +786,15 @@ export class AI {
     const k = this.kit;
     if (c.credits <= GROWTH_BANK) return null;
     const plants = c.buildings.filter((b) => b.kind === k.barracks || b.kind === k.factory);
-    if (plants.length === 0 || plants.some((b) => b.queue.length === 0)) return null;
     const nb = plants.filter((b) => b.kind === k.barracks).length;
     const nf = plants.length - nb;
+    // Barracks Doomsday leaves idle on purpose (AI-15: no infantry beyond its rifle floor) do not hold the rule back: it
+    // then adds factories while every factory is busy (AI-22).
+    if (this.plan === 'doomsday' && nf > 0 && this.infantryHeld(c)) {
+      if (plants.some((b) => b.kind === k.factory && b.queue.length === 0)) return null;
+      return nf < GROWTH_MAX ? k.factory : null;
+    }
+    if (plants.length === 0 || plants.some((b) => b.queue.length === 0)) return null;
     if (nf <= nb && nf < GROWTH_MAX) return k.factory;
     if (nb < GROWTH_MAX) return k.barracks;
     if (nf < GROWTH_MAX) return k.factory;
@@ -919,8 +928,8 @@ export class AI {
 
   // ---------------------------------------------------------------- units
 
-  private production(c: Ctx, out: Command[]): void {
-    const intel = this.intelSummary(c);
+  /** Its army by role, the units queued in its buildings counted in, and the queued units by kind. */
+  private roleCounts(c: Ctx): { counts: Record<Role, number>; queued: Map<string, number> } {
     const counts: Record<Role, number> = { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0 };
     for (const u of c.army) counts[roleOf(unitDef(u.kind))]++;
     if (this.scoutId >= 0) counts.scout++;
@@ -928,6 +937,31 @@ export class AI {
     const queued = new Map<string, number>();
     for (const b of c.buildings) for (const q of b.queue) if (!BUILDING_DEFS[q.kind]) queued.set(q.kind, (queued.get(q.kind) ?? 0) + 1);
     for (const [kind, n] of queued) counts[roleOf(unitDef(kind))] += n;
+    return { counts, queued };
+  }
+
+  /**
+   * Whether Doomsday trains no further infantry now (AI-15): it has its rifle floor, its tanks and artillery set the
+   * pace and it has three cheap units for each of them already, and its base is not under pressure.
+   */
+  private doomCaps(counts: Readonly<Record<Role, number>>, rifles: number, urgent: boolean): boolean {
+    return this.plan === 'doomsday' && !urgent && counts.tank + counts.art >= 4 && counts.inf + counts.at >= rifles + 3 * (counts.tank + counts.art);
+  }
+
+  /** Whether Doomsday's barracks stand idle on purpose now (AI-15, AI-22): its rifle floor is met and the cap holds. */
+  private infantryHeld(c: Ctx): boolean {
+    const { counts } = this.roleCounts(c);
+    const rifles = infantryNeeded(this.intelSummary(c, RIFLE_INTEL));
+    return counts.inf >= rifles && this.doomCaps(counts, rifles, this.urgent(c));
+  }
+
+  private urgent(c: Ctx): boolean {
+    return c.army.length < 4 || c.tick - this.lastThreat < 600;
+  }
+
+  private production(c: Ctx, out: Command[]): void {
+    const intel = this.intelSummary(c);
+    const { counts, queued } = this.roleCounts(c);
 
     const next = this.wantedStructure(c);
     // Doomsday saves the whole price of a superweapon it has decided on, else up to its lab's price (AI-15); every AI saves
@@ -941,7 +975,7 @@ export class AI {
     // Artillery in production now (AI-22): at most ARTILLERY_IN_PRODUCTION at once.
     let guns = 0;
     for (const b of c.buildings) for (const q of b.queue) if (UNIT_DEFS[q.kind] && roleOf(unitDef(q.kind)) === 'art') guns++;
-    const urgent = c.army.length < 4 || c.tick - this.lastThreat < 600;
+    const urgent = this.urgent(c);
     const tilt = this.plan === 'raider' ? RAIDER_TILT : this.plan === 'doomsday' ? TECH_TILT : undefined;
     const rifles = this.plan === 'doomsday' ? infantryNeeded(this.intelSummary(c, RIFLE_INTEL)) : 0;
     // Doomsday saving for its superweapon does not spend on the floor (AI-15, AI-19).
@@ -981,7 +1015,7 @@ export class AI {
           : (scout ?? hero ?? rifle ?? gun ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt));
       if (!pick) continue;
       // Doomsday does not flood the field with cheap infantry beyond its rifle floor: tanks and artillery set the pace (AI-15).
-      if (doom && !rifle && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && counts.tank + counts.art >= 4 && counts.inf + counts.at >= rifles + 3 * (counts.tank + counts.art) && !urgent) continue;
+      if (doom && !rifle && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && this.doomCaps(counts, rifles, urgent)) continue;
       const cost = unitDef(pick).cost;
       const reserve = pick === this.kit.hauler || pick === scout || urgent || (b.queue.length === 0 && !saving && !steamroll) ? 0 : hold;
       if (c.credits < cost + reserve) continue;

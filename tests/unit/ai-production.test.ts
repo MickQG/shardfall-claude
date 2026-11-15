@@ -26,6 +26,10 @@ interface Base {
   attacked?: boolean;
   /** Enemy rifle squads in sight, but away from the base, for the artillery floor (AI-19). */
   infantrySeen?: number;
+  /** Power plants (eight unless given). */
+  reactors?: number;
+  /** Its own combat units, by kind, standing in the base. */
+  army?: string[];
 }
 
 const HQ = { tx: 10, ty: 10 };
@@ -38,7 +42,7 @@ function base(o: Base = {}): Game {
   const buildings = [
     ...cfg.buildings!.filter((b) => b.owner !== 0),
     { owner: 0, kind: 'hum_hq', ...HQ },
-    ...put('hum_reactor', 8),
+    ...put('hum_reactor', o.reactors ?? 8),
     ...put('hum_refinery', o.refineries ?? 3),
     ...put('hum_barracks', o.barracks ?? 0),
     ...put('hum_factory', o.factories ?? 0),
@@ -48,6 +52,7 @@ function base(o: Base = {}): Game {
   const units = [
     ...(cfg.units ?? []).filter((u) => u.owner !== 0),
     ...[...Array(o.haulers ?? 6)].map((_, i) => ({ owner: 0, kind: 'hum_hauler', tx: 12 + i, ty: 16 })),
+    ...(o.army ?? []).map((kind, i) => ({ owner: 0, kind, tx: 8 + (i % 8), ty: 20 + Math.floor(i / 8) })),
     ...(o.attacked ? [0, 1, 2].map((i) => ({ owner: 1, kind: 'ali_brute', tx: 14 + i, ty: 14 })) : []),
     ...[...Array(o.infantrySeen ?? 0)].map((_, i) => ({ owner: 1, kind: 'ali_skitter', tx: 34 + (i % 4), ty: 36 + Math.floor(i / 4) })),
   ];
@@ -118,8 +123,8 @@ describe('production first (AI-22)', () => {
     expect(production).not.toContain(grown({ barracks: 3, factories: 3, busy: true, credits: 1500 }));
     expect(production).not.toContain(grown({ barracks: 3, factories: 3, busy: false, credits: 2000 }));
     expect(production).not.toContain(grown({ barracks: 5, factories: 5, busy: true, credits: 2000 }));
-    // Ahead of the lab and turrets.
-    expect(hqOrder(base({ barracks: 2, factories: 3, busy: true, credits: 2000, attacked: true }))).toBe('hum_barracks');
+    // Ahead of turrets, even after an attack on the base.
+    expect(hqOrder(base({ barracks: 2, factories: 3, lab: true, busy: true, credits: 2000, attacked: true }))).toBe('hum_barracks');
   });
 
   it('AI-22: turrets wait until it has six production buildings or its base has been attacked', () => {
@@ -130,10 +135,31 @@ describe('production first (AI-22)', () => {
     expect(hqOrder(base({ barracks: 2, factories: 3, lab: true, credits: 2500, attacked: true }))).toBe('hum_turret');
   });
 
-  it('AI-22: its lab waits until it has five production buildings', () => {
+  it('AI-22: its lab comes as soon as it has five production buildings, ahead of any further barracks or factory', () => {
     expect(LAB_FROM).toBe(5);
     expect(hqOrder(base({ barracks: 2, factories: 2, credits: 2500 }))).toBe('hum_factory');
     expect(hqOrder(base({ barracks: 2, factories: 3, credits: 2500 }))).toBe('hum_lab');
+    // Every building busy with the bank full: the growth rule would add a barracks, but the lab comes first.
+    expect(hqOrder(base({ barracks: 2, factories: 3, busy: true, credits: 2500 }))).toBe('hum_lab');
+    expect(hqOrder(base({ barracks: 4, factories: 4, busy: true, credits: 2500 }))).toBe('hum_lab');
+    // Power as needed first: short of power, the lab asks for a power plant.
+    expect(hqOrder(base({ barracks: 2, factories: 3, busy: true, credits: 2500, reactors: 2 }))).toBe('hum_reactor');
+  });
+
+  it("AI-22: barracks Doomsday leaves idle on purpose (AI-15) do not hold back the growth rule: it adds factories", () => {
+    // Four tanks, three more queued, and infantry beyond its cap (rifle floor plus three per tank): its barracks stay idle by its own rule.
+    const army = [...[...Array(4)].map(() => 'hum_tank'), ...[...Array(26)].map(() => 'hum_rifleman')];
+    const capped = (o: Base, idleFactory = false): Game => {
+      const g = base({ barracks: 2, factories: 3, lab: true, turrets: 6, busy: true, army, ...o });
+      for (const b of g.state.buildings) if (b.owner === 0 && b.kind === 'hum_barracks') b.queue.length = 0;
+      if (idleFactory) g.state.buildings.find((b) => b.owner === 0 && b.kind === 'hum_factory')!.queue.length = 0;
+      return g;
+    };
+    expect(hqOrder(capped({ credits: 2000 }), 'doomsday')).toBe('hum_factory');
+    // Not with an idle factory, nor with 1 500 banked or less; and Balanced's idle barracks still hold the rule back.
+    expect(hqOrder(capped({ credits: 2000 }, true), 'doomsday')).not.toBe('hum_factory');
+    expect(hqOrder(capped({ credits: 1500 }), 'doomsday')).not.toBe('hum_factory');
+    expect(['hum_barracks', 'hum_factory']).not.toContain(hqOrder(capped({ credits: 2000 }), 'balanced'));
   });
 
   it("AI-22: Doomsday builds its lab straight after its second factory, ahead of Balanced's", () => {
