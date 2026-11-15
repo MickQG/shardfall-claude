@@ -258,4 +258,29 @@ describe('the standing scout (AI-21)', () => {
     expect(run(100, { tx: 90, ty: 20 })).toEqual(a);
     expect(run(620, { tx: 88, ty: 24 })).toEqual(a);
   }, LONG);
+
+  it('AI-21: for measurement the standing scout can be turned off, and its life and what it remembers can be read', () => {
+    for (const faction of FACTIONS) {
+      const scout = scoutOf(faction);
+      const on = builtBase(faction, 20000, [{ owner: 0, kind: scout, tx: 20, ty: 26 }]);
+      const ai = new AI(0, faction, DIFFICULTIES.hard, on.cfg.map, 6);
+      drive(on.g, ai, 1);
+      const id = on.g.state.units.find((u) => u.owner === 0 && u.kind === scout)!.id;
+      expect(ai.standingScout, faction).toBe(id);
+      expect(ai.stats.standingSince, faction).toBe(0);
+      on.g.state.units = on.g.state.units.filter((u) => u.id !== id);
+      drive(on.g, ai, 40);
+      expect(ai.standingScout, faction).toBe(-1);
+      expect(ai.stats.standingLives.length, faction).toBe(1);
+      expect(ai.stats.standingSince, faction).toBe(-1);
+      // What it remembers is only what it saw: the enemy start force by its base is not in sight.
+      for (const [uid, e] of ai.sightings) expect(on.g.state.units.find((u) => u.id === uid)?.owner ?? 1, `${faction} ${e.kind}`).not.toBe(0);
+
+      const off = builtBase(faction, 20000, [{ owner: 0, kind: scout, tx: 20, ty: 26 }]);
+      const old = new AI(0, faction, DIFFICULTIES.hard, off.cfg.map, 6, 'balanced', { standingScout: false });
+      drive(off.g, old, 200);
+      expect(old.standingScout, faction).toBe(-1);
+      expect(old.stats.standingSince, faction).toBe(-1);
+    }
+  });
 });

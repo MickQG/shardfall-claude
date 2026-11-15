@@ -40,7 +40,25 @@ export interface MatchOptions {
   opponents?: [Opponent, Opponent];
   /** Parts of the steamroll opponent to change, for measuring each one (HAR-5); STEAMROLL_TUNING by default. */
   steamroll?: Partial<SteamrollTuning>;
+  /** Test only: false turns the AIs' standing scout off (AI-21), to measure the old scouting; on by default. */
+  standingScout?: boolean;
 }
+
+/**
+ * How well an AI watches the enemy (AI-21), sampled by the harness every SCOUT_SAMPLE ticks from SCOUT_SAMPLE_FROM on.
+ * The harness may read true state; the AI's side is only what it remembers seeing.
+ */
+export interface ScoutWatch {
+  /** Samples taken. */
+  samples: number;
+  /** Mean over the samples with enemy armed units alive: the value of those it has a sighting of at most 60 s old, over the value of all of them. */
+  coverage: number;
+  /** Share of samples with its standing scout alive. */
+  alive: number;
+}
+export const SCOUT_SAMPLE = 20 * 10;
+export const SCOUT_SAMPLE_FROM = 20 * 60 * 4;
+export const SCOUT_SIGHTING_AGE = 20 * 60;
 
 /** Who plays a seat in a headless match: the AI, or the steamroll opponent used to measure it (HAR-5). */
 export type Opponent = 'ai' | 'steamroll';
@@ -57,6 +75,8 @@ export interface MatchResult {
   peak: { haulers: [number, number]; army: [number, number]; buildings: [number, number] };
   /** Orders each AI issued, for determinism checks. */
   orders: [number, number];
+  /** How well each AI watched the enemy (AI-21). */
+  watch: [ScoutWatch, ScoutWatch];
 }
 
 const zero = (): Violations => ({ idleHauler: 0, stuck: 0, powerOutage: 0, hoard: 0, undefended: 0, suicide: 0, lone: 0 });
@@ -76,7 +96,7 @@ export function playMatch(o: MatchOptions): MatchResult {
   const cfg = skirmishConfig(o.seed, { factions: o.factions, bonuses: [diffs[0].bonus, diffs[1].bonus], map: o.map, mapSeed: o.mapSeed });
   const game = createGame(cfg);
   const ais = [0, 1].map((p) =>
-    steam(p) ? new SteamrollAI(p, o.factions[p] as Faction, cfg.map, o.seed, tuning) : new AI(p, o.factions[p] as Faction, diffs[p] as Difficulty, cfg.map, o.seed, o.personalities?.[p] ?? 'balanced'),
+    steam(p) ? new SteamrollAI(p, o.factions[p] as Faction, cfg.map, o.seed, tuning) : new AI(p, o.factions[p] as Faction, diffs[p] as Difficulty, cfg.map, o.seed, o.personalities?.[p] ?? 'balanced', { standingScout: o.standingScout ?? true }),
   ) as [AI, AI];
   // Random think phases per match: when mirrored armies meet, a few ticks of timing decide the fight, so a fixed offset would hand one side every game.
   const pr = new Rng(o.seed * 31 + 7);
@@ -84,6 +104,7 @@ export function playMatch(o: MatchOptions): MatchResult {
   const viol: [Violations, Violations] = [zero(), zero()];
   const peak = { haulers: [0, 0] as [number, number], army: [0, 0] as [number, number], buildings: [0, 0] as [number, number] };
   const orders: [number, number] = [0, 0];
+  const watch = [0, 1].map(() => ({ samples: 0, covered: 0, counted: 0, alive: 0 }));
 
   // Per-entity episode trackers: key -> first tick of the current bad streak.
   const since = new Map<string, number>();
@@ -117,6 +138,27 @@ export function playMatch(o: MatchOptions): MatchResult {
     if (s.tick % 10 !== 0) continue;
 
     const t = s.tick;
+    if (t >= SCOUT_SAMPLE_FROM && t % SCOUT_SAMPLE === 0) {
+      for (const p of [0, 1] as const) {
+        const ai = ais[p];
+        const w = watch[p]!;
+        w.samples++;
+        if (ai.standingScout >= 0 && s.units.some((u) => u.id === ai.standingScout)) w.alive++;
+        let all = 0;
+        let seen = 0;
+        for (const u of s.units) {
+          const d = unitDef(u.kind);
+          if (u.owner === p || !d.weapon) continue;
+          all += d.cost;
+          const e = ai.sightings.get(u.id);
+          if (e && t - e.t <= SCOUT_SIGHTING_AGE) seen += d.cost;
+        }
+        if (all > 0) {
+          w.covered += seen / all;
+          w.counted++;
+        }
+      }
+    }
     const anyShards = s.shards.some((v) => v > 0);
     for (const p of [0, 1]) {
       const v = viol[p] as Violations;
@@ -175,7 +217,8 @@ export function playMatch(o: MatchOptions): MatchResult {
     (viol[p] as Violations).suicide = (ais[p] as AI).stats.suicides;
     (viol[p] as Violations).lone = (ais[p] as AI).stats.lone;
   }
-  return { winner, reason, ticks: s.tick, material: m, hash: hash(game), violations: viol, ai: [ais[0].stats, ais[1].stats], peak, orders };
+  const watched = watch.map((w): ScoutWatch => ({ samples: w.samples, coverage: w.counted > 0 ? w.covered / w.counted : 0, alive: w.samples > 0 ? w.alive / w.samples : 0 })) as [ScoutWatch, ScoutWatch];
+  return { winner, reason, ticks: s.tick, material: m, hash: hash(game), violations: viol, ai: [ais[0].stats, ais[1].stats], peak, orders, watch: watched };
 }
 
 /** Shared by tests and the CLI: sum of every violation counter. */

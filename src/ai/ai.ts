@@ -275,7 +275,8 @@ export function shouldAttack(myPower: number, enemyEstimate: number, armyCount: 
 const tileOf = (v: number): number => Math.floor(v / FP);
 const dist = (ax: number, ay: number, bx: number, by: number): number => Math.hypot(ax - bx, ay - by);
 
-interface Remembered {
+/** A remembered sighting of an enemy unit: its kind, where and when it was last seen (AI-2: only what the AI saw). */
+export interface Remembered {
   kind: string;
   x: number;
   y: number;
@@ -339,6 +340,15 @@ export interface AiStats {
   /** Its decisions from minute 5 on, and those on which its newest sighting of an armed enemy unit was at most INTEL_FRESH ticks old (AI-21). */
   intelThinks: number;
   intelFresh: number;
+  /** Standing scouts (AI-21): ticks each lost one lived from when it stood, and the tick the living one stood, or -1. */
+  standingLives: number[];
+  standingSince: number;
+}
+
+/** Options of an AI beyond difficulty and personality. */
+export interface AiOptions {
+  /** The standing scout (AI-21), on unless false; off only in measurement (the harness), to compare with the old scouting. */
+  standingScout?: boolean;
 }
 
 /** Intel freshness (AI-21) is counted from this tick: how often a sighting of an armed enemy unit is at most INTEL_FRESH ticks old. */
@@ -393,7 +403,7 @@ type Ctx = {
 export class AI {
   readonly kit: Kit;
   protected readonly doctrine: Doctrine = FULL_DOCTRINE;
-  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0 };
+  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1 };
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
   private adapted = false;
   private raidsLost = 0;
@@ -448,6 +458,7 @@ export class AI {
     private map: MapDef,
     seed = 0,
     readonly personality: Personality = 'balanced',
+    readonly options: Readonly<AiOptions> = {},
   ) {
     this.kit = kitOf(faction);
     const r = new Rng(seed * 7919 + player * 104729 + 13);
@@ -541,6 +552,16 @@ export class AI {
       this.stats.scoutsLost++;
       this.endScouting(id, c.tick - from);
     }
+  }
+
+  /** Its standing scout's unit id, or -1 (AI-21): for measurement only. */
+  get standingScout(): number {
+    return this.standing;
+  }
+
+  /** What it remembers of enemy units, by unit id (AI-21): for measurement only; nothing it has not seen. */
+  get sightings(): ReadonlyMap<number, Readonly<Remembered>> {
+    return this.intel;
   }
 
   private startScouting(id: number, tick: number): void {
@@ -1284,6 +1305,7 @@ export class AI {
 
   /** The faction's scout unit if this AI may train it (AI-21): the Scout Buggy or Stalker; none for the steamroll opponent. */
   private scoutKind(): string | null {
+    if (this.options.standingScout === false) return null;
     if (this.standingKind === undefined) this.standingKind = Object.keys(UNIT_DEFS).find((k) => unitDef(k).faction === this.faction && unitDef(k).role === 'scout' && this.doctrine.trains(k)) ?? null;
     return this.standingKind;
   }
@@ -1295,11 +1317,14 @@ export class AI {
     if (this.standing >= 0 && !own.some((u) => u.id === this.standing)) {
       this.standing = -1;
       this.standingLostAt = tick;
+      this.stats.standingLives.push(tick - this.stats.standingSince);
+      this.stats.standingSince = -1;
     }
     if (this.standing >= 0) return;
     const next = own.filter((u) => u.kind === kind).sort((a, b) => a.id - b.id)[0];
     if (!next) return;
     this.standing = next.id;
+    this.stats.standingSince = tick;
     this.scoutGoal = null;
     this.backing = false;
     this.tourStep = 0;
