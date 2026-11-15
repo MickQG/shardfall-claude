@@ -64,6 +64,29 @@ export const SCOUT_STANDOFF = 9;
 export const SCOUT_DANGER = 8;
 /** How long (ticks) a sighting of an armed enemy unit keeps an observation point, and the way to it, unsafe (AI-21). */
 export const SCOUT_MEMORY = 20 * 60;
+/**
+ * Economy and production scale (AI-22). It takes further fields once both home fields have a refinery and it has this
+ * many haulers.
+ */
+export const EXPAND_HAULERS = 5;
+/** A field on which it has seen an enemy army or defence within this many ticks is skipped (AI-22). */
+export const FIELD_INTEL = 20 * 60;
+/** Remembered enemy strength (cost) on a field, or on the way to it, that counts as an army; as economy() uses (AI-18). */
+export const ARMY_NEAR = 150;
+/** It stops building toward a field while it has seen an enemy army on the way within this many ticks (AI-22). */
+export const WAY_INTEL = 20 * 20;
+/** Haulers for each refinery, and for one at a field of more than BIG_FIELD shard tiles (AI-22). */
+export const HAULERS_PER_REFINERY = 3;
+export const HAULERS_PER_BIG = 4;
+export const BIG_FIELD = 30;
+/** A barracks or factory is added when every one is busy and it can pay for it with this much to spare, up to GROWTH_MAX of each (AI-22). */
+export const GROWTH_SPARE = 500;
+export const GROWTH_MAX = 5;
+/** A refinery whose centre stands farther than this (tiles) from the HQ centre is outside the base and gets a turret (AI-22). */
+export const OUTPOST = 16;
+/** A refinery counts as guarded with an own turret this close (tiles) to it, and its turret goes this close (AI-22). */
+export const GUARD_R = 6;
+
 /** Directions of its observation points around the enemy base, in order around the compass (AI-21). */
 const RING: readonly (readonly [number, number])[] = [
   [1, 0],
@@ -370,6 +393,19 @@ export interface Doctrine {
 
 const FULL_DOCTRINE: Doctrine = { trains: () => true, attacks: () => true, factoriesForBarracks: false, superweapon: true, retreats: true };
 
+/** The further field an AI is taking (AI-22): its index, where its refinery goes if one fits now, and whether an enemy army stands on the way. */
+interface Expansion {
+  fi: number;
+  spot: { tx: number; ty: number } | null;
+  blocked: boolean;
+}
+
+/**
+ * Where a building goes when it is not an ordinary part of the compact base (AI-22): a refinery beside a further field,
+ * a step of the crawl toward one, a turret by an outlying refinery, or, when the compact base is full, a little farther out.
+ */
+type Aim = { refineryFor: ShardField } | { toward: ShardField } | { guard: BuildingSnap } | { wide: true };
+
 type Ctx = {
   snap: Snapshot;
   tick: number;
@@ -434,6 +470,8 @@ export class AI {
   private fields: ShardField[] = [];
   private haulerField = new Map<number, number>();
   private lastRebalance = -1000;
+  /** The further field it is taking now, worked out afresh each decision, or null (AI-22). */
+  private expansion: Expansion | null = null;
   /** The exact centre of our HQ, in tiles; on a point-symmetric map the two players' centres mirror exactly. */
   private centre: { x: number; y: number } = { x: 0, y: 0 };
   private attacks = 0;
@@ -480,6 +518,7 @@ export class AI {
     this.scoutBook(c);
     this.setupPoints(c);
     this.updatePlan(c);
+    this.expansion = this.scales ? this.planExpansion(c) : null;
 
     const out: Command[] = [];
     this.placeReady(c, out);
@@ -572,9 +611,14 @@ export class AI {
     this.centre = { x: hx, y: hy };
     // Home fields first, then every other field by distance (AI-18).
     const homes = homeFields(this.map, { tx: c.hq.tx, ty: c.hq.ty });
+    // Ties are broken by a key that a field and its mirror image share, so both players order mirrored fields alike and
+    // take mirror-image fields (MAP-4, AI-22): the first tile counted from the player's own corner of the map.
+    const n = W * H;
+    const flip = this.home.ty * W + this.home.tx > (H - 1 - this.home.ty) * W + (W - 1 - this.home.tx);
+    const key = (f: ShardField): number => (flip ? n - 1 - f.tiles[f.tiles.length - 1]! : f.tiles[0]!);
     const rest = shardFields(this.map)
       .filter((f) => !homes.some((h) => h.tiles[0] === f.tiles[0]))
-      .sort((a, b) => dist(a.cx, a.cy, hx, hy) - dist(b.cx, b.cy, hx, hy) || a.tiles[0]! - b.tiles[0]!);
+      .sort((a, b) => dist(a.cx, a.cy, hx, hy) - dist(b.cx, b.cy, hx, hy) || key(a) - key(b));
     this.fields = [...homes, ...rest];
     // Symmetric map: the opponent starts opposite us. A human can read this off the map too.
     const ex = W - hx;
@@ -624,12 +668,12 @@ export class AI {
     return total === 0 ? { air: 0, heavy: 0, light: 0, squads: 0, total: 0 } : { air: air / total, heavy: heavy / total, light: light / total, squads: squads / total, total };
   }
 
-  /** Cost-weighted strength of the remembered enemy army and defences within `r` tiles of a tile. */
-  private enemyPowerNear(c: Ctx, tx: number, ty: number, r: number): number {
+  /** Cost-weighted strength of the remembered enemy army (seen within `within` ticks) and defences within `r` tiles of a tile. */
+  private enemyPowerNear(c: Ctx, tx: number, ty: number, r: number, within = 1800): number {
     let p = 0;
     for (const e of this.intel.values()) {
       const d = UNIT_DEFS[e.kind];
-      if (!d?.weapon || c.tick - e.t > 1800) continue;
+      if (!d?.weapon || c.tick - e.t > within) continue;
       if (dist(tileOf(e.x), tileOf(e.y), tx, ty) <= r) p += d.cost;
     }
     for (const b of c.enemyBuildings) {
@@ -683,6 +727,8 @@ export class AI {
     if (tech && n(k.lab) === 0) return k.lab;
     if (tech && n(k.factory) < 2 && c.credits > 1400) return k.factory;
     if (n(k.turret) < turretsWanted) return k.turret;
+    // Every ordinary AI grows as a strong player does (AI-22); the steamroll opponent keeps the rules below (HAR-5).
+    if (this.scales) return this.scaledStructure(c, margin);
     const rich = c.credits > 3000 ? 2 : c.credits > 1400 ? 1 : 0;
     // Further barracks; the steamroll opponent (HAR-5) adds factories instead, counting those beyond the factory line
     // below as its further barracks.
@@ -704,6 +750,129 @@ export class AI {
     if (n(k.turret) < 6 && c.credits > 1800) return k.turret;
     if (n(k.power) < 8 && margin < 80 && c.credits > 1200) return k.power;
     return null;
+  }
+
+  /** Whether this AI grows its economy and production by AI-22: every ordinary AI, not the steamroll opponent (HAR-5). */
+  private get scales(): boolean {
+    return this.doctrine === FULL_DOCTRINE;
+  }
+
+  /**
+   * The rest of the build order of an ordinary AI (AI-22), once power, its first barracks, factory and two refineries,
+   * Doomsday's own buildings and its planned turrets stand: a refinery for a home field that lost one, the lab, the next
+   * further field and a turret by each outlying refinery, more barracks and factories while every one is busy, the
+   * superweapon (Doomsday's ahead of the extra production, AI-15), then turrets and power. Anything that would
+   * leave the power short asks for a power plant first (AI-3).
+   */
+  private scaledStructure(c: Ctx, margin: number): string | null {
+    const k = this.kit;
+    const n = (kind: string): number => c.counts.get(kind) ?? 0;
+    const powered = (kind: string): string => (margin < -buildingDef(kind).power + 15 ? k.power : kind);
+    const teching = this.plan !== 'raider';
+    const doom = this.plan === 'doomsday';
+    const queued = (kind: string): boolean => c.hq.queue.some((q) => q.kind === kind);
+    // A home field that lost its refinery gets one again, unless the enemy holds it (AI-18).
+    if (!queued(k.refinery) && this.homeRefineries(c) < 2 && this.fields.slice(0, 2).some((f) => this.hasShards(c, f) && !this.served(c, f) && this.enemyPowerNear(c, Math.floor(f.cx), Math.floor(f.cy), 8) <= ARMY_NEAR)) return powered(k.refinery);
+    if (teching && n(k.lab) === 0 && c.credits > 1100) return powered(k.lab);
+    const superweapon = (): string | null => {
+      if (!teching || !this.doctrine.superweapon || n(k.superweapon) > 0 || n(k.lab) === 0 || (doom && !this.canAffordDoom(c))) return null;
+      return margin < -buildingDef(k.superweapon).power + 10 ? k.power : k.superweapon;
+    };
+    // Doomsday's own build order comes first (AI-15).
+    if (doom) {
+      const sw = superweapon();
+      if (sw) return sw;
+    }
+    // The next further field, while it can afford it (AI-22); it saves for the refinery once it has half its price.
+    const ex = this.expansion;
+    if (ex?.spot && !queued(k.refinery) && c.credits >= buildingDef(k.refinery).cost / 2) return powered(k.refinery);
+    if (teching && !queued(k.turret) && this.unguarded(c) && c.credits >= buildingDef(k.turret).cost) return powered(k.turret);
+    // A barracks or factory whenever every one it has is busy and it can pay with GROWTH_SPARE to spare (AI-22).
+    const busy = (kind: string): boolean => {
+      const bs = c.buildings.filter((b) => b.kind === kind);
+      return bs.length > 0 && bs.every((b) => b.queue.length > 0);
+    };
+    const grow = (kind: string): boolean => n(kind) < GROWTH_MAX && !queued(kind) && busy(kind) && c.credits >= buildingDef(kind).cost + GROWTH_SPARE;
+    for (const kind of n(k.factory) <= n(k.barracks) ? [k.factory, k.barracks] : [k.barracks, k.factory]) if (grow(kind)) return powered(kind);
+    if (!doom) {
+      const sw = superweapon();
+      if (sw) return sw;
+    }
+    if (n(k.turret) < 6 && c.credits > 1800) return k.turret;
+    // Power keeps ahead of the drain as buildings multiply (AI-3); while it builds toward a field, power plants are its steps.
+    const crawling = ex !== null && ex.spot === null && !ex.blocked;
+    if (n(k.power) < (crawling ? 10 : 8) && (margin < 80 || crawling) && c.credits > 1200) return k.power;
+    return null;
+  }
+
+  /** Whether a field still has shards: as last seen where it has looked, as the map shows where it has not (AI-2). */
+  private hasShards(c: Ctx, f: ShardField): boolean {
+    const fog = c.snap.fog as Uint8Array;
+    return f.tiles.some((t) => (((fog[t] as number) & EXPLORED) !== 0 ? (c.snap.shards[t] as number) > 0 : ((this.map.shards?.[t] ?? 0) as number) > 0));
+  }
+
+  /**
+   * The further field to take next (AI-22): none for Raider in its opening or before both home fields have a refinery
+   * and it has EXPAND_HAULERS haulers; else the nearest field (home fields first, then by distance) that still has shards,
+   * has no refinery of ours, and on which it has seen no enemy army or defence in the last FIELD_INTEL ticks. One at a time.
+   */
+  private planExpansion(c: Ctx): Expansion | null {
+    if (this.plan === 'raider' || c.haulers.length < EXPAND_HAULERS) return null;
+    if (!this.homesServed(c)) return null;
+    for (let fi = 2; fi < this.fields.length; fi++) {
+      const f = this.fields[fi]!;
+      if (!this.hasShards(c, f) || this.served(c, f)) continue;
+      if (this.enemyPowerNear(c, Math.floor(f.cx), Math.floor(f.cy), 8, FIELD_INTEL) > ARMY_NEAR) continue;
+      const spot = this.findSpot(c, this.kit.refinery, { refineryFor: f });
+      return { fi, spot, blocked: spot === null && this.armyOnTheWay(c, f) };
+    }
+    return null;
+  }
+
+  /** Whether it has seen an enemy army lately between its building nearest a field and the field (AI-22). */
+  private armyOnTheWay(c: Ctx, f: ShardField): boolean {
+    let from: BuildingSnap | null = null;
+    let fd = Infinity;
+    for (const b of c.buildings) {
+      const d = edgeDist(b, f.cx, f.cy);
+      if (d < fd) {
+        fd = d;
+        from = b;
+      }
+    }
+    if (!from) return false;
+    const bd = buildingDef(from.kind);
+    const ax = from.tx + bd.w / 2;
+    const ay = from.ty + bd.h / 2;
+    let p = 0;
+    for (const e of this.intel.values()) {
+      const d = UNIT_DEFS[e.kind];
+      if (!d?.weapon || c.tick - e.t > WAY_INTEL) continue;
+      if (segDist(e.x / FP, e.y / FP, ax, ay, f.cx, f.cy) <= 8) p += d.cost;
+    }
+    return p > ARMY_NEAR;
+  }
+
+  /** Its nearest refinery outside the base (farther than OUTPOST from the HQ centre) with no turret of its own beside it, or null (AI-22). */
+  private unguarded(c: Ctx): BuildingSnap | null {
+    const hc = this.centre;
+    const centre = (b: BuildingSnap): [number, number] => [b.tx + buildingDef(b.kind).w / 2, b.ty + buildingDef(b.kind).h / 2];
+    const open = c.buildings
+      .filter((b) => buildingDef(b.kind).refinery && dist(...centre(b), hc.x, hc.y) > OUTPOST)
+      .filter((r) => !c.buildings.some((t) => buildingDef(t.kind).weapon && edgeDist(r, ...centre(t)) <= GUARD_R))
+      .sort((a, b) => dist(...centre(a), hc.x, hc.y) - dist(...centre(b), hc.x, hc.y) || a.id - b.id);
+    return open[0] ?? null;
+  }
+
+  /** Its refineries that serve no further field: those of its home fields (AI-18, AI-22). */
+  private homeRefineries(c: Ctx): number {
+    const further = this.fields.slice(2);
+    return c.buildings.filter((b) => buildingDef(b.kind).refinery && !further.some((f) => dist(b.tx + 1.5, b.ty + 1, f.cx, f.cy) <= 9)).length;
+  }
+
+  /** Whether both home fields have a refinery (AI-18): each that still has shards has one, or it has two home refineries anyway. */
+  private homesServed(c: Ctx): boolean {
+    return this.homeRefineries(c) >= 2 || this.fields.slice(0, 2).every((f) => !this.hasShards(c, f) || this.served(c, f));
   }
 
   /**
@@ -730,12 +899,33 @@ export class AI {
   private placeReady(c: Ctx, out: Command[]): void {
     const head = c.hq.queue[0];
     if (!head?.ready) return;
-    const spot = this.findSpot(c, head.kind);
+    const aim = this.scales ? this.aimFor(c, head.kind) : null;
+    // Beyond the compact base only for a further field or its guard (AI-22); then, if the compact base is full, a little
+    // farther out rather than cancelling.
+    const spot = (aim ? this.findSpot(c, head.kind, aim) : null) ?? this.findSpot(c, head.kind) ?? (this.scales ? this.findSpot(c, head.kind, { wide: true }) : null);
     if (spot) out.push({ type: 'place', player: this.player, source: c.hq.id, tx: spot.tx, ty: spot.ty });
     else out.push({ type: 'cancel', player: this.player, source: c.hq.id, index: 0 });
   }
 
-  private findSpot(c: Ctx, kind: string): { tx: number; ty: number } | null {
+  /**
+   * Where a ready building aims (AI-22): a refinery beside the further field it is taking when one fits there; a turret
+   * by an outlying refinery without one; a power plant, barracks or factory one step toward a further field that is out
+   * of reach, unless an enemy army stands on the way. Anything else, or nothing to aim at: the compact base.
+   */
+  private aimFor(c: Ctx, kind: string): Aim | null {
+    const k = this.kit;
+    const ex = this.expansion;
+    const f = ex ? this.fields[ex.fi] : undefined;
+    if (kind === k.refinery) return ex?.spot && f ? { refineryFor: f } : null;
+    if (kind === k.turret) {
+      const r = this.unguarded(c);
+      return r ? { guard: r } : null;
+    }
+    if ((kind === k.power || kind === k.barracks || kind === k.factory) && ex && f && !ex.spot && !ex.blocked) return { toward: f };
+    return null;
+  }
+
+  private findSpot(c: Ctx, kind: string, aim?: Aim): { tx: number; ty: number } | null {
     const { snap } = c;
     const d = buildingDef(kind);
     const W = snap.mapWidth;
@@ -765,7 +955,9 @@ export class AI {
     // Every third tile counted from the player's own corner of the map, so both players sample mirror-image tiles.
     const n = snap.shards.length;
     // A new refinery goes beside the first field without one, home fields first (AI-18).
-    const unserved = d.refinery ? this.fields.find((f) => f.tiles.some((t) => (snap.shards[t] as number) > 0) && !c.buildings.some((b) => buildingDef(b.kind).refinery && dist(b.tx + 1.5, b.ty + 1, f.cx, f.cy) <= 9)) : undefined;
+    // A refinery for a further field goes beside that field (AI-22).
+    const forField = aim && 'refineryFor' in aim ? aim.refineryFor : undefined;
+    const unserved = forField ?? (d.refinery ? this.fields.find((f) => f.tiles.some((t) => (snap.shards[t] as number) > 0) && !c.buildings.some((b) => buildingDef(b.kind).refinery && dist(b.tx + 1.5, b.ty + 1, f.cx, f.cy) <= 9)) : undefined);
     if (unserved) for (const t of unserved.tiles) if ((snap.shards[t] as number) > 0) fields.push([(t % W) + 0.5, Math.floor(t / W) + 0.5]);
     if (d.refinery && fields.length === 0)
       for (let k = 0; k < n; k += 3) {
@@ -779,22 +971,64 @@ export class AI {
     };
     let best: { tx: number; ty: number } | null = null;
     let bs = Infinity;
-    const minX = Math.min(...c.buildings.map((b) => b.tx)) - BUILD_RANGE - d.w;
-    const maxX = Math.max(...c.buildings.map((b) => b.tx)) + BUILD_RANGE + 4;
-    const minY = Math.min(...c.buildings.map((b) => b.ty)) - BUILD_RANGE - d.h;
-    const maxY = Math.max(...c.buildings.map((b) => b.ty)) + BUILD_RANGE + 4;
+    let minX = Math.min(...c.buildings.map((b) => b.tx)) - BUILD_RANGE - d.w;
+    let maxX = Math.max(...c.buildings.map((b) => b.tx)) + BUILD_RANGE + 4;
+    let minY = Math.min(...c.buildings.map((b) => b.ty)) - BUILD_RANGE - d.h;
+    let maxY = Math.max(...c.buildings.map((b) => b.ty)) + BUILD_RANGE + 4;
+    if (forField) {
+      // Only around the field: footprints within 8 tiles of its tiles, a box that mirrors exactly with the field (MAP-4).
+      const xs = forField.tiles.map((t) => t % W);
+      const ys = forField.tiles.map((t) => Math.floor(t / W));
+      minX = Math.min(...xs) - 8;
+      maxX = Math.max(...xs) + 8 - d.w + 1;
+      minY = Math.min(...ys) - 8;
+      maxY = Math.max(...ys) + 8 - d.h + 1;
+    }
     const y0 = Math.max(0, minY);
     const y1 = Math.min(snap.mapHeight - d.h, maxY);
     const x0 = Math.max(0, minX);
     const x1 = Math.min(W - d.w, maxX);
+    // A step of the crawl toward a further field (AI-22): its shard tiles (as last seen, or as the map shows where it has
+    // not looked), and how near our nearest building already stands to them; a step must get at least two tiles nearer.
+    const crawlTo = aim && 'toward' in aim ? aim.toward : undefined;
+    const target: [number, number][] = [];
+    if (crawlTo) {
+      for (const t of crawlTo.tiles) {
+        const live = ((fog[t] as number) & EXPLORED) !== 0 ? (snap.shards[t] as number) > 0 : ((this.map.shards?.[t] ?? 0) as number) > 0;
+        if (live) target.push([(t % W) + 0.5, Math.floor(t / W) + 0.5]);
+      }
+      if (target.length === 0) return null;
+    }
+    const gap = (x: number, y: number): number => {
+      let m = Infinity;
+      for (const [fx, fy] of target) m = Math.min(m, dist(x, y, fx, fy));
+      return m;
+    };
+    const frontier = crawlTo ? Math.min(...c.buildings.map((b) => gap(b.tx + buildingDef(b.kind).w / 2, b.ty + buildingDef(b.kind).h / 2))) : 0;
+    const guard = aim && 'guard' in aim ? aim.guard : undefined;
+    const wide = aim !== undefined && 'wide' in aim;
     for (let iy = y0; iy <= y1; iy++) {
       for (let ix = x0; ix <= x1; ix++) {
         const tx = flip ? x1 - (ix - x0) : ix;
         const ty = flip ? y1 - (iy - y0) : iy;
         if (!canPlace(ctx, kind, tx, ty)) continue;
-        // A compact base: nothing strays far from the headquarters (no creeping chains toward the enemy).
-        const reach = d.refinery ? 24 : d.weapon ? 13 : 16;
-        if (dist(tx + d.w / 2, ty + d.h / 2, hc.x, hc.y) > reach) continue;
+        if (forField) {
+          // Beside the field, near enough to count as its refinery (AI-18).
+          if (dist(tx + d.w / 2, ty + d.h / 2, forField.cx, forField.cy) > 9) continue;
+        } else if (crawlTo) {
+          // Never on shards or a dock apron; nearer the field than any building yet, but leaving room for the refinery.
+          let bad = false;
+          for (let y = ty; y < ty + d.h && !bad; y++) for (let x = tx; x < tx + d.w; x++) if ((snap.shards[y * W + x] as number) > 0 || aprons.has(y * W + x)) bad = true;
+          const g = gap(tx + d.w / 2, ty + d.h / 2);
+          if (bad || g > frontier - 2 || g < 4) continue;
+        } else if (guard) {
+          if (edgeDist(guard, tx + d.w / 2, ty + d.h / 2) > GUARD_R) continue;
+        } else {
+          // A compact base: nothing strays far from the headquarters (no creeping chains toward the enemy). When it is
+          // full, a little farther out (AI-22).
+          const reach = (d.refinery ? 24 : d.weapon ? 13 : 16) + (wide ? 8 : 0);
+          if (dist(tx + d.w / 2, ty + d.h / 2, hc.x, hc.y) > reach) continue;
+        }
         let score = 0;
         // Keep a one-tile gap so units are never walled in.
         let touching = 0;
@@ -810,13 +1044,16 @@ export class AI {
         const cx = tx + d.w / 2;
         const cy = ty + d.h / 2;
         const toward = ((cx - hc.x) * dir.x + (cy - hc.y) * dir.y) / dl;
-        if (d.weapon) score -= toward * 2.2; // defences face the enemy
+        if (crawlTo) score += gap(cx, cy) * 10; // a crawl step goes as near the field as it may (AI-22)
+        else if (d.weapon) score -= toward * 2.2 - (guard ? edgeDist(guard, cx, cy) : 0); // defences face the enemy
         else if (d.refinery) {
           // Haulers unload on the dock pad, so it is the pad that should be near the shards (ECO-7).
           const px = (pad as [number, number])[0] + 0.5;
           const py = (pad as [number, number])[1] + 0.5;
           let nearest = 40;
           for (const [fx, fy] of fields) nearest = Math.min(nearest, dist(px, py, fx, fy));
+          // A further field's refinery fits only with its pad right by the shards (AI-22).
+          if (forField && nearest > 4) continue;
           score += nearest * 3;
         } else score += Math.max(0, toward) * 1.5 + dist(cx, cy, hc.x, hc.y) * 0.8; // soft buildings stay behind the lines
         if (score < bs) {
@@ -850,7 +1087,7 @@ export class AI {
     const rifles = this.plan === 'doomsday' ? infantryNeeded(this.intelSummary(c, RIFLE_INTEL)) : 0;
     // Doomsday saving for its superweapon does not spend on the floor (AI-15, AI-19).
     const guns = doom && next === this.kit.superweapon ? 0 : artilleryNeeded(intel);
-    const haulerWanted = this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0);
+    let haulerWanted = this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0);
     // The standing scout (AI-21): one from the building that trains it, ahead of its other combat units, when none lives
     // or is queued and none was lost in the last SCOUT_REPLACE ticks. Production trains no other scout unit.
     const scoutKind = this.scoutKind();
@@ -887,13 +1124,23 @@ export class AI {
       if (pick !== this.kit.hauler) this.stats.produced[unitDef(pick).hero ? 'hero' : roleOf(unitDef(pick))]++;
       if (pick === this.kit.hauler || unitDef(pick).hero) queued.set(pick, (queued.get(pick) ?? 0) + 1);
       if (pick === scout) scoutWanted = false;
+      // Several factories may each train a hauler in one decision: no more than the target between them (AI-22).
+      if (pick === this.kit.hauler && this.scales) haulerWanted--;
     }
   }
 
   private haulerTarget(c: Ctx): number {
-    const refs = c.buildings.filter((b) => buildingDef(b.kind).refinery).length;
-    // Three haulers a refinery fill both home fields (AI-18).
-    return refs === 0 ? 0 : Math.min(8, refs * 3);
+    const refineries = c.buildings.filter((b) => buildingDef(b.kind).refinery);
+    // Three haulers a refinery fill both home fields (AI-18); the steamroll opponent keeps that, at most eight (HAR-5).
+    if (!this.scales) return refineries.length === 0 ? 0 : Math.min(8, refineries.length * 3);
+    // Three for each refinery, four at a field of more than BIG_FIELD tiles, none at a field that is used up; no cap (AI-22).
+    let n = 0;
+    for (const b of refineries) {
+      const near = this.fields.filter((f) => dist(b.tx + 1.5, b.ty + 1, f.cx, f.cy) <= 9);
+      const f = near.find((x) => this.hasShards(c, x));
+      n += f ? (f.tiles.length > BIG_FIELD ? HAULERS_PER_BIG : HAULERS_PER_REFINERY) : near.length > 0 ? 0 : HAULERS_PER_REFINERY;
+    }
+    return n;
   }
 
   /** Whether a field still has shards and one of our refineries beside it (AI-18). */

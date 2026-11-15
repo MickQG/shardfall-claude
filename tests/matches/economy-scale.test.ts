@@ -15,6 +15,21 @@ import { playMatches } from './pool';
  * MATCH_SHARD=k/n (optional) plays only game i with i mod n equal to k - 1, so CI can split the series.
  */
 
+// PROVISIONAL thresholds for AI-22, to be set from the CI baseline in issue #181 (the tally this test prints, before and
+// after the change). The requirement: by minute 10 an AI that has not lost a refinery has at least three refineries and
+// more than eight haulers, and the harness violations stay low (HAR-2).
+
+/** At minute 10, of the AIs that had not lost a refinery, at least this share had 3+ refineries and 9+ haulers. */
+export const PROVISIONAL_SCALED_SHARE = 0.75;
+/** At minute 10, the median AI has at least this many refineries, more than this many haulers and at least this many production buildings. */
+export const PROVISIONAL_MEDIAN_REFINERIES = 3;
+export const PROVISIONAL_MEDIAN_HAULERS_ABOVE = 8;
+export const PROVISIONAL_MEDIAN_PRODUCTION = 4;
+/** Over the series, at most this many hoarding episodes, power outages and idle-hauler episodes per AI on average (HAR-2). */
+export const PROVISIONAL_HOARD_PER_AI = 0.5;
+export const PROVISIONAL_OUTAGE_PER_AI = 0.25;
+export const PROVISIONAL_IDLE_PER_AI = 0.25;
+
 /** Fourteen minutes: the opening, the middle game and the minute-12 record. */
 export const ECONOMY_TICKS = 20 * 60 * 14;
 const SERIES_TIMEOUT = 2_400_000;
@@ -122,7 +137,7 @@ describe('economy and production scale in full matches', () => {
     const rs = await playMatches(economyGames());
     const t = economyTally(rs);
     report(t, (Date.now() - started) / 60000);
-    // Sanity only: the records are taken in order, at the minutes the match reached.
+    // The records are taken in order, at the minutes the match reached.
     for (const r of rs) {
       for (const log of r.economy) {
         expect(log.at.map((a) => a.minute)).toEqual(ECONOMY_MINUTES.filter((m) => m * 1200 <= r.ticks));
@@ -131,5 +146,17 @@ describe('economy and production scale in full matches', () => {
         }
       }
     }
+    // PROVISIONAL (see above): the thresholds come from the CI baseline.
+    const m10 = t.minutes.find((m) => m.minute === 10)!;
+    const ais = 2 * Math.max(1, t.games);
+    if (m10.intact > 0) expect(m10.scaled / m10.intact).toBeGreaterThanOrEqual(PROVISIONAL_SCALED_SHARE);
+    if (m10.ais > 0) {
+      expect(m10.refineries.median).toBeGreaterThanOrEqual(PROVISIONAL_MEDIAN_REFINERIES);
+      expect(m10.haulers.median).toBeGreaterThan(PROVISIONAL_MEDIAN_HAULERS_ABOVE);
+      expect(m10.production.median).toBeGreaterThanOrEqual(PROVISIONAL_MEDIAN_PRODUCTION);
+    }
+    expect(t.violations.hoard / ais).toBeLessThanOrEqual(PROVISIONAL_HOARD_PER_AI);
+    expect(t.violations.powerOutage / ais).toBeLessThanOrEqual(PROVISIONAL_OUTAGE_PER_AI);
+    expect(t.violations.idleHauler / ais).toBeLessThanOrEqual(PROVISIONAL_IDLE_PER_AI);
   }, SERIES_TIMEOUT);
 });

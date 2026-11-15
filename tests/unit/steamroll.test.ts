@@ -106,7 +106,11 @@ describe('the steamroll opponent', () => {
     for (const faction of FACTIONS) {
       const k = kitOf(faction);
       const { g, map } = builtBase(faction, 2000);
+      // The AI adds a barracks once its barracks is busy (AI-22).
+      const barracks = g.state.buildings.find((b) => b.owner === 0 && b.kind === k.barracks)!;
+      barracks.queue = [{ kind: rifleOf(faction), cost: unitDef(rifleOf(faction)).cost, progress: 0, total: 1000, ready: false }];
       expect(produced(new AI(0, faction, DIFFICULTIES.hard, map, 6).think(snapshot(g, 0))), faction).toContain(k.barracks);
+      barracks.queue = [];
       const steam = produced(new SteamrollAI(0, faction, map, 6).think(snapshot(g, 0)));
       expect(steam, faction).toContain(k.factory);
       expect(steam, faction).not.toContain(k.barracks);
