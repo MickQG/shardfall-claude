@@ -3,6 +3,7 @@ import { skirmishConfig, type MapId } from '../data/maps';
 import { createGame, FP, hash, Rng, snapshot, submit, tick, type Game } from '../sim';
 import { Hv } from '../sim/state';
 import { AI, type AiStats, type Difficulty, type Personality } from './ai';
+import { kitOf, type Kit } from './kit';
 import { STEAMROLL_DIFFICULTY, STEAMROLL_TUNING, SteamrollAI, type SteamrollTuning } from './steamroll';
 
 export interface Violations {
@@ -57,6 +58,28 @@ export interface MatchResult {
   peak: { haulers: [number, number]; army: [number, number]; buildings: [number, number] };
   /** Orders each AI issued, for determinism checks. */
   orders: [number, number];
+  /** How each player's economy and production grew (AI-22): read off the game state, which the harness may see. */
+  economy: [EconomyLog, EconomyLog];
+}
+
+/** The minutes of game time at which the harness takes stock of each player's economy (AI-22). */
+export const ECONOMY_MINUTES = [8, 10, 12] as const;
+
+/** One player's economy at one minute of game time (AI-22). */
+export interface EconomyAt {
+  minute: number;
+  refineries: number;
+  haulers: number;
+  barracks: number;
+  factories: number;
+  /** Credits earned from delivered shards so far, bonus included. */
+  gathered: number;
+}
+
+/** One player's economy over a match (AI-22): a record for each of ECONOMY_MINUTES the match reached, and the tick it first lost a refinery (destroyed or sold), or -1. */
+export interface EconomyLog {
+  at: EconomyAt[];
+  refineryLostAt: number;
 }
 
 const zero = (): Violations => ({ idleHauler: 0, stuck: 0, powerOutage: 0, hoard: 0, undefended: 0, suicide: 0, lone: 0 });
@@ -84,6 +107,12 @@ export function playMatch(o: MatchOptions): MatchResult {
   const viol: [Violations, Violations] = [zero(), zero()];
   const peak = { haulers: [0, 0] as [number, number], army: [0, 0] as [number, number], buildings: [0, 0] as [number, number] };
   const orders: [number, number] = [0, 0];
+  const economy: [EconomyLog, EconomyLog] = [
+    { at: [], refineryLostAt: -1 },
+    { at: [], refineryLostAt: -1 },
+  ];
+  const kits = [kitOf(o.factions[0]), kitOf(o.factions[1])];
+  const refineriesSeen = [new Set<number>(), new Set<number>()];
 
   // Per-entity episode trackers: key -> first tick of the current bad streak.
   const since = new Map<string, number>();
@@ -130,6 +159,18 @@ export function playMatch(o: MatchOptions): MatchResult {
         episode(`h${h.id}`, idle && refineries > 0 && anyShards, t, 600, () => v.idleHauler++);
       }
       const pl = s.players[p]!;
+      // Economy statistics (AI-22): refineries lost, and a record at each of ECONOMY_MINUTES.
+      const log = economy[p] as EconomyLog;
+      const refIds = new Set(s.buildings.filter((b) => b.owner === p && buildingDef(b.kind).refinery).map((b) => b.id));
+      const seen = refineriesSeen[p] as Set<number>;
+      if (log.refineryLostAt < 0 && [...seen].some((id) => !refIds.has(id))) log.refineryLostAt = t;
+      refineriesSeen[p] = refIds;
+      const minute = ECONOMY_MINUTES.find((m) => m * 20 * 60 === t);
+      if (minute !== undefined) {
+        const kit = kits[p] as Kit;
+        const own = (kind: string): number => s.buildings.filter((b) => b.owner === p && b.kind === kind).length;
+        log.at.push({ minute, refineries, haulers: haulers.length, barracks: own(kit.barracks), factories: own(kit.factory), gathered: pl.stats.shardsGathered });
+      }
       episode(`pw${p}`, pl.powerIn > pl.powerOut, t, 900, () => v.powerOutage++);
       episode(`hd${p}`, pl.credits > 3500, t, 1500, () => v.hoard++);
 
@@ -175,7 +216,7 @@ export function playMatch(o: MatchOptions): MatchResult {
     (viol[p] as Violations).suicide = (ais[p] as AI).stats.suicides;
     (viol[p] as Violations).lone = (ais[p] as AI).stats.lone;
   }
-  return { winner, reason, ticks: s.tick, material: m, hash: hash(game), violations: viol, ai: [ais[0].stats, ais[1].stats], peak, orders };
+  return { winner, reason, ticks: s.tick, material: m, hash: hash(game), violations: viol, ai: [ais[0].stats, ais[1].stats], peak, orders, economy };
 }
 
 /** Shared by tests and the CLI: sum of every violation counter. */
