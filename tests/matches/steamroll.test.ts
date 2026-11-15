@@ -18,7 +18,7 @@ import { playMatches } from './pool';
  * - STEAMROLL_SEAT: `0` or `1`, the Hard AI's seat;
  * - STEAMROLL_VARIANT: knobs of the opponent to change, for calibration, such as `launch:18000,crushers:8,bonus:15` (`=` works
  *   too); any key of SteamrollTuning, all numbers;
- * - AI_RULES: changes to the Hard AI's rules (AiRules), such as `hold:0,labAt:99` (see aiRules.ts);
+ * - AI_RULES: changes to the Hard AI's rules (AiRules), such as `recall:0,queueDepth:2` (see aiRules.ts);
  * - MATCH_SHARD: `k/n`, to play only the k-th of n shares of the selected games.
  * Pick the personality with `-t raider` (or balanced, doomsday).
  */
@@ -27,17 +27,8 @@ import { playMatches } from './pool';
 export const STEAMROLL_TICKS = 20 * 60 * 20;
 /** A game this long gives the opponent time to mass and launch its attack. */
 const LAUNCH_BY = 20 * 60 * 15;
-// PROVISIONAL targets for AI-22 at the opponent's first attack, to be confirmed from CI (issue #181). They sit here, not
-// with the other AI-22 targets in economy-scale.test.ts, because importing a test file would play its series too.
-/** The Hard AI's production buildings over the opponent's, at the median, at least. */
-export const PROVISIONAL_LAUNCH_PRODUCTION_RATIO = 1;
-/** Credits the Hard AI has banked or paid into queues not started, at the median, below this (the baseline: about 20 000). */
-export const PROVISIONAL_LAUNCH_IDLE = 20000;
-// PROVISIONAL targets for AI-23 at the opponent's first attack, to be set from the baseline in issue #177.
-/** Army value (credits) the Hard AI has lost before the opponent's first attack, at the median, below this. */
-export const PROVISIONAL_LAUNCH_LOST = 6000;
-/** Share of the Hard AI's army value within 12 tiles of its own buildings at that attack, at the median, at least. */
-export const PROVISIONAL_LAUNCH_HOME = 0.5;
+/** The pass mark (AI-25): wins of each personality's 32 games, at least. */
+export const PASS_WINS = 16;
 
 /** One personality's 32 games on a four-core runner, with margin. */
 const SERIES_TIMEOUT = 3_000_000;
@@ -239,22 +230,20 @@ describe('the Hard AI against the steamroll opponent', () => {
         }
       });
 
-      // Production first (AI-22), PROVISIONAL (see above): at the opponent's first attack the AI has at least as many
-      // production buildings as the opponent, and less banked than before.
-      const at = atLaunchTally(games, rs);
-      if (at.games > 0) {
-        expect(median(at.ai.map(production))).toBeGreaterThanOrEqual(PROVISIONAL_LAUNCH_PRODUCTION_RATIO * median(at.opp.map(production)));
-        expect(median(at.ai.map((e) => e.credits + e.queued))).toBeLessThan(PROVISIONAL_LAUNCH_IDLE);
-        // Hold and defend (AI-23), PROVISIONAL: it has fed less of its army away before the attack, and meets it at home.
-        expect(median(at.army.map((a) => a.lost))).toBeLessThan(PROVISIONAL_LAUNCH_LOST);
-        expect(median(at.army.map((a) => a.home))).toBeGreaterThanOrEqual(PROVISIONAL_LAUNCH_HOME);
-      }
-
       // The same seeds and settings give the same game (HAR-1): the shortest game, replayed.
       const short = rs.reduce((b, r, i) => (r.ticks < rs[b]!.ticks ? i : b), 0);
       const again = playMatch(games[short]!.o);
       expect(again.hash).toBe(rs[short]!.hash);
       expect(again.ai).toEqual(rs[short]!.ai);
+    }, SERIES_TIMEOUT);
+
+    // The pass mark holds only over the whole series as the game plays it: every seed, faction and seat, the opponent's own
+    // tuning and the AI's own rules.
+    const full = ['MATCH_SHARD', 'STEAMROLL_SEEDS', 'STEAMROLL_AI_FACTION', 'STEAMROLL_SEAT', 'STEAMROLL_VARIANT', 'AI_RULES'].every((k) => !env(k));
+    it.skipIf(!full)(`AI-25: against the steamroll opponent, ${p} wins at least half of its 32 games`, async () => {
+      const { games, results: rs } = await steamrollSeries(p);
+      expect(rs).toHaveLength(32);
+      expect(tally(games, rs).wins).toBeGreaterThanOrEqual(PASS_WINS);
     }, SERIES_TIMEOUT);
   }
 });

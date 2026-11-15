@@ -1,7 +1,7 @@
 import { DEFAULT_RULES, type AiRules } from '../../src/ai/ai';
 
 /**
- * The AI rules a match series plays with (HAR-5): the environment's AI_RULES, such as `hold:0,labAt:99,holdRatio:1.2`
+ * The AI rules a match series plays with (HAR-5): the environment's AI_RULES, such as `recall:0,queueDepth:2,artilleryCap:3`
  * (`=` works too), as changes to DEFAULT_RULES. Numbers for numeric rules, 0 or 1 for switches; an unknown key or a bad
  * value throws. Unset: no changes, the game's own rules.
  */

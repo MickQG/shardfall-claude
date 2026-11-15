@@ -17,13 +17,13 @@ import { playMatches } from './pool';
  * MATCH_SHARD=k/n (optional) plays only game i with i mod n equal to k - 1, so CI can split the series.
  */
 
-// PROVISIONAL targets for AI-22 (production first), to be confirmed from CI (issue #181). Medium against Medium:
+// The targets of AI-22 (production first), Medium against Medium:
 /** The second factory stands by this minute, at the median over every AI. */
-export const PROVISIONAL_FACTORY2_BY = 3.5;
+export const FACTORY2_BY = 3.5;
 /** Production buildings (barracks and factories) at minute 6, at the median, at least. */
-export const PROVISIONAL_PRODUCTION_AT_6 = 6;
+export const PRODUCTION_AT_6 = 6;
 /** HAR-2 violations per game, both AIs together, at most (the harness's own rule, scripts/harness.ts). */
-export const PROVISIONAL_VIOLATIONS_PER_GAME = 2;
+export const VIOLATIONS_PER_GAME = 2;
 
 /** Fourteen minutes: the opening, the middle game and the minute-12 record. */
 export const ECONOMY_TICKS = 20 * 60 * 14;
@@ -169,11 +169,11 @@ describe('economy and production scale in full matches', () => {
         if (log.factory3At >= 0) expect(log.factory3At).toBeGreaterThanOrEqual(log.factory2At);
       }
     }
-    // PROVISIONAL (see above).
-    expect(t.factory2.median).toBeLessThanOrEqual(PROVISIONAL_FACTORY2_BY);
+    // The targets of AI-22 (see above).
+    expect(t.factory2.median).toBeLessThanOrEqual(FACTORY2_BY);
     const six = t.minutes.find((m) => m.minute === 6);
-    if (six && six.ais > 0) expect(six.production.median).toBeGreaterThanOrEqual(PROVISIONAL_PRODUCTION_AT_6);
+    if (six && six.ais > 0) expect(six.production.median).toBeGreaterThanOrEqual(PRODUCTION_AT_6);
     const v = t.violations;
-    expect(v.idleHauler + v.stuck + v.powerOutage + v.hoard + v.undefended + v.suicide + v.lone).toBeLessThanOrEqual(PROVISIONAL_VIOLATIONS_PER_GAME * t.games);
+    expect(v.idleHauler + v.stuck + v.powerOutage + v.hoard + v.undefended + v.suicide + v.lone).toBeLessThanOrEqual(VIOLATIONS_PER_GAME * t.games);
   }, SERIES_TIMEOUT);
 });
