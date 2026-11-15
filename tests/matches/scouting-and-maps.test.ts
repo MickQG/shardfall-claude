@@ -18,6 +18,8 @@ const sides: [Faction, Faction][] = [
 
 describe('scouting in full matches', () => {
   it('AI-17: on every map and from both sides, every AI has found an enemy building by minute 4', async () => {
+    // The old scouting with the fastest unit runs until the standing scout stands (AI-21), whose tour passes the enemy
+    // base too: either may find it first.
     const games: MatchOptions[] = MAPS.flatMap(({ id: map }) => [1, 2].flatMap((seed) => sides.map((factions) => ({ seed, map, factions, difficulties: medium, maxTicks: 20 * 60 * 4 }))));
     const results = await playMatches(games);
     results.forEach((r, i) => {

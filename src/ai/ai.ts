@@ -50,6 +50,49 @@ export const RIFLE_INTEL = 20 * 30;
 /** How far (tiles) to one side of the straight line a scout's route swings, around the enemy's front (AI-17). */
 export const SCOUT_FLANK = 22;
 
+/**
+ * The standing scout (AI-21). How many scout units an AI keeps out watching: one, for every personality and difficulty.
+ * This is the "one standing scout" rule; production never trains a scout unit beyond it, and the scout logic follows
+ * one such unit (giving Raider more would need a tour for each).
+ */
+export const STANDING_SCOUTS = 1;
+/** No replacement scout is ordered within this many ticks of losing one, so scouts are not fed to the same guns (AI-21). */
+export const SCOUT_REPLACE = 20 * 30;
+/** How far (tiles) its observation points around the enemy base stand from the enemy buildings it knows (AI-21). */
+export const SCOUT_STANDOFF = 9;
+/** It backs away from any armed enemy unit or defence this close (tiles), whatever its health (AI-21). */
+export const SCOUT_DANGER = 8;
+/** How long (ticks) a sighting of an armed enemy unit keeps an observation point, and the way to it, unsafe (AI-21). */
+export const SCOUT_MEMORY = 20 * 60;
+/** Directions of its observation points around the enemy base, in order around the compass (AI-21). */
+const RING: readonly (readonly [number, number])[] = [
+  [1, 0],
+  [Math.SQRT1_2, Math.SQRT1_2],
+  [0, 1],
+  [-Math.SQRT1_2, Math.SQRT1_2],
+  [-1, 0],
+  [-Math.SQRT1_2, -Math.SQRT1_2],
+  [0, -1],
+  [Math.SQRT1_2, -Math.SQRT1_2],
+];
+
+/** Distance from point (px, py) to the segment from (ax, ay) to (bx, by). */
+const segDist = (px: number, py: number, ax: number, ay: number, bx: number, by: number): number => {
+  const vx = bx - ax;
+  const vy = by - ay;
+  const l2 = vx * vx + vy * vy;
+  const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / l2)) : 0;
+  return Math.hypot(px - ax - t * vx, py - ay - t * vy);
+};
+
+/** Distance (tiles) from a point to the nearest part of a building's footprint. */
+const edgeDist = (b: { tx: number; ty: number; kind: string }, x: number, y: number): number => {
+  const d = buildingDef(b.kind);
+  const dx = Math.max(b.tx - x, 0, x - (b.tx + d.w));
+  const dy = Math.max(b.ty - y, 0, y - (b.ty + d.h));
+  return Math.hypot(dx, dy);
+};
+
 export type Role = 'inf' | 'at' | 'tank' | 'art' | 'air' | 'scout';
 
 /** A shard field: a patch of shard tiles (8-way neighbours), by its tiles and centre (AI-18). */
@@ -370,6 +413,14 @@ export class AI {
   /** The scout's route (AI-17): a flank point first, then the enemy start; trips alternate flanks. */
   private scoutRoute: { tx: number; ty: number }[] = [];
   private scoutTrips = 0;
+  /** The standing scout (AI-21): its unit or -1, when the last one was lost, where it is going and how far round its tour. */
+  private standing = -1;
+  private standingLostAt = -100000;
+  private scoutGoal: { tx: number; ty: number } | null = null;
+  private backing = false;
+  private tourStep = 0;
+  private tourLaps = 0;
+  private standingKind: string | null | undefined;
   /** Units scouting now and the tick each set out, for the statistics only (AI-21). */
   private scouting = new Map<number, number>();
   /** Tick it last saw an armed enemy unit, or -1 (AI-21). */
@@ -417,7 +468,9 @@ export class AI {
     for (const b of buildings) counts.set(b.kind, (counts.get(b.kind) ?? 0) + 1);
     for (const q of hq.queue) counts.set(q.kind, (counts.get(q.kind) ?? 0) + 1);
     const haulers = own.filter((u) => unitDef(u.kind).capacity !== undefined);
-    const army = own.filter((u) => unitDef(u.kind).weapon && unitDef(u.kind).capacity === undefined && u.id !== this.scoutId);
+    this.keepStanding(own, snap.tick);
+    // The scouts are not part of the army: no wave, gathering or defence order takes them (AI-17, AI-21).
+    const army = own.filter((u) => unitDef(u.kind).weapon && unitDef(u.kind).capacity === undefined && u.id !== this.scoutId && u.id !== this.standing);
     const c: Ctx = {
       snap, tick: snap.tick, own, foes, buildings,
       enemyBuildings: [...snap.buildings.filter((b) => b.owner !== me), ...snap.ghosts],
@@ -782,6 +835,7 @@ export class AI {
     const counts: Record<Role, number> = { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0 };
     for (const u of c.army) counts[roleOf(unitDef(u.kind))]++;
     if (this.scoutId >= 0) counts.scout++;
+    if (this.standing >= 0) counts.scout++;
     const queued = new Map<string, number>();
     for (const b of c.buildings) for (const q of b.queue) if (!BUILDING_DEFS[q.kind]) queued.set(q.kind, (queued.get(q.kind) ?? 0) + 1);
     for (const [kind, n] of queued) counts[roleOf(unitDef(kind))] += n;
@@ -797,6 +851,10 @@ export class AI {
     // Doomsday saving for its superweapon does not spend on the floor (AI-15, AI-19).
     const guns = doom && next === this.kit.superweapon ? 0 : artilleryNeeded(intel);
     const haulerWanted = this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0);
+    // The standing scout (AI-21): one from the building that trains it, ahead of its other combat units, when none lives
+    // or is queued and none was lost in the last SCOUT_REPLACE ticks. Production trains no other scout unit.
+    const scoutKind = this.scoutKind();
+    let scoutWanted = scoutKind !== null && (this.standing >= 0 ? 1 : 0) + (queued.get(scoutKind) ?? 0) < STANDING_SCOUTS && c.tick - this.standingLostAt >= SCOUT_REPLACE;
     const haulerFactory = this.doctrine.oneHaulerFactory ? c.buildings.filter((b) => b.kind === this.kit.factory).sort((a, b) => a.id - b.id)[0]?.id : undefined;
 
     for (const b of c.buildings) {
@@ -812,19 +870,23 @@ export class AI {
       const rifle = counts.inf < rifles ? allowed.find((k) => roleOf(unitDef(k)) === 'inf' && !unitDef(k).hero) : undefined;
       // Artillery floor against enemy infantry (AI-19), when it is available here.
       const gun = counts.art < guns ? allowed.find((k) => roleOf(unitDef(k)) === 'art' && !unitDef(k).hero) : undefined;
+      const scout = scoutWanted && scoutKind !== null && allowed.includes(scoutKind) ? scoutKind : undefined;
       const pick: string | null =
-        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) && (haulerFactory === undefined || b.id === haulerFactory) ? this.kit.hauler : (hero ?? rifle ?? gun ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt));
+        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) && (haulerFactory === undefined || b.id === haulerFactory)
+          ? this.kit.hauler
+          : (scout ?? hero ?? rifle ?? gun ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt));
       if (!pick) continue;
       // Doomsday does not flood the field with cheap infantry beyond its rifle floor: tanks and artillery set the pace (AI-15).
       if (doom && !rifle && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && counts.tank + counts.art >= 4 && counts.inf + counts.at >= rifles + 3 * (counts.tank + counts.art) && !urgent) continue;
       const cost = unitDef(pick).cost;
-      const reserve = pick === this.kit.hauler || urgent ? 0 : hold;
+      const reserve = pick === this.kit.hauler || pick === scout || urgent ? 0 : hold;
       if (c.credits < cost + reserve) continue;
       c.credits -= cost;
       out.push({ type: 'produce', player: this.player, source: b.id, kind: pick });
       counts[roleOf(unitDef(pick))]++;
       if (pick !== this.kit.hauler) this.stats.produced[unitDef(pick).hero ? 'hero' : roleOf(unitDef(pick))]++;
       if (pick === this.kit.hauler || unitDef(pick).hero) queued.set(pick, (queued.get(pick) ?? 0) + 1);
+      if (pick === scout) scoutWanted = false;
     }
   }
 
@@ -1165,6 +1227,9 @@ export class AI {
       out.push({ type: 'move', player: this.player, units: [id], x: t.tx * FP + FP / 2, y: t.ty * FP + FP / 2 });
     };
 
+    // The standing scout watches the enemy (AI-21); the old scouting below sends a new scout only while there is none (AI-17).
+    this.watch(c, out);
+
     if (me) {
       // A scout is expendable until it has been hit; then it falls back with what it learned.
       const hurt = me.hp < unitDef(me.kind).hp * 0.55;
@@ -1188,6 +1253,7 @@ export class AI {
       }
       return;
     }
+    if (this.standing >= 0) return;
     const fresh = [...this.intel.values()].some((e) => UNIT_DEFS[e.kind]?.weapon && c.tick - e.t <= 900);
     const due = c.tick > (this.plan === 'raider' ? 300 : 1100) && (!knowEnemy || !fresh);
     // A scout lost before it found the enemy is replaced sooner: finding the base early matters most (AI-17).
@@ -1214,6 +1280,157 @@ export class AI {
     const flank = this.nearestFree(clampX(stage.tx + dx * 0.55 - (dy / len) * side * SCOUT_FLANK), clampY(stage.ty + dy * 0.55 + (dx / len) * side * SCOUT_FLANK));
     this.scoutRoute = [flank, target];
     go(pick.id, flank);
+  }
+
+  /** The faction's scout unit if this AI may train it (AI-21): the Scout Buggy or Stalker; none for the steamroll opponent. */
+  private scoutKind(): string | null {
+    if (this.standingKind === undefined) this.standingKind = Object.keys(UNIT_DEFS).find((k) => unitDef(k).faction === this.faction && unitDef(k).role === 'scout' && this.doctrine.trains(k)) ?? null;
+    return this.standingKind;
+  }
+
+  /** Which unit is the standing scout (AI-21): it notes the loss of the last one and takes up a new one once it stands. */
+  private keepStanding(own: readonly UnitSnap[], tick: number): void {
+    const kind = this.scoutKind();
+    if (kind === null) return;
+    if (this.standing >= 0 && !own.some((u) => u.id === this.standing)) {
+      this.standing = -1;
+      this.standingLostAt = tick;
+    }
+    if (this.standing >= 0) return;
+    const next = own.filter((u) => u.kind === kind).sort((a, b) => a.id - b.id)[0];
+    if (!next) return;
+    this.standing = next.id;
+    this.scoutGoal = null;
+    this.backing = false;
+    this.tourStep = 0;
+    // A scout unit out on the old scouting route becomes the standing scout.
+    if (next.id === this.scoutId) {
+      this.scoutId = -1;
+      this.scoutRoute = [];
+    }
+    this.startScouting(next.id, tick);
+  }
+
+  /**
+   * Whether a point is unsafe for the scout (AI-21): a defence within SCOUT_DANGER tiles of it, or an armed enemy unit seen
+   * within SCOUT_MEMORY ticks that close to it or, given where the scout is `from`, to the straight way there (so it does
+   * not drive through an army it can see on its way to a point beyond it).
+   */
+  private unsafe(c: Ctx, p: { tx: number; ty: number }, from?: { x: number; y: number }): boolean {
+    const x = p.tx + 0.5;
+    const y = p.ty + 0.5;
+    for (const e of this.intel.values()) {
+      if (!UNIT_DEFS[e.kind]?.weapon || c.tick - e.t > SCOUT_MEMORY) continue;
+      const ex = e.x / FP;
+      const ey = e.y / FP;
+      if ((from ? segDist(ex, ey, from.x, from.y, x, y) : dist(ex, ey, x, y)) <= SCOUT_DANGER) return true;
+    }
+    return c.enemyBuildings.some((b) => buildingDef(b.kind).weapon && edgeDist(b, x, y) <= SCOUT_DANGER);
+  }
+
+  /**
+   * The standing scout's observation points (AI-21), in tour order: the ground midway between the two bases, then points
+   * around the enemy base SCOUT_STANDOFF tiles out from every enemy building it knows (from the enemy start, read off the
+   * symmetric map, while it knows none), starting on the side facing us and going round, the other way each lap.
+   */
+  private tourPoints(c: Ctx): { tx: number; ty: number }[] {
+    const home = this.home as { tx: number; ty: number };
+    const start = this.enemyStart();
+    const W = this.map.width;
+    const H = this.map.height;
+    const mid = this.nearestFree(Math.round((home.tx + start.tx) / 2), Math.round((home.ty + start.ty) / 2));
+    const anchors = c.enemyBuildings.length > 0 ? c.enemyBuildings : [{ kind: this.kit.hq, tx: start.tx - 1, ty: start.ty - 1 }];
+    const cx = anchors.reduce((t, b) => t + b.tx + buildingDef(b.kind).w / 2, 0) / anchors.length;
+    const cy = anchors.reduce((t, b) => t + b.ty + buildingDef(b.kind).h / 2, 0) / anchors.length;
+    const clear = (x: number, y: number): boolean => anchors.every((b) => edgeDist(b, x + 0.5, y + 0.5) >= SCOUT_STANDOFF);
+    // The direction facing us first.
+    const fx = home.tx - cx;
+    const fy = home.ty - cy;
+    let first = 0;
+    RING.forEach((d, i) => {
+      const f = RING[first] as readonly [number, number];
+      if (d[0] * fx + d[1] * fy > f[0] * fx + f[1] * fy) first = i;
+    });
+    const way = this.tourLaps % 2 === 0 ? 1 : RING.length - 1;
+    const ring: { tx: number; ty: number }[] = [];
+    for (let i = 0; i < RING.length; i++) {
+      const [dx, dy] = RING[(first + i * way) % RING.length] as readonly [number, number];
+      // Out along this direction to the first tile SCOUT_STANDOFF clear of every building it knows.
+      for (let r = SCOUT_STANDOFF; r <= 40; r++) {
+        const x = Math.max(1, Math.min(W - 2, Math.round(cx + dx * r)));
+        const y = Math.max(1, Math.min(H - 2, Math.round(cy + dy * r)));
+        if (!clear(x, y)) continue;
+        const p = this.nearestFree(x, y);
+        if (clear(p.tx, p.ty) && !ring.some((q) => q.tx === p.tx && q.ty === p.ty)) ring.push(p);
+        break;
+      }
+    }
+    return [mid, ...ring];
+  }
+
+  /**
+   * The standing scout's orders (AI-21). It watches rather than fights: it backs away from any armed enemy unit or
+   * defence within SCOUT_DANGER tiles, whatever its health, to the nearest point of its tour with no armed enemy near it
+   * that is farther from the threat than it is (or else to its staging point); otherwise it tours its observation points,
+   * moving on when it reaches one and skipping those with an armed enemy near them or on the way there.
+   */
+  private watch(c: Ctx, out: Command[]): void {
+    const me = c.own.find((u) => u.id === this.standing);
+    if (!me) return;
+    const stage = this.staging as { tx: number; ty: number };
+    const x = me.x / FP;
+    const y = me.y / FP;
+    const go = (p: { tx: number; ty: number }): void => {
+      const same = this.scoutGoal !== null && this.scoutGoal.tx === p.tx && this.scoutGoal.ty === p.ty;
+      this.scoutGoal = p;
+      if (same && me.dest !== null) return;
+      out.push({ type: 'move', player: this.player, units: [me.id], x: p.tx * FP + FP / 2, y: p.ty * FP + FP / 2 });
+    };
+    const at = (p: { tx: number; ty: number }): number => dist(x, y, p.tx + 0.5, p.ty + 0.5);
+    const tour = this.tourPoints(c);
+
+    // Threats: armed enemy units it sees within SCOUT_DANGER tiles, and defences that close.
+    const threats: { x: number; y: number }[] = [];
+    for (const u of c.foes) if (unitDef(u.kind).weapon && dist(u.x / FP, u.y / FP, x, y) <= SCOUT_DANGER) threats.push({ x: u.x / FP, y: u.y / FP });
+    for (const b of c.enemyBuildings) {
+      const d = buildingDef(b.kind);
+      if (d.weapon && edgeDist(b, x, y) <= SCOUT_DANGER) threats.push({ x: b.tx + d.w / 2, y: b.ty + d.h / 2 });
+    }
+    if (threats.length > 0) {
+      const near = (p: { tx: number; ty: number }): number => Math.min(...threats.map((t) => dist(t.x, t.y, p.tx + 0.5, p.ty + 0.5)));
+      const here = Math.min(...threats.map((t) => dist(t.x, t.y, x, y)));
+      const away = (p: { tx: number; ty: number }): boolean => near(p) > here && !this.unsafe(c, p);
+      // Already on its way to such a point: keep going.
+      const goal = this.scoutGoal;
+      if (this.backing && goal && away(goal)) return go(goal);
+      this.backing = true;
+      let best = -1;
+      tour.forEach((p, i) => {
+        if (at(p) >= 2 && away(p) && (best < 0 || at(p) < at(tour[best] as { tx: number; ty: number }))) best = i;
+      });
+      if (best < 0) return go(stage);
+      this.tourStep = best;
+      return go(tour[best] as { tx: number; ty: number });
+    }
+
+    // Touring: on to the next safe point once it reaches this one (or has stopped short of it).
+    const goal = this.scoutGoal;
+    const reached = goal !== null && (at(goal) < 2.5 || me.dest === null);
+    const here = { x, y };
+    if (goal && !reached && !this.backing && !this.unsafe(c, goal, here)) return go(goal);
+    // Reached (or stopped short of) a tour point: the next one.
+    if (goal && reached && (goal.tx !== stage.tx || goal.ty !== stage.ty)) this.tourStep++;
+    this.backing = false;
+    for (let k = 0; k <= tour.length; k++) {
+      if (this.tourStep >= tour.length) {
+        this.tourStep = 0;
+        this.tourLaps++;
+      }
+      const p = tour[this.tourStep] as { tx: number; ty: number };
+      if (at(p) >= 2.5 && !this.unsafe(c, p, here)) return go(p);
+      this.tourStep++;
+    }
+    go(stage);
   }
 
   // ---------------------------------------------------------------- upkeep

@@ -14,6 +14,18 @@ import { playMatches } from './pool';
  * MATCH_SHARD=k/n (optional) plays only game i with i mod n equal to k - 1, so CI can split the series.
  */
 
+// PROVISIONAL thresholds for AI-21, to be set from the CI baseline in issue #175 (the tally this test prints, before and
+// after the standing scout). Until then they are deliberately loose. Lifetimes count every scouting term, the old
+// fastest-unit scouting (AI-17) included.
+
+/** The median scouting term lasts at least this many seconds. */
+export const PROVISIONAL_MEDIAN_LIFE_S = 30;
+/** On average an AI loses at most this many scouts a game. */
+export const PROVISIONAL_LOST_MEAN = 4;
+/** From minute 5 on, the median AI has a sighting of the enemy army at most 60 s old on at least this share of its decisions, and the worst AI on this share. */
+export const PROVISIONAL_FRESH_MEDIAN = 0.6;
+export const PROVISIONAL_FRESH_WORST = 0.25;
+
 /** Twelve minutes: scouting, the first waves and the middle game. */
 export const SCOUT_TICKS = 20 * 60 * 12;
 const SERIES_TIMEOUT = 2_400_000;
@@ -50,6 +62,8 @@ export interface ScoutTally {
   /** Scouts lost per AI per game: mean and most. */
   lostMean: number;
   lostMax: number;
+  /** Scout units trained per AI per game (the standing scout and its replacements). */
+  trainedMean: number;
   /** Share of decisions from minute 5 on with a sighting of an armed enemy unit at most 60 s old: median and worst AI. */
   freshMedian: number;
   freshWorst: number;
@@ -65,6 +79,7 @@ export function scoutTally(rs: readonly MatchResult[]): ScoutTally {
     medianLife: median(lives) / 20,
     lostMean: lost.reduce((a, b) => a + b, 0) / Math.max(1, lost.length),
     lostMax: Math.max(0, ...lost),
+    trainedMean: stats.reduce((a, { s }) => a + s.produced.scout, 0) / Math.max(1, stats.length),
     freshMedian: median(fresh),
     freshWorst: Math.min(1, ...fresh),
   };
@@ -74,7 +89,7 @@ function report(t: ScoutTally, games: number, minutes: number): void {
   const out = [
     `AI-21: Medium against Medium, Balanced, every map, ${games} games, ${t.ais} AIs (MATCH_SHARD=${env('MATCH_SHARD') || '-'}), ${SCOUT_TICKS} ticks at most, played in ${minutes.toFixed(1)} min`,
     `scout lifetime: median ${t.medianLife.toFixed(1)} s`,
-    `scouts lost per AI per game: mean ${t.lostMean.toFixed(2)}, most ${t.lostMax}`,
+    `scouts lost per AI per game: mean ${t.lostMean.toFixed(2)}, most ${t.lostMax}; scout units trained per AI per game: mean ${t.trainedMean.toFixed(2)}`,
     `intel fresh (armed enemy seen within 60 s, from minute 5): median ${(100 * t.freshMedian).toFixed(1)}%, worst ${(100 * t.freshWorst).toFixed(1)}%`,
   ];
   // Written straight to stdout: the runner holds back console.log output of a passing test.
@@ -84,7 +99,7 @@ function report(t: ScoutTally, games: number, minutes: number): void {
 }
 
 describe('the standing scout in full matches', () => {
-  it('AI-21: on every map and from both sides, scouting statistics are reported (measurement)', async () => {
+  it('AI-21: on every map and from both sides, the scout survives and the AI knows the enemy army lately', async () => {
     const started = Date.now();
     const games = scoutGames();
     const rs = await playMatches(games);
@@ -99,5 +114,10 @@ describe('the standing scout in full matches', () => {
         expect(freshShare(s)).toBeLessThanOrEqual(1);
       }
     }
+    // PROVISIONAL (see above): the thresholds come from the CI baseline.
+    expect(t.medianLife).toBeGreaterThanOrEqual(PROVISIONAL_MEDIAN_LIFE_S);
+    expect(t.lostMean).toBeLessThanOrEqual(PROVISIONAL_LOST_MEAN);
+    expect(t.freshMedian).toBeGreaterThanOrEqual(PROVISIONAL_FRESH_MEDIAN);
+    expect(t.freshWorst).toBeGreaterThanOrEqual(PROVISIONAL_FRESH_WORST);
   }, SERIES_TIMEOUT);
 });
