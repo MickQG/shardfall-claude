@@ -71,8 +71,8 @@ export interface MatchResult {
   hash: number;
   violations: [Violations, Violations];
   ai: [AiStats, AiStats];
-  /** Peak counts, for sanity checks on the economy. */
-  peak: { haulers: [number, number]; army: [number, number]; buildings: [number, number] };
+  /** Peak counts, for sanity checks on the economy, and the largest army value (credits, by health) each side had. */
+  peak: { haulers: [number, number]; army: [number, number]; buildings: [number, number]; armyValue: [number, number] };
   /** Orders each AI issued, for determinism checks. */
   orders: [number, number];
   /** How well each AI watched the enemy (AI-21). */
@@ -102,7 +102,7 @@ export function playMatch(o: MatchOptions): MatchResult {
   const pr = new Rng(o.seed * 31 + 7);
   const phase = [pr.int(diffs[0].thinkEvery), pr.int(diffs[1].thinkEvery)];
   const viol: [Violations, Violations] = [zero(), zero()];
-  const peak = { haulers: [0, 0] as [number, number], army: [0, 0] as [number, number], buildings: [0, 0] as [number, number] };
+  const peak = { haulers: [0, 0] as [number, number], army: [0, 0] as [number, number], buildings: [0, 0] as [number, number], armyValue: [0, 0] as [number, number] };
   const orders: [number, number] = [0, 0];
   const watch = [0, 1].map(() => ({ samples: 0, covered: 0, counted: 0, alive: 0 }));
 
@@ -165,7 +165,9 @@ export function playMatch(o: MatchOptions): MatchResult {
       const refineries = s.buildings.filter((b) => b.owner === p && buildingDef(b.kind).refinery).length;
       const haulers = s.units.filter((u) => u.owner === p && unitDef(u.kind).capacity !== undefined);
       peak.haulers[p] = Math.max(peak.haulers[p] as number, haulers.length);
-      peak.army[p] = Math.max(peak.army[p] as number, s.units.filter((u) => u.owner === p && unitDef(u.kind).weapon).length);
+      const army = s.units.filter((u) => u.owner === p && unitDef(u.kind).weapon);
+      peak.army[p] = Math.max(peak.army[p] as number, army.length);
+      peak.armyValue[p] = Math.max(peak.armyValue[p] as number, Math.round(army.reduce((m, u) => m + (unitDef(u.kind).cost * u.hp) / unitDef(u.kind).hp, 0)));
       peak.buildings[p] = Math.max(peak.buildings[p] as number, s.buildings.filter((b) => b.owner === p).length);
       for (const h of haulers) {
         const idle = (h.hv === Hv.Idle || !h.auto) && h.path.length === 0 && !h.waiting && h.load === 0;
