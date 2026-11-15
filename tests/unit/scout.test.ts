@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI, DIFFICULTIES, SCOUT_DANGER, SCOUT_REPLACE, SCOUT_STANDOFF, STANDING_SCOUTS } from '../../src/ai/ai';
+import { AI, DIFFICULTIES, SCOUT_FLEE, SCOUT_HOP, SCOUT_KEEP, SCOUT_REPLACE, SCOUT_STANDOFF, SCOUT_YOUNG, STANDING_SCOUTS } from '../../src/ai/ai';
 import { kitOf } from '../../src/ai/kit';
 import { SteamrollAI } from '../../src/ai/steamroll';
 import { buildingDef, UNIT_DEFS, unitDef, type Faction } from '../../src/data/defs';
@@ -104,6 +104,19 @@ describe('the standing scout (AI-21)', () => {
       const again = log.filter((l) => l.cmd.type === 'produce' && l.cmd.kind === scout);
       expect(again.length, faction).toBe(1);
       expect(again[0]!.tick - lostAt, faction).toBeGreaterThanOrEqual(SCOUT_REPLACE);
+
+      // That one is lost young, as soon as it stands: the next waits twice as long.
+      for (let i = 0; i < 150 && scoutsOf(g, scout) === 0; i++) drive(g, ai, 20);
+      expect(scoutsOf(g, scout), faction).toBe(1);
+      drive(g, ai, 20);
+      const youngAt = g.state.tick;
+      g.state.units = g.state.units.filter((u) => !(u.owner === 0 && u.kind === scout));
+      log = drive(g, ai, 2 * SCOUT_REPLACE + 200);
+      const late = log.filter((l) => l.cmd.type === 'produce' && l.cmd.kind === scout);
+      expect(late.length, faction).toBe(1);
+      expect(late[0]!.tick - youngAt, faction).toBeGreaterThanOrEqual(2 * SCOUT_REPLACE);
+      expect(ai.stats.standingLives.length, faction).toBe(2);
+      expect(ai.stats.standingLives[1]!, faction).toBeLessThan(SCOUT_YOUNG);
     }
   }, LONG);
 
@@ -142,76 +155,105 @@ describe('the standing scout (AI-21)', () => {
     }
   }, LONG);
 
-  it('AI-21: at full health it backs away from an armed enemy unit within 8 tiles, and from a defence', () => {
+  it('AI-21: whatever its health it flees straight away from an armed enemy unit within 10 tiles, from artillery as soon as it sees it, and from a defence within 8', () => {
     for (const faction of FACTIONS) {
       const cfg = config(faction);
       const scout = scoutOf(faction);
+      const enemy = other(faction);
       const spot = open(cfg, 50, 40);
       const threats: { what: string; spawn: { units?: UnitSpawn[]; buildings?: BuildingSpawn[] }; at: { tx: number; ty: number } }[] = [];
-      const u = open(cfg, spot.tx + 5, spot.ty + 3);
-      threats.push({ what: 'unit', spawn: { units: [{ owner: 1, kind: other(faction) === 'human' ? 'hum_tank' : 'ali_brute', ...u }] }, at: u });
-      const t = open(cfg, spot.tx + 6, spot.ty);
-      threats.push({ what: 'defence', spawn: { buildings: [{ owner: 1, kind: kitOf(other(faction)).turret, ...t }] }, at: t });
+      const u = open(cfg, spot.tx + 8, spot.ty + 4);
+      threats.push({ what: 'tank at 9', spawn: { units: [{ owner: 1, kind: enemy === 'human' ? 'hum_tank' : 'ali_brute', ...u }] }, at: u });
+      const a = open(cfg, spot.tx + 10, spot.ty + 3);
+      threats.push({ what: 'artillery at 10.4', spawn: { units: [{ owner: 1, kind: enemy === 'human' ? 'hum_artillery' : 'ali_lobber', ...a }] }, at: a });
+      const t = open(cfg, spot.tx + 7, spot.ty);
+      threats.push({ what: 'defence', spawn: { buildings: [{ owner: 1, kind: kitOf(enemy).turret, ...t }] }, at: t });
       for (const th of threats) {
-        const g = createGame({ ...cfg, units: [...(cfg.units ?? []), { owner: 0, kind: scout, ...spot }, ...(th.spawn.units ?? [])], buildings: [...(cfg.buildings ?? []), ...(th.spawn.buildings ?? [])] });
-        const me = g.state.units.find((x) => x.owner === 0 && x.kind === scout)!;
-        expect(me.hp).toBe(unitDef(scout).hp);
-        const before = Math.hypot(spot.tx - th.at.tx, spot.ty - th.at.ty);
-        expect(before).toBeLessThanOrEqual(SCOUT_DANGER);
-        const ai = new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6);
-        const to = moveOf(ai.think(snapshot(g, 0)), me.id);
-        expect(to, `${faction} ${th.what}: a move order`).not.toBeNull();
-        const after = Math.hypot(to!.x - th.at.tx - 0.5, to!.y - th.at.ty - 0.5);
-        expect(after, `${faction} ${th.what}`).toBeGreaterThan(SCOUT_DANGER);
-        expect(after, `${faction} ${th.what}`).toBeGreaterThan(before);
+        for (const hp of [1, 0.3]) {
+          const g = createGame({ ...cfg, units: [...(cfg.units ?? []), { owner: 0, kind: scout, ...spot }, ...(th.spawn.units ?? [])], buildings: [...(cfg.buildings ?? []), ...(th.spawn.buildings ?? [])] });
+          const me = g.state.units.find((x) => x.owner === 0 && x.kind === scout)!;
+          me.hp = Math.round(unitDef(scout).hp * hp);
+          const before = Math.hypot(spot.tx - th.at.tx, spot.ty - th.at.ty);
+          expect(before, th.what).toBeLessThanOrEqual(unitDef(scout).vision);
+          const ai = new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6);
+          const to = moveOf(ai.think(snapshot(g, 0)), me.id);
+          const where = `${faction} ${th.what} hp ${hp}`;
+          expect(to, `${where}: a move order`).not.toBeNull();
+          // Straight away: SCOUT_FLEE tiles, on the far side from the threat.
+          const dx = to!.x - spot.tx - 0.5;
+          const dy = to!.y - spot.ty - 0.5;
+          expect(Math.hypot(dx, dy), where).toBeGreaterThan(SCOUT_FLEE - 1.5);
+          const ux = th.at.tx - spot.tx;
+          const uy = th.at.ty - spot.ty;
+          expect((dx * ux + dy * uy) / (Math.hypot(dx, dy) * Math.hypot(ux, uy)), where).toBeLessThan(-0.9);
+          expect(Math.hypot(to!.x - th.at.tx - 0.5, to!.y - th.at.ty - 0.5), where).toBeGreaterThan(before + SCOUT_FLEE - 2);
+        }
       }
+      // A tank at 11 tiles, beyond SCOUT_KEEP: no flight, at most a short hop.
+      const far = open(cfg, spot.tx + 11, spot.ty);
+      const g = createGame({ ...cfg, units: [...(cfg.units ?? []), { owner: 0, kind: scout, ...spot }, { owner: 1, kind: enemy === 'human' ? 'hum_tank' : 'ali_brute', ...far }] });
+      const me = g.state.units.find((x) => x.owner === 0 && x.kind === scout)!;
+      expect(Math.hypot(far.tx - spot.tx, far.ty - spot.ty)).toBeGreaterThan(SCOUT_KEEP);
+      const to = moveOf(new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6).think(snapshot(g, 0)), me.id);
+      if (to) expect(Math.hypot(to.x - spot.tx - 0.5, to.y - spot.ty - 0.5), faction).toBeLessThanOrEqual(SCOUT_HOP + 1);
     }
   });
 
-  it('AI-21: it tours its observation points, moving on as it reaches each, and keeps about 9 tiles from the enemy buildings it knows', () => {
+  it('AI-21: it tours points round the enemy base but not its front, to and fro, in short hops round the ground near the enemy, about 9 tiles from the buildings it knows', () => {
     for (const faction of FACTIONS) {
-      const cfg = config(faction, 6);
-      const scout = scoutOf(faction);
-      const k = kitOf(faction);
-      const hq = cfg.buildings!.find((b) => b.owner === 0 && b.kind === k.hq)!;
-      // A quiet enemy: its base only, no units to chase the scout.
-      const g = createGame({ ...cfg, units: [...(cfg.units ?? []).filter((u) => u.owner === 0), { owner: 0, kind: scout, tx: hq.tx + 6, ty: hq.ty + 8 }] });
-      const id = g.state.units.find((u) => u.owner === 0 && u.kind === scout)!.id;
-      const ai = new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6);
-      const goals: { x: number; y: number; known: { tx: number; ty: number; kind: string }[] }[] = [];
-      let reached = 0;
-      let nearest = Infinity;
-      drive(g, ai, 20 * 60 * 3, (cmds) => {
-        const s = snapshot(g, 0);
-        const known = [...s.buildings.filter((b) => b.owner === 1), ...s.ghosts];
-        const me = g.state.units.find((u) => u.id === id);
-        const to = moveOf(cmds, id);
-        const last = goals[goals.length - 1];
-        // A new point once it has reached the last one: it moves on.
-        if (to && me && last && Math.hypot(me.x / FP - last.x, me.y / FP - last.y) < 2.5) reached++;
-        if (to) goals.push({ ...to, known: known.map((b) => ({ tx: b.tx, ty: b.ty, kind: b.kind })) });
-        if (!me) return;
-        for (const b of g.state.buildings.filter((x) => x.owner === 1)) {
-          const d = buildingDef(b.kind);
-          nearest = Math.min(nearest, Math.hypot(Math.max(b.tx - me.x / FP, 0, me.x / FP - b.tx - d.w), Math.max(b.ty - me.y / FP, 0, me.y / FP - b.ty - d.h)));
-        }
-      });
-      // Alive at the end, several points visited.
-      expect(g.state.units.some((u) => u.id === id), faction).toBe(true);
-      const distinct = new Set(goals.map((p) => `${Math.floor(p.x)},${Math.floor(p.y)}`));
-      expect(distinct.size, faction).toBeGreaterThanOrEqual(4);
-      expect(reached, faction).toBeGreaterThanOrEqual(4);
-      // Its points around the enemy base stand SCOUT_STANDOFF tiles out from every enemy building it knew of then.
-      for (const p of goals) {
-        for (const b of p.known) {
-          const d = buildingDef(b.kind);
-          const edge = Math.hypot(Math.max(b.tx - p.x, 0, p.x - b.tx - d.w), Math.max(b.ty - p.y, 0, p.y - b.ty - d.h));
-          expect(edge, `${faction} goal ${p.x},${p.y}`).toBeGreaterThanOrEqual(SCOUT_STANDOFF - 1);
-        }
+      for (const level of ['hard', 'medium'] as const) {
+        const cfg = config(faction, 6);
+        const scout = scoutOf(faction);
+        const k = kitOf(faction);
+        const hq = cfg.buildings!.find((b) => b.owner === 0 && b.kind === k.hq)!;
+        // A quiet enemy: its base only, no units to chase the scout.
+        const g = createGame({ ...cfg, units: [...(cfg.units ?? []).filter((u) => u.owner === 0), { owner: 0, kind: scout, tx: hq.tx + 6, ty: hq.ty + 8 }] });
+        const id = g.state.units.find((u) => u.owner === 0 && u.kind === scout)!.id;
+        const ai = new AI(0, faction, DIFFICULTIES[level], cfg.map, 6);
+        const where = `${faction} ${level}`;
+        const goals: string[] = [];
+        let nearest = Infinity;
+        drive(g, ai, 20 * 60 * 5, (cmds) => {
+          const me = g.state.units.find((u) => u.id === id);
+          if (!me) return;
+          const x = me.x / FP;
+          const y = me.y / FP;
+          // Every order is a short hop.
+          const to = moveOf(cmds, id);
+          if (to) expect(Math.hypot(to.x - x, to.y - y), `${where} hop`).toBeLessThanOrEqual(SCOUT_HOP + 1.5);
+          const { tour, goal } = ai.scoutPlan;
+          if (goal && goals[goals.length - 1] !== `${goal.tx},${goal.ty}`) goals.push(`${goal.tx},${goal.ty}`);
+          // Its points stand SCOUT_STANDOFF tiles out from every enemy building it knows, and none faces us.
+          const s = snapshot(g, 0);
+          const known = [...s.buildings.filter((b) => b.owner === 1), ...s.ghosts];
+          if (known.length > 0) {
+            const cx = known.reduce((t, b) => t + b.tx + buildingDef(b.kind).w / 2, 0) / known.length;
+            const cy = known.reduce((t, b) => t + b.ty + buildingDef(b.kind).h / 2, 0) / known.length;
+            for (const p of tour) {
+              for (const b of known) {
+                const d = buildingDef(b.kind);
+                expect(Math.hypot(Math.max(b.tx - p.tx - 0.5, 0, p.tx + 0.5 - b.tx - d.w), Math.max(b.ty - p.ty - 0.5, 0, p.ty + 0.5 - b.ty - d.h)), `${where} point ${p.tx},${p.ty}`).toBeGreaterThanOrEqual(SCOUT_STANDOFF);
+              }
+              const ux = p.tx - cx;
+              const uy = p.ty - cy;
+              const vx = hq.tx - cx;
+              const vy = hq.ty - cy;
+              expect((ux * vx + uy * vy) / (Math.hypot(ux, uy) * Math.hypot(vx, vy)), `${where} point ${p.tx},${p.ty} faces us`).toBeLessThan(0.93);
+            }
+          }
+          for (const b of g.state.buildings.filter((q) => q.owner === 1)) {
+            const d = buildingDef(b.kind);
+            nearest = Math.min(nearest, Math.hypot(Math.max(b.tx - x, 0, x - b.tx - d.w), Math.max(b.ty - y, 0, y - b.ty - d.h)));
+          }
+        });
+        // Alive at the end; it moved on through several points, and came back to one (to and fro).
+        expect(g.state.units.some((u) => u.id === id), where).toBe(true);
+        expect(new Set(goals).size, where).toBeGreaterThanOrEqual(4);
+        expect(goals.length, where).toBeGreaterThan(new Set(goals).size);
+        // It never came near the base, and it found it.
+        expect(nearest, where).toBeGreaterThan(SCOUT_STANDOFF - 2);
+        expect(ai.stats.scoutedAt, where).toBeGreaterThan(0);
       }
-      // It never came within gun range of the base, and it found it.
-      expect(nearest, faction).toBeGreaterThan(5);
-      expect(ai.stats.scoutedAt, faction).toBeGreaterThan(0);
     }
   }, LONG);
 

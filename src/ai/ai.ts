@@ -58,12 +58,31 @@ export const SCOUT_FLANK = 22;
 export const STANDING_SCOUTS = 1;
 /** No replacement scout is ordered within this many ticks of losing one, so scouts are not fed to the same guns (AI-21). */
 export const SCOUT_REPLACE = 20 * 30;
-/** How far (tiles) its observation points around the enemy base stand from the enemy buildings it knows (AI-21). */
+/** A scout lost younger than this (ticks) is replaced only after twice SCOUT_REPLACE (AI-21). */
+export const SCOUT_YOUNG = 20 * 60;
+/** How far (tiles) its observation points, and its way round the enemy base, stay from the enemy buildings it knows (AI-21). */
 export const SCOUT_STANDOFF = 9;
-/** It backs away from any armed enemy unit or defence this close (tiles), whatever its health (AI-21). */
+/** It backs away from any defence this close (tiles, to the defence's footprint), whatever its health (AI-21). */
 export const SCOUT_DANGER = 8;
-/** How long (ticks) a sighting of an armed enemy unit keeps an observation point, and the way to it, unsafe (AI-21). */
-export const SCOUT_MEMORY = 20 * 60;
+/**
+ * It backs away from any armed enemy unit this close (tiles), near the edge of its sight (11), whatever its health; from
+ * a unit whose guns reach farther (artillery, the heroes' missile pods), as far as they reach and two tiles more (AI-21).
+ */
+export const SCOUT_KEEP = 10;
+/** How close (tiles) an armed enemy unit of this kind may come to the scout (AI-21). */
+export const scoutKeep = (kind: string): number => {
+  const d = unitDef(kind);
+  return Math.max(SCOUT_KEEP, (d.weapon?.range ?? 0) + 2, (d.weapon2?.range ?? 0) + 2);
+};
+/** How long (ticks) a sighting of an armed enemy unit keeps the ground around it closed to the scout (AI-21). */
+export const SCOUT_MEMORY = 20 * 30;
+/**
+ * The longest hop (tiles) of one order (AI-21): it sees 11 tiles and guns reach about 7, so in 4 tiles it cannot drive from
+ * out of sight into gun range before it decides again. A quick AI hops just past where its next decision finds it.
+ */
+export const SCOUT_HOP = 4;
+/** How far (tiles) it flees straight away from the threats it sees (AI-21). */
+export const SCOUT_FLEE = 8;
 /** Directions of its observation points around the enemy base, in order around the compass (AI-21). */
 const RING: readonly (readonly [number, number])[] = [
   [1, 0],
@@ -75,15 +94,6 @@ const RING: readonly (readonly [number, number])[] = [
   [0, -1],
   [Math.SQRT1_2, -Math.SQRT1_2],
 ];
-
-/** Distance from point (px, py) to the segment from (ax, ay) to (bx, by). */
-const segDist = (px: number, py: number, ax: number, ay: number, bx: number, by: number): number => {
-  const vx = bx - ax;
-  const vy = by - ay;
-  const l2 = vx * vx + vy * vy;
-  const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / l2)) : 0;
-  return Math.hypot(px - ax - t * vx, py - ay - t * vy);
-};
 
 /** Distance (tiles) from a point to the nearest part of a building's footprint. */
 const edgeDist = (b: { tx: number; ty: number; kind: string }, x: number, y: number): number => {
@@ -426,10 +436,21 @@ export class AI {
   /** The standing scout (AI-21): its unit or -1, when the last one was lost, where it is going and how far round its tour. */
   private standing = -1;
   private standingLostAt = -100000;
+  /** Ticks after a loss before the next one is ordered: SCOUT_REPLACE, doubled after a young scout's loss (AI-21). */
+  private replaceGap = SCOUT_REPLACE;
+  /** Its tour (AI-21): the points, which one it heads for and which way round it goes; the side flips after each loss. */
+  private tour: { tx: number; ty: number }[] = [];
+  private tourIdx = 1;
+  private tourDir = 1;
+  private tourSide = 1;
   private scoutGoal: { tx: number; ty: number } | null = null;
-  private backing = false;
-  private tourStep = 0;
-  private tourLaps = 0;
+  private scoutHop: { tx: number; ty: number } | null = null;
+  private fleeing: { tx: number; ty: number } | null = null;
+  /** Its way to its goal, as tiles, kept while it stays open; goals it found no way to lately, until when. */
+  private way: number[] | null = null;
+  /** Until when it does not search again after finding no way anywhere (AI-21). */
+  private waysFailed = -1;
+  private searchBuf: { cost: Float64Array; prev: Int32Array; done: Uint8Array; heap: Int32Array; key: Float64Array } | undefined;
   private standingKind: string | null | undefined;
   /** Units scouting now and the tick each set out, for the statistics only (AI-21). */
   private scouting = new Map<number, number>();
@@ -873,9 +894,9 @@ export class AI {
     const guns = doom && next === this.kit.superweapon ? 0 : artilleryNeeded(intel);
     const haulerWanted = this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0);
     // The standing scout (AI-21): one from the building that trains it, ahead of its other combat units, when none lives
-    // or is queued and none was lost in the last SCOUT_REPLACE ticks. Production trains no other scout unit.
+    // or is queued and none was lost lately (SCOUT_REPLACE, or twice that after a young one). Production trains no other scout unit.
     const scoutKind = this.scoutKind();
-    let scoutWanted = scoutKind !== null && (this.standing >= 0 ? 1 : 0) + (queued.get(scoutKind) ?? 0) < STANDING_SCOUTS && c.tick - this.standingLostAt >= SCOUT_REPLACE;
+    let scoutWanted = scoutKind !== null && (this.standing >= 0 ? 1 : 0) + (queued.get(scoutKind) ?? 0) < STANDING_SCOUTS && c.tick - this.standingLostAt >= this.replaceGap;
     const haulerFactory = this.doctrine.oneHaulerFactory ? c.buildings.filter((b) => b.kind === this.kit.factory).sort((a, b) => a.id - b.id)[0]?.id : undefined;
 
     for (const b of c.buildings) {
@@ -1315,10 +1336,14 @@ export class AI {
     const kind = this.scoutKind();
     if (kind === null) return;
     if (this.standing >= 0 && !own.some((u) => u.id === this.standing)) {
+      const life = tick - this.stats.standingSince;
       this.standing = -1;
       this.standingLostAt = tick;
-      this.stats.standingLives.push(tick - this.stats.standingSince);
+      this.stats.standingLives.push(life);
       this.stats.standingSince = -1;
+      // A young loss: wait longer before the next one; and the next one tours the other way round.
+      this.replaceGap = life < SCOUT_YOUNG ? 2 * SCOUT_REPLACE : SCOUT_REPLACE;
+      this.tourSide = -this.tourSide;
     }
     if (this.standing >= 0) return;
     const next = own.filter((u) => u.kind === kind).sort((a, b) => a.id - b.id)[0];
@@ -1326,8 +1351,11 @@ export class AI {
     this.standing = next.id;
     this.stats.standingSince = tick;
     this.scoutGoal = null;
-    this.backing = false;
-    this.tourStep = 0;
+    this.scoutHop = null;
+    this.fleeing = null;
+    // It starts at a flank of the enemy base, not the side facing us.
+    this.tourIdx = 1;
+    this.tourDir = 1;
     // A scout unit out on the old scouting route becomes the standing scout.
     if (next.id === this.scoutId) {
       this.scoutId = -1;
@@ -1336,126 +1364,338 @@ export class AI {
     this.startScouting(next.id, tick);
   }
 
-  /**
-   * Whether a point is unsafe for the scout (AI-21): a defence within SCOUT_DANGER tiles of it, or an armed enemy unit seen
-   * within SCOUT_MEMORY ticks that close to it or, given where the scout is `from`, to the straight way there (so it does
-   * not drive through an army it can see on its way to a point beyond it).
-   */
-  private unsafe(c: Ctx, p: { tx: number; ty: number }, from?: { x: number; y: number }): boolean {
-    const x = p.tx + 0.5;
-    const y = p.ty + 0.5;
-    for (const e of this.intel.values()) {
-      if (!UNIT_DEFS[e.kind]?.weapon || c.tick - e.t > SCOUT_MEMORY) continue;
-      const ex = e.x / FP;
-      const ey = e.y / FP;
-      if ((from ? segDist(ex, ey, from.x, from.y, x, y) : dist(ex, ey, x, y)) <= SCOUT_DANGER) return true;
-    }
-    return c.enemyBuildings.some((b) => buildingDef(b.kind).weapon && edgeDist(b, x, y) <= SCOUT_DANGER);
+  /** Its standing scout's tour and the point it heads for (AI-21): for tests only. */
+  get scoutPlan(): { tour: readonly { tx: number; ty: number }[]; goal: { tx: number; ty: number } | null } {
+    return { tour: this.tour, goal: this.scoutGoal };
+  }
+
+  /** The enemy buildings it knows, or, while it knows none, the enemy HQ at the start read off the symmetric map. */
+  private enemyAnchors(c: Ctx): { kind: string; tx: number; ty: number }[] {
+    if (c.enemyBuildings.length > 0) return c.enemyBuildings;
+    const start = this.enemyStart();
+    return [{ kind: this.kit.hq, tx: start.tx - 1, ty: start.ty - 1 }];
+  }
+
+  /** Armed enemy units it has seen within SCOUT_MEMORY ticks, where it saw them (tiles). */
+  private armedSeen(c: Ctx): { x: number; y: number; r: number }[] {
+    const out: { x: number; y: number; r: number }[] = [];
+    for (const e of this.intel.values()) if (UNIT_DEFS[e.kind]?.weapon && c.tick - e.t <= SCOUT_MEMORY) out.push({ x: e.x / FP, y: e.y / FP, r: scoutKeep(e.kind) });
+    return out;
   }
 
   /**
-   * The standing scout's observation points (AI-21), in tour order: the ground midway between the two bases, then points
-   * around the enemy base SCOUT_STANDOFF tiles out from every enemy building it knows (from the enemy start, read off the
-   * symmetric map, while it knows none), starting on the side facing us and going round, the other way each lap.
+   * The ground closed to the scout (AI-21), by tile: within scoutKeep tiles of an armed enemy unit seen lately, or within
+   * SCOUT_STANDOFF - 1 tiles of an enemy building it knows (which covers every defence's SCOUT_DANGER); and the tiles it
+   * cannot cross (rock, water, buildings).
+   */
+  private scoutGround(c: Ctx): { danger: Uint8Array; solid: Uint8Array } {
+    const W = this.map.width;
+    const H = this.map.height;
+    const danger = new Uint8Array(W * H);
+    const solid = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) if (this.map.blocked?.[i]) solid[i] = 1;
+    for (const b of [...c.snap.buildings, ...c.snap.ghosts]) {
+      const d = buildingDef(b.kind);
+      for (let y = b.ty; y < b.ty + d.h; y++) for (let x = b.tx; x < b.tx + d.w; x++) if (x >= 0 && y >= 0 && x < W && y < H) solid[y * W + x] = 1;
+    }
+    const mark = (x0: number, y0: number, x1: number, y1: number, near: (x: number, y: number) => boolean): void => {
+      for (let y = Math.max(0, Math.floor(y0)); y <= Math.min(H - 1, Math.ceil(y1)); y++)
+        for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(W - 1, Math.ceil(x1)); x++) if (near(x + 0.5, y + 0.5)) danger[y * W + x] = 1;
+    };
+    for (const b of this.enemyAnchors(c)) {
+      const d = buildingDef(b.kind);
+      const r = SCOUT_STANDOFF - 1;
+      mark(b.tx - r, b.ty - r, b.tx + d.w + r, b.ty + d.h + r, (x, y) => edgeDist(b, x, y) <= r);
+    }
+    for (const e of this.armedSeen(c)) mark(e.x - e.r, e.y - e.r, e.x + e.r, e.y + e.r, (x, y) => dist(x, y, e.x, e.y) <= e.r);
+    return { danger, solid };
+  }
+
+  /**
+   * The scout's ways from tile `from` (AI-21), round the ground closed to it: one shortest-path search over open tiles
+   * (closed ground is impassable, or, when it starts inside it, costs dearly), then the way to any tile. A way is null
+   * when there is none, or when it enters closed ground after leaving it. Deterministic: ties go to the lower tile index.
+   */
+  private safeWays(from: { tx: number; ty: number }, g: { danger: Uint8Array; solid: Uint8Array }): (to: { tx: number; ty: number }) => number[] | null {
+    const W = this.map.width;
+    const H = this.map.height;
+    const N = W * H;
+    const s = from.ty * W + from.tx;
+    const inside = g.danger[s] === 1;
+    // Work arrays, kept between searches; the ways returned hold until the next search.
+    const b = (this.searchBuf ??= { cost: new Float64Array(N), prev: new Int32Array(N), done: new Uint8Array(N), heap: new Int32Array(8 * N + 8), key: new Float64Array(8 * N + 8) });
+    const { cost, prev, done, heap, key } = b;
+    cost.fill(Infinity);
+    prev.fill(-1);
+    done.fill(0);
+    // A binary heap of tiles by cost, then tile index.
+    let size = 0;
+    const less = (a: number, b: number): boolean => (key[a] as number) < (key[b] as number) || ((key[a] as number) === (key[b] as number) && (heap[a] as number) < (heap[b] as number));
+    const swap = (a: number, b: number): void => {
+      const h = heap[a] as number;
+      heap[a] = heap[b] as number;
+      heap[b] = h;
+      const k = key[a] as number;
+      key[a] = key[b] as number;
+      key[b] = k;
+    };
+    const push = (pr: number, i: number): void => {
+      heap[size] = i;
+      key[size] = pr;
+      let k = size++;
+      while (k > 0 && less(k, (k - 1) >> 1)) {
+        swap(k, (k - 1) >> 1);
+        k = (k - 1) >> 1;
+      }
+    };
+    const pop = (): number => {
+      const top = heap[0] as number;
+      size--;
+      heap[0] = heap[size] as number;
+      key[0] = key[size] as number;
+      let k = 0;
+      for (;;) {
+        const l = 2 * k + 1;
+        let m = k;
+        if (l < size && less(l, m)) m = l;
+        if (l + 1 < size && less(l + 1, m)) m = l + 1;
+        if (m === k) break;
+        swap(m, k);
+        k = m;
+      }
+      return top;
+    };
+    cost[s] = 0;
+    push(0, s);
+    while (size > 0) {
+      const i = pop();
+      if (done[i]) continue;
+      done[i] = 1;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (g.solid[j] || done[j]) continue;
+          if (g.danger[j] && !inside) continue;
+          // No corner cutting past solid tiles.
+          if (dx !== 0 && dy !== 0 && (g.solid[y * W + nx] || g.solid[ny * W + x])) continue;
+          const nc = (cost[i] as number) + (dx !== 0 && dy !== 0 ? Math.SQRT2 : 1) + (g.danger[j] ? 50 : 0);
+          if (nc < (cost[j] as number)) {
+            cost[j] = nc;
+            prev[j] = i;
+            push(nc, j);
+          }
+        }
+    }
+    return (to) => {
+      const t = to.ty * W + to.tx;
+      if (!done[t] || g.danger[t]) return null;
+      const path: number[] = [];
+      for (let i = t; i !== -1; i = prev[i] as number) path.push(i);
+      path.reverse();
+      let out = !inside;
+      for (const i of path) {
+        if (!g.danger[i]) out = true;
+        else if (out) return null;
+      }
+      return path;
+    };
+  }
+
+  /**
+   * The standing scout's observation points (AI-21): around the enemy base, SCOUT_STANDOFF tiles out from every enemy
+   * building it knows (from the enemy start, read off the symmetric map, while it knows none), along seven compass
+   * directions: every one but the one facing us, where the enemy gathers and its waves set out. In order round the base
+   * from one side of the front to the other; which side comes first flips after each lost scout.
    */
   private tourPoints(c: Ctx): { tx: number; ty: number }[] {
     const home = this.home as { tx: number; ty: number };
-    const start = this.enemyStart();
     const W = this.map.width;
     const H = this.map.height;
-    const mid = this.nearestFree(Math.round((home.tx + start.tx) / 2), Math.round((home.ty + start.ty) / 2));
-    const anchors = c.enemyBuildings.length > 0 ? c.enemyBuildings : [{ kind: this.kit.hq, tx: start.tx - 1, ty: start.ty - 1 }];
+    const anchors = this.enemyAnchors(c);
     const cx = anchors.reduce((t, b) => t + b.tx + buildingDef(b.kind).w / 2, 0) / anchors.length;
     const cy = anchors.reduce((t, b) => t + b.ty + buildingDef(b.kind).h / 2, 0) / anchors.length;
     const clear = (x: number, y: number): boolean => anchors.every((b) => edgeDist(b, x + 0.5, y + 0.5) >= SCOUT_STANDOFF);
-    // The direction facing us first.
     const fx = home.tx - cx;
     const fy = home.ty - cy;
-    let first = 0;
+    let facing = 0;
     RING.forEach((d, i) => {
-      const f = RING[first] as readonly [number, number];
-      if (d[0] * fx + d[1] * fy > f[0] * fx + f[1] * fy) first = i;
+      const f = RING[facing] as readonly [number, number];
+      if (d[0] * fx + d[1] * fy > f[0] * fx + f[1] * fy) facing = i;
     });
-    const way = this.tourLaps % 2 === 0 ? 1 : RING.length - 1;
-    const ring: { tx: number; ty: number }[] = [];
-    for (let i = 0; i < RING.length; i++) {
-      const [dx, dy] = RING[(first + i * way) % RING.length] as readonly [number, number];
-      // Out along this direction to the first tile SCOUT_STANDOFF clear of every building it knows.
+    const out: { tx: number; ty: number }[] = [];
+    for (let k = 1; k < RING.length; k++) {
+      const [dx, dy] = RING[(facing + RING.length + k * this.tourSide) % RING.length] as readonly [number, number];
       for (let r = SCOUT_STANDOFF; r <= 40; r++) {
         const x = Math.max(1, Math.min(W - 2, Math.round(cx + dx * r)));
         const y = Math.max(1, Math.min(H - 2, Math.round(cy + dy * r)));
         if (!clear(x, y)) continue;
         const p = this.nearestFree(x, y);
-        if (clear(p.tx, p.ty) && !ring.some((q) => q.tx === p.tx && q.ty === p.ty)) ring.push(p);
+        if (clear(p.tx, p.ty) && !out.some((q) => q.tx === p.tx && q.ty === p.ty)) out.push(p);
         break;
       }
     }
-    return [mid, ...ring];
+    return out;
   }
 
   /**
-   * The standing scout's orders (AI-21). It watches rather than fights: it backs away from any armed enemy unit or
-   * defence within SCOUT_DANGER tiles, whatever its health, to the nearest point of its tour with no armed enemy near it
-   * that is farther from the threat than it is (or else to its staging point); otherwise it tours its observation points,
-   * moving on when it reaches one and skipping those with an armed enemy near them or on the way there.
+   * The standing scout's orders (AI-21). It watches rather than fights:
+   * - with an armed enemy unit within scoutKeep tiles (SCOUT_KEEP, or beyond its guns' reach) or a defence within SCOUT_DANGER, whatever its health, it flees
+   *   SCOUT_FLEE tiles straight away from the armed enemies it sees (turning up to 90 degrees round rock or water), and
+   *   afterwards tours the other way round;
+   * - otherwise it tours its observation points to and fro, moving on when it reaches one, skipping those it cannot reach
+   *   without crossing ground closed to it (near an armed unit seen lately or near the enemy base), or its staging point;
+   * - it moves in hops of at most SCOUT_HOP tiles along its way round the closed ground, so it decides again before it can
+   *   drive into guns it has not seen.
    */
   private watch(c: Ctx, out: Command[]): void {
     const me = c.own.find((u) => u.id === this.standing);
     if (!me) return;
+    const W = this.map.width;
+    const H = this.map.height;
     const stage = this.staging as { tx: number; ty: number };
     const x = me.x / FP;
     const y = me.y / FP;
-    const go = (p: { tx: number; ty: number }): void => {
-      const same = this.scoutGoal !== null && this.scoutGoal.tx === p.tx && this.scoutGoal.ty === p.ty;
-      this.scoutGoal = p;
-      if (same && me.dest !== null) return;
+    const move = (p: { tx: number; ty: number }): void => {
       out.push({ type: 'move', player: this.player, units: [me.id], x: p.tx * FP + FP / 2, y: p.ty * FP + FP / 2 });
     };
     const at = (p: { tx: number; ty: number }): number => dist(x, y, p.tx + 0.5, p.ty + 0.5);
-    const tour = this.tourPoints(c);
+    const sight = unitDef(me.kind).vision;
 
-    // Threats: armed enemy units it sees within SCOUT_DANGER tiles, and defences that close.
-    const threats: { x: number; y: number }[] = [];
-    for (const u of c.foes) if (unitDef(u.kind).weapon && dist(u.x / FP, u.y / FP, x, y) <= SCOUT_DANGER) threats.push({ x: u.x / FP, y: u.y / FP });
-    for (const b of c.enemyBuildings) {
-      const d = buildingDef(b.kind);
-      if (d.weapon && edgeDist(b, x, y) <= SCOUT_DANGER) threats.push({ x: b.tx + d.w / 2, y: b.ty + d.h / 2 });
-    }
-    if (threats.length > 0) {
-      const near = (p: { tx: number; ty: number }): number => Math.min(...threats.map((t) => dist(t.x, t.y, p.tx + 0.5, p.ty + 0.5)));
-      const here = Math.min(...threats.map((t) => dist(t.x, t.y, x, y)));
-      const away = (p: { tx: number; ty: number }): boolean => near(p) > here && !this.unsafe(c, p);
-      // Already on its way to such a point: keep going.
-      const goal = this.scoutGoal;
-      if (this.backing && goal && away(goal)) return go(goal);
-      this.backing = true;
-      let best = -1;
-      tour.forEach((p, i) => {
-        if (at(p) >= 2 && away(p) && (best < 0 || at(p) < at(tour[best] as { tx: number; ty: number }))) best = i;
-      });
-      if (best < 0) return go(stage);
-      this.tourStep = best;
-      return go(tour[best] as { tx: number; ty: number });
-    }
-
-    // Touring: on to the next safe point once it reaches this one (or has stopped short of it).
-    const goal = this.scoutGoal;
-    const reached = goal !== null && (at(goal) < 2.5 || me.dest === null);
-    const here = { x, y };
-    if (goal && !reached && !this.backing && !this.unsafe(c, goal, here)) return go(goal);
-    // Reached (or stopped short of) a tour point: the next one.
-    if (goal && reached && (goal.tx !== stage.tx || goal.ty !== stage.ty)) this.tourStep++;
-    this.backing = false;
-    for (let k = 0; k <= tour.length; k++) {
-      if (this.tourStep >= tour.length) {
-        this.tourStep = 0;
-        this.tourLaps++;
+    // Threats, whatever its health: armed units within scoutKeep tiles, defences within SCOUT_DANGER.
+    const armed = c.foes.filter((u) => unitDef(u.kind).weapon && dist(u.x / FP, u.y / FP, x, y) <= Math.max(sight, scoutKeep(u.kind))).map((u) => ({ x: u.x / FP, y: u.y / FP, r: scoutKeep(u.kind) }));
+    const defences = c.enemyBuildings.filter((b) => buildingDef(b.kind).weapon && edgeDist(b, x, y) <= SCOUT_DANGER).map((b) => ({ x: b.tx + buildingDef(b.kind).w / 2, y: b.ty + buildingDef(b.kind).h / 2 }));
+    if (armed.some((u) => dist(u.x, u.y, x, y) <= u.r) || defences.length > 0) {
+      const from = [...armed, ...defences];
+      const cx = from.reduce((t, p) => t + p.x, 0) / from.length;
+      const cy = from.reduce((t, p) => t + p.y, 0) / from.length;
+      const nearest = (px: number, py: number): number => Math.min(...from.map((p) => dist(p.x, p.y, px, py)));
+      if (!this.fleeing) this.tourDir = -this.tourDir;
+      // Away from what it sees, the nearest counting most.
+      let ux = 0;
+      let uy = 0;
+      for (const p of from) {
+        const d2 = Math.max(0.25, (x - p.x) ** 2 + (y - p.y) ** 2);
+        ux += (x - p.x) / d2;
+        uy += (y - p.y) / d2;
       }
-      const p = tour[this.tourStep] as { tx: number; ty: number };
-      if (at(p) >= 2.5 && !this.unsafe(c, p, here)) return go(p);
-      this.tourStep++;
+      if (Math.hypot(ux, uy) < 1e-6) {
+        ux = x - cx || stage.tx + 0.5 - x;
+        uy = y - cy || stage.ty + 0.5 - y;
+      }
+      const l = Math.hypot(ux, uy) || 1;
+      ux /= l;
+      uy /= l;
+      const C = Math.SQRT1_2;
+      // Straight away first, then turning off by 45 and 90 degrees either way.
+      const turns: [number, number][] = [[1, 0], [C, C], [C, -C], [0, 1], [0, -1]];
+      const open = (px: number, py: number): boolean => {
+        const tx = Math.floor(px);
+        const ty = Math.floor(py);
+        return tx >= 0 && ty >= 0 && tx < W && ty < H && !this.map.blocked?.[ty * W + tx];
+      };
+      let to: { tx: number; ty: number } | null = null;
+      for (const [cs, sn] of turns) {
+        const dx = ux * cs - uy * sn;
+        const dy = ux * sn + uy * cs;
+        let ok = true;
+        for (let k = 1; k <= 2 * SCOUT_FLEE && ok; k++) ok = open(x + (dx * k) / 2, y + (dy * k) / 2);
+        const px = x + dx * SCOUT_FLEE;
+        const py = y + dy * SCOUT_FLEE;
+        if (ok && nearest(px, py) > nearest(x, y)) {
+          to = { tx: Math.floor(px), ty: Math.floor(py) };
+          break;
+        }
+      }
+      // Decided afresh every time; a new order only when the way to flee has turned (or it has got there).
+      const f = this.fleeing;
+      const target = to ?? stage;
+      this.scoutHop = null;
+      this.scoutGoal = null;
+      this.way = null;
+      if (f && me.dest !== null && at(f) > 1.5) {
+        const ax = f.tx + 0.5 - x;
+        const ay = f.ty + 0.5 - y;
+        const bx = target.tx + 0.5 - x;
+        const by = target.ty + 0.5 - y;
+        if ((ax * bx + ay * by) / ((Math.hypot(ax, ay) || 1) * (Math.hypot(bx, by) || 1)) > 0.87) return;
+      }
+      this.fleeing = target;
+      return move(target);
     }
-    go(stage);
+    this.fleeing = null;
+    // Touring, in hops along its way round the closed ground.
+    const ground = this.scoutGround(c);
+    const here = { tx: Math.max(0, Math.min(W - 1, Math.floor(x))), ty: Math.max(0, Math.min(H - 1, Math.floor(y))) };
+    const tour = (this.tour = this.tourPoints(c));
+    let route: number[] | null = null;
+    const goal = this.scoutGoal;
+    const key = (p: { tx: number; ty: number }): number => p.ty * W + p.tx;
+    // Its way there, from the tile of it nearest the scout, while every tile on it is still open; else a new way.
+    const kept = (): number[] | null => {
+      const wy = this.way;
+      if (!wy || ground.danger[key(here)]) return null;
+      let k = 0;
+      wy.forEach((i, n) => {
+        if (dist((i % W) + 0.5, Math.floor(i / W) + 0.5, x, y) < dist(((wy[k] as number) % W) + 0.5, Math.floor((wy[k] as number) / W) + 0.5, x, y)) k = n;
+      });
+      const rest = wy.slice(k);
+      return rest.every((i) => !ground.solid[i] && !ground.danger[i]) ? rest : null;
+    };
+    let ways: ((to: { tx: number; ty: number }) => number[] | null) | null = null;
+    const find = (p: { tx: number; ty: number }): number[] | null => {
+      if (this.waysFailed > c.tick) return null;
+      ways ??= this.safeWays(here, ground);
+      return ways(p);
+    };
+    if (goal && at(goal) >= 2.5) route = kept() ?? find(goal);
+    if (!route) {
+      // Reached it, or it cannot get there safely: the next point it can reach, to and fro round the base.
+      this.scoutGoal = null;
+      this.scoutHop = null;
+      const n = tour.length;
+      if (this.tourIdx >= n) this.tourIdx = n - 1;
+      for (let k = 0; k < 2 * n && !route; k++) {
+        if (goal !== null || k > 0) {
+          if (this.tourIdx + this.tourDir < 0 || this.tourIdx + this.tourDir >= n) this.tourDir = -this.tourDir;
+          this.tourIdx = Math.max(0, Math.min(n - 1, this.tourIdx + this.tourDir));
+        }
+        const p = tour[this.tourIdx];
+        if (!p || at(p) < 2.5) continue;
+        route = find(p);
+        if (route) this.scoutGoal = p;
+      }
+      if (!route) {
+        // Nowhere safe to go: back to its staging point.
+        this.scoutGoal = stage;
+        route = at(stage) >= 2.5 ? find(stage) : null;
+        if (!route) {
+          if (ways) this.waysFailed = c.tick + 100;
+          if (at(stage) >= 2.5 && me.dest === null) move(stage);
+          return;
+        }
+      }
+    }
+    // A new hop once it has nearly reached the last one (or stopped): the tile along the way just past where its next
+    // decision will find it, at most SCOUT_HOP tiles on.
+    this.way = route;
+    const hop = this.scoutHop;
+    const reach = Math.min(SCOUT_HOP, (unitDef(me.kind).speed * this.diff.thinkEvery) / FP + 1);
+    if (hop && me.dest !== null && at(hop) > reach - (unitDef(me.kind).speed * this.diff.thinkEvery) / FP && at(hop) > 1) return;
+    let next = route[route.length - 1] as number;
+    for (const i of route) {
+      if (dist((i % W) + 0.5, Math.floor(i / W) + 0.5, x, y) > reach) break;
+      next = i;
+    }
+    const p = { tx: next % W, ty: Math.floor(next / W) };
+    if (p.tx === here.tx && p.ty === here.ty) return;
+    this.scoutHop = p;
+    move(p);
   }
 
   // ---------------------------------------------------------------- upkeep
