@@ -73,14 +73,19 @@ jobs:
           - { name: raider, run: npm run test:matches -- personalities -t AI-14 }
           - { name: doomsday, run: npm run test:matches -- personalities -t AI-15 }
           - { name: scouting and maps, run: npm run test:matches -- scouting-and-maps }
-          - { name: economy, run: npm run test:matches -- economy }
+          - { name: economy, run: npm run test:matches -- economy.test }
           - { name: artillery, run: npm run test:matches -- artillery }
           - { name: steamroll raider, run: npm run test:matches -- steamroll -t raider }
           - { name: steamroll balanced, run: npm run test:matches -- steamroll -t balanced }
           - { name: steamroll doomsday, run: npm run test:matches -- steamroll -t doomsday }
+<<<<<<< HEAD
           - { name: scout hard, run: SCOUT_DIFFICULTY=hard npm run test:matches -- scout }
           - { name: scout medium, run: npm run test:matches -- scout }
           - { name: economy scale, run: npm run test:matches -- economy-scale }
+=======
+          - { name: scout hard, run: SCOUT_DIFFICULTY=hard npm run test:matches -- scout.test }
+          - { name: scout medium, run: npm run test:matches -- scout.test }
+>>>>>>> feat/175-standing-scout
     name: matches (${{ matrix.name }})
     steps:
       - uses: actions/checkout@v4
