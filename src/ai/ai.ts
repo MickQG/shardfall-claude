@@ -285,7 +285,34 @@ export interface AiStats {
   produced: Record<Role | 'hero', number>;
   /** Haulers and army value when it ordered its first superweapon, or null (AI-15). */
   superweaponOrder: { haulers: number; army: number } | null;
+  /** The steamroll opponent only (HAR-5): tick its fourth crusher stood (or -1), and infantry it ordered after that. */
+  steamroll?: { massedAt: number; infantryAfter: number };
 }
+
+/**
+ * What an AI may train and build, and whether it pulls back a beaten wave. Every ordinary AI may do everything; only the
+ * harness's steamroll opponent (HAR-5, steamroll.ts) narrows it.
+ */
+export interface Doctrine {
+  /** Whether it may train this unit kind. */
+  trains(kind: string): boolean;
+  /** Whether units of this kind go on the attack; the others stay home and defend. */
+  attacks(kind: string): boolean;
+  /** Where it would add a further barracks, it adds a factory instead. */
+  factoriesForBarracks: boolean;
+  /** Changes the structure the build order wants next, given how many of each kind it has or has queued, and its credits. */
+  structure?(planned: string | null, have: (kind: string) => number, credits: number): string | null;
+  /** Haulers come from its first factory only, so the others keep training combat units. */
+  oneHaulerFactory?: boolean;
+  /** A wave sets out only with at least this many crushers in the army. */
+  waveCrushers?: number;
+  /** Whether it may build a superweapon. */
+  superweapon: boolean;
+  /** Whether it pulls a beaten wave back to the staging point. */
+  retreats: boolean;
+}
+
+const FULL_DOCTRINE: Doctrine = { trains: () => true, attacks: () => true, factoriesForBarracks: false, superweapon: true, retreats: true };
 
 type Ctx = {
   snap: Snapshot;
@@ -309,6 +336,7 @@ type Ctx = {
  */
 export class AI {
   readonly kit: Kit;
+  protected readonly doctrine: Doctrine = FULL_DOCTRINE;
   readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null };
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
   private adapted = false;
@@ -524,8 +552,14 @@ export class AI {
     return c.credits >= d.cost + extra && d.requires.every((r) => (c.counts.get(r) ?? 0) > 0 && c.buildings.some((b) => b.kind === r));
   }
 
-  /** The structure we want next, ignoring affordability. Order encodes the build order. */
+  /** The structure we want next, ignoring affordability. */
   private wantedStructure(c: Ctx): string | null {
+    const planned = this.plannedStructure(c);
+    return this.doctrine.structure ? this.doctrine.structure(planned, (k) => c.counts.get(k) ?? 0, c.credits) : planned;
+  }
+
+  /** The build order: the structure it wants next, ignoring affordability. */
+  private plannedStructure(c: Ctx): string | null {
     const k = this.kit;
     const n = (kind: string): number => c.counts.get(kind) ?? 0;
     const queuedDrain = c.hq.queue.reduce((s, q) => s + Math.max(0, -buildingDef(q.kind).power), 0);
@@ -547,19 +581,22 @@ export class AI {
     if (tech && n(k.factory) < 2 && c.credits > 1400) return k.factory;
     if (n(k.turret) < turretsWanted) return k.turret;
     const rich = c.credits > 3000 ? 2 : c.credits > 1400 ? 1 : 0;
-    if (n(k.barracks) < 1 + rich + (c.tick > 5000 ? 1 : 0) && n(k.barracks) < 4) return k.barracks;
+    // Further barracks; the steamroll opponent (HAR-5) adds factories instead, counting those beyond the factory line
+    // below as its further barracks.
+    const more = this.doctrine.factoriesForBarracks ? { kind: k.factory, n: 1 + Math.max(0, n(k.factory) - Math.min(3, 1 + rich)) } : { kind: k.barracks, n: n(k.barracks) };
+    if (more.n < 1 + rich + (c.tick > 5000 ? 1 : 0) && more.n < 4) return more.kind;
     // Raider spends on its army, not on tech, until its opening is over (AI-14).
     const teching = this.plan !== 'raider';
     if (teching && n(k.lab) === 0 && c.credits > 1100) return k.lab;
     if (n(k.factory) < 1 + rich && n(k.factory) < 3) return k.factory;
     if (refineries < 3 && haulers >= 4 && c.credits > 1100) return k.refinery;
     // Doomsday's superweapon is optional: only when it can spare the money and its army is strong (AI-15).
-    if (teching && n(k.superweapon) === 0 && n(k.lab) > 0 && (!tech || this.canAffordDoom(c))) {
+    if (teching && this.doctrine.superweapon && n(k.superweapon) === 0 && n(k.lab) > 0 && (!tech || this.canAffordDoom(c))) {
       const sw = buildingDef(k.superweapon);
       if (margin < -sw.power + 10) return k.power;
       return k.superweapon;
     }
-    if (c.credits > 4000 && n(k.barracks) < 5) return k.barracks;
+    if (c.credits > 4000 && more.n < 5) return more.kind;
     if (c.credits > 4000 && n(k.factory) < 4) return k.factory;
     if (n(k.turret) < 6 && c.credits > 1800) return k.turret;
     if (n(k.power) < 8 && margin < 80 && c.credits > 1200) return k.power;
@@ -710,11 +747,12 @@ export class AI {
     // Doomsday saving for its superweapon does not spend on the floor (AI-15, AI-19).
     const guns = doom && next === this.kit.superweapon ? 0 : artilleryNeeded(intel);
     const haulerWanted = this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0);
+    const haulerFactory = this.doctrine.oneHaulerFactory ? c.buildings.filter((b) => b.kind === this.kit.factory).sort((a, b) => a.id - b.id)[0]?.id : undefined;
 
     for (const b of c.buildings) {
       const depth = c.credits > 3000 ? 5 : c.credits > 2000 ? 4 : c.credits > 1100 ? 3 : 2;
       if (b.queue.length >= depth || b.queue.length >= QUEUE_MAX) continue;
-      const trainable = Object.keys(UNIT_DEFS).filter((k) => unitDef(k).builtAt === b.kind && unitDef(k).faction === this.faction);
+      const trainable = Object.keys(UNIT_DEFS).filter((k) => unitDef(k).builtAt === b.kind && unitDef(k).faction === this.faction && this.doctrine.trains(k));
       if (trainable.length === 0) continue;
       // A hero only while the player has none, alive or queued (HERO-1).
       const allowed = trainable.filter((k) => unitDef(k).requires.every((r) => c.buildings.some((x) => x.kind === r)) && !(unitDef(k).hero && (queued.has(k) || c.own.some((u) => u.kind === k))));
@@ -725,7 +763,7 @@ export class AI {
       // Artillery floor against enemy infantry (AI-19), when it is available here.
       const gun = counts.art < guns ? allowed.find((k) => roleOf(unitDef(k)) === 'art' && !unitDef(k).hero) : undefined;
       const pick: string | null =
-        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) ? this.kit.hauler : (hero ?? rifle ?? gun ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt));
+        b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler) && (haulerFactory === undefined || b.id === haulerFactory) ? this.kit.hauler : (hero ?? rifle ?? gun ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt));
       if (!pick) continue;
       // Doomsday does not flood the field with cheap infantry beyond its rifle floor: tanks and artillery set the pace (AI-15).
       if (doom && !rifle && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && counts.tank + counts.art >= 4 && counts.inf + counts.at >= rifles + 3 * (counts.tank + counts.art) && !urgent) continue;
@@ -889,7 +927,7 @@ export class AI {
 
   private attackLogic(c: Ctx, out: Command[]): void {
     const stage = this.staging as { tx: number; ty: number };
-    const army = c.army;
+    const army = c.army.filter((u) => this.doctrine.attacks(u.kind));
     if (army.length === 0) {
       if (this.wave) this.wave = null;
       return;
@@ -910,7 +948,14 @@ export class AI {
       const local = this.enemyPowerNear(c, Math.floor(cx), Math.floor(cy), 11);
       // Doomsday commits while its strike is charged or has just landed: the strike, not a retreat, answers resistance (AI-15).
       const committed = this.plan === 'doomsday' && (c.buildings.some((b) => buildingDef(b.kind).superweapon && b.charge >= 100) || (this.lastStrike >= 0 && c.tick - this.lastStrike < 400));
-      if (members.length <= 2 || (!committed && (p <= 0.45 * w.startPower || local >= 1.5 * p))) {
+      // The steamroll opponent never pulls a wave back (HAR-5): it drives on until the wave is gone, then forms the next.
+      if (!this.doctrine.retreats) {
+        if (members.length === 0) {
+          this.wave = null;
+          this.lastWaveEnd = c.tick;
+          return;
+        }
+      } else if (members.length <= 2 || (!committed && (p <= 0.45 * w.startPower || local >= 1.5 * p))) {
         this.stats.retreats++;
         order('move', members, stage.tx, stage.ty);
         this.wave = null;
@@ -984,7 +1029,8 @@ export class AI {
     // A raid goes for the economy and slips past the army rather than fighting it (AI-14); a strike clears the way (AI-15).
     if (raiding) est = (blind ? 0 : 0.6 * seen) + defences;
     if (striking) est = 0.5 * ((blind ? 0 : 1.15 * seen) + defences);
-    if (!shouldAttack(p, est, army.length, threshold, this.jitter.ratio) || (raiding && army.length < RAID_MIN_ARMY)) {
+    const massed = army.filter((u) => unitDef(u.kind).crusher).length >= (this.doctrine.waveCrushers ?? 0);
+    if (!shouldAttack(p, est, army.length, threshold, this.jitter.ratio) || (raiding && army.length < RAID_MIN_ARMY) || !massed) {
       this.gatherSince = -1;
       return;
     }

@@ -3,6 +3,7 @@ import { skirmishConfig, type MapId } from '../data/maps';
 import { createGame, FP, hash, Rng, snapshot, submit, tick, type Game } from '../sim';
 import { Hv } from '../sim/state';
 import { AI, type AiStats, type Difficulty, type Personality } from './ai';
+import { STEAMROLL_DIFFICULTY, STEAMROLL_TUNING, SteamrollAI, type SteamrollTuning } from './steamroll';
 
 export interface Violations {
   /** Haulers left idle (or switched off) for ten seconds while shards and a refinery exist. */
@@ -32,7 +33,17 @@ export interface MatchOptions {
   mapSeed?: number;
   /** Each AI's personality (AI-12); Balanced by default. */
   personalities?: [Personality, Personality];
+  /**
+   * Which player is the ordinary AI and which the steamroll opponent (HAR-5); both the AI by default. A steamroll seat
+   * plays at STEAMROLL_DIFFICULTY (with the tuning's bonus) whatever `difficulties` says for it, and ignores its personality.
+   */
+  opponents?: [Opponent, Opponent];
+  /** Parts of the steamroll opponent to change, for measuring each one (HAR-5); STEAMROLL_TUNING by default. */
+  steamroll?: Partial<SteamrollTuning>;
 }
+
+/** Who plays a seat in a headless match: the AI, or the steamroll opponent used to measure it (HAR-5). */
+export type Opponent = 'ai' | 'steamroll';
 
 export interface MatchResult {
   winner: number | null;
@@ -59,12 +70,17 @@ const material = (g: Game, p: number): number => {
 
 /** Plays one complete AI-vs-AI match headlessly and reports the result plus any bad behaviour observed. */
 export function playMatch(o: MatchOptions): MatchResult {
-  const cfg = skirmishConfig(o.seed, { factions: o.factions, bonuses: [o.difficulties[0].bonus, o.difficulties[1].bonus], map: o.map, mapSeed: o.mapSeed });
+  const steam = (p: number): boolean => o.opponents?.[p] === 'steamroll';
+  const tuning: SteamrollTuning = { ...STEAMROLL_TUNING, ...o.steamroll };
+  const diffs = [0, 1].map((p) => (steam(p) ? { ...STEAMROLL_DIFFICULTY, bonus: tuning.bonus } : o.difficulties[p])) as [Difficulty, Difficulty];
+  const cfg = skirmishConfig(o.seed, { factions: o.factions, bonuses: [diffs[0].bonus, diffs[1].bonus], map: o.map, mapSeed: o.mapSeed });
   const game = createGame(cfg);
-  const ais = [0, 1].map((p) => new AI(p, o.factions[p] as Faction, o.difficulties[p] as Difficulty, cfg.map, o.seed, o.personalities?.[p] ?? 'balanced')) as [AI, AI];
+  const ais = [0, 1].map((p) =>
+    steam(p) ? new SteamrollAI(p, o.factions[p] as Faction, cfg.map, o.seed, tuning) : new AI(p, o.factions[p] as Faction, diffs[p] as Difficulty, cfg.map, o.seed, o.personalities?.[p] ?? 'balanced'),
+  ) as [AI, AI];
   // Random think phases per match: when mirrored armies meet, a few ticks of timing decide the fight, so a fixed offset would hand one side every game.
   const pr = new Rng(o.seed * 31 + 7);
-  const phase = [pr.int(o.difficulties[0].thinkEvery), pr.int(o.difficulties[1].thinkEvery)];
+  const phase = [pr.int(diffs[0].thinkEvery), pr.int(diffs[1].thinkEvery)];
   const viol: [Violations, Violations] = [zero(), zero()];
   const peak = { haulers: [0, 0] as [number, number], army: [0, 0] as [number, number], buildings: [0, 0] as [number, number] };
   const orders: [number, number] = [0, 0];
