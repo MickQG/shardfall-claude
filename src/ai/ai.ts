@@ -440,6 +440,8 @@ export interface AiRules {
   artilleryCap: number;
   /** (AI-24) Its infantry squads scatter from enemy crushers. */
   scatter: boolean;
+  /** (AI-22, AI-15) Doomsday grows by factories alone, whenever every factory is busy; off: it grows as Balanced does. */
+  doomGrowth: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -452,6 +454,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   queueDepthRich: QUEUE_DEEP,
   artilleryCap: ARTILLERY_IN_PRODUCTION,
   scatter: true,
+  doomGrowth: true,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -891,7 +894,9 @@ export class AI {
       if (margin < -sw.power + 10) return k.power;
       return k.superweapon;
     }
-    if (c.credits > 4000 && (n(k.barracks) < GROWTH_MAX || n(k.factory) < GROWTH_MAX)) return powered(n(k.factory) <= n(k.barracks) && n(k.factory) < GROWTH_MAX ? k.factory : k.barracks);
+    const factoriesOnly = tech && this.rules.doomGrowth;
+    if (c.credits > 4000 && factoriesOnly && n(k.factory) < GROWTH_MAX) return powered(k.factory);
+    if (c.credits > 4000 && !factoriesOnly && (n(k.barracks) < GROWTH_MAX || n(k.factory) < GROWTH_MAX)) return powered(n(k.factory) <= n(k.barracks) && n(k.factory) < GROWTH_MAX ? k.factory : k.barracks);
     if (teching && turrets && n(k.turret) < 6 && c.credits > 1800) return k.turret;
     if (n(k.power) < 8 && margin < 80 && c.credits > 1200) return k.power;
     return null;
@@ -907,6 +912,12 @@ export class AI {
     const plants = c.buildings.filter((b) => b.kind === k.barracks || b.kind === k.factory);
     const nb = plants.filter((b) => b.kind === k.barracks).length;
     const nf = plants.length - nb;
+    // Doomsday's army is tanks, artillery and its hero (AI-15): it grows by factories alone, and barracks it leaves idle
+    // on purpose do not hold it back.
+    if (this.plan === 'doomsday' && this.rules.doomGrowth) {
+      const factories = plants.filter((b) => b.kind === k.factory);
+      return factories.length > 0 && factories.every((b) => b.queue.length > 0) && nf < GROWTH_MAX ? k.factory : null;
+    }
     if (plants.length === 0 || plants.some((b) => b.queue.length === 0)) return null;
     if (nf <= nb && nf < GROWTH_MAX) return k.factory;
     if (nb < GROWTH_MAX) return k.barracks;
