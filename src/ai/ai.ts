@@ -434,14 +434,14 @@ export interface AiStats {
 export interface AiOptions {
   /** The standing scout (AI-21), on unless false; off only in measurement (the harness), to compare with the old scouting. */
   standingScout?: boolean;
-  /** Its rules (AI-22, AI-23), each switchable for measurement; DEFAULT_RULES where not given. */
+  /** Its rules (AI-22 to AI-25), each switchable for measurement; DEFAULT_RULES where not given. */
   rules?: Partial<AiRules>;
 }
 
 /**
- * The rules of AI-22 and AI-23 as switches, so the harness can measure each one alone (HAR-5). DEFAULT_RULES is how the
+ * The rules of AI-22 to AI-25 as switches, so the harness can measure each one alone (HAR-5). DEFAULT_RULES is how the
  * game plays; an "off" value restores the behaviour before that rule. The steamroll opponent keeps its own build and
- * attack (HAR-5).
+ * attack (HAR-5) and plays with neither AI-24 nor AI-25.
  */
 export interface AiRules {
   /** Production buildings before the lab comes ahead of growth (AI-22); 99: the lab only once growth has nothing to build, at LAB_FROM. */
@@ -472,6 +472,12 @@ export interface AiRules {
   artilleryCap: number;
   /** How it values the enemy army for its attack decision and its hold: 0 what it has seen lately; 1 also its peak memory; 2 also what the enemy can have built (see enemyArmy). */
   enemyEstimate: number;
+  /** (AI-24) Crushers and artillery against an army built round crushers: on at counterMixOn of its value, off below counterMixOff. */
+  counterMix: boolean;
+  counterMixOn: number;
+  counterMixOff: number;
+  /** (AI-25) Its infantry squads scatter from enemy crushers. */
+  scatter: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -491,12 +497,28 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   queueDepthRich: QUEUE_DEEP,
   artilleryCap: ARTILLERY_IN_PRODUCTION,
   enemyEstimate: 0,
+  counterMix: true,
+  counterMixOn: 0.33,
+  counterMixOff: 0.2,
+  scatter: true,
 };
 
 /** How far back (ticks) the peak memory of the enemy army reaches (enemyEstimate 1). */
 export const ESTIMATE_MEMORY = 6000;
 /** Share of a production building's full output counted as built (enemyEstimate 2). */
 export const ESTIMATE_OUTPUT = 0.6;
+/**
+ * Against an army built round crushers (AI-24): it looks at the enemy army seen within COUNTER_SEEN ticks, at least
+ * COUNTER_UNITS armed units of it; its crushers and artillery come about COUNTER_ARTILLERY artillery by cost, and it keeps
+ * COUNTER_RIFLES rifle squads (Doomsday its own floor, AI-15).
+ */
+export const COUNTER_SEEN = 20 * 120;
+export const COUNTER_UNITS = 3;
+export const COUNTER_ARTILLERY = 0.4;
+export const COUNTER_RIFLES = 2;
+/** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-25), each at most once in SCATTER_GAP ticks. */
+export const SCATTER_R = 3;
+export const SCATTER_GAP = 40;
 
 /** Intel freshness (AI-21) is counted from this tick: how often a sighting of an armed enemy unit is at most INTEL_FRESH ticks old. */
 export const INTEL_FROM = 20 * 60 * 5;
@@ -622,6 +644,10 @@ export class AI {
   /** Value (credits) of enemy armed units it has seen die (enemyEstimate 2), and the armed units it saw at its last decision. */
   private enemyDied = 0;
   private lastFoes = new Map<number, { kind: string; x: number; y: number }>();
+  /** Whether the enemy army is built round crushers now (AI-24). */
+  private counter = false;
+  /** The tick each of its squads was last told to scatter from a crusher (AI-25). */
+  private scattered = new Map<number, number>();
 
   constructor(
     readonly player: number,
@@ -679,7 +705,10 @@ export class AI {
     this.superweapon(c, out);
     // Crush orders go last so they override this tick's wave orders for the same units, and always get a share of the
     // command budget (BAL-5).
-    const crush = crushOrders(me, c.army, c.foes, snap.mapWidth, snap.mapHeight).slice(0, Math.max(1, Math.ceil(this.diff.maxCommands / 2)));
+    // Scatter orders (AI-25) come out of the same share, ahead of them.
+    const share = Math.max(1, Math.ceil(this.diff.maxCommands / 2));
+    const crush = [...this.scatterOrders(c), ...crushOrders(me, c.army, c.foes, snap.mapWidth, snap.mapHeight)].slice(0, share);
+    for (const o of crush) if (o.type === 'scatter') for (const id of o.units) this.scattered.set(id, c.tick);
     // Doomsday's strike and the order sending its wave into it go first, ahead of everything else (AI-15).
     const first = this.first.splice(0);
     return [...first, ...out.slice(0, Math.max(0, this.diff.maxCommands - crush.length - first.length)), ...crush];
@@ -704,8 +733,62 @@ export class AI {
   private updatePlan(c: Ctx): void {
     const sw = c.buildings.some((b) => buildingDef(b.kind).superweapon);
     if (sw && this.stats.superweaponAt < 0) this.stats.superweaponAt = c.tick;
+    this.counter = this.counterNow(c);
     if (this.adapted) return;
-    if (this.personality === 'raider' && (c.tick >= RAIDER_OPENING_END || this.raidsLost >= RAIDER_RAIDS_LOST)) this.adapted = true;
+    // Seeing a steamroll ends Raider's opening at once too (AI-24).
+    if (this.personality === 'raider' && (c.tick >= RAIDER_OPENING_END || this.raidsLost >= RAIDER_RAIDS_LOST || this.counter)) this.adapted = true;
+  }
+
+  /** Whether it is answering an army built round crushers (AI-24), for tests and measurement only. */
+  get countering(): boolean {
+    return this.counter;
+  }
+
+  /**
+   * Whether the enemy army is built round crushers (AI-24): crushers (heroes included) make up at least counterMixOn of
+   * the value of the armed enemy units it has seen within COUNTER_SEEN ticks, with at least COUNTER_UNITS of them seen;
+   * once so, until they fall below counterMixOff. Never for the steamroll opponent (HAR-5).
+   */
+  private counterNow(c: Ctx): boolean {
+    if (!this.rules.counterMix || !this.doctrine.retreats) return false;
+    let all = 0;
+    let crush = 0;
+    let n = 0;
+    for (const e of this.intel.values()) {
+      const d = UNIT_DEFS[e.kind];
+      if (!d?.weapon || d.capacity !== undefined || c.tick - e.t > COUNTER_SEEN) continue;
+      n++;
+      all += d.cost;
+      if (d.crusher) crush += d.cost;
+    }
+    const share = all > 0 ? crush / all : 0;
+    return this.counter ? share >= this.rules.counterMixOff : n >= COUNTER_UNITS && share >= this.rules.counterMixOn;
+  }
+
+  /**
+   * Scatter orders (AI-25): its infantry squads within SCATTER_R tiles of an enemy crusher it sees, and not told to
+   * scatter within SCATTER_GAP ticks, scatter (CTL-18), one order for the squads near each crusher. Never for the
+   * steamroll opponent (HAR-5).
+   */
+  private scatterOrders(c: Ctx): Command[] {
+    if (!this.rules.scatter || !this.doctrine.retreats) return [];
+    const crushers = c.foes.filter((f) => unitDef(f.kind).crusher);
+    if (crushers.length === 0) return [];
+    const groups = new Map<number, number[]>();
+    for (const u of c.army) {
+      if ((unitDef(u.kind).squad ?? 1) <= 1 || c.tick - (this.scattered.get(u.id) ?? -SCATTER_GAP) < SCATTER_GAP) continue;
+      let best: UnitSnap | null = null;
+      let bd = SCATTER_R * FP;
+      for (const f of crushers) {
+        const d = Math.hypot(f.x - u.x, f.y - u.y);
+        if (d < bd || (d === bd && (best === null || f.id < best.id))) {
+          bd = d;
+          best = f;
+        }
+      }
+      if (best) groups.set(best.id, [...(groups.get(best.id) ?? []), u.id]);
+    }
+    return [...groups.keys()].sort((a, b) => a - b).map((k): Command => ({ type: 'scatter', player: this.player, units: groups.get(k) as number[] }));
   }
 
   // ---------------------------------------------------------------- knowledge
@@ -928,9 +1011,11 @@ export class AI {
     const plants = c.buildings.filter((b) => b.kind === k.barracks || b.kind === k.factory);
     const nb = plants.filter((b) => b.kind === k.barracks).length;
     const nf = plants.length - nb;
-    // Barracks Doomsday leaves idle on purpose (AI-15: no infantry beyond its rifle floor) do not hold the rule back: it
-    // then adds factories while every factory is busy (AI-22).
-    if (this.rules.doomFactories && this.plan === 'doomsday' && nf > 0 && this.infantryHeld(c)) {
+    // Barracks Doomsday leaves idle on purpose (AI-15: no infantry beyond its rifle floor), or that train nothing against
+    // crushers beyond the rifle floor (AI-24), do not hold the rule back: it then adds factories while every factory is
+    // busy (AI-22).
+    const doomIdle = this.rules.doomFactories && this.plan === 'doomsday' && this.infantryHeld(c);
+    if (nf > 0 && (doomIdle || (this.counter && this.roleCounts(c).counts.inf >= this.counterRifles(c)))) {
       if (plants.some((b) => b.kind === k.factory && b.queue.length === 0)) return null;
       return nf < GROWTH_MAX ? k.factory : null;
     }
@@ -1095,6 +1180,26 @@ export class AI {
     return counts.inf >= rifles && this.doomCaps(counts, rifles, this.urgent(c));
   }
 
+  /** The rifle squads it keeps against crushers (AI-24): COUNTER_RIFLES, or Doomsday's own floor (AI-15). */
+  private counterRifles(c: Ctx): number {
+    return this.plan === 'doomsday' ? infantryNeeded(this.intelSummary(c, RIFLE_INTEL)) : COUNTER_RIFLES;
+  }
+
+  /**
+   * Its unit against crushers (AI-24), from those a building may train: a rifle squad while under its rifle floor; else
+   * crushers first and artillery second, artillery while it is under COUNTER_ARTILLERY of their joint cost (crushers alone
+   * until artillery is available); nothing else, so no anti-armour squads.
+   */
+  private counterUnit(allowed: readonly string[], rifles: boolean, value: { crush: number; art: number }): string | null {
+    const ok = allowed.filter((k) => !unitDef(k).hero);
+    const rifle = ok.find((k) => roleOf(unitDef(k)) === 'inf');
+    if (rifles && rifle) return rifle;
+    const crusher = ok.find((k) => unitDef(k).crusher);
+    const gun = ok.find((k) => roleOf(unitDef(k)) === 'art');
+    if (gun && (!crusher || value.art < COUNTER_ARTILLERY * (value.art + value.crush))) return gun;
+    return crusher ?? null;
+  }
+
   private urgent(c: Ctx): boolean {
     return c.army.length < 4 || c.tick - this.lastThreat < 600;
   }
@@ -1127,6 +1232,19 @@ export class AI {
     // or is queued and none was lost lately (SCOUT_REPLACE, or twice that after a young one). Production trains no other
     // scout unit. The steamroll opponent sends out no scout (HAR-5).
     const scoutKind = this.doctrine.scouts ? this.scoutKind() : null;
+    // Against crushers (AI-24): the cost of its crushers and artillery, queued ones counted in, and its rifle floor.
+    const counter = this.counter && !steamroll;
+    const value = { crush: 0, art: 0 };
+    const tally = (kind: string, n = 1): void => {
+      const d = unitDef(kind);
+      if (d.crusher && !d.hero) value.crush += n * d.cost;
+      else if (roleOf(d) === 'art') value.art += n * d.cost;
+    };
+    if (counter) {
+      for (const u of c.army) tally(u.kind);
+      for (const [kind, n] of queued) tally(kind, n);
+    }
+    const counterRifles = counter ? this.counterRifles(c) : 0;
     let scoutWanted = scoutKind !== null && (this.standing >= 0 ? 1 : 0) + (queued.get(scoutKind) ?? 0) < STANDING_SCOUTS && c.tick - this.standingLostAt >= this.replaceGap;
 
     for (const b of c.buildings) {
@@ -1139,10 +1257,11 @@ export class AI {
       // A hero only while the player has none, alive or queued (HERO-1).
       // No more artillery while rules.artilleryCap pieces are in production (AI-22); the steamroll opponent trains none.
       const allowed = trainable.filter(
-        (k) => unitDef(k).requires.every((r) => c.buildings.some((x) => x.kind === r)) && !(unitDef(k).hero && (queued.has(k) || c.own.some((u) => u.kind === k))) && !(roleOf(unitDef(k)) === 'art' && guns >= this.rules.artilleryCap),
+        (k) => unitDef(k).requires.every((r) => c.buildings.some((x) => x.kind === r)) && !(unitDef(k).hero && (queued.has(k) || c.own.some((u) => u.kind === k))) && !(roleOf(unitDef(k)) === 'art' && guns >= this.rules.artilleryCap && !counter),
       );
-      // Its hero takes the field whenever it is available and affordable with credits to spare (HERO-1).
-      const hero = allowed.find((k) => unitDef(k).hero && c.credits >= unitDef(k).cost + 400);
+      // Its hero takes the field whenever it is available and affordable with credits to spare (HERO-1); against crushers as
+      // soon as it can afford it, and the artillery cap above does not apply then (AI-24).
+      const hero = allowed.find((k) => unitDef(k).hero && c.credits >= unitDef(k).cost + (counter ? 0 : 400));
       // Doomsday keeps enough rifle infantry for the enemy's infantry before anything else from the barracks (AI-15).
       const rifle = counts.inf < rifles ? allowed.find((k) => roleOf(unitDef(k)) === 'inf' && !unitDef(k).hero) : undefined;
       // Artillery floor against enemy infantry (AI-19), when it is available here.
@@ -1152,12 +1271,16 @@ export class AI {
         ? this.doctrine.pick(b.kind, allowed, haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore))
         : b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler)
           ? this.kit.hauler
-          : (scout ?? hero ?? rifle ?? gun ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt));
+          : (scout ??
+            hero ??
+            (counter
+              ? this.counterUnit(allowed.filter((k) => k !== this.kit.hauler && k !== scoutKind), counts.inf < counterRifles, value)
+              : (rifle ?? gun ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt))));
       if (!pick) continue;
       // Doomsday does not flood the field with cheap infantry beyond its rifle floor: tanks and artillery set the pace (AI-15).
       if (doom && !rifle && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && this.doomCaps(counts, rifles, urgent)) continue;
       const cost = unitDef(pick).cost;
-      const reserve = pick === this.kit.hauler || pick === scout || urgent || (b.queue.length === 0 && !saving && !steamroll) ? 0 : hold;
+      const reserve = pick === this.kit.hauler || pick === scout || (counter && pick === hero) || urgent || (b.queue.length === 0 && !saving && !steamroll) ? 0 : hold;
       if (c.credits < cost + reserve) continue;
       c.credits -= cost;
       out.push({ type: 'produce', player: this.player, source: b.id, kind: pick });
@@ -1166,6 +1289,7 @@ export class AI {
       if (pick === this.kit.hauler || unitDef(pick).hero) queued.set(pick, (queued.get(pick) ?? 0) + 1);
       if (pick === scout) scoutWanted = false;
       if (roleOf(unitDef(pick)) === 'art') guns++;
+      tally(pick);
     }
   }
 

@@ -22,7 +22,7 @@ interface Base {
   busy?: boolean;
   /** Game time (ticks); turrets are wanted from tick 3000 on. */
   tick?: number;
-  /** Enemy tanks next to the base: an attack on it. */
+  /** Enemy anti-armour squads next to the base: an attack on it (not crushers, which bring in AI-24). */
   attacked?: boolean;
   /** Enemy rifle squads in sight, but away from the base, for the artillery floor (AI-19). */
   infantrySeen?: number;
@@ -53,7 +53,7 @@ function base(o: Base = {}): Game {
     ...(cfg.units ?? []).filter((u) => u.owner !== 0),
     ...[...Array(o.haulers ?? 6)].map((_, i) => ({ owner: 0, kind: 'hum_hauler', tx: 12 + i, ty: 16 })),
     ...(o.army ?? []).map((kind, i) => ({ owner: 0, kind, tx: 8 + (i % 8), ty: 20 + Math.floor(i / 8) })),
-    ...(o.attacked ? [0, 1, 2].map((i) => ({ owner: 1, kind: 'ali_brute', tx: 14 + i, ty: 14 })) : []),
+    ...(o.attacked ? [0, 1, 2].map((i) => ({ owner: 1, kind: 'ali_spitter', tx: 14 + i, ty: 14 })) : []),
     ...[...Array(o.infantrySeen ?? 0)].map((_, i) => ({ owner: 1, kind: 'ali_skitter', tx: 34 + (i % 4), ty: 36 + Math.floor(i / 4) })),
   ];
   const g = createGame({ ...cfg, players: [{ faction: 'human', credits: o.credits ?? 5000 }, cfg.players![1]!], buildings, units });
