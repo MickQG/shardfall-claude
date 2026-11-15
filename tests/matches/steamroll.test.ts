@@ -25,6 +25,13 @@ import { playMatches } from './pool';
 export const STEAMROLL_TICKS = 20 * 60 * 20;
 /** A game this long gives the opponent time to mass and launch its attack. */
 const LAUNCH_BY = 20 * 60 * 15;
+// PROVISIONAL targets for AI-22 at the opponent's first attack, to be confirmed from CI (issue #181). They sit here, not
+// with the other AI-22 targets in economy-scale.test.ts, because importing a test file would play its series too.
+/** The Hard AI's production buildings over the opponent's, at the median, at least. */
+export const PROVISIONAL_LAUNCH_PRODUCTION_RATIO = 1;
+/** Credits the Hard AI has banked or paid into queues not started, at the median, below this (the baseline: about 20 000). */
+export const PROVISIONAL_LAUNCH_IDLE = 20000;
+
 /** One personality's 32 games on a four-core runner, with margin. */
 const SERIES_TIMEOUT = 3_000_000;
 
@@ -187,7 +194,7 @@ function report(p: Personality, games: readonly SteamrollGame[], rs: readonly Ma
 
 describe('the Hard AI against the steamroll opponent', () => {
   for (const p of PERSONALITIES) {
-    it(`HAR-5: against ${p}, the steamroll opponent trains only rifle and anti-armour squads, crushers and haulers, never retreats, attacks, and replays the same game`, async () => {
+    it(`HAR-5, AI-22: against ${p}, the steamroll opponent trains only rifle and anti-armour squads, crushers and haulers, never retreats, attacks, and replays the same game`, async () => {
       const started = Date.now();
       const { games, results: rs } = await steamrollSeries(p);
       report(p, games, rs, (Date.now() - started) / 60000);
@@ -212,6 +219,14 @@ describe('the Hard AI against the steamroll opponent', () => {
         // The harness takes stock at its first attack (AI-22, measurement).
         if (r.atLaunch) expect(r.atLaunch.tick, where).toBe(s.steamroll?.launches[0]?.tick);
       });
+
+      // Production first (AI-22), PROVISIONAL (see above): at the opponent's first attack the AI has at least as many
+      // production buildings as the opponent, and less banked than before.
+      const at = atLaunchTally(games, rs);
+      if (at.games > 0) {
+        expect(median(at.ai.map(production))).toBeGreaterThanOrEqual(PROVISIONAL_LAUNCH_PRODUCTION_RATIO * median(at.opp.map(production)));
+        expect(median(at.ai.map((e) => e.credits + e.queued))).toBeLessThan(PROVISIONAL_LAUNCH_IDLE);
+      }
 
       // The same seeds and settings give the same game (HAR-1): the shortest game, replayed.
       const short = rs.reduce((b, r, i) => (r.ticks < rs[b]!.ticks ? i : b), 0);

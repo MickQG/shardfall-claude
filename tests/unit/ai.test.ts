@@ -39,11 +39,12 @@ const mine = (g: Game, kind: string, owner = 0): number => g.state.buildings.fil
 describe('economy and build order', () => {
   it('AI-1: builds a working economy and advances through the tech tree unaided', () => {
     const { game, ai } = setup();
-    drive(game, ai, 6000);
+    // Six and a half minutes: production comes first (AI-22), then the lab and turrets.
+    drive(game, ai, 7800);
     const k = kitOf('human');
     expect(mine(game, k.refinery)).toBeGreaterThanOrEqual(2);
-    expect(mine(game, k.barracks)).toBeGreaterThanOrEqual(1);
-    expect(mine(game, k.factory)).toBeGreaterThanOrEqual(1);
+    expect(mine(game, k.barracks)).toBeGreaterThanOrEqual(2);
+    expect(mine(game, k.factory)).toBeGreaterThanOrEqual(3);
     expect(mine(game, k.turret)).toBeGreaterThanOrEqual(1);
     expect(mine(game, k.lab)).toBeGreaterThanOrEqual(1); // tier 3 reached
     expect(game.state.units.filter((u) => u.owner === 0 && unitDef(u.kind).capacity !== undefined).length).toBeGreaterThanOrEqual(4);

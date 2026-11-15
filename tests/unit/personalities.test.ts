@@ -8,7 +8,7 @@ import { loadSettings, saveSettings } from '../../src/ui/settings';
 
 const LONG = 600_000;
 
-/** A built-up human Doomsday base (lab, two barracks and factories, three refineries, power to spare) on seed 6. */
+/** A built-up human Doomsday base (lab, two barracks, three factories, three refineries, power to spare) on seed 6. */
 const doomBase = (credits: number, extra: { kind: string; dx: number; dy: number }[] = [], lance = false) => {
   const cfg = skirmishConfig(6, { factions: ['human', 'alien'] });
   const hq = cfg.buildings!.find((b) => b.owner === 0 && b.kind === 'hum_hq')!;
@@ -17,7 +17,7 @@ const doomBase = (credits: number, extra: { kind: string; dx: number; dy: number
   const g = createGame({
     ...cfg,
     players: [{ faction: 'human', credits }, cfg.players![1]!],
-    buildings: [...cfg.buildings!, ...reactors, at('hum_barracks', 0, 4), at('hum_barracks', 0, 7), at('hum_factory', 3, 4), at('hum_factory', 3, 8), at('hum_lab', 7, 4), at('hum_refinery', 7, 8), at('hum_refinery', 11, 8), at('hum_refinery', 11, 4), ...(lance ? [at('hum_lance', 0, 11)] : [])],
+    buildings: [...cfg.buildings!, ...reactors, at('hum_barracks', 0, 4), at('hum_barracks', 0, 7), at('hum_factory', 3, 4), at('hum_factory', 3, 8), at('hum_factory', 14, 4), at('hum_lab', 7, 4), at('hum_refinery', 7, 8), at('hum_refinery', 11, 8), at('hum_refinery', 11, 4), ...(lance ? [at('hum_lance', 0, 11)] : [])],
     units: [...(cfg.units ?? []), ...extra.map((u) => ({ owner: 0, kind: u.kind, tx: hq.tx + u.dx, ty: hq.ty + u.dy }))],
   });
   return { cfg, g };
