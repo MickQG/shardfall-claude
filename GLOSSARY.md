@@ -27,6 +27,9 @@
 - **Attack-move** – an order to travel to a point and engage any enemy met on the way.
 - **Rally point** – where a production building sends newly built units.
 - **Combat unit** – any unit that can attack; haulers are not combat units.
+- **Infantry squad** – a unit made of several foot soldiers that move, fight and die as one (Rifleman, Rocketeer, Skitterer, Spitter). _Avoid_: infantry blob, troop.
+- **Crusher** – a heavy unit that kills enemy infantry squads by driving over them (Bulwark Tank, Brute, and both heroes; a hero also crushes vehicles).
+- **Steamroll** – the strategy of out-producing the enemy and driving one large mixed army, built around crushers, forward as one body, the crushers flattening infantry squads on the way. _Avoid_: tank spam, tank rush.
 - **Hero** – a faction's one giant unit (the Paladin or the Dreadstrider): a durable meat-shield tank, at most one per player at a time. _Avoid_: epic unit.
 - **Unit kind** – what a unit is (Rifleman, Bulwark Tank, Brute…). "Type" is reserved for damage types and armour types.
 - **Difficulty** – how well the AI plays (Easy, Medium, Hard): its reaction time, actions per minute and resource bonus; never its vision or the rules.
