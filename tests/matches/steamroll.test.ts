@@ -1,7 +1,7 @@
 import { appendFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { DIFFICULTIES, PERSONALITIES, type Personality } from '../../src/ai/ai';
-import { lengthReport, playMatch, type MatchOptions, type MatchResult } from '../../src/ai/harness';
+import { lengthReport, playMatch, type EconomyAt, type MatchOptions, type MatchResult } from '../../src/ai/harness';
 import { STEAMROLL_DIFFICULTY, STEAMROLL_TUNING, type SteamrollTuning } from '../../src/ai/steamroll';
 import type { Faction } from '../../src/data/defs';
 import { playMatches } from './pool';
@@ -122,6 +122,29 @@ const median = (xs: readonly number[]): number => {
 };
 const minutes = (ticks: number): string => (ticks / 1200).toFixed(1);
 
+const production = (e: EconomyAt): number => e.barracks + e.factories;
+
+/** The Hard AI's and the opponent's stock at the opponent's first attack (AI-22). */
+function launchLine(g: SteamrollGame, at: readonly [EconomyAt, EconomyAt]): string {
+  const ai = at[g.seat];
+  const opp = at[1 - g.seat]!;
+  return `at the attack: production AI ${production(ai)} / opponent ${production(opp)}, AI banked ${ai.credits} cr and ${ai.queued} cr in queues not started, army AI ${ai.army} cr / opponent ${opp.army} cr`;
+}
+
+/** At the opponent's first attack (AI-22), over the games in which it attacked: the AI's and the opponent's stock. */
+export function atLaunchTally(games: readonly SteamrollGame[], rs: readonly MatchResult[]): { games: number; ai: EconomyAt[]; opp: EconomyAt[] } {
+  const rows = rs.flatMap((r, i) => (r.atLaunch ? [{ ai: r.atLaunch.at[games[i]!.seat], opp: r.atLaunch.at[1 - games[i]!.seat]! }] : []));
+  return { games: rows.length, ai: rows.map((x) => x.ai), opp: rows.map((x) => x.opp) };
+}
+
+function launchSummary(t: ReturnType<typeof atLaunchTally>): string {
+  const m = (xs: readonly EconomyAt[], f: (e: EconomyAt) => number): number => median(xs.map(f));
+  return (
+    `at the opponent's first attack (${t.games} games), medians: production buildings AI ${m(t.ai, production)} / opponent ${m(t.opp, production)}; ` +
+    `AI banked ${m(t.ai, (e) => e.credits)} cr, in queues not started ${m(t.ai, (e) => e.queued)} cr; army AI ${m(t.ai, (e) => e.army)} cr / opponent ${m(t.opp, (e) => e.army)} cr`
+  );
+}
+
 /** One game's facts for calibration (HAR-5): result, the opponent's first attack, economy and production, both armies. */
 function gameLine(g: SteamrollGame, r: MatchResult): string {
   const s = r.ai[1 - g.seat]!;
@@ -133,6 +156,7 @@ function gameLine(g: SteamrollGame, r: MatchResult): string {
     `attack ${first ? `${minutes(first.tick)} min, ${first.value} cr, ${first.crushers} crushers` : 'none'} (${sr?.launches.length ?? 0} in all)`,
     `peak haulers ${sr?.peakHaulers ?? 0} refineries ${sr?.peakRefineries ?? 0} barracks ${sr?.peakBarracks ?? 0} factories ${sr?.peakFactories ?? 0}`,
     `peak army AI ${r.peak.armyValue[g.seat]} cr / opponent ${r.peak.armyValue[1 - g.seat]} cr`,
+    ...(r.atLaunch ? [launchLine(g, r.atLaunch.at)] : []),
   ].join('; ');
 }
 
@@ -152,6 +176,7 @@ function report(p: Personality, games: readonly SteamrollGame[], rs: readonly Ma
     `length: median ${lengths.median.toFixed(1)} min, ${lengths.min.toFixed(1)} to ${lengths.max.toFixed(1)}`,
     `opponent attacked in ${firsts.length} of ${rs.length} games; medians: first attack ${minutes(median(firsts.map((f) => f.tick)))} min with ${median(firsts.map((f) => f.value))} cr and ${median(firsts.map((f) => f.crushers))} crushers`,
     `medians: opponent peak haulers ${median(opp.map((s) => s?.peakHaulers ?? 0))}, refineries ${median(opp.map((s) => s?.peakRefineries ?? 0))}, barracks ${median(opp.map((s) => s?.peakBarracks ?? 0))}, factories ${median(opp.map((s) => s?.peakFactories ?? 0))}; peak army AI ${median(peakAi)} cr, opponent ${median(peakOpp)} cr`,
+    launchSummary(atLaunchTally(games, rs)),
     ...rs.map((r, i) => gameLine(games[i]!, r)),
   ];
   // Written straight to stdout: the runner holds back console.log output of a passing test.
@@ -184,6 +209,8 @@ describe('the Hard AI against the steamroll opponent', () => {
         }
         // It goes on the attack in every game that lasts long enough to mass.
         if (r.ticks >= LAUNCH_BY) expect(s.steamroll?.launches.length, where).toBeGreaterThan(0);
+        // The harness takes stock at its first attack (AI-22, measurement).
+        if (r.atLaunch) expect(r.atLaunch.tick, where).toBe(s.steamroll?.launches[0]?.tick);
       });
 
       // The same seeds and settings give the same game (HAR-1): the shortest game, replayed.
