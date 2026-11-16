@@ -10,7 +10,7 @@ import { aiRules, rulesLine } from './aiRules';
  * when the simulation, AI or data change (and on every push to main), not with the fast unit tests.
  */
 
-const LONG = 900_000;
+const LONG = 1_500_000;
 const SIDES = [
   [1, ['human', 'alien']],
   [1, ['alien', 'human']],
@@ -23,8 +23,13 @@ const SIDES = [
   [4, ['alien', 'human']],
 ] as const;
 
-/** Ten minutes covers Raider's opening and Balanced's comparison; Doomsday needs seventeen for its strikes to land (the 8 s sight linger, FOG-7, makes games last longer). */
-const SERIES_TICKS = { raider: 20 * 60 * 10, balanced: 20 * 60 * 10, doomsday: 20 * 60 * 17 } as const;
+/**
+ * Ten minutes covers Raider's opening and Balanced's comparison. Doomsday needs longer for its strikes to land (the 8 s
+ * sight linger, FOG-7, makes games last longer): twenty-four minutes since the Glare Skimmer (SKM-6) lets Balanced Vrax
+ * hold off its tanks for longer, which left most games undecided at seventeen. `DOOMSDAY_MINUTES` overrides it for measuring.
+ */
+const DOOMSDAY_MINUTES = Number(process.env['DOOMSDAY_MINUTES'] ?? 24);
+const SERIES_TICKS = { raider: 20 * 60 * 10, balanced: 20 * 60 * 10, doomsday: 20 * 60 * DOOMSDAY_MINUTES } as const;
 
 /** Player 0 plays `p` against a Balanced player 1, Medium against Medium, from every seed and side; cached per personality. */
 const cache = new Map<string, Promise<MatchResult[]>>();
