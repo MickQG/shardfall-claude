@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FAST_SPEED, HIT_MIN, HIT_SHARE, RAIDER_SCOUTS, SPLIT_APART, SPLIT_MIN, chooseUnitKind, type AI, type Personality } from '../../src/ai/ai';
+import { FAST_SPEED, HIT_MIN, HIT_SHARE, HIT_WAVE_MIN, RAIDER_SCOUTS, SPLIT_APART, SPLIT_MIN, SPLIT_RATIO, chooseUnitKind, type AI, type Personality } from '../../src/ai/ai';
 import { SteamrollAI } from '../../src/ai/steamroll';
 import { unitDef } from '../../src/data/defs';
 import { type Game } from '../../src/sim';
@@ -83,8 +83,33 @@ describe('hit squads (AI-27)', () => {
       expect(guarded.waveState).toMatchObject(A);
       // With the rule off it never splits (measurement only).
       one(raid([hauler(A), hauler(B)], { raidSplit: false }).who);
-      // Nor below the fewest units it splits with, when measurement changes that number.
-      one(raid([hauler(A), hauler(B)], { splitMin: 9 }).who);
+    }, LONG);
+
+    it('AI-27 (a): a raid splits only when each squad is worth at least the enemy army it has seen in the last two minutes; otherwise it sets out as one body', () => {
+      expect(SPLIT_RATIO).toBe(1);
+      // Away from both targets, so they guard neither (AI-23 e).
+      const seen = (n: number): Foe[] => [...Array(n)].map((_, i) => ({ kind: 'ali_brute', tx: 80 + (i % 2), ty: 50 + (i >> 1) }));
+      // Each squad is worth 2 100: two Brutes seen (1 660) leave it strong enough; three (2 490) do not.
+      const strong = raid([hauler(A), hauler(B), ...seen(2)]).who;
+      expect(strong.stats.splitRaids).toBe(1);
+      expect(squads(strong)).toHaveLength(2);
+      const weak = raid([hauler(A), hauler(B), ...seen(3)]).who;
+      expect(weak.stats.waves).toBe(1);
+      expect(weak.stats.splitRaids).toBe(0);
+      expect(weak.groupState.map((s) => s.kind)).toEqual(['wave']);
+      // Units seen more than two minutes ago do not count.
+      const g = base({ army: [...many('hum_tank', 4), ...many('hum_rocketeer', 4)], tick: 3000 - 20 * 121 });
+      const old = ai('raider');
+      run(g, old, 8, [BY_TARGET, ...seen(3)]);
+      g.state.tick = 3000;
+      run(g, old, 24, [BY_TARGET, hauler(A), hauler(B)]);
+      expect(old.stats.splitRaids).toBe(1);
+      // splitRatio 0 drops the condition (measurement only); a lower ratio lets the weaker squads split.
+      expect(raid([hauler(A), hauler(B), ...seen(3)], { splitRatio: 0 }).who.stats.splitRaids).toBe(1);
+      expect(raid([hauler(A), hauler(B), ...seen(4)], { splitRatio: 0.6 }).who.stats.splitRaids).toBe(1);
+      const over = raid([hauler(A), hauler(B), ...seen(5)], { splitRatio: 0.6 }).who;
+      expect(over.stats.waves).toBe(1);
+      expect(over.stats.splitRaids).toBe(0);
     }, LONG);
 
     it('AI-27 (a): each squad is judged on its own: a beaten one goes back to the staging point while the other goes on; the split raid is one attack, beaten back once when both squads have ended', () => {
@@ -158,33 +183,33 @@ describe('hit squads (AI-27)', () => {
     /** Economy targets: D farthest from the wave's target, E near it. D lies left of the line from the staging point to the target. */
     const D = { tx: 50, ty: 30 };
     const E = { tx: 75, ty: 60 };
-    /** Six tanks and some Scout Buggies (the first of which becomes its standing scout) at its staging point. */
+    /** Ten tanks and some Scout Buggies (the first of which becomes its standing scout) at its staging point. */
     function beside(personality: Personality, buggies: number, sight: Foe[] = [hauler(D), hauler(E)], rules?: Parameters<typeof ai>[1]): { g: Game; who: AI; fast: number[] } {
-      const g = base({ army: [...many('hum_tank', 6), ...many('hum_buggy', buggies)] });
+      const g = base({ army: [...many('hum_tank', 10), ...many('hum_buggy', buggies)] });
       const who = ai(personality, rules);
       run(g, who, 24, [BY_TARGET, ...sight]);
       const fast = idsOf(g, 'hum_buggy').filter((id) => id !== who.standingScout);
       return { g, who, fast };
     }
 
-    it('AI-27 (b): the fastest of its fast units, at most a fifth of the army and at least three, set out as a hit squad at the economy target farthest from the wave; the wave and its strength do not count them', () => {
-      expect([FAST_SPEED, HIT_SHARE]).toEqual([45, 0.2]);
+    it('AI-27 (b): the fastest of its fast units, at most a tenth of the army and at least three, set out as a hit squad at the economy target farthest from the wave; the wave and its strength do not count them', () => {
+      expect([FAST_SPEED, HIT_SHARE]).toEqual([45, 0.1]);
       expect(unitDef('hum_buggy').speed).toBeGreaterThanOrEqual(FAST_SPEED);
       for (const p of ['balanced', 'doomsday'] as const) {
-        // Six tanks (4 800) and six buggies in the army (1 500): a fifth is 1 260, room for five.
+        // Ten tanks (8 000) and six buggies in the army (1 500): a tenth is 950, room for three.
         const { g, who, fast } = beside(p, 7);
         expect(fast).toHaveLength(6);
         expect(who.stats.hitSquads, p).toBe(1);
         const [wave, hit] = who.groupState;
         expect(wave!.kind).toBe('wave');
         expect(hit!.kind).toBe('hit');
-        expect(hit!.members).toHaveLength(5);
+        expect(hit!.members).toHaveLength(3);
         expect(value(g, hit!.members)).toBeLessThanOrEqual(HIT_SHARE * value(g, [...wave!.members, ...hit!.members]));
         expect({ tx: hit!.tx, ty: hit!.ty }).toEqual(D);
         expect({ tx: wave!.tx, ty: wave!.ty }).toEqual(TARGET);
-        // Not part of the wave: the sixth buggy goes with the wave, and the wave's strength is its own.
+        // Not part of the wave: the other three buggies go with the wave, and the wave's strength is its own.
         expect(wave!.members.some((id) => hit!.members.includes(id))).toBe(false);
-        expect(wave!.members).toHaveLength(7);
+        expect(wave!.members).toHaveLength(13);
         expect(wave!.peak).toBeCloseTo(value(g, wave!.members), 6);
         expect(who.waveState!.peak).toBeCloseTo(value(g, wave!.members), 6);
       }
@@ -211,7 +236,7 @@ describe('hit squads (AI-27)', () => {
       expect(lw.who.groupState[1]!.via).toEqual(lw.who.flankPoint(stage, D, 'right'));
     }, LONG);
 
-    it('AI-27 (b): with fewer than three fast units, a fifth of the army too small for three, or no economy target it may go for, no hit squad sets out and the fast units go with the wave', () => {
+    it('AI-27 (b): with fewer than three fast units, a tenth of the army too small for three, or no economy target it may go for, no hit squad sets out and the fast units go with the wave', () => {
       const none = ({ who, fast }: { who: AI; fast: number[] }): void => {
         expect(who.stats.waves).toBe(1);
         expect(who.stats.hitSquads).toBe(0);
@@ -220,15 +245,21 @@ describe('hit squads (AI-27)', () => {
       };
       none(beside('balanced', 3));
       none(beside('balanced', 7, [hauler(D), hauler(E), ...guard(D), ...guard(E)]));
-      // One tank and four buggies (1 800): a fifth (360) holds one buggy.
+      // One tank and four buggies (1 800): a tenth (180) holds none.
       const g = base({ army: [...many('hum_tank', 1), ...many('hum_buggy', 5)] });
       const who = ai('balanced');
       run(g, who, 400, [BY_TARGET, hauler(D)]);
       none({ who, fast: idsOf(g, 'hum_buggy').filter((id) => id !== who.standingScout) });
+      // Nor when it would leave a lone wave behind (under five units, HAR-2): three tanks and five buggies, with room for all five.
+      const g2 = base({ army: [...many('hum_tank', 3), ...many('hum_buggy', 6)] });
+      const who2 = ai('balanced', { hitShare: 0.5 });
+      run(g2, who2, 400, [BY_TARGET, hauler(D)]);
+      expect(HIT_WAVE_MIN).toBe(5);
+      none({ who: who2, fast: idsOf(g2, 'hum_buggy').filter((id) => id !== who2.standingScout) });
       // With the rule off it sends none (measurement only).
       none(beside('balanced', 7, undefined, { hitSquad: false }));
-      // A tenth of the army (630) holds only two buggies, when measurement changes the share.
-      none(beside('balanced', 7, undefined, { hitShare: 0.1 }));
+      // A twentieth of the army (475) holds only one buggy, when measurement changes the share.
+      none(beside('balanced', 7, undefined, { hitShare: 0.05 }));
     }, LONG);
 
     it("AI-27 (b): a hit squad is not a wave in the harness's counts and starts no wave cooldown; a beaten one goes back to the staging point and its units rejoin the army", () => {
@@ -271,7 +302,8 @@ describe('hit squads (AI-27)', () => {
       const two = beside('balanced', 7);
       const hit2 = two.who.groupState[1]!;
       run(two.g, two.who, 200, [BY_TARGET, hauler(D), hauler(E)]);
-      const force = [0, 1, 2, 3].map((i) => ({ kind: 'ali_brute', tx: 4 + i, ty: 34 }));
+      // Six Brutes (4 980): at least half its army (9 500).
+      const force = [0, 1, 2, 3, 4, 5].map((i) => ({ kind: 'ali_brute', tx: 4 + i, ty: 34 }));
       const back = run(two.g, two.who, 16, [BY_TARGET, hauler(D), hauler(E), ...force]);
       expect(squads(two.who)).toEqual([]);
       expect(sentTo(back, hit2.members.filter((id) => two.g.state.units.some((u) => u.id === id)), two.who.recalledTo!)).toBe(true);

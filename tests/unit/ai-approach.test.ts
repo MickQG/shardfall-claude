@@ -41,8 +41,8 @@ function launch(sight: Sight = [BY_TARGET], seed = SEED, personality: 'balanced'
 }
 
 describe('main waves vary their approach (AI-26)', () => {
-  it("AI-26: a flank's approach point lies halfway along the straight line from the staging point to the target and 14 tiles to that side of it, moved to the nearest open ground; a flank off the map or with no open ground within 6 tiles is not offered", () => {
-    expect([APPROACH_FLANK, APPROACH_OPEN]).toEqual([14, 6]);
+  it("AI-26: a flank's approach point lies halfway along the straight line from the staging point to the target and 10 tiles to that side of it, moved to the nearest open ground; a flank off the map or with no open ground within 6 tiles is not offered", () => {
+    expect([APPROACH_FLANK, APPROACH_OPEN]).toEqual([10, 6]);
     const who = ai();
     const from = { tx: 20, ty: 20 };
     const len = Math.hypot(TARGET.tx - from.tx, TARGET.ty - from.ty);
@@ -51,13 +51,13 @@ describe('main waves vary their approach (AI-26)', () => {
       const p = who.flankPoint(from, TARGET, side)!;
       const s = side === 'left' ? 1 : -1;
       // Left as seen looking along the line on the map (y downward): (dy, -dx).
-      const raw = { x: mid.x + (s * (TARGET.ty - from.ty) * 14) / len, y: mid.y - (s * (TARGET.tx - from.tx) * 14) / len };
+      const raw = { x: mid.x + (s * (TARGET.ty - from.ty) * 10) / len, y: mid.y - (s * (TARGET.tx - from.tx) * 10) / len };
       expect(Math.hypot(p.tx + 0.5 - raw.x, p.ty + 0.5 - raw.y), side).toBeLessThanOrEqual(1);
       expect(sideOf(from, TARGET, p), side).toBe(s);
     }
     // Measurement may change how far to the side it lies (rules.approachFlank).
-    const ten = ai('balanced', { approachFlank: 10 }).flankPoint(from, TARGET, 'right')!;
-    expect(Math.abs(Math.hypot(ten.tx + 0.5 - mid.x, ten.ty + 0.5 - mid.y) - 10)).toBeLessThanOrEqual(1);
+    const wide = ai('balanced', { approachFlank: 14 }).flankPoint(from, TARGET, 'right')!;
+    expect(Math.abs(Math.hypot(wide.tx + 0.5 - mid.x, wide.ty + 0.5 - mid.y) - 14)).toBeLessThanOrEqual(1);
     // Along the top edge, the left flank would lie off the map: not offered; the right one is.
     expect(who.flankPoint({ tx: 20, ty: 2 }, { tx: 80, ty: 2 }, 'left')).toBeNull();
     expect(who.flankPoint({ tx: 20, ty: 2 }, { tx: 80, ty: 2 }, 'right')).not.toBeNull();

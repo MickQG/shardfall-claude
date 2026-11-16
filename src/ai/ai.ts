@@ -316,7 +316,7 @@ export interface Remembered {
 export type Approach = 'straight' | 'left' | 'right';
 export const APPROACHES: readonly Approach[] = ['straight', 'left', 'right'];
 /** A flank's approach point lies halfway to the target and APPROACH_FLANK tiles to that side (AI-26). */
-export const APPROACH_FLANK = 14;
+export const APPROACH_FLANK = 10;
 /** A flank whose approach point has no open ground within this many tiles is not offered (AI-26). */
 export const APPROACH_OPEN = 6;
 /** Where the enemy army was last seen: the armed enemy units seen within APPROACH_SEEN ticks, beyond APPROACH_DEFENDERS tiles of the target (AI-26). */
@@ -334,7 +334,14 @@ export const RAIDER_SCOUTS = 3;
 /** A fast unit, which a hit squad beside a main wave is made of: a top speed of at least this (AI-27 b). */
 export const FAST_SPEED = 45;
 /** That hit squad takes at most this share of the army's value (AI-27 b). */
-export const HIT_SHARE = 0.2;
+export const HIT_SHARE = 0.1;
+/** The main wave it leaves behind keeps at least this many units: a hit squad never turns it into a lone wave (AI-27 b, HAR-2). */
+export const HIT_WAVE_MIN = 5;
+/**
+ * Raider splits a raid only when each squad is worth at least SPLIT_RATIO times the armed enemy units it has seen within
+ * APPROACH_SEEN ticks, so half a raid does not meet the whole enemy army (AI-27 a); 0 drops the condition.
+ */
+export const SPLIT_RATIO = 1;
 
 /**
  * A group out on the map (AI-11, AI-27). 'wave': a main wave, or a raid that set out as one body; 'raid': one of the two
@@ -499,8 +506,8 @@ export interface AiRules {
   approachFlank: number;
   /** (AI-27 b) The largest share of the army's value a hit squad beside a main wave may take. */
   hitShare: number;
-  /** (AI-27 a) The fewest units a raid splits with. */
-  splitMin: number;
+  /** (AI-27 a) Each squad of a split raid is worth at least this many times the enemy army seen lately; 0: no such condition. */
+  splitRatio: number;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -519,7 +526,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   hitSquad: true,
   approachFlank: APPROACH_FLANK,
   hitShare: HIT_SHARE,
-  splitMin: SPLIT_MIN,
+  splitRatio: SPLIT_RATIO,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -1729,9 +1736,9 @@ export class AI {
     if (split) target = split[0].target;
     // Balanced and Doomsday send a hit squad of fast units beside the main wave (AI-27 b): not part of the wave.
     const main = !raiding && ordinary && !launch;
-    // It keeps a wave of at least three units behind it, or the fast units go with the wave.
+    // It leaves a wave of at least HIT_WAVE_MIN units behind it, never a lone one, or the fast units go with the wave.
     const hitOf = main && this.rules.hitSquad && (this.plan === 'balanced' || this.plan === 'doomsday') && this.squads.length === 0 ? this.hitSquadOf(c, setOut, target) : null;
-    const hit = hitOf && setOut.length - hitOf.units.length >= HIT_MIN ? hitOf : null;
+    const hit = hitOf && setOut.length - hitOf.units.length >= HIT_WAVE_MIN ? hitOf : null;
     const wave = hit ? setOut.filter((u) => !hit.units.includes(u)) : setOut;
     this.stats.waves++;
     this.lastWaveAt = c.tick;
@@ -1779,16 +1786,19 @@ export class AI {
   }
 
   /**
-   * Raider's split raid (AI-27 a): with at least rules.splitMin (SPLIT_MIN) units setting out, dealt alternately from the dearest down into
-   * two squads, the first to the nearest economy target it may go for and the second to the one farthest from that, at
+   * Raider's split raid (AI-27 a): with at least SPLIT_MIN units setting out, dealt alternately from the dearest down into
+   * two squads, each worth at least rules.splitRatio times the armed enemy units it has seen within APPROACH_SEEN ticks, the first to the nearest economy target it may go for and the second to the one farthest from that, at
    * least SPLIT_APART tiles away (each judged against its own squad, AI-23 e); each by the flank on its target's side of
    * the straight line from the staging point to between the two. Null when it cannot split.
    */
   private splitRaid(c: Ctx, raid: readonly UnitSnap[]): [{ units: UnitSnap[]; target: { tx: number; ty: number }; via: { tx: number; ty: number } | null }, { units: UnitSnap[]; target: { tx: number; ty: number }; via: { tx: number; ty: number } | null }] | null {
-    if (raid.length < this.rules.splitMin) return null;
+    if (raid.length < SPLIT_MIN) return null;
     const dear = [...raid].sort((a, b) => unitDef(b.kind).cost - unitDef(a.kind).cost || a.id - b.id);
     const a = dear.filter((_, i) => i % 2 === 0);
     const b = dear.filter((_, i) => i % 2 === 1);
+    // Half a raid must not meet the whole enemy army it has seen lately (nothing seen: no limit).
+    const seen = this.rules.splitRatio * this.seenArmy(c, APPROACH_SEEN);
+    if (this.armyPower(a) < seen || this.armyPower(b) < seen) return null;
     const targets = this.economyTargets(c);
     const t1 = targets.find((t) => this.mayRaid(c, t, this.armyPower(a)));
     if (!t1) return null;
