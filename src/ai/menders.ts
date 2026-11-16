@@ -65,7 +65,7 @@ export class MenderPlan {
    * fight, scouts excluded), `fallback` whether its tanks fall back to be mended (not for the steamroll opponent, HAR-5),
    * `load` whether its Menders take squads aboard (AiRules, for measurement).
    */
-  turn(tick: number, own: readonly UnitSnap[], foes: readonly UnitSnap[], army: readonly UnitSnap[], width: number, fallback: boolean, load = true): MenderTurn {
+  turn(tick: number, own: readonly UnitSnap[], foes: readonly UnitSnap[], army: readonly UnitSnap[], width: number, fallback: boolean, load = true, fallbackAt = MENDER_FALLBACK): MenderTurn {
     const orders: Command[] = [];
     const busy = new Set<number>();
     const menders = own.filter((u) => u.kind === this.kind);
@@ -129,7 +129,7 @@ export class MenderPlan {
           if (d2(near, t) > (2.5 * FP) ** 2 && (tick + t.id) % 40 < 20) orders.push(this.move([t.id], near));
           continue;
         }
-        if (frac(t) >= MENDER_FALLBACK) continue;
+        if (frac(t) >= fallbackAt) continue;
         this.mending.add(t.id);
         busy.add(t.id);
         orders.push(this.move([t.id], near));

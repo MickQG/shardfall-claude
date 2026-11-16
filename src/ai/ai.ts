@@ -1,7 +1,7 @@
 import { BUILDING_DEFS, buildingDef, canCrush, choosePad, UNIT_DEFS, unitDef, type Faction, type UnitDef } from '../data/defs';
 import { BUILD_RANGE, canPlace, EXPLORED, FP, QUEUE_MAX, Rng, VISIBLE, type BuildingSnap, type Command, type MapDef, type Snapshot, type UnitSnap } from '../sim';
 import { kitOf, type Kit } from './kit';
-import { isTank, MenderPlan, menderOf, mendersWanted } from './menders';
+import { isTank, MENDER_FALLBACK, MenderPlan, menderOf, mendersWanted } from './menders';
 
 /** Difficulty changes only how fast the AI reacts, how many orders it can give, and a shard-income bonus. */
 export interface Difficulty {
@@ -515,6 +515,8 @@ export interface AiRules {
   menderFallback: boolean;
   /** (AI-29) Field Menders take an anti-armour squad aboard. */
   menderLoad: boolean;
+  /** (AI-29) The share of its health below which a tank falls back to a Field Mender. */
+  menderFallbackAt: number;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -537,6 +539,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   menders: true,
   menderFallback: true,
   menderLoad: true,
+  menderFallbackAt: MENDER_FALLBACK,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -738,7 +741,7 @@ export class AI {
 
     // The Field Menders (AI-29): squads on their way to board and tanks falling back leave the army for this turn; their
     // orders go first, a share of the budget at most.
-    const mend = this.menders.turn(c.tick, own, foes, c.army, snap.mapWidth, this.doctrine.retreats && this.rules.menderFallback, this.rules.menderLoad);
+    const mend = this.menders.turn(c.tick, own, foes, c.army, snap.mapWidth, this.doctrine.retreats && this.rules.menderFallback, this.rules.menderLoad, this.rules.menderFallbackAt);
     if (mend.busy.size > 0) c.army = c.army.filter((u) => !mend.busy.has(u.id));
     // Those still count as its strength, and so do the squads riding in its Menders (gone from its snapshot's units):
     // what it trains and when it feels strong must not change because some of its army is aboard or being mended.
