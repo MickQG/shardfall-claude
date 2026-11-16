@@ -284,6 +284,8 @@ export function heavyShareByCost(seen: Iterable<{ kind: string; t: number }>, ti
  * otherwise.
  */
 export const skimmerOf = (trainable: readonly string[]): string | null => trainable.find((u) => unitDef(u).firesMoving && unitDef(u).weapon?.type === 'lance') ?? null;
+/** What a building trains against armour (SKM-6): the Skimmer, `skim`, when it has one, in place of its usual choice, unless that is artillery. */
+export const skimOr = (skim: string | null, usual: string | null): string | null => (skim !== null && (usual === null || roleOf(unitDef(usual)) !== 'art') ? skim : usual);
 
 /** Launch a wave only with a real army that clearly outclasses what we know of the target. */
 /**
@@ -1282,10 +1284,13 @@ export class AI {
       // Artillery floor against enemy infantry (AI-19), when it is available here.
       const gun = counts.art < floor ? allowed.find((k) => roleOf(unitDef(k)) === 'art' && !unitDef(k).hero) : undefined;
       const scout = scoutWanted && scoutKind !== null && allowed.includes(scoutKind) ? scoutKind : undefined;
-      // The Skimmer only against armour, and then ahead of the rest of this building's mix (SKM-6).
+      // The Skimmer only against armour, and then in place of whatever this building's mix would train but artillery (SKM-6).
       const skimmer = skimmerOf(allowed);
-      const skim = armoured && skimmer !== null ? skimmer : undefined;
       const mix = allowed.filter((k) => k !== skimmer);
+      const usual = (): string | null =>
+        extraScouts > 0
+          ? chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
+          : chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt);
       const pick: string | null = this.doctrine.pick
         ? this.doctrine.pick(b.kind, allowed, haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore))
         : b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler)
@@ -1294,13 +1299,10 @@ export class AI {
             hero ??
             rifle ??
             gun ??
-            skim ??
-            (extraScouts > 0
-              ? chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
-              : chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt)));
+            skimOr(armoured ? skimmer : null, usual()));
       if (!pick) continue;
       // Doomsday does not flood the field with cheap infantry beyond its rifle floor: tanks and artillery set the pace (AI-15).
-      if (doom && !rifle && pick !== skim && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && this.doomCaps(counts, rifles, urgent)) continue;
+      if (doom && !rifle && pick !== skimmer && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && this.doomCaps(counts, rifles, urgent)) continue;
       const cost = unitDef(pick).cost;
       const reserve = pick === this.kit.hauler || pick === scout || urgent || (b.queue.length === 0 && !saving && !steamroll) ? 0 : hold;
       if (c.credits < cost + reserve) continue;

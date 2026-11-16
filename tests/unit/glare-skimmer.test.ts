@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { AI, ARMOUR_INTEL_TICKS, DIFFICULTIES, heavyShareByCost, MOSTLY_HEAVY, skimmerOf, type Personality } from '../../src/ai/ai';
+import { AI, ARMOUR_INTEL_TICKS, DIFFICULTIES, heavyShareByCost, MOSTLY_HEAVY, skimmerOf, skimOr, type Personality } from '../../src/ai/ai';
 import { soundFor } from '../../src/audio/plan';
 import { ACK_KINDS, MOVE_LOOPS, moveClass, moveLoopSamples, recipeFor } from '../../src/audio/recipes';
 import { canCrush, DAMAGE_PCT, trainableAt, UNIT_DEFS, unitDef } from '../../src/data/defs';
@@ -228,6 +228,11 @@ describe('the AI trains Skimmers against armour', () => {
     expect(heavyShareByCost([], 0)).toBe(0);
     expect(skimmerOf(trainableAt('ali_pit'))).toBe(SKIM);
     expect(skimmerOf(trainableAt('hum_factory'))).toBeNull();
+    // It takes the place of the Pit's usual choice, but not of artillery (AI-19).
+    expect(skimOr(SKIM, 'ali_brute')).toBe(SKIM);
+    expect(skimOr(SKIM, null)).toBe(SKIM);
+    expect(skimOr(SKIM, 'ali_lobber')).toBe('ali_lobber');
+    expect(skimOr(null, 'ali_brute')).toBe('ali_brute');
   });
 
   /** A built-up Vrax base (player 0) on seed 6 with enemies `foes` in sight of it. */
