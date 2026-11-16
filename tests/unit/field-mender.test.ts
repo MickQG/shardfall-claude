@@ -47,7 +47,7 @@ describe('CMB-15: the Field Mender', () => {
 });
 
 describe('CMB-16, CMB-17: repair', () => {
-  it('CMB-16: it mends one damaged friendly vehicle in reach at 5 hp a second', () => {
+  it('CMB-16: it mends one damaged friendly vehicle in reach at 4 hp a second', () => {
     const g = game([
       { owner: 0, kind: 'hum_mender', tx: 10, ty: 10 },
       { owner: 0, kind: 'hum_tank', tx: 12, ty: 10 },
@@ -57,7 +57,7 @@ describe('CMB-16, CMB-17: repair', () => {
     run(g, 1);
     const at = tank.hp;
     run(g, 200);
-    expect(RATE).toBe(5);
+    expect(RATE).toBe(4);
     expect(tank.hp - at).toBe(10 * RATE); // ten seconds
     expect(snapshot(g).units.find((u) => u.kind === 'hum_mender')?.mend).toBe(tank.id);
   });
