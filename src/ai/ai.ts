@@ -499,6 +499,8 @@ export interface AiRules {
   approachFlank: number;
   /** (AI-27 b) The largest share of the army's value a hit squad beside a main wave may take. */
   hitShare: number;
+  /** (AI-27 a) The fewest units a raid splits with. */
+  splitMin: number;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -517,6 +519,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   hitSquad: true,
   approachFlank: APPROACH_FLANK,
   hitShare: HIT_SHARE,
+  splitMin: SPLIT_MIN,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -1776,13 +1779,13 @@ export class AI {
   }
 
   /**
-   * Raider's split raid (AI-27 a): with at least SPLIT_MIN units setting out, dealt alternately from the dearest down into
+   * Raider's split raid (AI-27 a): with at least rules.splitMin (SPLIT_MIN) units setting out, dealt alternately from the dearest down into
    * two squads, the first to the nearest economy target it may go for and the second to the one farthest from that, at
    * least SPLIT_APART tiles away (each judged against its own squad, AI-23 e); each by the flank on its target's side of
    * the straight line from the staging point to between the two. Null when it cannot split.
    */
   private splitRaid(c: Ctx, raid: readonly UnitSnap[]): [{ units: UnitSnap[]; target: { tx: number; ty: number }; via: { tx: number; ty: number } | null }, { units: UnitSnap[]; target: { tx: number; ty: number }; via: { tx: number; ty: number } | null }] | null {
-    if (raid.length < SPLIT_MIN) return null;
+    if (raid.length < this.rules.splitMin) return null;
     const dear = [...raid].sort((a, b) => unitDef(b.kind).cost - unitDef(a.kind).cost || a.id - b.id);
     const a = dear.filter((_, i) => i % 2 === 0);
     const b = dear.filter((_, i) => i % 2 === 1);

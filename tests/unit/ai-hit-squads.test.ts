@@ -83,6 +83,8 @@ describe('hit squads (AI-27)', () => {
       expect(guarded.waveState).toMatchObject(A);
       // With the rule off it never splits (measurement only).
       one(raid([hauler(A), hauler(B)], { raidSplit: false }).who);
+      // Nor below the fewest units it splits with, when measurement changes that number.
+      one(raid([hauler(A), hauler(B)], { splitMin: 9 }).who);
     }, LONG);
 
     it('AI-27 (a): each squad is judged on its own: a beaten one goes back to the staging point while the other goes on; the split raid is one attack, beaten back once when both squads have ended', () => {
@@ -225,6 +227,8 @@ describe('hit squads (AI-27)', () => {
       none({ who, fast: idsOf(g, 'hum_buggy').filter((id) => id !== who.standingScout) });
       // With the rule off it sends none (measurement only).
       none(beside('balanced', 7, undefined, { hitSquad: false }));
+      // A tenth of the army (630) holds only two buggies, when measurement changes the share.
+      none(beside('balanced', 7, undefined, { hitShare: 0.1 }));
     }, LONG);
 
     it("AI-27 (b): a hit squad is not a wave in the harness's counts and starts no wave cooldown; a beaten one goes back to the staging point and its units rejoin the army", () => {

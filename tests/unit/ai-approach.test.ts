@@ -55,6 +55,9 @@ describe('main waves vary their approach (AI-26)', () => {
       expect(Math.hypot(p.tx + 0.5 - raw.x, p.ty + 0.5 - raw.y), side).toBeLessThanOrEqual(1);
       expect(sideOf(from, TARGET, p), side).toBe(s);
     }
+    // Measurement may change how far to the side it lies (rules.approachFlank).
+    const ten = ai('balanced', { approachFlank: 10 }).flankPoint(from, TARGET, 'right')!;
+    expect(Math.abs(Math.hypot(ten.tx + 0.5 - mid.x, ten.ty + 0.5 - mid.y) - 10)).toBeLessThanOrEqual(1);
     // Along the top edge, the left flank would lie off the map: not offered; the right one is.
     expect(who.flankPoint({ tx: 20, ty: 2 }, { tx: 80, ty: 2 }, 'left')).toBeNull();
     expect(who.flankPoint({ tx: 20, ty: 2 }, { tx: 80, ty: 2 }, 'right')).not.toBeNull();
