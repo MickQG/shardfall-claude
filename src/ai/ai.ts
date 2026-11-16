@@ -538,6 +538,8 @@ export interface AiRules {
   hitShare: number;
   /** (AI-27 a) Each squad of a split raid is worth at least this many times the enemy army seen lately; 0: no such condition. */
   splitRatio: number;
+  /** (SKM-6) Trains Glare Skimmers against an enemy that is mostly heavy armour; off: never trains them. */
+  skimmers: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -557,6 +559,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   approachFlank: APPROACH_FLANK,
   hitShare: HIT_SHARE,
   splitRatio: SPLIT_RATIO,
+  skimmers: true,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -1257,7 +1260,7 @@ export class AI {
     const raiderScouts = scoutKind !== null && this.raiderScoutRule();
     let extraScouts = 0;
     // Against mostly heavy armour (by cost, seen in the last two minutes) Vrax trains Skimmers as its main anti-armour (SKM-6).
-    const armoured = heavyShareByCost(this.intel.values(), c.tick) > MOSTLY_HEAVY;
+    const armoured = this.rules.skimmers && heavyShareByCost(this.intel.values(), c.tick) > MOSTLY_HEAVY;
     if (raiderScouts) {
       const queuedScouts = queued.get(scoutKind) ?? 0;
       this.standingOrdered = Math.min(this.standingOrdered, queuedScouts);
