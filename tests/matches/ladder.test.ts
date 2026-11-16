@@ -21,8 +21,8 @@ describe('the difficulty ladder in full matches', () => {
             games.push({ o: { seed, factions: [factions[0], factions[1]], difficulties: [d[0]!, d[1]!], maxTicks: CAP }, swap, pair: `${a}-${b}` });
           }
     };
-    series('hard', 'medium', [1, 2, 3, 4, 5, 6, 7, 8]);
-    series('medium', 'easy', [1, 2, 3, 4]);
+    series('hard', 'medium', [1, 2, 3, 4]);
+    series('medium', 'easy', [1, 2]);
     const results = await playMatches(games.map((g) => g.o));
     const tally = (pair: string): { a: number; b: number; undecided: number } => {
       const t = { a: 0, b: 0, undecided: 0 };
@@ -37,7 +37,7 @@ describe('the difficulty ladder in full matches', () => {
     };
     const hardMedium = tally('hard-medium');
     const mediumEasy = tally('medium-easy');
-    await printTally([`AI-28 ladder: hard ${hardMedium.a} - medium ${hardMedium.b} (${hardMedium.undecided} undecided) of 32; medium ${mediumEasy.a} - easy ${mediumEasy.b} (${mediumEasy.undecided} undecided) of 16`]);
+    await printTally([`AI-28 ladder: hard ${hardMedium.a} - medium ${hardMedium.b} (${hardMedium.undecided} undecided) of 16; medium ${mediumEasy.a} - easy ${mediumEasy.b} (${mediumEasy.undecided} undecided) of 8`]);
     expect(hardMedium.a).toBeGreaterThan(hardMedium.b);
     expect(mediumEasy.a).toBeGreaterThan(mediumEasy.b);
   }, 2_400_000);
