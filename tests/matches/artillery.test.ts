@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { type Personality } from '../../src/ai/ai';
-import { DIFFICULTIES } from './levels';
-import { aiRules } from './aiRules';
+import { DIFFICULTIES, printTally } from './levels';
+import { aiRules, rulesLine } from './aiRules';
 import { playMatches } from './pool';
 
 describe('AI artillery in full matches', () => {
@@ -14,6 +14,7 @@ describe('AI artillery in full matches', () => {
       const v = [p.inf * 90, p.at * 235, p.tank * 815, p.art * 850, p.hero * 2000, p.scout * 235];
       return v[3]! / Math.max(1, v.reduce((a, b) => a + b, 0));
     });
+    await printTally([`AI-19: artillery share of player 0's army value per game ${share.map((s) => s.toFixed(3)).join(' ')}; ${rulesLine()}`]);
     // Before AI-19 this was exactly 0 in all three games (measured on main); now about 0.18.
     for (const s of share) expect(s).toBeGreaterThan(0.08);
     expect(share.reduce((a, b) => a + b, 0) / share.length).toBeGreaterThan(0.12);

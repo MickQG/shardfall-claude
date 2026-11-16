@@ -9,7 +9,7 @@ import { unitDef } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
 import { UNIT_MODELS } from '../../src/render/voxel/models';
 import { MENDER_HATCH, MENDER_TIP } from '../../src/render3d/mender3d';
-import { poseRig, rigTree, turretReach, type RigPose } from '../../src/render3d/rig';
+import { poseRig, previewDraws, rigTree, turretReach, type RigPose } from '../../src/render3d/rig';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
 import { createGame, FP, snapshot, tick, type Command, type SimEvent, type UnitSnap } from '../../src/sim';
 import { acknowledge } from '../../src/ui/acknowledge';
@@ -125,6 +125,10 @@ describe('R3D-38: the Field Mender model', () => {
     const lamp = t.drawn.find((d) => d.geo === 'lamp')!;
     expect(lamp.cargo).toBe(true); // drawn only while carrying
     expect(t.drawn.filter((d) => d.geo !== 'lamp').every((d) => !d.cargo)).toBe(true);
+    // Previews (unit sheet, build pictures, menu scene) show it empty, its hatch dark; every other model draws everything.
+    expect(previewDraws(def, 'lamp')).toBe(false);
+    expect(previewDraws(def, 'arm')).toBe(true);
+    for (const [k, mk] of Object.entries(UNIT_RIGS)) if (k !== 'hum_mender') for (const d of rigTree(mk()).drawn) expect(previewDraws(mk(), d.geo), k).toBe(true);
     // Glowing parts: the hatch light and the emitter.
     expect(def.shapes.lamp!().build(0xff0000).glow).toBeTruthy();
   });
@@ -248,6 +252,8 @@ describe('AI-29: the AI and its Field Menders', () => {
     expect(t2.busy.has(2)).toBe(true);
     const t3 = plan.turn(120 + BOARD_PATIENCE + 1, [m, ...army], [], army, 64, true);
     expect(t3.orders.filter((o) => o.type === 'board')).toHaveLength(1);
+    // With loading switched off (a measurement rule), no squad is sent.
+    expect(new MenderPlan(0, kind).turn(100, [m, ...army], [], army, 64, true, false).orders.some((o) => o.type === 'board')).toBe(false);
   });
 
   it('AI-29: below 15% health a Mender lets its squad out', () => {
@@ -345,6 +351,8 @@ describe('AI-29: the AI and its Field Menders', () => {
     };
     for (const d of Object.values(DIFFICULTIES)) expect(ordered(new AI(0, 'human', d, cfg.map, 6), d.thinkEvery), d.name).toBeGreaterThanOrEqual(1);
     expect(ordered(new SteamrollAI(0, 'human', cfg.map, 6), DIFFICULTIES.hard.thinkEvery)).toBeGreaterThanOrEqual(1);
+    // For measurement, the rule can be switched off: then it trains none.
+    expect(ordered(new AI(0, 'human', DIFFICULTIES.hard, cfg.map, 6, 'balanced', { rules: { menders: false } }), DIFFICULTIES.hard.thinkEvery)).toBe(0);
     // With a Mender already there is none to add for three tanks (it may add one for tanks it trains meanwhile).
     const g = fresh();
     const t = g.state.units.find((u) => u.owner === 0 && u.kind === 'hum_tank')!;

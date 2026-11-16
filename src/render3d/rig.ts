@@ -109,7 +109,12 @@ export interface RigDef {
   ride?: number;
   /** Smoke and steam vents (buildings), local positions. */
   vents?: readonly V3[];
+  /** Shapes shown only while a squad rides inside (a carrier's hatch light, R3D-38): previews, which show it empty, leave them out. */
+  loadedOnly?: readonly string[];
 }
+
+/** Whether a preview (unit sheet, build pictures, menu scene) draws shape `geo` of `def`: all but those shown only when loaded (R3D-38). */
+export const previewDraws = (def: RigDef, geo: string): boolean => !def.loadedOnly?.includes(geo);
 
 /** Every node of a rig, depth first. */
 export function walk(n: RigNode, f: (n: RigNode) => void): void {

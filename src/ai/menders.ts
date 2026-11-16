@@ -62,9 +62,10 @@ export class MenderPlan {
 
   /**
    * One turn (AI-29): `own` are the AI's units in its snapshot, `foes` the enemies it sees, `army` its army (units that can
-   * fight, scouts excluded), `fallback` whether its tanks fall back to be mended (not for the steamroll opponent, HAR-5).
+   * fight, scouts excluded), `fallback` whether its tanks fall back to be mended (not for the steamroll opponent, HAR-5),
+   * `load` whether its Menders take squads aboard (AiRules, for measurement).
    */
-  turn(tick: number, own: readonly UnitSnap[], foes: readonly UnitSnap[], army: readonly UnitSnap[], width: number, fallback: boolean): MenderTurn {
+  turn(tick: number, own: readonly UnitSnap[], foes: readonly UnitSnap[], army: readonly UnitSnap[], width: number, fallback: boolean, load = true): MenderTurn {
     const orders: Command[] = [];
     const busy = new Set<number>();
     const menders = own.filter((u) => u.kind === this.kind);
@@ -101,7 +102,7 @@ export class MenderPlan {
         busy.add(b.squad);
       }
     }
-    for (const m of menders) {
+    for (const m of load ? menders : []) {
       if (m.cargo || this.boarding.has(m.id) || frac(m) < 0.5 || tick - (this.unloadedAt.get(m.id) ?? -Infinity) < RELOAD_AFTER) continue;
       const squad = army
         .filter((u) => !taken.has(u.id) && unitDef(u.kind).role === 'antiarmor' && mayCarry(m.kind, u.kind))

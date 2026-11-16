@@ -60,6 +60,7 @@ export function mender(): RigDef {
     turn: 5.5,
     radius: 0.78,
     height: 0.86,
+    loadedOnly: ['lamp'],
     shapes: {
       wheel: () => hubTire(R, 0.11),
       body: () => {

@@ -3,6 +3,7 @@ import { SUPERWEAPON_ARMY, SUPERWEAPON_HAULERS, type Personality } from '../../s
 import { DIFFICULTIES, printTally } from './levels';
 import type { MatchResult } from '../../src/ai/harness';
 import { playMatches } from './pool';
+import { aiRules, rulesLine } from './aiRules';
 
 /**
  * Full AI-vs-AI matches (#107): statistical checks that need whole games, run by `npm run test:matches` and by CI only
@@ -31,7 +32,7 @@ function series(p: Personality): Promise<MatchResult[]> {
   const key = p;
   const hit = cache.get(key);
   if (hit) return hit;
-  const rs = playMatches(SIDES.map(([seed, f]) => ({ seed, factions: [f[0], f[1]], difficulties: [DIFFICULTIES.medium, DIFFICULTIES.medium], maxTicks: SERIES_TICKS[p], personalities: [p, 'balanced'] as [Personality, Personality] })));
+  const rs = playMatches(SIDES.map(([seed, f]) => ({ seed, factions: [f[0], f[1]], difficulties: [DIFFICULTIES.medium, DIFFICULTIES.medium], maxTicks: SERIES_TICKS[p], personalities: [p, 'balanced'] as [Personality, Personality], rules: aiRules() })));
   cache.set(key, rs);
   return rs;
 }
@@ -61,6 +62,11 @@ describe('AI personalities in full matches', () => {
       return { tech: v.tank + v.art + v.hero, all: Object.values(v).reduce((t, x) => t + x, 0) };
     };
     const share = (ms: MatchResult[]): number => ms.reduce((t, r) => t + value(r).tech / Math.max(1, value(r).all), 0) / ms.length;
+    // Measurement first, so a failing run still shows it: each game's winner (D Doomsday, B Balanced, - undecided) by side.
+    const strikes = d.filter((m) => m.ai[0].strikeAt >= 0).length;
+    await printTally([
+      `AI-15: Doomsday ${d.filter((m) => m.winner === 0).length} - Balanced ${d.filter((m) => m.winner === 1).length}, ${d.filter((m) => m.winner === null).length} undecided of ${d.length}; strikes in ${strikes} games; games ${d.map((m, i) => `${SIDES[i]![0]}${SIDES[i]![1][0][0]}:${m.winner === 0 ? 'D' : m.winner === 1 ? 'B' : '-'}`).join(' ')}; tech share ${share(d).toFixed(3)} vs ${share(b).toFixed(3)}; ${rulesLine()}`,
+    ]);
     d.forEach((m, i) => {
       // Its lab before Balanced's, in every game.
       expect(m.ai[0].labAt).toBeGreaterThanOrEqual(0);
@@ -79,7 +85,6 @@ describe('AI personalities in full matches', () => {
     const arrivals = d.filter((m) => m.ai[0].strikeAt >= 0).map((m) => never(m.ai[0].strikeArrival)).sort((x, y) => x - y);
     expect(arrivals.length).toBeGreaterThanOrEqual(2);
     expect(arrivals[Math.floor((arrivals.length - 1) / 2)]).toBeLessThanOrEqual(20 * 10);
-    await printTally([`AI-15: Doomsday ${d.filter((m) => m.winner === 0).length} - Balanced ${d.filter((m) => m.winner === 1).length}, ${d.filter((m) => m.winner === null).length} undecided of ${d.length}; strikes in ${arrivals.length} games`]);
     // A fair opponent: it wins at least three of eight games against Balanced.
     expect(d.filter((m) => m.winner === 0).length).toBeGreaterThanOrEqual(3);
   }, LONG);

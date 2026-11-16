@@ -509,6 +509,12 @@ export interface AiRules {
   hitShare: number;
   /** (AI-27 a) Each squad of a split raid is worth at least this many times the enemy army seen lately; 0: no such condition. */
   splitRatio: number;
+  /** (AI-29) Aegis trains Field Menders, one for every three tanks; off: none (so neither of the two below applies). */
+  menders: boolean;
+  /** (AI-29) Badly damaged tanks fall back to a Field Mender until mended. */
+  menderFallback: boolean;
+  /** (AI-29) Field Menders take an anti-armour squad aboard. */
+  menderLoad: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -528,6 +534,9 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   approachFlank: APPROACH_FLANK,
   hitShare: HIT_SHARE,
   splitRatio: SPLIT_RATIO,
+  menders: true,
+  menderFallback: true,
+  menderLoad: true,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -722,7 +731,7 @@ export class AI {
 
     // The Field Menders (AI-29): squads on their way to board and tanks falling back leave the army for this turn; their
     // orders go first, a share of the budget at most.
-    const mend = this.menders.turn(c.tick, own, foes, c.army, snap.mapWidth, this.doctrine.retreats);
+    const mend = this.menders.turn(c.tick, own, foes, c.army, snap.mapWidth, this.doctrine.retreats && this.rules.menderFallback, this.rules.menderLoad);
     if (mend.busy.size > 0) c.army = c.army.filter((u) => !mend.busy.has(u.id));
     const out: Command[] = mend.orders.slice(0, Math.max(1, Math.floor(this.diff.maxCommands / 4)));
     this.placeReady(c, out);
@@ -1311,7 +1320,8 @@ export class AI {
   /** How many more Field Menders it wants (AI-29): one per three of its tanks, alive and queued, less those it has or has queued. */
   private menderWant(c: Ctx, queued: ReadonlyMap<string, number>): number {
     const kind = this.menders.kind;
-    if (!kind) return 0;
+    // The steamroll opponent keeps its own build and ignores the rules (HAR-5).
+    if (!kind || (!this.rules.menders && this.doctrine.pick === undefined)) return 0;
     let tanks = c.own.filter((u) => isTank(u.kind)).length;
     for (const [k, n] of queued) if (isTank(k)) tanks += n;
     return mendersWanted(tanks, c.own.filter((u) => u.kind === kind).length + (queued.get(kind) ?? 0));
