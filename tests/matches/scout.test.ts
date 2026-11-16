@@ -1,6 +1,7 @@
 import { appendFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { DIFFICULTIES, type Difficulty } from '../../src/ai/ai';
+import { type Difficulty } from '../../src/ai/ai';
+import { DIFFICULTIES } from './levels';
 import type { MatchOptions, MatchResult } from '../../src/ai/harness';
 import type { Faction } from '../../src/data/defs';
 import { MAPS } from '../../src/data/maps';

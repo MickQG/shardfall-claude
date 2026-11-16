@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AI, DIFFICULTIES, homeFields } from '../../src/ai/ai';
+import { AI, homeFields } from '../../src/ai/ai';
+import { DIFFICULTIES } from './levels';
 import type { Faction } from '../../src/data/defs';
 import { MAPS, mapStarts, skirmishConfig, type MapId } from '../../src/data/maps';
 import { createGame, FP, snapshot, submit, tick } from '../../src/sim';

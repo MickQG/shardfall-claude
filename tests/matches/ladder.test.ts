@@ -1,12 +1,12 @@
-import { appendFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { DIFFICULTIES } from '../../src/ai/ai';
 import type { MatchOptions } from '../../src/ai/harness';
+import { DIFFICULTIES, printTally, type Level } from './levels';
 import { playMatches } from './pool';
 
 /** Full AI-vs-AI matches (#107, #187): the difficulty ladder, each level against the one below it. */
 
-type Level = keyof typeof DIFFICULTIES;
+/** Twenty minutes: the levels are close together, and few games between them are decided in ten. */
+const CAP = 20 * 60 * 20;
 
 describe('the difficulty ladder in full matches', () => {
   it('AI-28: Hard beats Medium more often than not, and Medium beats Easy more often than not', async () => {
@@ -18,7 +18,7 @@ describe('the difficulty ladder in full matches', () => {
         for (const factions of [['human', 'alien'], ['alien', 'human']] as const)
           for (const swap of [false, true]) {
             const d = swap ? [DIFFICULTIES[b], DIFFICULTIES[a]] : [DIFFICULTIES[a], DIFFICULTIES[b]];
-            games.push({ o: { seed, factions: [factions[0], factions[1]], difficulties: [d[0]!, d[1]!], maxTicks: 12000 }, swap, pair: `${a}-${b}` });
+            games.push({ o: { seed, factions: [factions[0], factions[1]], difficulties: [d[0]!, d[1]!], maxTicks: CAP }, swap, pair: `${a}-${b}` });
           }
     };
     series('hard', 'medium', [1, 2, 3, 4, 5, 6, 7, 8]);
@@ -37,12 +37,8 @@ describe('the difficulty ladder in full matches', () => {
     };
     const hardMedium = tally('hard-medium');
     const mediumEasy = tally('medium-easy');
-    const out = `AI-28 ladder: hard ${hardMedium.a} - medium ${hardMedium.b} (${hardMedium.undecided} undecided) of 32; medium ${mediumEasy.a} - easy ${mediumEasy.b} (${mediumEasy.undecided} undecided) of 16`;
-    // Written straight to stdout: the runner holds back console.log output of a passing test.
-    process.stdout.write(`${out}\n`);
-    const summary = process.env.GITHUB_STEP_SUMMARY;
-    if (summary) appendFileSync(summary, `\`\`\`\n${out}\n\`\`\`\n`);
+    await printTally([`AI-28 ladder: hard ${hardMedium.a} - medium ${hardMedium.b} (${hardMedium.undecided} undecided) of 32; medium ${mediumEasy.a} - easy ${mediumEasy.b} (${mediumEasy.undecided} undecided) of 16`]);
     expect(hardMedium.a).toBeGreaterThan(hardMedium.b);
     expect(mediumEasy.a).toBeGreaterThan(mediumEasy.b);
-  }, 900_000);
+  }, 2_400_000);
 });

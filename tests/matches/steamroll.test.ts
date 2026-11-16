@@ -1,6 +1,7 @@
 import { appendFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { DIFFICULTIES, PERSONALITIES, type Personality } from '../../src/ai/ai';
+import { PERSONALITIES, type Personality } from '../../src/ai/ai';
+import { DIFFICULTIES } from './levels';
 import { lengthReport, playMatch, type ArmyAt, type EconomyAt, type MatchOptions, type MatchResult } from '../../src/ai/harness';
 import { STEAMROLL_DIFFICULTY, STEAMROLL_TUNING, type SteamrollTuning } from '../../src/ai/steamroll';
 import type { Faction } from '../../src/data/defs';
