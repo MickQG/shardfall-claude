@@ -5,7 +5,7 @@
 
 export type Faction = 'human' | 'alien';
 export type ArmorType = 'light' | 'heavy' | 'structure' | 'air';
-export type DamageType = 'pierce' | 'rocket' | 'blast' | 'claw' | 'bite' | 'beam';
+export type DamageType = 'pierce' | 'rocket' | 'blast' | 'claw' | 'bite' | 'beam' | 'lance';
 
 export interface WeaponDef {
   damage: number;
@@ -60,6 +60,8 @@ export interface UnitDef {
   crusher?: boolean;
   /** How far from its centre a crusher flattens, fixed-point (default its radius); a hero crushes all under its body (BAL-16). */
   crushRadius?: number;
+  /** Keeps shooting at enemies in range while on a move order, without stopping (SKM-3); crushers do so too (BAL-11). */
+  firesMoving?: boolean;
   /**
    * Turns slowly (HERO-5): facing steps (of 256 a circle) a tick. Such a unit turns in place before it walks a new way,
    * fires only at what it faces, and is never shoved by smaller units.
@@ -108,6 +110,8 @@ export const DAMAGE_PCT: Readonly<Record<DamageType, Readonly<Record<ArmorType, 
   // Small raiders' bites and slashes: deadly to infantry, little more than a nuisance to armour (BAL-3).
   bite: { light: 110, heavy: 40, structure: 50, air: 0 },
   beam: { light: 100, heavy: 100, structure: 100, air: 100 },
+  // The Glare Skimmer's lance (SKM-2): burns through armour, little use against infantry or walls, cannot reach aircraft.
+  lance: { light: 50, heavy: 160, structure: 60, air: 0 },
 };
 
 export const BUILDING_DEFS: Readonly<Record<string, BuildingDef>> = {
@@ -205,6 +209,11 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   ali_lobber: {
     faction: 'alien', name: 'Lobber', speed: 25, hp: 240, radius: 100, vision: 8, cost: 800, buildTime: 500, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 2, role: 'artillery',
     weapon: { damage: 62, range: 10, cooldown: 56, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
+  },
+  // A hovering anti-armour skimmer (SKM-1): out-ranges tanks with a lance beam it fires on the move (SKM-3); crushes nothing.
+  ali_skimmer: {
+    faction: 'alien', name: 'Glare Skimmer', speed: 40, hp: 400, radius: 104, vision: 9, cost: 950, buildTime: 520, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 2, firesMoving: true, role: 'antiarmor',
+    weapon: { damage: 60, range: 8, cooldown: 40, type: 'lance', antiAir: false, antiGround: true },
   },
   // The Vrax hero (HERO-2): a towering six-legged bio-walker whose acid cannon hits ground and air; one at a time, and
   // it regenerates.

@@ -76,6 +76,7 @@ const MUZZLES: Record<string, Muzzle> = {
   claw: { len: 6, width: 2, color: 0xff5a8a },
   bite: { len: 5, width: 2, color: 0xff7a9a },
   beam: { len: 24, width: 3, color: 0x9ff0ff },
+  lance: { len: 16, width: 4, color: 0xc6ff6a },
 };
 
 export const muzzleFor = (weapon: string): Muzzle => MUZZLES[weapon] ?? { len: 8, width: 3, color: 0xffffff };

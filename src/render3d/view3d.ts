@@ -21,7 +21,7 @@ import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, strikeAfter, strikeSideOf, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
-import { HAULER_VENT, UNIT_RIGS } from './units3d';
+import { HAULER_VENT, SKIMMER_HOVER, UNIT_RIGS } from './units3d';
 import { MENDER_HATCH, MENDER_TIP } from './mender3d';
 import { DEFAULT_TARGET, scatterKind, shotScatter, wallEnd, type Offset, type ScatterKind, type ScatterTarget } from './scatter';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
@@ -89,6 +89,8 @@ const CRASH_CARRY = 0.8;
 
 /** How long a fallen squad member stays before it has sunk away, ms (R3D-15). */
 const FALLEN_MS = 2600;
+/** How long a dying hover hull takes to drop onto the ground, ms (SKM-4). */
+const HOVER_DROP_MS = 350;
 /** Air units fly this high (tiles). */
 export const AIR_Y = 0.85;
 /** Units are drawn when their bounding circle (plus a shadow margin) touches the view. */
@@ -1663,9 +1665,10 @@ export class View3D {
       this.tint.setScalar(1 - 0.5 * Math.min(1, age / 600));
       return true;
     }
-    // Vehicles: a blackened, burning hulk that sinks away at the end.
+    // Vehicles: a blackened, burning hulk that sinks away at the end. A hovering hull first drops onto the ground (SKM-4).
     const sink = Math.max(0, (age - (life - 2500)) / 2500);
-    o.root.position.y = o.groundY - sink * o.def.height;
+    const drop = o.def.move === 'hover' ? SKIMMER_HOVER * Math.min(1, age / HOVER_DROP_MS) ** 2 : 0;
+    o.root.position.y = o.groundY - sink * o.def.height - drop;
     if (t - o.lastBurn > 150 && age < life - 1500) {
       o.lastBurn = t;
       this.fx.burn(this.v.set(o.x, o.groundY + o.def.height * 0.6, o.z), age < 4000, o.def.radius, t);

@@ -422,7 +422,7 @@ describe('NET-7: board and unload are ordinary commands', () => {
     expect(sanitizeCommand({ type: 'board', units: [4], carrier: -1 }, 0)).toBeNull();
     expect(sanitizeCommand({ type: 'board', units: 'x', carrier: 3 }, 0)).toBeNull();
     expect(sanitizeCommand({ type: 'unload', units: [1.5] }, 0)).toBeNull();
-    expect(NET_VERSION).toBeGreaterThanOrEqual(10);
+    expect(NET_VERSION).toBeGreaterThanOrEqual(11);
   });
 
   it("NET-7: the simulation refuses to board another player's squads", () => {

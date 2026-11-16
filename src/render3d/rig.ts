@@ -81,10 +81,11 @@ export interface RigNode {
   kids?: RigNode[];
 }
 
-export type Locomotion = 'tracked' | 'wheeled' | 'walker' | 'air' | 'static';
+/** `hover`: a hull that floats a little above the ground (SKM-4), drawn by its own rig, banking gently. */
+export type Locomotion = 'tracked' | 'wheeled' | 'walker' | 'hover' | 'air' | 'static';
 
 /** How a weapon looks when it fires (chosen by the shooter's kind). */
-export type WeaponLook = 'rifle' | 'mg' | 'cannon' | 'heroCannon' | 'rocket' | 'howitzer' | 'chaingun' | 'pulse' | 'claw' | 'acid' | 'acidBig' | 'heroAcid' | 'missile' | 'sting' | 'spine';
+export type WeaponLook = 'rifle' | 'mg' | 'cannon' | 'heroCannon' | 'rocket' | 'howitzer' | 'chaingun' | 'pulse' | 'claw' | 'acid' | 'acidBig' | 'heroAcid' | 'missile' | 'sting' | 'spine' | 'lance';
 
 export interface RigDef {
   shapes: Record<string, () => Shape>;

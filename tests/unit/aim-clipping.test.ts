@@ -4,7 +4,7 @@ import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
 import { angleDiff, bodyPose, gunYaw, readyToFire, restingMotion, turretOnBody, walkerFacing } from '../../src/render3d/motion';
 import { MAX_STEER, poseRig, rigTree, turretReach, walk, type RigDef, type RigPose, type RigTree } from '../../src/render3d/rig';
 import type { Shape } from '../../src/render3d/kit';
-import { PALADIN_SWIVEL, UNIT_RIGS } from '../../src/render3d/units3d';
+import { PALADIN_SWIVEL, SKIMMER_HOVER, UNIT_RIGS } from '../../src/render3d/units3d';
 
 const STILL: RigPose = { turret: 0, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: 0, stride: 0, dist: 0, turnRate: 0, time: 0, reach: 0, walker: false };
 
@@ -214,9 +214,10 @@ describe('models do not clip', () => {
           for (let i = 0; i < pos.count; i++) low = Math.min(low, v.fromBufferAttribute(pos, i).applyMatrix4(d.obj.matrixWorld).y);
         }
       }
-      // Tyres may squash onto the ground a touch; nothing sinks in or hovers.
-      expect(low * (def.scale ?? 1), kind).toBeGreaterThan(-0.02);
-      expect(low * (def.scale ?? 1), kind).toBeLessThan(0.02);
+      // Tyres may squash onto the ground a touch; nothing sinks in or hovers, but a hover hull (SKM-4), which floats at its set height.
+      const ground = def.move === 'hover' ? SKIMMER_HOVER : 0;
+      expect(low * (def.scale ?? 1) - ground, kind).toBeGreaterThan(-0.02);
+      expect(low * (def.scale ?? 1) - ground, kind).toBeLessThan(0.02);
     }
   });
 

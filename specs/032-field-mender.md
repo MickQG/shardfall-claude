@@ -1,4 +1,4 @@
-# 031 Field Mender (milestone 31)
+# 032 Field Mender (milestone 32)
 
 Issue #192: a new Aegis unit, the Field Mender, a repair vehicle that carries one infantry squad. Original design and name. The stats are a first draft, tuned in CI.
 

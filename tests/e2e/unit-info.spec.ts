@@ -25,7 +25,7 @@ test('INF-1 INF-2 INF-3 INF-4: the unit sheet lists the picked faction, explains
   await expect(panel.locator('.u')).toHaveCount(Object.keys(HUMAN).length);
   await expect(panel.locator('[data-tab="human"]')).toHaveClass(/sel/);
   await panel.locator('.u', { hasText: 'Rocketeer' }).click();
-  await expect(panel.locator('.facts')).toContainText('Strong against: Heavy (Gorger, Brute, Lobber, Dreadstrider)');
+  await expect(panel.locator('.facts')).toContainText('Strong against: Heavy (Gorger, Brute, Lobber, Glare Skimmer, Dreadstrider)');
   await panel.locator('.u', { hasText: 'Shard Hauler' }).click();
   await expect(panel.locator('.facts')).toContainText('Cannot attack');
   await page.keyboard.press('Escape');

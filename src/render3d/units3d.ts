@@ -1261,6 +1261,72 @@ function lobber(): RigDef {
   };
 }
 
+/** How high the Glare Skimmer's hull floats: the underside's lowest point above the ground, tiles (SKM-4). */
+export const SKIMMER_HOVER = 0.3;
+/** How high the lance's axis rides above the hull's underside, tiles: clear of the carapace as it turns all round (AIM-2). */
+const LANCE_Y = 0.34;
+
+/**
+ * The Glare Skimmer (SKM-4): a Vrax hover tank, an original design. A long, flattened, organic hull like a ray's body
+ * floats about 0.3 tiles above the ground (its shadow lies apart from it on the ground), its underside glowing with the
+ * acid that holds it up; team-coloured carapace over the back, finned flanks, a blunt head with glowing eyes and a bone
+ * tail. On its back a swivelling bone mount carries the long lance emitter: a ribbed, tapering spine with glowing coils,
+ * a feeding sac behind and a glowing tip, which turns to its target as the hull skims on. It fires a held beam.
+ */
+function skimmer(): RigDef {
+  return {
+    move: 'hover',
+    organic: true,
+    turn: 5,
+    radius: 0.66,
+    height: 0.62,
+    weapon: 'lance',
+    shapes: {
+      hull: () => {
+        const s = shape();
+        s.ball(0.3, CHITIN, { at: [0, 0.13, 0], scale: [1.9, 0.42, 1.1], seg: 16 }); // the flattened hull
+        s.ball(0.3, 'team', { at: [0, 0.145, 0], scale: [1.8, 0.42, 1.0], seg: 14, cut: 0.42 }); // carapace
+        s.ball(0.3, 'teamDark', { at: [-0.05, 0.16, 0], scale: [1.2, 0.36, 0.6], seg: 12, cut: 0.4 }); // spine ridge
+        // The glowing underside that holds it up, ringed with vents.
+        s.ball(0.26, GREEN, { at: [0, 0.036, 0], scale: [1.7, 0.12, 0.9], seg: 14, glow: true });
+        s.ring(0.2, 0.012, ACID, { at: [0.02, 0.03, 0], scale: [1.6, 1, 1], seg: 16, glow: true });
+        for (const z of [0.31, -0.31]) {
+          s.ball(0.1, CHITIN2, { at: [-0.06, 0.11, z], scale: [2.4, 0.35, 0.9], seg: 10 }); // flank fins
+          s.ball(0.02, ACID, { at: [-0.06, 0.08, z * 1.08], scale: [5, 1, 1], seg: 6, glow: true });
+        }
+        s.ball(0.13, CHITIN2, { at: [0.5, 0.11, 0], scale: [1.3, 0.7, 1.1], seg: 10 }); // head
+        for (const z of [0.065, -0.065]) s.ball(0.02, GREEN, { at: [0.62, 0.14, z], seg: 6, glow: true }); // eyes
+        s.cone(0.05, 0.22, BONE, { at: [-0.66, 0.13, 0], rot: [0, 0, Math.PI / 2], seg: 6 }); // tail spike
+        for (const z of [0.12, -0.12]) s.cone(0.025, 0.12, BONE, { at: [0.36, 0.2, z], rot: [0, 0, -1.2], seg: 5 }); // brow horns
+        return s;
+      },
+      lance: () => {
+        const s = shape();
+        // The bone mount, round so it turns in place on the carapace.
+        s.ball(0.11, CHITIN2, { at: [0, 0.02, 0], scale: [1.2, 0.6, 1.2], seg: 12 });
+        s.cyl(0.05, 0.1, BONE, { at: [0, 0.06, 0], seg: 8 });
+        const y = LANCE_Y - 0.25;
+        // The emitter: a long, tapering, ribbed spine with glowing coils and a sac at the back.
+        s.tube(0.04, 0.78, BONE, { at: [0.17, y, 0], r2: 0.028, seg: 8 });
+        for (let i = 0; i < 4; i++) s.tube(0.05, 0.035, CHITIN, { at: [0.0 + i * 0.13, y, 0], seg: 8, shadow: false });
+        for (const x of [0.065, 0.195, 0.325]) s.tube(0.046, 0.016, ACID, { at: [x, y, 0], seg: 8, glow: true });
+        s.ball(0.06, SAC, { at: [-0.2, y, 0], scale: [1.4, 0.9, 0.9], seg: 10 });
+        s.cone(0.04, 0.08, GREEN, { at: [0.6, y, 0], rot: [0, 0, -Math.PI / 2], seg: 8, glow: true }); // glowing tip
+        return s;
+      },
+    },
+    root: {
+      kids: [
+        {
+          anim: { k: 'body' },
+          at: [0, SKIMMER_HOVER, 0],
+          kids: [{ geo: 'hull' }, { geo: 'lance', at: [-0.04, 0.25, 0], anim: { k: 'turret' }, kids: [{ muzzle: true, at: [0.66, LANCE_Y - 0.25, 0] }] }],
+        },
+      ],
+    },
+  };
+}
+
 /** Where the gorger's head hinges on its body, and how far it nods to disgorge, radians: a small nod, the body stays level (R3D-22, R3D-31). */
 export const GORGER_NECK = 0.4;
 export const GORGER_BOW = 0.28;
@@ -1539,6 +1605,7 @@ export const UNIT_RIGS: Readonly<Record<string, () => RigDef>> = {
   ali_stalker: stalker,
   ali_brute: brute,
   ali_lobber: lobber,
+  ali_skimmer: skimmer,
   ali_gorger: gorger,
   ali_strider: strider,
 };

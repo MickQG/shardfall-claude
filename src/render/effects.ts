@@ -14,7 +14,9 @@ interface Fx {
 
 const TICK_MS = 50;
 const toScreen = (x: number, y: number): { x: number; y: number } => tileToScreen(x / 256, y / 256);
-const WEAPON_COLOR: Record<string, number> = { pierce: 0xfff1a8, rocket: 0xffb347, missile: 0xffd27a, blast: 0xff8c42, claw: 0xff5a8a, bite: 0xff7a9a, beam: 0x9ff0ff };
+const WEAPON_COLOR: Record<string, number> = { pierce: 0xfff1a8, rocket: 0xffb347, missile: 0xffd27a, blast: 0xff8c42, claw: 0xff5a8a, bite: 0xff7a9a, beam: 0x9ff0ff, lance: 0xc6ff6a };
+/** How long the classic view holds a lance beam, ms (SKM-4). */
+const LANCE_MS = 420;
 /** Shots fired by top-rank (elite) units, in both renderers (BAL-7). */
 export const ELITE_SHOT_2D = 0xd36bff;
 
@@ -94,6 +96,15 @@ export class Effects {
         g.clear();
         g.moveTo(b.x - 8, b.y - 18 + k * 10).lineTo(b.x + 8, b.y - 4 + k * 10).stroke({ color, width: 3 * (1 - k) + 1, alpha: 1 - k });
         g.moveTo(b.x - 2, b.y - 20 + k * 10).lineTo(b.x + 12, b.y - 8 + k * 10).stroke({ color, width: 2 * (1 - k) + 1, alpha: 1 - k });
+      }, b.y);
+    } else if (e.weapon === 'lance') {
+      // The Glare Skimmer's lance (SKM-4): a held beam with a white core and a flash where it bites.
+      const bY = b.y - 8;
+      this.add(LANCE_MS, now, (k, g) => {
+        const fade = k < 0.75 ? 1 : (1 - k) / 0.25;
+        g.clear().moveTo(a.x, aY).lineTo(b.x, bY).stroke({ color, width: 5, alpha: 0.45 * fade });
+        g.moveTo(a.x, aY).lineTo(b.x, bY).stroke({ color: 0xffffff, width: 1.6, alpha: 0.9 * fade });
+        g.circle(b.x, bY, 5 + 3 * Math.sin(k * Math.PI * 6) ** 2).fill({ color, alpha: 0.8 * fade });
       }, b.y);
     } else {
       this.add(110, now, (k, g) => {
