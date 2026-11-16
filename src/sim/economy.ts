@@ -354,9 +354,12 @@ function stepHauler(s: State, u: Unit): void {
       }
       if (u.goal !== padIndex(s, ref)) clearOrder(u);
       const amt = Math.min(UNLOAD_PER_TICK, u.load);
-      u.load -= amt;
       const pl = s.players[u.owner] as Player;
-      const earned = Math.floor((amt * (100 + pl.bonus)) / 100);
+      // The bonus is exact over the load (AI-28): each tick pays what the load still aboard is worth less what the rest
+      // will be, so the rounding does not repeat every tick (10 shards at +15% would pay 11, a bonus of 10%).
+      const worth = (load: number): number => Math.floor((load * (100 + pl.bonus)) / 100);
+      const earned = worth(u.load) - worth(u.load - amt);
+      u.load -= amt;
       pl.credits += earned;
       pl.stats.shardsGathered += earned;
       if (u.load === 0) {

@@ -15,7 +15,7 @@ export interface Difficulty {
 
 export const DIFFICULTIES: Readonly<Record<'easy' | 'medium' | 'hard', Difficulty>> = {
   easy: { name: 'easy', thinkEvery: 60, maxCommands: 2, bonus: -10 },
-  medium: { name: 'medium', thinkEvery: 24, maxCommands: 7, bonus: 0 },
+  medium: { name: 'medium', thinkEvery: 26, maxCommands: 7, bonus: 0 },
   hard: { name: 'hard', thinkEvery: 8, maxCommands: 12, bonus: 15 },
 };
 
