@@ -595,6 +595,11 @@ type Ctx = {
   counts: Map<string, number>;
   army: UnitSnap[];
   haulers: UnitSnap[];
+  /**
+   * Its whole army for counting (AI-29): `army` as it was before squads boarding a Field Mender and tanks falling back
+   * to one were taken out of it for orders, plus the squads riding in its Menders.
+   */
+  strength: UnitSnap[];
 };
 
 /**
@@ -722,7 +727,7 @@ export class AI {
     const c: Ctx = {
       snap, tick: snap.tick, own, foes, buildings,
       enemyBuildings: [...snap.buildings.filter((b) => b.owner !== me), ...snap.ghosts],
-      hq, credits: pl.credits, powerOut: pl.powerOut, powerIn: pl.powerIn, counts, army, haulers,
+      hq, credits: pl.credits, powerOut: pl.powerOut, powerIn: pl.powerIn, counts, army, haulers, strength: [...army],
     };
     this.updateIntel(c);
     this.scoutBook(c);
@@ -733,6 +738,9 @@ export class AI {
     // orders go first, a share of the budget at most.
     const mend = this.menders.turn(c.tick, own, foes, c.army, snap.mapWidth, this.doctrine.retreats && this.rules.menderFallback, this.rules.menderLoad);
     if (mend.busy.size > 0) c.army = c.army.filter((u) => !mend.busy.has(u.id));
+    // Those still count as its strength, and so do the squads riding in its Menders (gone from its snapshot's units):
+    // what it trains and when it feels strong must not change because some of its army is aboard or being mended.
+    for (const u of own) if (u.cargo) c.strength.push({ ...u, id: u.cargo.id, kind: u.cargo.kind, hp: u.cargo.hp, rank: u.cargo.rank, cargo: undefined, mend: undefined });
     const out: Command[] = mend.orders.slice(0, Math.max(1, Math.floor(this.diff.maxCommands / 4)));
     this.placeReady(c, out);
     this.defendBase(c, out);
@@ -1065,7 +1073,7 @@ export class AI {
    */
   private canAffordDoom(c: Ctx): boolean {
     const refineries = c.buildings.filter((b) => buildingDef(b.kind).refinery).length;
-    return this.armyPower(c.army) >= SUPERWEAPON_ARMY && refineries >= 2 && c.haulers.length >= SUPERWEAPON_HAULERS && c.tick - this.lastThreat > 600;
+    return this.armyPower(this.strengthOf(c)) >= SUPERWEAPON_ARMY && refineries >= 2 && c.haulers.length >= SUPERWEAPON_HAULERS && c.tick - this.lastThreat > 600;
   }
 
   private structures(c: Ctx, out: Command[]): void {
@@ -1073,7 +1081,7 @@ export class AI {
     const kind = this.wantedStructure(c);
     if (kind && this.can(c, kind)) {
       if (kind === this.kit.lab && this.stats.labAt < 0) this.stats.labAt = c.tick;
-      if (kind === this.kit.superweapon && !this.stats.superweaponOrder) this.stats.superweaponOrder = { haulers: c.haulers.length, army: this.armyPower(c.army) };
+      if (kind === this.kit.superweapon && !this.stats.superweaponOrder) this.stats.superweaponOrder = { haulers: c.haulers.length, army: this.armyPower(this.strengthOf(c)) };
       out.push({ type: 'produce', player: this.player, source: c.hq.id, kind });
       // Spent now, so units ordered in the same turn cannot count on it (AI-3).
       c.credits -= buildingDef(kind).cost;
@@ -1189,7 +1197,7 @@ export class AI {
   /** Its army by role, the units queued in its buildings counted in, and the queued units by kind. */
   private roleCounts(c: Ctx): { counts: Record<Role, number>; queued: Map<string, number> } {
     const counts: Record<Role, number> = { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0 };
-    for (const u of c.army) counts[roleOf(unitDef(u.kind))]++;
+    for (const u of this.strengthOf(c)) counts[roleOf(unitDef(u.kind))]++;
     if (this.scoutId >= 0) counts.scout++;
     if (this.standing >= 0) counts.scout++;
     const queued = new Map<string, number>();
@@ -1207,8 +1215,13 @@ export class AI {
     return this.plan === 'doomsday' && !urgent && counts.tank + counts.art >= 4 && counts.inf + counts.at >= rifles + 3 * (counts.tank + counts.art);
   }
 
+  /** Its whole army for counting (AI-29): `strength` less a scout taken from the army this turn. */
+  private strengthOf(c: Ctx): UnitSnap[] {
+    return c.strength.filter((u) => u.id !== this.scoutId && u.id !== this.standing);
+  }
+
   private urgent(c: Ctx): boolean {
-    return c.army.length < 4 || c.tick - this.lastThreat < 600;
+    return this.strengthOf(c).length < 4 || c.tick - this.lastThreat < 600;
   }
 
   private production(c: Ctx, out: Command[]): void {
