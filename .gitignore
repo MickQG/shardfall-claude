@@ -13,3 +13,6 @@ test-results/
 tmp/
 
 release/
+
+# worktrees of coding agents
+.claude/worktrees/

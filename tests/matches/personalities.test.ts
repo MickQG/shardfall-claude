@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DIFFICULTIES, SUPERWEAPON_ARMY, SUPERWEAPON_HAULERS, type Personality } from '../../src/ai/ai';
+import { SUPERWEAPON_ARMY, SUPERWEAPON_HAULERS, type Personality } from '../../src/ai/ai';
+import { DIFFICULTIES, printTally } from './levels';
 import type { MatchResult } from '../../src/ai/harness';
 import { playMatches } from './pool';
 
@@ -78,6 +79,7 @@ describe('AI personalities in full matches', () => {
     const arrivals = d.filter((m) => m.ai[0].strikeAt >= 0).map((m) => never(m.ai[0].strikeArrival)).sort((x, y) => x - y);
     expect(arrivals.length).toBeGreaterThanOrEqual(2);
     expect(arrivals[Math.floor((arrivals.length - 1) / 2)]).toBeLessThanOrEqual(20 * 10);
+    await printTally([`AI-15: Doomsday ${d.filter((m) => m.winner === 0).length} - Balanced ${d.filter((m) => m.winner === 1).length}, ${d.filter((m) => m.winner === null).length} undecided of ${d.length}; strikes in ${arrivals.length} games`]);
     // A fair opponent: it wins at least three of eight games against Balanced.
     expect(d.filter((m) => m.winner === 0).length).toBeGreaterThanOrEqual(3);
   }, LONG);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DIFFICULTIES, type Personality } from '../../src/ai/ai';
+import { type Personality } from '../../src/ai/ai';
+import { DIFFICULTIES } from './levels';
 import { aiRules } from './aiRules';
 import { playMatches } from './pool';
 
