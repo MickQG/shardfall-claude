@@ -44,7 +44,7 @@ export class Soundscape {
   private moving: UnitSnap[] = [];
   private movingTick = -1;
   /** The last mixes sent, for tests and the debug hook. */
-  last: { movement: Record<MoveClass, number>; ambience: AmbienceMix } = { movement: { vehicle: 0, walker: 0, infantry: 0, swarm: 0 }, ambience: { water: 0, rumble: 0 } };
+  last: { movement: Record<MoveClass, number>; ambience: AmbienceMix } = { movement: { vehicle: 0, walker: 0, infantry: 0, swarm: 0, skim: 0 }, ambience: { water: 0, rumble: 0 } };
 
   constructor(map: { width: number; height: number; heights: readonly number[]; blocked?: readonly number[] }, private bed: Bed) {
     this.water = waterPoints(map);

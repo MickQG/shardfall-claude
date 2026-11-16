@@ -20,7 +20,7 @@ test('INF-1 INF-2 INF-3 INF-4: the unit sheet lists the picked faction, explains
   await expect(panel.locator('.u')).toHaveCount(7);
   await expect(panel.locator('[data-tab="human"]')).toHaveClass(/sel/);
   await panel.locator('.u', { hasText: 'Rocketeer' }).click();
-  await expect(panel.locator('.facts')).toContainText('Strong against: Heavy (Gorger, Brute, Lobber, Dreadstrider)');
+  await expect(panel.locator('.facts')).toContainText('Strong against: Heavy (Gorger, Brute, Lobber, Glare Skimmer, Dreadstrider)');
   await panel.locator('.u', { hasText: 'Shard Hauler' }).click();
   await expect(panel.locator('.facts')).toContainText('Cannot attack');
   await page.keyboard.press('Escape');
@@ -68,5 +68,6 @@ test('INF-6 INF-7 INF-8: the sheet shows each unit as a moving 3D model with pic
   // Right switches to the other faction.
   await page.keyboard.press('ArrowRight');
   await expect(panel.locator('[data-tab="alien"]')).toHaveClass(/sel/);
-  await expect(panel.locator('.u .pic img')).toHaveCount(7);
+  // The Vrax have one more kind: the Glare Skimmer (SKM-1).
+  await expect(panel.locator('.u .pic img')).toHaveCount(8);
 });

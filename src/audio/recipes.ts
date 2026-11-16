@@ -7,11 +7,11 @@ import { Rng } from '../sim';
  * recipes, the variation, the voice budget, the pan and the mixes can be tested without any audio device.
  */
 
-export type WorldName = 'zap' | 'rocket' | 'cannon' | 'slash' | 'laser' | 'boom' | 'pop' | 'bigboom' | 'crunch' | 'sw_launch' | 'sw_strike';
+export type WorldName = 'zap' | 'rocket' | 'cannon' | 'slash' | 'laser' | 'lance' | 'boom' | 'pop' | 'bigboom' | 'crunch' | 'sw_launch' | 'sw_strike';
 export type UiName = 'hover' | 'click' | 'built' | 'ready' | 'alert' | 'deny' | 'ack' | 'ackAttack';
 export type SoundName = WorldName | UiName;
 
-export const WORLD_SOUNDS: readonly WorldName[] = ['zap', 'rocket', 'cannon', 'slash', 'laser', 'boom', 'pop', 'bigboom', 'crunch', 'sw_launch', 'sw_strike'];
+export const WORLD_SOUNDS: readonly WorldName[] = ['zap', 'rocket', 'cannon', 'slash', 'laser', 'lance', 'boom', 'pop', 'bigboom', 'crunch', 'sw_launch', 'sw_strike'];
 export const UI_SOUNDS: readonly UiName[] = ['hover', 'click', 'built', 'ready', 'alert', 'deny', 'ack', 'ackAttack'];
 
 export interface FilterSpec {
@@ -78,6 +78,8 @@ const aWhine = (f: number, to: number, dur: number, gain: number, at = 0): Layer
 const AEGIS: Record<WorldName, Recipe> = {
   zap: { layers: [aClick(0.05), aRing(1500, 900, 0.06, 0.035, 0.002), aMetal(2800, 0.06, 0.03, 0.01)] },
   laser: { layers: [aClick(0.04, 0, 5000), aWhine(1800, 500, 0.12, 0.03, 0.003), aRing(2400, 1200, 0.1, 0.02, 0.005)] },
+  // A held beam whose tone rises as it burns in (SKM-5); only the Vrax field one, this is the Aegis palette's version.
+  lance: { layers: [aClick(0.04, 0, 4000), aWhine(500, 1600, 0.4, 0.03, 0.004), aRing(900, 1800, 0.36, 0.02, 0.01, 'tail')] },
   slash: { layers: [aClick(0.06, 0, 4500), aMetal(4000, 0.1, 0.07, 0.004), aRing(1900, 1500, 0.08, 0.02, 0.006)] },
   rocket: { layers: [aClick(0.06, 0, 2200), noise('body', [bp(2500, 300, 1.2)], 0.004, 0.25, 0.1), aWhine(300, 120, 0.2, 0.03, 0.01), aRing(600, 420, 0.18, 0.018, 0.01, 'tail')] },
   cannon: { layers: [noise('attack', [hp(1500)], 0, 0.02, 0.1, { attack: 0.001 }), osc('body', 'sine', 110, 45, 0, 0.25, 0.22), aMetal(900, 0.3, 0.05, 0.01), aRing(220, 200, 0.35, 0.03, 0.01, 'tail')] },
@@ -101,6 +103,8 @@ const vGurgle = (f: number, to: number, dur: number, gain: number, at = 0, rate 
 const VRAX: Record<WorldName, Recipe> = {
   zap: { layers: [vClick(0.06, 260), vWet('body', 900, 2200, 500, 1200, 0, 0.07, 0.08), vGurgle(300, 160, 0.09, 0.03, 0.01)] },
   laser: { layers: [vClick(0.05, 300), vWet('body', 1400, 3000, 700, 1600, 0.002, 0.14, 0.09), osc('tail', 'sine', 500, 250, 0.01, 0.12, 0.03, { wobble: { rate: 40, depth: 60 } })] },
+  // The Glare Skimmer's lance (SKM-5): a wet crackle, then a beam tone that rises over the held beam, and a sizzle where it bites.
+  lance: { layers: [vClick(0.06, 280), osc('body', 'triangle', 320, 1100, 0.01, 0.4, 0.06, { wobble: { rate: 26, depth: 30 } }), vWet('tail', 800, 2200, 1600, 3600, 0.05, 0.36, 0.06, 5)] },
   slash: { layers: [vClick(0.07, 200), vWet('body', 1500, 4000, 800, 2500, 0, 0.08, 0.16, 4), osc('tail', 'triangle', 900, 700, 0.01, 0.08, 0.03, { trill: 30 })] },
   rocket: { layers: [vClick(0.07, 180), vWet('body', 400, 1200, 200, 700, 0.003, 0.25, 0.14, 4), vGurgle(180, 90, 0.2, 0.04, 0.01)] },
   cannon: { layers: [vClick(0.1, 150), osc('body', 'sine', 90, 40, 0, 0.25, 0.25), vWet('tail', 250, 700, 120, 350, 0.005, 0.22, 0.16, 4)] },
@@ -151,7 +155,7 @@ export function paletteOf(faction: Faction): { inharmonic: number; ringing: numb
 /** Base pitch of each unit kind's acknowledgement: light units chirp high, heavy ones speak low. */
 const ACK_PITCH: Readonly<Record<string, number>> = {
   hum_hauler: 300, hum_rifleman: 880, hum_rocketeer: 760, hum_buggy: 1040, hum_tank: 420, hum_artillery: 340, hum_paladin: 200,
-  ali_gorger: 180, ali_skitter: 1200, ali_spitter: 900, ali_stalker: 1400, ali_brute: 150, ali_lobber: 260, ali_strider: 120,
+  ali_gorger: 180, ali_skitter: 1200, ali_spitter: 900, ali_stalker: 1400, ali_brute: 150, ali_lobber: 260, ali_skimmer: 340, ali_strider: 120,
 };
 export const ACK_KINDS: readonly string[] = Object.keys(ACK_PITCH);
 
@@ -297,19 +301,20 @@ export function panGain(sx: number, sy: number, vw: number, vh: number): { pan: 
 // ---------------------------------------------------------------------------------------------------------------
 // Movement loops (AUD-8)
 // ---------------------------------------------------------------------------------------------------------------
-export type MoveClass = 'vehicle' | 'walker' | 'infantry' | 'swarm';
-export const MOVE_CLASSES: readonly MoveClass[] = ['vehicle', 'walker', 'infantry', 'swarm'];
+export type MoveClass = 'vehicle' | 'walker' | 'infantry' | 'swarm' | 'skim';
+export const MOVE_CLASSES: readonly MoveClass[] = ['vehicle', 'walker', 'infantry', 'swarm', 'skim'];
 
 const MOVE_CLASS: Readonly<Record<string, MoveClass>> = {
   hum_hauler: 'vehicle', hum_buggy: 'vehicle', hum_tank: 'vehicle', hum_artillery: 'vehicle', hum_paladin: 'walker', hum_rifleman: 'infantry', hum_rocketeer: 'infantry',
-  ali_gorger: 'walker', ali_brute: 'walker', ali_lobber: 'walker', ali_strider: 'walker', ali_skitter: 'swarm', ali_spitter: 'swarm', ali_stalker: 'swarm',
+  ali_gorger: 'walker', ali_brute: 'walker', ali_lobber: 'walker', ali_strider: 'walker', ali_skitter: 'swarm', ali_spitter: 'swarm', ali_stalker: 'swarm', ali_skimmer: 'skim',
 };
 /** The movement sound class of a unit kind, or null for kinds that make none. */
 export const moveClass = (kind: string): MoveClass | null => MOVE_CLASS[kind] ?? null;
 
 /**
  * How one class's loop sounds (AUD-8): a short generated sample that repeats, never noise. Movement is low and soft: a rumble for
- * vehicles, discrete footfall thumps for walkers and heroes, soft low-mid steps for infantry, sparse low patters for swarms.
+ * vehicles, discrete footfall thumps for walkers and heroes, soft low-mid steps for infantry, sparse low patters for swarms,
+ * a low, slowly throbbing hum for hovering skimmers (SKM-5).
  * `filter` is a final low-pass that keeps every class well below the hiss band; `period` is the sample's length in seconds.
  */
 export const MOVE_LOOPS: Readonly<Record<MoveClass, { filter: FilterSpec; period: number; level: number }>> = {
@@ -317,6 +322,7 @@ export const MOVE_LOOPS: Readonly<Record<MoveClass, { filter: FilterSpec; period
   walker: { filter: { type: 'lowpass', f: 220, q: 0.7 }, period: 1.2, level: 0.1 },
   infantry: { filter: { type: 'lowpass', f: 700, q: 0.7 }, period: 1.6, level: 0.025 },
   swarm: { filter: { type: 'lowpass', f: 800, q: 0.7 }, period: 1.4, level: 0.04 },
+  skim: { filter: { type: 'lowpass', f: 400, q: 0.7 }, period: 1, level: 0.05 },
 };
 
 /** A decaying sine thump added into `d` at time `at` s: its pitch falls from `f0` to `f1`, it dies over `dur` s. */
@@ -365,6 +371,14 @@ export function moveLoopSamples(cls: MoveClass, rate: number): Float32Array {
       // Soft low patters: little clusters of clicks with gaps between.
       for (const at of [0, 0.07, 0.15, 0.7, 0.78, 0.84, 0.92]) thump(d, rate, at, 330, 190, 0.035, 0.5);
       break;
+    case 'skim':
+      // A hovering hull's hum (SKM-5): a 55 Hz drone with its octave and twelfth (whole cycles per loop), throbbing at 3 Hz.
+      for (let i = 0; i < d.length; i++) {
+        const t = i / rate;
+        const throb = 0.75 + 0.25 * Math.sin(2 * Math.PI * 3 * t);
+        d[i] = (Math.sin(2 * Math.PI * 55 * t) + 0.5 * Math.sin(2 * Math.PI * 110 * t + 0.4) + 0.3 * Math.sin(2 * Math.PI * 165 * t + 1.1)) * throb * 0.45;
+      }
+      break;
   }
   return d;
 }
@@ -381,7 +395,7 @@ export interface MovingUnit {
  * the level rises with the total toward 1. Zero when none move.
  */
 export function movementMix(moving: readonly MovingUnit[], vw: number, vh: number): Record<MoveClass, number> {
-  const w: Record<MoveClass, number> = { vehicle: 0, walker: 0, infantry: 0, swarm: 0 };
+  const w: Record<MoveClass, number> = { vehicle: 0, walker: 0, infantry: 0, swarm: 0, skim: 0 };
   for (const u of moving) {
     const c = moveClass(u.kind);
     if (!c || u.sx < 0 || u.sy < 0 || u.sx > vw || u.sy > vh) continue;

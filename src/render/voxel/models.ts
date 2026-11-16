@@ -267,6 +267,23 @@ function lobber(): UnitModel {
   return { hull: m };
 }
 
+/**
+ * The Glare Skimmer (SKM-4): an organic hull floating about 0.3 tiles (5 half-voxels) above the ground, so it casts a
+ * detached shadow (VOX-8), with a glowing underside and a long lance along its back.
+ */
+function skimmer(): UnitModel {
+  const m = unit(24, 14, 16, [HIVE, HIVE_D, HIVE_L, SAC, TEAM, BONE]);
+  sphere(m, 11, 7, 9, 4.4, 1); // hull
+  sphere(m, 6, 7, 9, 3.4, 1);
+  sphere(m, 16, 7, 9, 3.1, 3); // head lobe
+  box(m, 5, 4, 5, 12, 6, 1, 4); // glowing underside
+  box(m, 6, 2, 10, 10, 1, 2, 5); // team flanks
+  box(m, 6, 11, 10, 10, 1, 2, 5);
+  box(m, 5, 6, 13, 16, 2, 2, 6); // lance along the back
+  box(m, 21, 6, 13, 2, 2, 2, 4); // lance tip
+  return { hull: m };
+}
+
 /** The Dreadstrider (HERO-2): a carapace raised high on six long, splayed legs, with bone plates and an acid sac. */
 function strider(): UnitModel {
   const m = unit(26, 22, 24, [HIVE, HIVE_D, HIVE_L, TEAM, BONE, SAC]);
@@ -302,5 +319,6 @@ export const UNIT_MODELS: Readonly<Record<string, () => UnitModel>> = {
   ali_stalker: stalker,
   ali_brute: brute,
   ali_lobber: lobber,
+  ali_skimmer: skimmer,
   ali_strider: strider,
 };

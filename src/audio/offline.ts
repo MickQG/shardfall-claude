@@ -108,7 +108,7 @@ export async function renderSoundscape(seconds = 3): Promise<{ rms: number; peak
   const engine = new AudioEngine();
   engine.attach(ctx);
   engine.setVolume(1);
-  engine.setMovement({ vehicle: 1, walker: 1, infantry: 1, swarm: 1 });
+  engine.setMovement({ vehicle: 1, walker: 1, infantry: 1, swarm: 1, skim: 1 });
   engine.setAmbience({ water: 1, rumble: 1 });
   const buf = await ctx.startRendering();
   const d = buf.getChannelData(0);
