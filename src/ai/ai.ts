@@ -1264,23 +1264,26 @@ export class AI {
       // Artillery floor against enemy infantry (AI-19), when it is available here.
       const gun = counts.art < floor ? allowed.find((k) => roleOf(unitDef(k)) === 'art' && !unitDef(k).hero) : undefined;
       const scout = scoutWanted && scoutKind !== null && allowed.includes(scoutKind) ? scoutKind : undefined;
-      const mender = menderWant > 0 && this.menders.kind !== null && allowed.includes(this.menders.kind) ? this.menders.kind : undefined;
+      // A Field Mender only when it is wanted, affordable now and not out of savings for the lab or a superweapon (AI-22,
+      // AI-29); otherwise the building trains what it would have.
+      const menderCost = this.menders.kind ? unitDef(this.menders.kind).cost + (urgent || (b.queue.length === 0 && !steamroll) ? 0 : hold) : Infinity;
+      const mender = menderWant > 0 && this.menders.kind !== null && allowed.includes(this.menders.kind) && !(saving && !urgent) && c.credits >= menderCost ? this.menders.kind : undefined;
       const pick: string | null = this.doctrine.pick
         ? this.doctrine.pick(b.kind, allowed.filter((k) => !unitDef(k).repair || k === mender), haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore))
         : b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler)
           ? this.kit.hauler
           : (scout ??
             hero ??
-            mender ??
             rifle ??
             gun ??
+            mender ??
             (extraScouts > 0
               ? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && !unitDef(k).repair), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
               : chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && !unitDef(k).repair && k !== scoutKind), counts, intel, tilt)));
       if (!pick) continue;
       if (unitDef(pick).repair) {
         // A Field Mender: bought like any unit, but outside the fighting mix (AI-29).
-        if (c.credits < unitDef(pick).cost + (urgent || b.queue.length === 0 ? 0 : hold)) continue;
+        if (c.credits < menderCost) continue;
         c.credits -= unitDef(pick).cost;
         out.push({ type: 'produce', player: this.player, source: b.id, kind: pick });
         menderWant--;
