@@ -212,7 +212,7 @@ export function artilleryNeeded(intel: Intel): number {
 const RAIDER_TILT: Partial<Record<Role, number>> = { inf: 0.12, scout: 0.06, tank: -0.04, art: -0.04 };
 
 /** Pick the next unit to train: fill the biggest gap between desired and actual composition, adapting to what the enemy fields. */
-export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record<Role, number>>, intel: Intel, tilt?: Partial<Record<Role, number>>): string | null {
+export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record<Role, number>>, intel: Intel, tilt?: Partial<Record<Role, number>>, scoutCap = 1): string | null {
   if (cands.length === 0) return null;
   const army = Object.values(counts).reduce((a, b) => a + b, 0);
   const w = { ...BASE_WEIGHTS };
@@ -245,7 +245,8 @@ export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record
     let score = w[r] * (army + 3) - counts[r];
     if (r === 'art' && counts.art >= Math.max(1, army * 0.25, artilleryNeeded(intel))) score -= 5;
     if (r === 'air' && counts.air >= Math.max(1, army * 0.25)) score -= 5;
-    if (r === 'scout' && counts.scout >= 1) score -= 5;
+    // Scout units beyond the cap (one; Raider's raiders beside its standing scout, AI-27 a) are worth little.
+    if (r === 'scout' && counts.scout >= scoutCap) score -= 5;
     // Enemy aircraft: anti-air capable units are worth a premium until we have a few.
     if (intel.total >= 2 && intel.air > 0.12 && d.weapon?.antiAir) score += 1.5 + 4 * intel.air;
     if (score > bs || (score === bs && best !== null && d.cost < unitDef(best).cost)) {
@@ -311,7 +312,41 @@ export interface Remembered {
   t: number;
 }
 
+/** How a main wave goes to its target (AI-26): the straight line, or by an approach point on its left or right flank. */
+export type Approach = 'straight' | 'left' | 'right';
+export const APPROACHES: readonly Approach[] = ['straight', 'left', 'right'];
+/** A flank's approach point lies halfway to the target and APPROACH_FLANK tiles to that side (AI-26). */
+export const APPROACH_FLANK = 14;
+/** A flank whose approach point has no open ground within this many tiles is not offered (AI-26). */
+export const APPROACH_OPEN = 6;
+/** Where the enemy army was last seen: the armed enemy units seen within APPROACH_SEEN ticks, beyond APPROACH_DEFENDERS tiles of the target (AI-26). */
+export const APPROACH_SEEN = 20 * 120;
+export const APPROACH_DEFENDERS = 10;
+/** A group has passed its approach point once its centre is within this many tiles of it (AI-26). */
+export const APPROACH_PASSED = 4;
+/** A hit squad is at least this many units (AI-27). */
+export const HIT_MIN = 3;
+/** Raider splits a raid of at least this many units, between two targets at least SPLIT_APART tiles apart (AI-27 a). */
+export const SPLIT_MIN = 6;
+export const SPLIT_APART = 8;
+/** Scout units Raider may train beyond its standing scout, for its raids; they belong to the army (AI-27 a, amending AI-21). */
+export const RAIDER_SCOUTS = 3;
+/** A fast unit, which a hit squad beside a main wave is made of: a top speed of at least this (AI-27 b). */
+export const FAST_SPEED = 45;
+/** That hit squad takes at most this share of the army's value (AI-27 b). */
+export const HIT_SHARE = 0.2;
+
+/**
+ * A group out on the map (AI-11, AI-27). 'wave': a main wave, or a raid that set out as one body; 'raid': one of the two
+ * hit squads of Raider's split raid (AI-27 a); 'hit': the hit squad beside a main wave (AI-27 b), not part of it.
+ */
 interface Wave {
+  kind: 'wave' | 'raid' | 'hit';
+  /** Its approach point (AI-26, AI-27) while it has one to go by, and whether its body has passed it. */
+  via: { tx: number; ty: number } | null;
+  passed: boolean;
+  /** Reinforcements that joined after its body passed the approach point: they go by it too, until they reach it (AI-26). */
+  trail: Set<number>;
   tx: number;
   ty: number;
   /** The strongest it has been, reinforcements included (AI-23): the retreat test compares with this. */
@@ -408,18 +443,30 @@ export interface AiStats {
   /** Standing scouts (AI-21): ticks each lost one lived from when it stood, and the tick the living one stood, or -1. */
   standingLives: number[];
   standingSince: number;
+  /**
+   * Main waves by the approach they chose (AI-26), and each choice in the order they set out. Only waves that choose are
+   * counted: raids, strike waves and the steamroll opponent's attacks go straight without choosing, and so does every wave
+   * with rules.approach off.
+   */
+  approaches: Record<Approach, number>;
+  approachLog: Approach[];
+  /** Raids that set out split in two (AI-27 a), and hit squads sent beside a main wave (AI-27 b). */
+  splitRaids: number;
+  hitSquads: number;
+  /** Raider's scout units that came out for its army, beyond its standing scout (AI-27 a). */
+  raiderScouts: number;
 }
 
 /** Options of an AI beyond difficulty and personality. */
 export interface AiOptions {
   /** The standing scout (AI-21), on unless false; off only in measurement (the harness), to compare with the old scouting. */
   standingScout?: boolean;
-  /** Its rules (AI-22 to AI-24), each switchable for measurement; DEFAULT_RULES where not given. */
+  /** Its rules (AI-22 to AI-27), each switchable for measurement; DEFAULT_RULES where not given. */
   rules?: Partial<AiRules>;
 }
 
 /**
- * The rules of AI-22 to AI-24 that stay switchable, so later balance work can measure each one alone (HAR-5, HAR-6).
+ * The rules of AI-22 to AI-27 that stay switchable, so later balance work can measure each one alone (HAR-5, HAR-6).
  * DEFAULT_RULES is how the game plays; an "off" value restores the behaviour before that rule. The steamroll opponent
  * keeps its own build and attack (HAR-5) and does not scatter.
  */
@@ -442,6 +489,16 @@ export interface AiRules {
   scatter: boolean;
   /** (AI-22, AI-15) Doomsday grows by factories alone, whenever every factory is busy; off: it grows as Balanced does. */
   doomGrowth: boolean;
+  /** (AI-26) Main waves vary their approach; off: every wave goes straight. */
+  approach: boolean;
+  /** (AI-27 a) Raider splits a raid into two hit squads, and may train scout units for its army; off: one body, one scout unit. */
+  raidSplit: boolean;
+  /** (AI-27 b) Balanced and Doomsday send a hit squad of fast units beside a main wave; off: the fast units go with the wave. */
+  hitSquad: boolean;
+  /** (AI-26, AI-27) How far (tiles) to the side of the straight line a flank's approach point lies. */
+  approachFlank: number;
+  /** (AI-27 b) The largest share of the army's value a hit squad beside a main wave may take. */
+  hitShare: number;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -455,6 +512,11 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   artilleryCap: ARTILLERY_IN_PRODUCTION,
   scatter: true,
   doomGrowth: true,
+  approach: true,
+  raidSplit: true,
+  hitSquad: true,
+  approachFlank: APPROACH_FLANK,
+  hitShare: HIT_SHARE,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -490,6 +552,15 @@ export interface Doctrine {
 
 const FULL_DOCTRINE: Doctrine = { trains: () => true, scouts: true, retreats: true };
 
+/** What a group's turn needs from attackLogic (AI-11, AI-27): its order helper, the army's value and whether the base is in danger, found once a turn. */
+type Drive = {
+  order: (type: 'move' | 'attackmove', units: UnitSnap[], x: number, y: number) => void;
+  centre: (us: UnitSnap[]) => { x: number; y: number };
+  own: number;
+  ordinary: boolean;
+  danger: boolean | undefined;
+};
+
 type Ctx = {
   snap: Snapshot;
   tick: number;
@@ -513,7 +584,7 @@ type Ctx = {
 export class AI {
   readonly kit: Kit;
   protected readonly doctrine: Doctrine = FULL_DOCTRINE;
-  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1 };
+  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, hitSquads: 0, raiderScouts: 0 };
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
   private adapted = false;
   private raidsLost = 0;
@@ -525,6 +596,17 @@ export class AI {
   private first: Command[] = [];
   private intel = new Map<number, Remembered>();
   private wave: Wave | null = null;
+  /** Hit squads out (AI-27): the two squads of a split raid, or the hit squad sent beside a main wave. */
+  private squads: Wave[] = [];
+  /** A split raid (AI-27 a): whether a squad of it was beaten back, or called home, before both ended. */
+  private splitBeaten = false;
+  private splitRecalled = false;
+  /** The approach its last main wave chose (AI-26), and its turn through them while it has seen no enemy army. */
+  private lastApproach: Approach | null = null;
+  private approachTurn: number;
+  /** Raider's scout units in its army, beyond its standing scout (AI-27 a), and standing scouts ordered, not yet out. */
+  private armyScouts = new Set<number>();
+  private standingOrdered = 0;
   private waveCooldown = 0;
   /** When the army was first strong enough to attack but not yet gathered, or -1. */
   private gatherSince = -1;
@@ -593,6 +675,8 @@ export class AI {
     const r = new Rng(seed * 7919 + player * 104729 + 13);
     const f = (): number => r.int(1000) / 1000;
     this.jitter = { wave: 0.9 + 0.35 * f(), ratio: 1.15 + 0.3 * f(), stage: 11 + Math.floor(4 * f()) };
+    // Where its turn through the approaches starts (AI-26): drawn after the jitter, so the jitter is what it was.
+    this.approachTurn = r.int(APPROACHES.length);
     this.rules = { ...DEFAULT_RULES, ...options.rules };
   }
 
@@ -653,6 +737,29 @@ export class AI {
   get waveState(): { tx: number; ty: number; members: readonly number[]; peak: number } | null {
     const w = this.wave;
     return w ? { tx: w.tx, ty: w.ty, members: [...w.members], peak: w.peak } : null;
+  }
+
+  /**
+   * Its groups out (AI-26, AI-27): the main wave or a raid as one body first, then its hit squads; each with its objective,
+   * the approach point it goes by (null: straight), whether it has passed it, and its units: for tests and measurement only.
+   */
+  get groupState(): { kind: 'wave' | 'raid' | 'hit'; tx: number; ty: number; via: { tx: number; ty: number } | null; passed: boolean; members: readonly number[]; trail: readonly number[]; peak: number }[] {
+    return [...(this.wave ? [this.wave] : []), ...this.squads].map((g) => ({ kind: g.kind, tx: g.tx, ty: g.ty, via: g.via, passed: g.passed, members: [...g.members], trail: [...g.trail], peak: g.peak }));
+  }
+
+  /** Its staging point (AI-11), where its waves gather and set out from, or null before its first decision: for tests only. */
+  get stagingPoint(): { tx: number; ty: number } | null {
+    return this.staging;
+  }
+
+  /** Raids beaten back so far (AI-16; a split raid once, AI-27 a): for tests only. */
+  get raidsBeatenBack(): number {
+    return this.raidsLost;
+  }
+
+  /** Raider's scout units in its army, beyond its standing scout (AI-27 a): for tests only. */
+  get raiderScouts(): readonly number[] {
+    return [...this.armyScouts];
   }
 
   /** What the AI is playing now: its personality, or Balanced once it has adapted (AI-16). */
@@ -1105,6 +1212,16 @@ export class AI {
     // scout unit. The steamroll opponent sends out no scout (HAR-5).
     const scoutKind = this.doctrine.scouts ? this.scoutKind() : null;
     let scoutWanted = scoutKind !== null && (this.standing >= 0 ? 1 : 0) + (queued.get(scoutKind) ?? 0) < STANDING_SCOUTS && c.tick - this.standingLostAt >= this.replaceGap;
+    // Raider may train up to RAIDER_SCOUTS scout units beyond its standing scout, for its army (AI-27 a, amending AI-21):
+    // those queued for the army do not hold back a standing scout, and a standing scout queued is told apart from them.
+    const raiderScouts = scoutKind !== null && this.raiderScoutRule();
+    let extraScouts = 0;
+    if (raiderScouts) {
+      const queuedScouts = queued.get(scoutKind) ?? 0;
+      this.standingOrdered = Math.min(this.standingOrdered, queuedScouts);
+      scoutWanted = this.standing < 0 && this.standingOrdered === 0 && c.tick - this.standingLostAt >= this.replaceGap;
+      extraScouts = this.plan === 'raider' ? RAIDER_SCOUTS - this.armyScouts.size - (queuedScouts - this.standingOrdered) : 0;
+    }
 
     for (const b of c.buildings) {
       // Shallow queues (AI-22): credits are not locked in orders that will not start soon. The steamroll opponent keeps
@@ -1129,7 +1246,13 @@ export class AI {
         ? this.doctrine.pick(b.kind, allowed, haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore))
         : b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler)
           ? this.kit.hauler
-          : (scout ?? hero ?? rifle ?? gun ?? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt));
+          : (scout ??
+            hero ??
+            rifle ??
+            gun ??
+            (extraScouts > 0
+              ? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
+              : chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt)));
       if (!pick) continue;
       // Doomsday does not flood the field with cheap infantry beyond its rifle floor: tanks and artillery set the pace (AI-15).
       if (doom && !rifle && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && this.doomCaps(counts, rifles, urgent)) continue;
@@ -1142,6 +1265,10 @@ export class AI {
       if (pick !== this.kit.hauler) this.stats.produced[unitDef(pick).hero ? 'hero' : roleOf(unitDef(pick))]++;
       if (pick === this.kit.hauler || unitDef(pick).hero) queued.set(pick, (queued.get(pick) ?? 0) + 1);
       if (pick === scout) scoutWanted = false;
+      if (raiderScouts && pick === scoutKind) {
+        if (pick === scout) this.standingOrdered++;
+        else extraScouts--;
+      }
       if (roleOf(unitDef(pick)) === 'art') guns++;
     }
   }
@@ -1265,6 +1392,11 @@ export class AI {
       this.wave = null;
       this.waveCooldown = c.tick + 500;
     }
+    // Hit squads come home like any other group (AI-7, AI-27); a split raid called home starts the cooldown a wave would.
+    if (this.squads.length > 0 && !pressing) {
+      if (this.squads.some((s) => s.kind === 'raid')) this.waveCooldown = c.tick + 500;
+      this.squads = [];
+    }
     const ids = (pressing ? c.army.filter((u) => !w.members.has(u.id)) : c.army).map((u) => u.id);
     if (ids.length > 0) {
       this.stats.defends++;
@@ -1366,16 +1498,109 @@ export class AI {
    * worth less than RAID_GUARD_SHARE of the raid; else the next it knows; null if none, and it waits.
    */
   private raidTarget(c: Ctx, raid: number): { tx: number; ty: number } | null {
-    const guarded = (t: { tx: number; ty: number }): number => {
-      let v = 0;
-      for (const e of this.intel.values()) {
-        const d = UNIT_DEFS[e.kind];
-        if (d?.weapon && d.capacity === undefined && c.tick - e.t <= RAID_GUARD_AGE && dist(tileOf(e.x), tileOf(e.y), t.tx, t.ty) <= RAID_GUARD_R) v += d.cost;
+    return this.economyTargets(c).find((t) => this.guarded(c, t) < RAID_GUARD_SHARE * raid) ?? null;
+  }
+
+  /** Value of the defenders it has seen at a target (AI-23 e): units within RAID_GUARD_R tiles in the last RAID_GUARD_AGE ticks, defences at their cost and a half. */
+  private guarded(c: Ctx, t: { tx: number; ty: number }): number {
+    let v = 0;
+    for (const e of this.intel.values()) {
+      const d = UNIT_DEFS[e.kind];
+      if (d?.weapon && d.capacity === undefined && c.tick - e.t <= RAID_GUARD_AGE && dist(tileOf(e.x), tileOf(e.y), t.tx, t.ty) <= RAID_GUARD_R) v += d.cost;
+    }
+    for (const b of c.enemyBuildings) if (buildingDef(b.kind).weapon && edgeDist(b, t.tx + 0.5, t.ty + 0.5) <= RAID_GUARD_R) v += buildingDef(b.kind).cost * 1.5;
+    return v;
+  }
+
+  /** Whether a squad worth `value` may go for an economy target (AI-23 e, AI-27): always with rules.raidGuard off. */
+  private mayRaid(c: Ctx, t: { tx: number; ty: number }, value: number): boolean {
+    return !this.rules.raidGuard || this.guarded(c, t) < RAID_GUARD_SHARE * value;
+  }
+
+  /**
+   * A flank's approach point (AI-26): halfway along the straight line from `from` to `to` and rules.approachFlank tiles to
+   * that side of it (left as seen looking along the line, on the map, y downward), moved to the nearest open ground; null
+   * when the point would lie off the map or has no open ground within APPROACH_OPEN tiles.
+   */
+  flankPoint(from: { tx: number; ty: number }, to: { tx: number; ty: number }, side: 'left' | 'right'): { tx: number; ty: number } | null {
+    const W = this.map.width;
+    const H = this.map.height;
+    const dx = to.tx - from.tx;
+    const dy = to.ty - from.ty;
+    const len = Math.hypot(dx, dy) || 1;
+    const s = side === 'left' ? 1 : -1;
+    const px = from.tx + 0.5 + dx / 2 + (s * dy * this.rules.approachFlank) / len;
+    const py = from.ty + 0.5 + dy / 2 - (s * dx * this.rules.approachFlank) / len;
+    if (px < 0 || py < 0 || px >= W || py >= H) return null;
+    const cx = Math.floor(px);
+    const cy = Math.floor(py);
+    let best: { tx: number; ty: number } | null = null;
+    let bd = Infinity;
+    for (let y = cy - APPROACH_OPEN; y <= cy + APPROACH_OPEN; y++)
+      for (let x = cx - APPROACH_OPEN; x <= cx + APPROACH_OPEN; x++) {
+        if (x < 0 || y < 0 || x >= W || y >= H || this.map.blocked?.[y * W + x]) continue;
+        const d = Math.hypot(x + 0.5 - px, y + 0.5 - py);
+        if (d <= APPROACH_OPEN && d < bd) {
+          bd = d;
+          best = { tx: x, ty: y };
+        }
       }
-      for (const b of c.enemyBuildings) if (buildingDef(b.kind).weapon && edgeDist(b, t.tx + 0.5, t.ty + 0.5) <= RAID_GUARD_R) v += buildingDef(b.kind).cost * 1.5;
-      return v;
-    };
-    return this.economyTargets(c).find((t) => guarded(t) < RAID_GUARD_SHARE * raid) ?? null;
+    return best;
+  }
+
+  /** Which side of the straight line from `from` to `to` a point lies on (AI-26, AI-27): left, right, or null on the line. */
+  private sideOf(from: { tx: number; ty: number }, to: { tx: number; ty: number }, p: { tx: number; ty: number }): 'left' | 'right' | null {
+    const cross = (p.tx - from.tx) * (to.ty - from.ty) - (p.ty - from.ty) * (to.tx - from.tx);
+    return cross > 0 ? 'left' : cross < 0 ? 'right' : null;
+  }
+
+  /**
+   * The approach a main wave takes to its target (AI-26): straight, or by the left or right flank point where one is
+   * offered; never the approach its previous main wave chose (unless nothing else is offered); of the others the one
+   * farthest from where it last saw the enemy army, or with no such sighting the next in turn.
+   */
+  private chooseApproach(c: Ctx, target: { tx: number; ty: number }): { approach: Approach; via: { tx: number; ty: number } | null } {
+    const stage = this.staging as { tx: number; ty: number };
+    const offered = APPROACHES.map((a) => ({ a, via: a === 'straight' ? null : this.flankPoint(stage, target, a) })).filter((o) => o.a === 'straight' || o.via !== null);
+    const fresh = offered.filter((o) => o.a !== this.lastApproach);
+    const cands = fresh.length > 0 ? fresh : offered;
+    // Where it last saw the enemy army: the cost-weighted middle of the armed units seen lately, the target's defenders apart.
+    let sx = 0;
+    let sy = 0;
+    let sw = 0;
+    for (const e of this.intel.values()) {
+      const d = UNIT_DEFS[e.kind];
+      if (!d?.weapon || d.capacity !== undefined || c.tick - e.t > APPROACH_SEEN) continue;
+      const x = e.x / FP;
+      const y = e.y / FP;
+      if (dist(x, y, target.tx + 0.5, target.ty + 0.5) <= APPROACH_DEFENDERS) continue;
+      sx += x * d.cost;
+      sy += y * d.cost;
+      sw += d.cost;
+    }
+    let pick = cands[0] as (typeof cands)[number];
+    if (sw > 0) {
+      const ref = (o: (typeof cands)[number]): { x: number; y: number } => (o.via ? { x: o.via.tx + 0.5, y: o.via.ty + 0.5 } : { x: (stage.tx + target.tx) / 2 + 0.5, y: (stage.ty + target.ty) / 2 + 0.5 });
+      let bd = -1;
+      for (const o of cands) {
+        const d = dist(ref(o).x, ref(o).y, sx / sw, sy / sw);
+        if (d > bd) {
+          bd = d;
+          pick = o;
+        }
+      }
+    } else {
+      for (let k = 0; k < APPROACHES.length; k++) {
+        const i = (this.approachTurn + k) % APPROACHES.length;
+        const o = cands.find((x) => x.a === APPROACHES[i]);
+        if (o) {
+          pick = o;
+          this.approachTurn = (i + 1) % APPROACHES.length;
+          break;
+        }
+      }
+    }
+    return { approach: pick.a, via: pick.via };
   }
 
   private attackLogic(c: Ctx, out: Command[]): void {
@@ -1386,6 +1611,7 @@ export class AI {
     const own = this.armyPower(army);
     if (army.length === 0) {
       if (this.wave) this.wave = null;
+      this.squads = [];
       return;
     }
     const threatened = c.tick - this.lastThreat < 200;
@@ -1394,94 +1620,47 @@ export class AI {
     };
     const centre = (us: UnitSnap[]): { x: number; y: number } => ({ x: us.reduce((s, u) => s + u.x, 0) / us.length / FP, y: us.reduce((s, u) => s + u.y, 0) / us.length / FP });
 
+    // Units out in a hit squad (AI-27) are no part of the wave, its reinforcements or the gathering.
+    const inSquad = new Set(this.squads.flatMap((s) => [...s.members]));
+    const free = inSquad.size > 0 ? army.filter((u) => !inSquad.has(u.id)) : army;
+    const drive: Drive = { order, centre, own, ordinary, danger: undefined };
+
     if (this.wave) {
       const w = this.wave;
-      // The wave is the units that set out together (AI-11) and the reinforcements that joined it; others wait.
-      const members = army.filter((u) => w.members.has(u.id));
-      const rest = army.filter((u) => !w.members.has(u.id));
-      const p = this.armyPower(members);
-      // Its strength counts its reinforcements: the strongest it has been (AI-23).
-      w.peak = Math.max(w.peak, p);
-      const { x: cx, y: cy } = members.length ? centre(members) : { x: stage.tx, y: stage.ty };
-      const local = this.enemyPowerNear(c, Math.floor(cx), Math.floor(cy), LOCAL_R);
       // Doomsday commits while its strike is charged or has just landed: the strike, not a retreat, answers resistance (AI-15).
       const committed = this.plan === 'doomsday' && (c.buildings.some((b) => buildingDef(b.kind).superweapon && b.charge >= 100) || (this.lastStrike >= 0 && c.tick - this.lastStrike < 400));
-      if (!ordinary) {
-        // The steamroll opponent never pulls a wave back (HAR-5): it drives on until the wave is gone, then forms the next.
-        if (members.length === 0) {
-          this.wave = null;
-          this.lastWaveEnd = c.tick;
-          return;
+      // The wave is the units that set out together (AI-11) and the reinforcements that joined it; others wait.
+      const end = this.driveGroup(c, w, drive, free.filter((u) => !w.members.has(u.id)), committed);
+      if (end !== null) {
+        this.wave = null;
+        this.lastWaveEnd = c.tick;
+        if (end === 'recalled') this.waveCooldown = c.tick + 500;
+        if (end === 'beaten') {
+          this.waveCooldown = c.tick + 1200;
+          if (this.plan === 'raider') {
+            this.raidsLost++;
+            this.waveCooldown = c.tick + 600;
+          }
         }
-      } else if (this.rules.recall && members.length > 0 && this.baseInDanger(c, own)) {
-        // An enemy force worth half its army near its buildings: the wave comes home to fight at the hold point (AI-23).
-        const holdAt = this.holdPoint(c);
-        this.recallPoint = holdAt;
-        order('attackmove', members, holdAt.tx, holdAt.ty);
-        this.wave = null;
-        this.waveCooldown = c.tick + 500;
-        this.lastWaveEnd = c.tick;
-        return;
-      } else if (members.length <= 2 || (!committed && (p <= 0.45 * (this.rules.wavePeak ? w.peak : w.start) || local >= 1.5 * p))) {
-        // A beaten wave falls back to the staging point (AI-8, AI-23).
-        this.stats.retreats++;
-        order('move', members, stage.tx, stage.ty);
-        this.wave = null;
-        this.waveCooldown = c.tick + 1200;
-        this.lastWaveEnd = c.tick;
-        if (this.plan === 'raider') {
-          this.raidsLost++;
-          this.waveCooldown = c.tick + 600;
-        }
-        return;
-      } else if (members.length === 0) {
-        // Nothing left of it: the next wave forms at the gathering point.
-        this.wave = null;
-        this.lastWaveEnd = c.tick;
-        return;
       }
-      if (c.tick - w.lastOrder >= WAVE_STEP) {
-        // Retarget when the objective is gone or reached.
-        const near = dist(cx, cy, w.tx, w.ty) < 6;
-        const known = c.enemyBuildings.some((b) => dist(b.tx, b.ty, w.tx, w.ty) < 4);
-        if (near && !known) {
-          const nb = this.nearestEnemyBuilding(c, Math.floor(cx), Math.floor(cy));
-          // A raid moves on to the next part of the economy it knows of (AI-14).
-          const t = (this.plan === 'raider' ? this.economyTarget(c) : null) ?? (nb ? { tx: nb.tx, ty: nb.ty } : this.searchPoint(c));
-          w.tx = t.tx;
-          w.ty = t.ty;
-        }
-        w.lastOrder = c.tick;
-        // Advance as one body (AI-11): the whole wave attack-moves to a point a short hop ahead of its centre, so the
-        // fast wait there for the slow; strung out, it closes up on its centre first; close to the objective it goes in.
-        // Spread: how far most of the wave (four in five) is from its centre; a big wave is naturally wider.
-        const ds = members.map((u) => dist(u.x / FP, u.y / FP, cx, cy)).sort((a, b) => a - b);
-        const spread = ds[Math.floor(0.8 * (ds.length - 1))] ?? 0;
-        const strung = spread > WAVE_SPREAD + Math.sqrt(members.length) && !w.held;
-        w.held = strung; // never hold back two hops running
-        const d = dist(cx, cy, w.tx, w.ty);
-        const k = strung ? 0 : d <= WAVE_HOP + 2 ? 1 : WAVE_HOP / d;
-        order('attackmove', members, cx + (w.tx - cx) * k, cy + (w.ty - cy) * k);
-        // Reinforcements gather at the gathering point and join in groups, never one at a time (AI-11); and only while the
-        // wave is at least as strong as the enemy it has seen near it, so none are fed into a losing fight (AI-23).
-        const home = rest.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) < 10);
-        const join = !ordinary || !this.rules.noFeed || p >= local;
-        if (join && home.length >= Math.max(3, Math.ceil(0.25 * w.size))) {
-          order('attackmove', home, cx, cy);
-          for (const u of home) w.members.add(u.id);
-        } else order('attackmove', rest.filter((u) => u.dest === null && !home.includes(u)), stage.tx, stage.ty);
-      }
+      this.driveSquads(c, drive, null);
       return;
     }
+    if (this.squads.some((s) => s.kind === 'raid')) {
+      // A split raid out (AI-27 a): its squads, and reinforcements for the one with fewer units left.
+      this.driveSquads(c, drive, free);
+      return;
+    }
+    this.driveSquads(c, drive, null);
 
     if (!threatened) {
       // Gather at the staging point (AI-11).
-      const away = army.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7);
+      const away = free.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7);
       if (away.length > 0 && c.tick % 3 === 0) order('attackmove', away, stage.tx, stage.ty);
     }
 
     if (threatened || c.tick < this.waveCooldown) return;
-    const p = own;
+    const p = inSquad.size > 0 ? this.armyPower(free) : own;
     const raiding = this.plan === 'raider';
     const sw = c.buildings.find((b) => buildingDef(b.kind).superweapon && b.charge >= 100);
     // Doomsday with a charged superweapon sends its wave at what it will strike (AI-15).
@@ -1513,10 +1692,10 @@ export class AI {
     if (striking) est = 0.5 * ((blind ? 0 : 1.15 * seen) + defences);
     // The steamroll opponent sets out once its army is big enough, whatever it knows of the enemy (HAR-5).
     const launch = this.doctrine.launch;
-    let ready = launch ? launch(p, army.filter((u) => unitDef(u.kind).crusher).length) : shouldAttack(p, est, army.length, threshold, this.jitter.ratio) && !(raiding && army.length < RAID_MIN_ARMY);
+    let ready = launch ? launch(p, free.filter((u) => unitDef(u.kind).crusher).length) : shouldAttack(p, est, free.length, threshold, this.jitter.ratio) && !(raiding && free.length < RAID_MIN_ARMY);
     // Stalemate (AI-23): after three quiet minutes, with five barracks and five factories or a big army, it attacks at
     // parity with the enemy army it has seen plus the defences at the target.
-    if (!ready && ordinary && this.rules.stalemate && army.length >= 5 && c.tick - this.lastWaveAt >= STALEMATE_QUIET && c.tick - this.lastThreat >= STALEMATE_QUIET) {
+    if (!ready && ordinary && this.rules.stalemate && free.length >= 5 && c.tick - this.lastWaveAt >= STALEMATE_QUIET && c.tick - this.lastThreat >= STALEMATE_QUIET) {
       const plants = (kind: string): number => c.buildings.filter((b) => b.kind === kind).length;
       const big = (plants(this.kit.barracks) >= GROWTH_MAX && plants(this.kit.factory) >= GROWTH_MAX) || p >= STALEMATE_ARMY;
       const parity = this.seenArmy(c, STALEMATE_SEEN) + defences;
@@ -1530,19 +1709,27 @@ export class AI {
       return;
     }
     // Strong enough: set out only once most of the army has gathered (AI-11), or after a while.
-    const gathered = army.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) <= GATHER_R);
+    const gathered = free.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) <= GATHER_R);
     if (this.gatherSince < 0) this.gatherSince = c.tick;
     // A charged strike does not wait for stragglers: the army goes in together with it (AI-15).
-    if (!striking && gathered.length < GATHER_SHARE * army.length && c.tick - this.gatherSince < GATHER_WAIT) return;
+    if (!striking && gathered.length < GATHER_SHARE * free.length && c.tick - this.gatherSince < GATHER_WAIT) return;
     this.gatherSince = -1;
-    const wave = gathered.length >= 3 && !striking && !launch ? gathered : army;
-    const wp = this.armyPower(wave);
+    const setOut = gathered.length >= 3 && !striking && !launch ? gathered : free;
     // What sets out is the raid: its target must still be one it may go for (AI-23).
-    if (raiding && guard && wave.length < army.length) {
-      const t = this.raidTarget(c, wp);
+    if (raiding && guard && setOut.length < free.length) {
+      const t = this.raidTarget(c, this.armyPower(setOut));
       if (!t) return;
       target = t;
     }
+    // Raider splits its raid into two hit squads when it can (AI-27 a); otherwise the raid sets out as one body.
+    const split = raiding && ordinary && this.rules.raidSplit ? this.splitRaid(c, setOut) : null;
+    if (split) target = split[0].target;
+    // Balanced and Doomsday send a hit squad of fast units beside the main wave (AI-27 b): not part of the wave.
+    const main = !raiding && ordinary && !launch;
+    // It keeps a wave of at least three units behind it, or the fast units go with the wave.
+    const hitOf = main && this.rules.hitSquad && (this.plan === 'balanced' || this.plan === 'doomsday') && this.squads.length === 0 ? this.hitSquadOf(c, setOut, target) : null;
+    const hit = hitOf && setOut.length - hitOf.units.length >= HIT_MIN ? hitOf : null;
+    const wave = hit ? setOut.filter((u) => !hit.units.includes(u)) : setOut;
     this.stats.waves++;
     this.lastWaveAt = c.tick;
     if (this.stats.firstWaveAt < 0) this.stats.firstWaveAt = c.tick;
@@ -1552,10 +1739,236 @@ export class AI {
     }
     if (p < 0.8 * est) this.stats.suicides++;
     if (wave.length < 5) this.stats.lone++;
-    this.wave = { tx: target.tx, ty: target.ty, peak: wp, start: wp, lastOrder: c.tick, members: new Set(wave.map((u) => u.id)), size: wave.length, held: false };
-    const { x, y } = centre(wave);
-    const d = dist(x, y, target.tx, target.ty);
-    order('attackmove', wave, x + ((target.tx - x) * Math.min(d, WAVE_HOP)) / Math.max(1, d), y + ((target.ty - y) * Math.min(d, WAVE_HOP)) / Math.max(1, d));
+    const group = (kind: Wave['kind'], units: UnitSnap[], to: { tx: number; ty: number }, via: { tx: number; ty: number } | null): Wave => {
+      const v = this.armyPower(units);
+      const g: Wave = { kind, via, passed: false, trail: new Set(), tx: to.tx, ty: to.ty, peak: v, start: v, lastOrder: c.tick, members: new Set(units.map((u) => u.id)), size: units.length, held: false };
+      // The first hop, toward its approach point if it has one (AI-26), else its target.
+      const aim = via ?? to;
+      const { x, y } = centre(units);
+      const d = dist(x, y, aim.tx, aim.ty);
+      order('attackmove', units, x + ((aim.tx - x) * Math.min(d, WAVE_HOP)) / Math.max(1, d), y + ((aim.ty - y) * Math.min(d, WAVE_HOP)) / Math.max(1, d));
+      return g;
+    };
+    if (split) {
+      // One attack in AI-14's and AI-16's counts (above); two squads, each to its own target by its own flank.
+      this.stats.splitRaids++;
+      this.splitBeaten = false;
+      this.splitRecalled = false;
+      this.squads = split.map((s) => group('raid', s.units, s.target, s.via));
+      return;
+    }
+    // A main wave chooses its approach (AI-26); a raid, a wave timed with a charged strike and the steamroll opponent's
+    // attack go straight.
+    let approach: Approach = 'straight';
+    let via: { tx: number; ty: number } | null = null;
+    if (main && !striking && this.rules.approach) {
+      ({ approach, via } = this.chooseApproach(c, target));
+      this.lastApproach = approach;
+      this.stats.approaches[approach]++;
+      this.stats.approachLog.push(approach);
+    }
+    this.wave = group('wave', wave, target, via);
+    if (hit) {
+      const side = approach === 'left' ? 'right' : approach === 'right' ? 'left' : (this.sideOf(stage, target, hit.target) ?? 'left');
+      this.stats.hitSquads++;
+      this.squads = [group('hit', hit.units, hit.target, this.flankPoint(stage, hit.target, side))];
+    }
+  }
+
+  /**
+   * Raider's split raid (AI-27 a): with at least SPLIT_MIN units setting out, dealt alternately from the dearest down into
+   * two squads, the first to the nearest economy target it may go for and the second to the one farthest from that, at
+   * least SPLIT_APART tiles away (each judged against its own squad, AI-23 e); each by the flank on its target's side of
+   * the straight line from the staging point to between the two. Null when it cannot split.
+   */
+  private splitRaid(c: Ctx, raid: readonly UnitSnap[]): [{ units: UnitSnap[]; target: { tx: number; ty: number }; via: { tx: number; ty: number } | null }, { units: UnitSnap[]; target: { tx: number; ty: number }; via: { tx: number; ty: number } | null }] | null {
+    if (raid.length < SPLIT_MIN) return null;
+    const dear = [...raid].sort((a, b) => unitDef(b.kind).cost - unitDef(a.kind).cost || a.id - b.id);
+    const a = dear.filter((_, i) => i % 2 === 0);
+    const b = dear.filter((_, i) => i % 2 === 1);
+    const targets = this.economyTargets(c);
+    const t1 = targets.find((t) => this.mayRaid(c, t, this.armyPower(a)));
+    if (!t1) return null;
+    let t2: { tx: number; ty: number } | null = null;
+    let far = SPLIT_APART;
+    for (const t of targets) {
+      const d = dist(t.tx, t.ty, t1.tx, t1.ty);
+      if (d >= far && (t2 === null || d > far) && this.mayRaid(c, t, this.armyPower(b))) {
+        far = d;
+        t2 = t;
+      }
+    }
+    if (!t2) return null;
+    const stage = this.staging as { tx: number; ty: number };
+    const mid = { tx: (t1.tx + t2.tx) / 2, ty: (t1.ty + t2.ty) / 2 };
+    const s1 = this.sideOf(stage, mid, t1) ?? 'left';
+    const s2 = s1 === 'left' ? 'right' : 'left';
+    return [
+      { units: a, target: t1, via: this.flankPoint(stage, t1, s1) },
+      { units: b, target: t2, via: this.flankPoint(stage, t2, s2) },
+    ];
+  }
+
+  /**
+   * The hit squad beside a main wave (AI-27 b): the fastest of the fast units setting out (FAST_SPEED; never a hero, and
+   * the standing scout is no part of the army), as many as stay within rules.hitShare of the army's value, at least
+   * HIT_MIN; bound for the economy target it may go for that lies farthest from the wave's target. Null when there is
+   * no such squad or target: the fast units go with the wave.
+   */
+  private hitSquadOf(c: Ctx, setOut: readonly UnitSnap[], target: { tx: number; ty: number }): { units: UnitSnap[]; target: { tx: number; ty: number } } | null {
+    const fast = setOut.filter((u) => unitDef(u.kind).speed >= FAST_SPEED && !unitDef(u.kind).hero).sort((a, b) => unitDef(b.kind).speed - unitDef(a.kind).speed || a.id - b.id);
+    if (fast.length < HIT_MIN) return null;
+    const cap = this.rules.hitShare * this.armyPower(c.army);
+    const units: UnitSnap[] = [];
+    let v = 0;
+    for (const u of fast) {
+      const uv = this.armyPower([u]);
+      if (v + uv > cap) break;
+      units.push(u);
+      v += uv;
+    }
+    if (units.length < HIT_MIN) return null;
+    let best: { tx: number; ty: number } | null = null;
+    let bd = -1;
+    for (const t of this.economyTargets(c)) {
+      const d = dist(t.tx, t.ty, target.tx, target.ty);
+      if (d > bd && this.mayRaid(c, t, v)) {
+        bd = d;
+        best = t;
+      }
+    }
+    return best ? { units, target: best } : null;
+  }
+
+  /**
+   * One group's turn (AI-8, AI-11, AI-23, AI-26, AI-27): the recall, the retreat test, and every WAVE_STEP ticks a hop as
+   * one body, by its approach point until its body has passed it; `pool` are the units that may join it as
+   * reinforcements, or null. Returns how it ended, or null while it goes on.
+   */
+  private driveGroup(
+    c: Ctx,
+    g: Wave,
+    h: Drive,
+    pool: UnitSnap[] | null,
+    committed: boolean,
+  ): 'recalled' | 'beaten' | 'gone' | null {
+    const stage = this.staging as { tx: number; ty: number };
+    const { order, centre, ordinary } = h;
+    const members = c.army.filter((u) => g.members.has(u.id));
+    const p = this.armyPower(members);
+    // Its strength counts its reinforcements: the strongest it has been (AI-23).
+    g.peak = Math.max(g.peak, p);
+    // Reinforcements on their way to its approach point are not yet with its body (AI-26).
+    if (g.trail.size > 0) {
+      const via = g.via;
+      for (const id of g.trail) {
+        const u = members.find((m) => m.id === id);
+        if (!u || !via || dist(u.x / FP, u.y / FP, via.tx + 0.5, via.ty + 0.5) <= APPROACH_PASSED) g.trail.delete(id);
+      }
+    }
+    let body = g.trail.size > 0 ? members.filter((u) => !g.trail.has(u.id)) : members;
+    if (body.length === 0 && members.length > 0) {
+      g.trail.clear();
+      body = members;
+    }
+    const { x: cx, y: cy } = body.length ? centre(body) : { x: stage.tx, y: stage.ty };
+    const local = this.enemyPowerNear(c, Math.floor(cx), Math.floor(cy), LOCAL_R);
+    if (!ordinary) {
+      // The steamroll opponent never pulls a wave back (HAR-5): it drives on until the wave is gone, then forms the next.
+      if (members.length === 0) return 'gone';
+    } else if (this.rules.recall && members.length > 0 && (h.danger ??= this.baseInDanger(c, h.own))) {
+      // An enemy force worth half its army near its buildings: the group comes home to fight at the hold point (AI-23).
+      const holdAt = this.holdPoint(c);
+      this.recallPoint = holdAt;
+      order('attackmove', members, holdAt.tx, holdAt.ty);
+      return 'recalled';
+    } else if (members.length <= 2 || (!committed && (p <= 0.45 * (this.rules.wavePeak ? g.peak : g.start) || local >= 1.5 * p))) {
+      // A beaten group falls back to the staging point (AI-8, AI-23); a hit squad's units rejoin the army (AI-27).
+      this.stats.retreats++;
+      order('move', members, stage.tx, stage.ty);
+      return 'beaten';
+    } else if (members.length === 0) {
+      // Nothing left of it: the next wave forms at the gathering point.
+      return 'gone';
+    }
+    // Its body has passed its approach point once its centre is close to it (AI-26).
+    if (g.via && !g.passed && dist(cx, cy, g.via.tx + 0.5, g.via.ty + 0.5) <= APPROACH_PASSED) g.passed = true;
+    if (c.tick - g.lastOrder < WAVE_STEP) return null;
+    // Retarget when the objective is gone or reached, and go straight to the new one (AI-26).
+    const near = dist(cx, cy, g.tx, g.ty) < 6;
+    const known = c.enemyBuildings.some((b) => dist(b.tx, b.ty, g.tx, g.ty) < 4);
+    if (near && !known) {
+      const nb = this.nearestEnemyBuilding(c, Math.floor(cx), Math.floor(cy));
+      // A raid, or a hit squad, moves on to the next part of the economy it knows of (AI-14, AI-27).
+      const t = (this.plan === 'raider' || g.kind !== 'wave' ? this.economyTarget(c) : null) ?? (nb ? { tx: nb.tx, ty: nb.ty } : this.searchPoint(c));
+      g.tx = t.tx;
+      g.ty = t.ty;
+      if (g.via) {
+        g.via = null;
+        g.trail.clear();
+        body = members;
+      }
+    }
+    g.lastOrder = c.tick;
+    // Advance as one body (AI-11): the whole group attack-moves to a point a short hop ahead of its centre, so the fast
+    // wait there for the slow; strung out, it closes up on its centre first; close to the objective it goes in. Until its
+    // body has passed its approach point, the hops lead there (AI-26).
+    // Spread: how far most of the group (four in five) is from its centre; a big group is naturally wider.
+    const ds = body.map((u) => dist(u.x / FP, u.y / FP, cx, cy)).sort((a, b) => a - b);
+    const spread = ds[Math.floor(0.8 * (ds.length - 1))] ?? 0;
+    const strung = spread > WAVE_SPREAD + Math.sqrt(body.length) && !g.held;
+    g.held = strung; // never hold back two hops running
+    const aim = g.via && !g.passed ? g.via : { tx: g.tx, ty: g.ty };
+    const d = dist(cx, cy, aim.tx, aim.ty);
+    const k = strung ? 0 : d <= WAVE_HOP + 2 ? 1 : WAVE_HOP / d;
+    order('attackmove', body, cx + (aim.tx - cx) * k, cy + (aim.ty - cy) * k);
+    // Reinforcements still on their way go by the approach point (AI-26).
+    if (g.via && g.trail.size > 0) order('attackmove', members.filter((u) => g.trail.has(u.id) && u.dest === null), g.via.tx, g.via.ty);
+    if (pool === null) return null;
+    // Reinforcements gather at the gathering point and join in groups, never one at a time (AI-11); and only while the
+    // group is at least as strong as the enemy it has seen near it, so none are fed into a losing fight (AI-23). Those
+    // joining after its body passed its approach point go by it too (AI-26).
+    const home = pool.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) < 10);
+    const join = !ordinary || !this.rules.noFeed || p >= local;
+    if (join && home.length >= Math.max(3, Math.ceil(0.25 * g.size))) {
+      if (g.via && g.passed) {
+        order('attackmove', home, g.via.tx, g.via.ty);
+        for (const u of home) g.trail.add(u.id);
+      } else order('attackmove', home, cx, cy);
+      for (const u of home) g.members.add(u.id);
+    } else order('attackmove', pool.filter((u) => u.dest === null && !home.includes(u)), stage.tx, stage.ty);
+    return null;
+  }
+
+  /**
+   * Its hit squads' turns (AI-27): each judged on its own. One that ends rejoins the army; a split raid ends when both its
+   * squads have, counting as beaten back once if either was (AI-16). `pool`, when given, reinforces the split raid's
+   * squad with fewer units left.
+   */
+  private driveSquads(c: Ctx, h: Drive, pool: UnitSnap[] | null): void {
+    if (this.squads.length === 0) return;
+    const alive = (s: Wave): number => c.army.filter((u) => s.members.has(u.id)).length;
+    let takes: Wave | null = null;
+    if (pool) for (const s of this.squads) if (s.kind === 'raid' && (takes === null || alive(s) < alive(takes))) takes = s;
+    const raid = this.squads.some((s) => s.kind === 'raid');
+    for (const s of [...this.squads]) {
+      const end = this.driveGroup(c, s, h, s === takes ? pool : null, false);
+      if (end === null) continue;
+      this.squads = this.squads.filter((x) => x !== s);
+      if (end === 'beaten') this.splitBeaten = true;
+      if (end === 'recalled') this.splitRecalled = true;
+    }
+    // A hit squad beside a main wave starts no wave cooldown (AI-27 b); a split raid's end is the raid's end.
+    if (raid && !this.squads.some((s) => s.kind === 'raid')) {
+      this.lastWaveEnd = c.tick;
+      if (this.splitBeaten) {
+        this.waveCooldown = c.tick + 1200;
+        if (this.plan === 'raider') {
+          this.raidsLost++;
+          this.waveCooldown = c.tick + 600;
+        }
+      } else if (this.splitRecalled) this.waveCooldown = c.tick + 500;
+    }
   }
 
   /** The nearest part of the enemy economy we know of: a refinery, or a hauler seen lately (AI-14). */
@@ -1685,6 +2098,11 @@ export class AI {
     return this.standingKind;
   }
 
+  /** Whether this AI tells Raider's scout units for its army apart from its standing scout (AI-27 a). */
+  private raiderScoutRule(): boolean {
+    return this.rules.raidSplit && this.personality === 'raider' && this.doctrine.scouts;
+  }
+
   /** Which unit is the standing scout (AI-21): it notes the loss of the last one and takes up a new one once it stands. */
   private keepStanding(own: readonly UnitSnap[], tick: number): void {
     const kind = this.scoutKind();
@@ -1699,8 +2117,26 @@ export class AI {
       this.replaceGap = life < SCOUT_YOUNG ? 2 * SCOUT_REPLACE : SCOUT_REPLACE;
       this.tourSide = -this.tourSide;
     }
-    if (this.standing >= 0) return;
-    const next = own.filter((u) => u.kind === kind).sort((a, b) => a.id - b.id)[0];
+    let next: UnitSnap | undefined;
+    if (this.raiderScoutRule()) {
+      // Raider's scout units (AI-27 a): one that comes out while a standing scout is ordered becomes the standing scout;
+      // any other belongs to the army, and never becomes the standing scout.
+      for (const id of this.armyScouts) if (!own.some((u) => u.id === id)) this.armyScouts.delete(id);
+      for (const u of [...own].sort((a, b) => a.id - b.id)) {
+        if (u.kind !== kind || u.id === this.standing || u.id === this.scoutId || this.armyScouts.has(u.id)) continue;
+        if (this.standing < 0 && next === undefined && this.standingOrdered > 0) {
+          this.standingOrdered--;
+          next = u;
+        } else {
+          this.armyScouts.add(u.id);
+          this.stats.raiderScouts++;
+        }
+      }
+      if (this.standing >= 0 || !next) return;
+    } else {
+      if (this.standing >= 0) return;
+      next = own.filter((u) => u.kind === kind).sort((a, b) => a.id - b.id)[0];
+    }
     if (!next) return;
     this.standing = next.id;
     this.stats.standingSince = tick;
@@ -2147,6 +2583,9 @@ export class AI {
     if (doomsday && w && members.length) {
       w.tx = best.tx;
       w.ty = best.ty;
+      // Straight into the struck area (AI-15, AI-26).
+      w.via = null;
+      w.trail.clear();
       w.lastOrder = c.tick;
       this.first.push({ type: 'attackmove', player: this.player, units: members.map((u) => u.id), x: best.tx * FP + FP / 2, y: best.ty * FP + FP / 2 });
     }

@@ -222,7 +222,8 @@ describe('no feeding of losing waves (AI-23)', () => {
     const guard = (t: { tx: number; ty: number }): Foe[] => [0, 1, 2, 3].map((i) => ({ kind: 'ali_brute', tx: t.tx + 2 + (i % 2), ty: t.ty + 2 + (i >> 1) }));
     const raid = (seen: Foe[]): AI => {
       const g = base({ army: many('hum_tank', 8) });
-      const who = ai('raider');
+      // As one body: eight units and two targets far apart would split the raid (AI-27 a, ai-hit-squads.test.ts).
+      const who = ai('raider', { raidSplit: false });
       run(g, who, 24, [FAR, { kind: 'ali_gorger', ...A }, { kind: 'ali_gorger', ...B }, ...seen]);
       return who;
     };
@@ -277,7 +278,7 @@ describe('no feeding of losing waves (AI-23)', () => {
       const A = { tx: 40, ty: 40 };
       const B = { tx: 70, ty: 26 };
       const g = base({ army: many('hum_tank', 8) });
-      const who = ai('raider', { raidGuard: false });
+      const who = ai('raider', { raidGuard: false, raidSplit: false });
       run(g, who, 24, [FAR, { kind: 'ali_gorger', ...A }, { kind: 'ali_gorger', ...B }, ...[0, 1, 2, 3].map((i) => ({ kind: 'ali_brute', tx: A.tx + 2 + (i % 2), ty: A.ty + 2 + (i >> 1) }))]);
       expect(who.waveState).toMatchObject(A);
     }, LONG);
