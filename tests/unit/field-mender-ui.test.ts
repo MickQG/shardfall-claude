@@ -351,6 +351,8 @@ describe('AI-29: the AI and its Field Menders', () => {
     };
     for (const d of Object.values(DIFFICULTIES)) expect(ordered(new AI(0, 'human', d, cfg.map, 6), d.thinkEvery), d.name).toBeGreaterThanOrEqual(1);
     expect(ordered(new SteamrollAI(0, 'human', cfg.map, 6), DIFFICULTIES.hard.thinkEvery)).toBeGreaterThanOrEqual(1);
+    // Raider, with its fast and cheap army, trains none while it plays Raider.
+    expect(ordered(new AI(0, 'human', DIFFICULTIES.hard, cfg.map, 6, 'raider'), DIFFICULTIES.hard.thinkEvery)).toBe(0);
     // For measurement, the rule can be switched off: then it trains none.
     expect(ordered(new AI(0, 'human', DIFFICULTIES.hard, cfg.map, 6, 'balanced', { rules: { menders: false } }), DIFFICULTIES.hard.thinkEvery)).toBe(0);
     // With a Mender already there is none to add for three tanks (it may add one for tanks it trains meanwhile).

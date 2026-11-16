@@ -1335,6 +1335,8 @@ export class AI {
     const kind = this.menders.kind;
     // The steamroll opponent keeps its own build and ignores the rules (HAR-5).
     if (!kind || (!this.rules.menders && this.doctrine.pick === undefined)) return 0;
+    // Raider's fast, cheap raiding army has no place for a slow Mender: none while it plays Raider (AI-14, AI-29).
+    if (this.plan === 'raider' && this.doctrine.pick === undefined) return 0;
     let tanks = c.own.filter((u) => isTank(u.kind)).length;
     for (const [k, n] of queued) if (isTank(k)) tanks += n;
     return mendersWanted(tanks, c.own.filter((u) => u.kind === kind).length + (queued.get(kind) ?? 0));
