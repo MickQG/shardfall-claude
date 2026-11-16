@@ -55,7 +55,11 @@ export type Command =
   /** Move to x, y (fixed-point), engaging enemies met on the way. */
   | { type: 'attackmove'; player: number; units: number[]; x: number; y: number }
   /** Fire a charged superweapon at x, y (fixed-point). */
-  | { type: 'superweapon'; player: number; building: number; x: number; y: number };
+  | { type: 'superweapon'; player: number; building: number; x: number; y: number }
+  /** Infantry squads go to `carrier` and the first to reach it climbs in, if it has room (SQD-3). */
+  | { type: 'board'; player: number; units: number[]; carrier: number }
+  /** Carriers let their passenger squad out beside them (SQD-6). */
+  | { type: 'unload'; player: number; units: number[] };
 
 /** One-tick effects for the renderer and audio. Positions are fixed-point world units. */
 export type SimEvent =
@@ -69,7 +73,11 @@ export type SimEvent =
    * but not the launch site gets it with `unseen` set, so only the target is marked (SW-2).
    */
   | { t: 'launch'; x: number; y: number; tx: number; ty: number; owner: number; kind: string; delay: number; unseen?: boolean }
-  | { t: 'strike'; x: number; y: number; owner: number; kind: string; r: number };
+  | { t: 'strike'; x: number; y: number; owner: number; kind: string; r: number }
+  /** A repair vehicle `id` mended unit `to`, standing at (x, y), this tick (CMB-16, AUD-17). */
+  | { t: 'mend'; x: number; y: number; owner: number; id: number; to: number }
+  /** Squad `rider` climbed into (`on`) or out of carrier `id` at (x, y) (SQD-3, SQD-6, AUD-17). */
+  | { t: 'board'; x: number; y: number; owner: number; id: number; rider: number; on: boolean };
 
 export interface UnitSnap {
   /** Veterancy rank 0..3 (VET-3). */
@@ -91,6 +99,10 @@ export interface UnitSnap {
   facing?: number;
   /** Haulers unloading at a refinery: its building id (ECO-7, R3D-22); absent otherwise. */
   dock?: number;
+  /** A carrier's passenger squad (SQD-3): its id, kind, hit points and rank; absent when empty. */
+  cargo?: { id: number; kind: string; hp: number; rank: number };
+  /** A repair vehicle mending a unit: that unit's id (CMB-16); absent otherwise. */
+  mend?: number;
 }
 
 export interface QueueSnap {

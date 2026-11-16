@@ -1,4 +1,5 @@
 import { canCrush, unitDef } from '../data/defs';
+import { loseCargo } from './carrier';
 import { isqrt } from './fixed';
 import type { State, Unit } from './state';
 import { gainXp } from './units';
@@ -31,6 +32,8 @@ export function crush(s: State, moved: ReadonlySet<number>): void {
       s.events.push({ t: 'die', x: v.x, y: v.y, big: (unitDef(v.kind).squad ?? 1) <= 1 && unitDef(v.kind).armor === 'heavy', owner: v.owner, id: v.id, kind: v.kind, crushed: true });
       const p = s.players[v.owner];
       if (p) p.stats.unitsLost++;
+      // A carrier flattened by a hero takes its passenger with it (SQD-5).
+      loseCargo(s, v);
     }
   }
   if (dead.size > 0) s.units = s.units.filter((u) => !dead.has(u.id));

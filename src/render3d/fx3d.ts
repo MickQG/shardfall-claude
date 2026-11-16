@@ -46,6 +46,8 @@ const SW = {
 
 /** Shots fired by top-rank (elite) units glow in this colour instead of their weapon's own (BAL-7). */
 export const ELITE_SHOT = 0xd36bff;
+/** The green-blue of a Field Mender's repair stream (R3D-38). */
+export const REPAIR_COLOR = 0x4fffd0;
 
 export const LOOKS: Record<WeaponLook, Look> = {
   rifle: { color: 0xffe2a0, intensity: 1.3, speed: 38, len: 0.26, width: 0.0065, arc: 0, flash: 0.09, flashColor: 0xffd27a, smokeTrail: false, hit: 'spark', shake: 0 },
@@ -798,6 +800,21 @@ export class CombatFx {
     f.size = size;
     f.grow = grow;
     f.mesh.visible = true;
+  }
+
+  /**
+   * A Field Mender's repair stream (R3D-38), called every frame it mends: a thin green-blue beam from the arm's tip to the
+   * vehicle, flickering, with motes drifting along it now and then.
+   */
+  repairStream(from: Vec, to: Vec, now: number): void {
+    const r = this.rng;
+    const flicker = 0.75 + 0.25 * Math.sin(now * 0.05);
+    this.beam(from, to, 0.018, REPAIR_COLOR, 1.6 * flicker, 45, now);
+    this.beam(from, to, 0.006, 0xd8fff6, 2.2 * flicker, 45, now);
+    if (r.next() < 0.3) {
+      const k = r.range(0.2, 0.9);
+      this.glow.emit({ x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k, z: from.z + (to.z - from.z) * k, vx: (to.x - from.x) * 0.8, vy: (to.y - from.y) * 0.8 + 0.2, vz: (to.z - from.z) * 0.8, life: 220, size0: 0.05, size1: 0.02, color0: REPAIR_COLOR, alpha: 0.9 }, now);
+    }
   }
 
   /** A column of light drawn every frame for `life` ms, thinning and fading as it goes. */

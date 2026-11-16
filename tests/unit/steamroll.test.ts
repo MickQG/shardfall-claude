@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { AI, DIFFICULTIES, PERSONALITIES, resolvePersonality, shardFields } from '../../src/ai/ai';
 import { playMatch } from '../../src/ai/harness';
 import { kitOf } from '../../src/ai/kit';
+import { menderOf } from '../../src/ai/menders';
 import { antiArmourOf, crusherOf, rifleOf, STEAMROLL_DIFFICULTY, STEAMROLL_TUNING, SteamrollAI, type SteamrollTuning } from '../../src/ai/steamroll';
 import { buildingDef, UNIT_DEFS, unitDef, type Faction } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
@@ -101,13 +102,14 @@ describe('the steamroll opponent', () => {
     }
   }, LONG);
 
-  it('HAR-5: trains only rifle squads, anti-armour squads, crushers and haulers, about 55% anti-armour from its barracks once it has a factory', () => {
+  it('HAR-5 AI-29: trains only rifle squads, anti-armour squads, crushers and haulers (and, as Aegis, Field Menders), about 55% anti-armour from its barracks once it has a factory', () => {
     for (const faction of FACTIONS) {
       const k = kitOf(faction);
       const { g, map } = fresh(faction);
       const ai = new SteamrollAI(0, faction, map, 1, { ...STEAMROLL_TUNING, ...HOME });
       const units = produced(drive(g, ai, 7200)).filter(isUnit);
-      expect(new Set(units), faction).toEqual(new Set([rifleOf(faction), antiArmourOf(faction), crusherOf(faction), k.hauler]));
+      const mender = menderOf(faction);
+      expect(new Set(units), faction).toEqual(new Set([rifleOf(faction), antiArmourOf(faction), crusherOf(faction), k.hauler, ...(mender ? [mender] : [])]));
       const squads = units.slice(units.indexOf(antiArmourOf(faction))).filter((u) => u === rifleOf(faction) || u === antiArmourOf(faction));
       const share = squads.filter((u) => u === antiArmourOf(faction)).length / squads.length;
       expect(squads.length, faction).toBeGreaterThan(30);

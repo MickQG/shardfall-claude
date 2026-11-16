@@ -18,6 +18,10 @@ export interface RenderUnit {
   yaw?: number;
   /** Haulers unloading on a dock pad: the refinery's id (ECO-7, R3D-22). */
   dock?: number;
+  /** A carrier's passenger squad (SQD-3): its id and kind; absent when empty. */
+  cargo?: { id: number; kind: string };
+  /** A Field Mender mending a unit: that unit's id (CMB-16, R3D-38). */
+  mend?: number;
 }
 
 const SCALE = 256;
@@ -57,6 +61,8 @@ function between(from: ReadonlyMap<number, UnitSnap>, to: ReadonlyMap<number, Un
       target: u.target,
       ...(u.facing !== undefined ? { yaw: facingYaw(p.facing ?? q.facing ?? u.facing, q.facing ?? u.facing, a) } : {}),
       ...(u.dock !== undefined ? { dock: u.dock } : {}),
+      ...(u.cargo ? { cargo: { id: u.cargo.id, kind: u.cargo.kind } } : {}),
+      ...(u.mend !== undefined ? { mend: u.mend } : {}),
     };
   });
 }

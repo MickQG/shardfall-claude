@@ -1,6 +1,7 @@
 import { BUILDING_DEFS, buildingDef, canCrush, choosePad, UNIT_DEFS, unitDef, type Faction, type UnitDef } from '../data/defs';
 import { BUILD_RANGE, canPlace, EXPLORED, FP, QUEUE_MAX, Rng, VISIBLE, type BuildingSnap, type Command, type MapDef, type Snapshot, type UnitSnap } from '../sim';
 import { kitOf, type Kit } from './kit';
+import { isTank, MenderPlan, menderOf, mendersWanted } from './menders';
 
 /** Difficulty changes only how fast the AI reacts, how many orders it can give, and a shard-income bonus. */
 export interface Difficulty {
@@ -595,6 +596,8 @@ export class AI {
   readonly kit: Kit;
   protected readonly doctrine: Doctrine = FULL_DOCTRINE;
   readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, hitSquads: 0, raiderScouts: 0 };
+  /** Its Field Menders (AI-29): loading, following, fallback and unloading. */
+  protected readonly menders: MenderPlan;
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
   private adapted = false;
   private raidsLost = 0;
@@ -682,6 +685,7 @@ export class AI {
     readonly options: Readonly<AiOptions> = {},
   ) {
     this.kit = kitOf(faction);
+    this.menders = new MenderPlan(player, menderOf(faction));
     const r = new Rng(seed * 7919 + player * 104729 + 13);
     const f = (): number => r.int(1000) / 1000;
     this.jitter = { wave: 0.9 + 0.35 * f(), ratio: 1.15 + 0.3 * f(), stage: 11 + Math.floor(4 * f()) };
@@ -716,7 +720,11 @@ export class AI {
     this.setupPoints(c);
     this.updatePlan(c);
 
-    const out: Command[] = [];
+    // The Field Menders (AI-29): squads on their way to board and tanks falling back leave the army for this turn; their
+    // orders go first, a share of the budget at most.
+    const mend = this.menders.turn(c.tick, own, foes, c.army, snap.mapWidth, this.doctrine.retreats);
+    if (mend.busy.size > 0) c.army = c.army.filter((u) => !mend.busy.has(u.id));
+    const out: Command[] = mend.orders.slice(0, Math.max(1, Math.floor(this.diff.maxCommands / 4)));
     this.placeReady(c, out);
     this.defendBase(c, out);
     // Scouting goes ahead of building and production in the command budget, or the scout is rarely sent (AI-6, AI-17).
@@ -1177,7 +1185,8 @@ export class AI {
     if (this.standing >= 0) counts.scout++;
     const queued = new Map<string, number>();
     for (const b of c.buildings) for (const q of b.queue) if (!BUILDING_DEFS[q.kind]) queued.set(q.kind, (queued.get(q.kind) ?? 0) + 1);
-    for (const [kind, n] of queued) counts[roleOf(unitDef(kind))] += n;
+    // Field Menders are not part of the fighting mix (AI-29).
+    for (const [kind, n] of queued) if (!unitDef(kind).repair) counts[roleOf(unitDef(kind))] += n;
     return { counts, queued };
   }
 
@@ -1233,6 +1242,9 @@ export class AI {
       extraScouts = this.plan === 'raider' ? RAIDER_SCOUTS - this.armyScouts.size - (queuedScouts - this.standingOrdered) : 0;
     }
 
+    // One Field Mender for every three tanks, alive and queued (AI-29).
+    let menderWant = this.menderWant(c, queued);
+
     for (const b of c.buildings) {
       // Shallow queues (AI-22): credits are not locked in orders that will not start soon. The steamroll opponent keeps
       // the deeper queues it was calibrated with (HAR-5).
@@ -1252,18 +1264,28 @@ export class AI {
       // Artillery floor against enemy infantry (AI-19), when it is available here.
       const gun = counts.art < floor ? allowed.find((k) => roleOf(unitDef(k)) === 'art' && !unitDef(k).hero) : undefined;
       const scout = scoutWanted && scoutKind !== null && allowed.includes(scoutKind) ? scoutKind : undefined;
+      const mender = menderWant > 0 && this.menders.kind !== null && allowed.includes(this.menders.kind) ? this.menders.kind : undefined;
       const pick: string | null = this.doctrine.pick
-        ? this.doctrine.pick(b.kind, allowed, haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore))
+        ? this.doctrine.pick(b.kind, allowed.filter((k) => !unitDef(k).repair || k === mender), haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore))
         : b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler)
           ? this.kit.hauler
           : (scout ??
             hero ??
+            mender ??
             rifle ??
             gun ??
             (extraScouts > 0
-              ? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
-              : chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt)));
+              ? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && !unitDef(k).repair), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
+              : chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && !unitDef(k).repair && k !== scoutKind), counts, intel, tilt)));
       if (!pick) continue;
+      if (unitDef(pick).repair) {
+        // A Field Mender: bought like any unit, but outside the fighting mix (AI-29).
+        if (c.credits < unitDef(pick).cost + (urgent || b.queue.length === 0 ? 0 : hold)) continue;
+        c.credits -= unitDef(pick).cost;
+        out.push({ type: 'produce', player: this.player, source: b.id, kind: pick });
+        menderWant--;
+        continue;
+      }
       // Doomsday does not flood the field with cheap infantry beyond its rifle floor: tanks and artillery set the pace (AI-15).
       if (doom && !rifle && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && this.doomCaps(counts, rifles, urgent)) continue;
       const cost = unitDef(pick).cost;
@@ -1281,6 +1303,15 @@ export class AI {
       }
       if (roleOf(unitDef(pick)) === 'art') guns++;
     }
+  }
+
+  /** How many more Field Menders it wants (AI-29): one per three of its tanks, alive and queued, less those it has or has queued. */
+  private menderWant(c: Ctx, queued: ReadonlyMap<string, number>): number {
+    const kind = this.menders.kind;
+    if (!kind) return 0;
+    let tanks = c.own.filter((u) => isTank(u.kind)).length;
+    for (const [k, n] of queued) if (isTank(k)) tanks += n;
+    return mendersWanted(tanks, c.own.filter((u) => u.kind === kind).length + (queued.get(kind) ?? 0));
   }
 
   private haulerTarget(c: Ctx): number {

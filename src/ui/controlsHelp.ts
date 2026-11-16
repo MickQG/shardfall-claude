@@ -22,6 +22,7 @@ export const CONTROLS: readonly ControlGroup[] = [
       { input: 'Double-click a unit', action: 'Select every unit of its kind on screen' },
       { input: 'Right-click', action: 'Move, attack or gather; with a building selected, set its rally point' },
       { input: 'F, then right-click', action: 'Attack-move (left-click or Esc cancels)' },
+      { input: 'Right-click a Field Mender', action: 'With infantry selected: board it (one squad rides inside)' },
       { input: 'Minimap click', action: 'Left moves the camera, right gives an order' },
     ],
   },
@@ -33,6 +34,7 @@ export const CONTROLS: readonly ControlGroup[] = [
       { input: 'Ctrl + 1-9', action: 'Save the selection as a group; 1-9 recalls it (twice: centre)' },
       { input: 'Z', action: 'Stop' },
       { input: 'X', action: 'Scatter' },
+      { input: 'R', action: 'Unload the selected Field Menders' },
     ],
   },
   {

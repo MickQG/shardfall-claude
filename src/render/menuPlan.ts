@@ -64,10 +64,25 @@ export function sceneSlots(f: SceneFaction): Record<string, SceneSlot> {
     return { x: HQ_SPOT.x + Math.cos(aa) * rr, z: HQ_SPOT.z + Math.sin(aa) * rr, heading: aa };
   };
   const out: Record<string, SceneSlot> = {};
-  out[cast.hero] = at(FIELD_ANGLE + slotOffset(HERO_SLOT), RING_RADIUS, false);
-  cast.others.forEach((k, i) => {
-    out[k] = at(FIELD_ANGLE + slotOffset(OTHER_SLOTS[i % OTHER_SLOTS.length]!), RING_RADIUS, true);
-  });
+  // Six slots for five other kinds; one more slot for each further kind, the free arc shared evenly among them all.
+  const n = Math.max(6, cast.others.length + 1);
+  if (n === 6) {
+    out[cast.hero] = at(FIELD_ANGLE + slotOffset(HERO_SLOT), RING_RADIUS, false);
+    cast.others.forEach((k, i) => {
+      out[k] = at(FIELD_ANGLE + slotOffset(OTHER_SLOTS[i % OTHER_SLOTS.length]!), RING_RADIUS, true);
+    });
+  } else {
+    const step = (Math.PI * 2 - FIELD_ARC) / n;
+    const offset = (i: number): number => FIELD_ARC / 2 + step * (i + 0.5);
+    const hero = Math.floor((n - 1) / 2);
+    // The others take the slots nearest the hero first, alternating sides.
+    const order: number[] = [];
+    for (let d = 1; order.length < n - 1; d++) for (const i of [hero + d, hero - d]) if (i >= 0 && i < n) order.push(i);
+    out[cast.hero] = at(FIELD_ANGLE + offset(hero), RING_RADIUS, false);
+    cast.others.forEach((k, i) => {
+      out[k] = at(FIELD_ANGLE + offset(order[i]!), RING_RADIUS, true);
+    });
+  }
   out[cast.hauler] = at(FIELD_ANGLE, HAULER_RADIUS, false);
   return out;
 }

@@ -77,6 +77,12 @@ export interface Unit {
   rank: number;
   /** Facing, in steps of 256 a circle; turned slowly by units with a turn rate (HERO-5), else unused. */
   facing: number;
+  /** A carrier's passenger squad, held out of `State.units` while inside (SQD-3, SQD-5), or null. */
+  cargo: Unit | null;
+  /** A squad on its way to board: the carrier's id, or -1 (SQD-3). */
+  ride: number;
+  /** A repair vehicle: the unit it is mending now, or -1 (CMB-16). */
+  mend: number;
 }
 
 export type Mode = 'idle' | 'move' | 'amove' | 'attack';
@@ -230,6 +236,9 @@ export function addUnit(s: State, owner: number, kind: string, x: number, y: num
     auto: d.capacity !== undefined, hv: Hv.Idle, load: 0, dock: -1, queuedAt: 0, dockTries: 0, home: -1, sinceHurt: 1000, target: -1, cooldown: 0, cooldown2: 0, mode: 'idle', amove: -1, xp: 0, rank: 0,
     // A slow turner starts facing the middle of the map, where the fight is (HERO-5).
     facing: d.turnRate ? Math.max(0, dirOf(((s.grid.width * FP) >> 1) - x, ((s.grid.height * FP) >> 1) - y)) : 0,
+    cargo: null,
+    ride: -1,
+    mend: -1,
   };
   s.units.push(u);
   return u;

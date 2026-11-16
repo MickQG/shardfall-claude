@@ -63,7 +63,8 @@ const gap = (b: BuildingSnap, x: number, y: number): number => {
  * barracks and factories in turn up to its maxima, mines `fields` fields (crawling toward a field beyond reach with the
  * buildings it wants anyway) with 3 to 4 haulers each, and keeps its army at home until it is worth `launch` credits
  * with `crushers` crushers. Then everything attacks as one body with crush orders and never turns back; what it trains
- * meanwhile follows in groups. No scouts, artillery, aircraft, hero, lab, turrets or superweapon.
+ * meanwhile follows in groups. No scouts, artillery, aircraft, hero, lab, turrets or superweapon. As Aegis it keeps Field
+ * Menders in its army by the AI's count, loaded with anti-armour squads, though its tanks never fall back to them (AI-29).
  */
 export class SteamrollAI extends AI {
   protected override readonly doctrine: Doctrine;
@@ -90,8 +91,10 @@ export class SteamrollAI extends AI {
     const at = (this.antiArmour = antiArmourOf(faction));
     const hauler = this.kit.hauler;
     this.stats.steamroll = { launches: [], peakRefineries: 0, peakBarracks: 0, peakFactories: 0, peakHaulers: 0, peakArmy: 0 };
+    // Field Menders in its army by the AI's own count, loaded the same way (AI-29); the Vrax have none.
+    const mender = this.menders.kind;
     this.doctrine = {
-      trains: (k) => k === crusher || k === rifle || k === at || k === hauler,
+      trains: (k) => k === crusher || k === rifle || k === at || k === hauler || k === mender,
       structure: (have) => this.structure(have),
       pick: (building, allowed, haulersWanted) => this.pick(building, allowed, haulersWanted),
       haulers: (standard) => this.haulers(standard),
@@ -143,6 +146,8 @@ export class SteamrollAI extends AI {
     const p = this.stats.produced;
     if (building === this.kit.factory) {
       if (p.tank > 0 && haulersWanted > 0 && allowed.includes(this.kit.hauler)) return this.kit.hauler;
+      // A Field Mender when one is wanted: the AI offers it only then (AI-29).
+      if (this.menders.kind !== null && allowed.includes(this.menders.kind)) return this.menders.kind;
       return allowed.includes(this.crusher) ? this.crusher : null;
     }
     if (building !== this.kit.barracks) return null;

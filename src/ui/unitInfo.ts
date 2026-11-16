@@ -50,7 +50,7 @@ export function statMax(): UnitStats {
 /** How full a bar is, 0..1: the square root of the share of the largest, so small units still show (INF-7). */
 export const statFill = (value: number, max: number): number => (max > 0 ? Math.sqrt(Math.max(0, value) / max) : 0);
 
-const ROLE: Record<UnitDef['role'], string> = { harvester: 'Harvester', infantry: 'Infantry', antiarmor: 'Anti-armour', scout: 'Scout', tank: 'Tank', artillery: 'Artillery', air: 'Air', raider: 'Raider' };
+const ROLE: Record<UnitDef['role'], string> = { harvester: 'Harvester', infantry: 'Infantry', antiarmor: 'Anti-armour', scout: 'Scout', tank: 'Tank', artillery: 'Artillery', air: 'Air', raider: 'Raider', support: 'Repair and transport' };
 const ARMOUR: readonly [ArmorType, string][] = [
   ['light', 'Light'],
   ['heavy', 'Heavy'],

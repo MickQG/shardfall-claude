@@ -1,4 +1,4 @@
-export type CursorId = 'default' | 'select' | 'move' | 'attack' | 'attackmove' | 'harvest' | 'invalid' | 'place-ok' | 'place-bad' | 'superweapon';
+export type CursorId = 'default' | 'select' | 'move' | 'attack' | 'attackmove' | 'harvest' | 'invalid' | 'place-ok' | 'place-bad' | 'superweapon' | 'board';
 
 export interface CursorState {
   mode: 'normal' | 'placing' | 'targeting' | 'amove';
@@ -6,8 +6,8 @@ export interface CursorState {
   /** A harvester (shard hauler) is among the selected units. */
   harvesterSelected: boolean;
   anySelected: boolean;
-  /** What is under the pointer. */
-  hover: 'ground' | 'ownUnit' | 'ownBuilding' | 'enemy' | 'blocked' | 'resource';
+  /** What is under the pointer; `carrier` is an own Field Mender with room that the selected squads can board (CUR-6). */
+  hover: 'ground' | 'ownUnit' | 'ownBuilding' | 'enemy' | 'blocked' | 'resource' | 'carrier';
   placementOk?: boolean;
 }
 
@@ -17,9 +17,10 @@ export function cursorFor(s: CursorState): CursorId {
   if (s.mode === 'placing') return s.placementOk ? 'place-ok' : 'place-bad';
   if (s.mode === 'amove') return 'attackmove';
   if (s.anySelected && s.combatSelected && s.hover === 'enemy') return 'attack';
+  if (s.anySelected && s.hover === 'carrier') return 'board';
   if (s.anySelected && s.harvesterSelected && s.hover === 'resource') return 'harvest';
   if (s.anySelected && s.hover === 'blocked') return 'invalid';
-  if (s.hover === 'ownUnit' || s.hover === 'ownBuilding') return 'select';
+  if (s.hover === 'ownUnit' || s.hover === 'ownBuilding' || s.hover === 'carrier') return 'select';
   if (s.anySelected) return 'move';
   return 'default';
 }
@@ -40,6 +41,8 @@ const ART: Record<CursorId, { body: string; hot: [number, number]; fallback: str
   'place-ok': { body: `<path d='M6 17l7 7 13-14' fill='none' stroke='#3cff8a' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/>`, hot: [16, 16], fallback: 'default' },
   'place-bad': { body: `<path d='M8 8l16 16M24 8L8 24' stroke='#ff4a4a' stroke-width='4' stroke-linecap='round'/>`, hot: [16, 16], fallback: 'not-allowed' },
   superweapon: { body: `${ring('#ffd34a')}${cross('#ffd34a')}<circle cx='16' cy='16' r='13' fill='none' stroke='#ffd34a' stroke-width='1' stroke-dasharray='3 3'/>`, hot: [16, 16], fallback: 'crosshair' },
+  // Board a Field Mender (CUR-6): a green hatch with an arrow down into it.
+  board: { body: `<path d='M5 20h22v7H5z' fill='#35e0a1' stroke='${OUT}' stroke-width='1.5' stroke-linejoin='round'/><path d='M9 20l3-4h8l3 4' fill='none' stroke='#35e0a1' stroke-width='2'/><path d='M16 3v11M11 9l5 6 5-6' fill='none' stroke='#bffbe6' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/>`, hot: [16, 22], fallback: 'pointer' },
 };
 
 /** CSS `cursor` value for a cursor id: an inline SVG with a built-in fallback. */

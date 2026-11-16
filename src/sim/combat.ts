@@ -5,6 +5,7 @@ import { clearOrder, orderMove } from './movement';
 import { isLowPower } from './economy';
 import { faces } from './facing';
 import { removeBuilding } from './production';
+import { loseCargo } from './carrier';
 import type { Building, GroupRoute, State, Unit } from './state';
 import { ELITE_REPAIR, gainXp, MAX_RANK, maxHpOf, missileDamage, unitDamage } from './units';
 
@@ -108,8 +109,8 @@ function firePod(s: State, u: Unit, w: WeaponDef, t: Entity): void {
   u.cooldown2 = w.cooldown;
 }
 
-function land(s: State, p: { x: number; y: number; targetId: number; owner: number; damage: number; type: string; splash: number; shooter: number }, byId: Map<number, Entity>): void {
-  const credit = p.shooter >= 0 ? byId.get(p.shooter) : undefined;
+function land(s: State, p: { x: number; y: number; targetId: number; owner: number; damage: number; type: string; splash: number; shooter: number }, byId: Map<number, Entity>, riders: ReadonlyMap<number, Unit>): void {
+  const credit = p.shooter >= 0 ? (byId.get(p.shooter) ?? riders.get(p.shooter)) : undefined;
   const w = { damage: p.damage, type: p.type as WeaponDef['type'] };
   if (p.splash > 0) {
     s.events.push({ t: 'boom', x: p.x, y: p.y, r: p.splash });
@@ -228,6 +229,11 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
   if (u.cooldown > 0) u.cooldown--;
   if (u.cooldown2 > 0) u.cooldown2--;
   u.sinceHurt = Math.min(u.sinceHurt + 1, 100000);
+  // A squad on its way to board a carrier neither fires nor diverts (SQD-3).
+  if (u.ride >= 0) {
+    u.target = -1;
+    return;
+  }
   if (u.mode === 'move' && u.path.length === 0 && !u.waiting) u.mode = 'idle';
   const w = def.weapon;
   if (w && u.mode === 'move' && def.crusher) return fireOnTheMove(s, u, w, byId, occ);
@@ -295,6 +301,30 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
   }
 }
 
+/**
+ * A carrier's passenger fires its own weapon from inside (SQD-4): at its own range from the carrier's position, also while
+ * the carrier moves, at the best visible enemy it has a clear shot at; it keeps its target while that stays in range. It
+ * is credited with what it deals.
+ */
+function tickRider(s: State, c: Unit, r: Unit, byId: Map<number, Entity>, occ: Int32Array): void {
+  if (r.cooldown > 0) r.cooldown--;
+  r.x = c.x;
+  r.y = c.y;
+  const w = unitDef(r.kind).weapon;
+  if (!w) return;
+  let t = r.target >= 0 ? byId.get(r.target) : undefined;
+  if (t && (t.owner === c.owner || !canHit(w, t) || !visibleTo(s, c.owner, t) || distTo(c.x, c.y, t) > rangeFp(w) || !lineOfFire(s, occ, c.x, c.y, t, w, false))) t = undefined;
+  if (!t && (s.tick + r.id) % 5 === 0) {
+    const id = acquire(s, c.owner, c.x, c.y, w, rangeFp(w), (e) => lineOfFire(s, occ, c.x, c.y, e, w, false));
+    t = id >= 0 ? byId.get(id) : undefined;
+  }
+  r.target = t ? t.id : -1;
+  if (t && r.cooldown === 0) {
+    fire(s, { x: c.x, y: c.y, owner: c.owner, id: r.id }, w, t, r);
+    r.cooldown = w.cooldown;
+  }
+}
+
 function tickBuilding(s: State, b: Building, byId: Map<number, Entity>): void {
   const d = buildingDef(b.kind);
   const low = isLowPower(s, b.owner);
@@ -340,13 +370,21 @@ export function tickCombat(s: State): void {
   for (const b of s.buildings) byId.set(b.id, b);
 
   const occ = buildingTiles(s);
-  for (const u of s.units) tickUnit(s, u, byId, occ);
+  // Passengers fire from inside their carriers and earn experience, but are never in `byId`: nothing hits them (SQD-4, SQD-5).
+  const riders = new Map<number, Unit>();
+  for (const u of s.units) {
+    tickUnit(s, u, byId, occ);
+    if (u.cargo) {
+      riders.set(u.cargo.id, u.cargo);
+      tickRider(s, u, u.cargo, byId, occ);
+    }
+  }
   for (const b of s.buildings) tickBuilding(s, b, byId);
 
   if (s.projectiles.length > 0) {
     const due = s.projectiles.filter((p) => p.hit <= s.tick + 0);
     s.projectiles = s.projectiles.filter((p) => p.hit > s.tick);
-    for (const p of due) land(s, p, byId);
+    for (const p of due) land(s, p, byId, riders);
   }
   if (s.strikes.length > 0) {
     const due = s.strikes.filter((k) => k.hit <= s.tick);
@@ -368,6 +406,8 @@ export function tickCombat(s: State): void {
       s.events.push({ t: 'die', x: u.x, y: u.y, big: unitDef(u.kind).armor === 'heavy', owner: u.owner, id: u.id, kind: u.kind });
       const p = s.players[u.owner];
       if (p) p.stats.unitsLost++;
+      // Its passenger dies with it (SQD-5).
+      loseCargo(s, u);
     }
     s.units = s.units.filter((u) => u.hp > 0);
   }

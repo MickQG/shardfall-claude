@@ -9,7 +9,7 @@ const card = (faction: 'human' | 'alien', name: string): UnitCard => {
 
 describe('unit info cards', () => {
   it('INF-1: one card per unit kind of the chosen faction', () => {
-    expect(unitCards('human').map((c) => c.name)).toEqual(['Shard Hauler', 'Rifleman', 'Rocketeer', 'Scout Buggy', 'Bulwark Tank', 'Hammer Artillery', 'Paladin']);
+    expect(unitCards('human').map((c) => c.name)).toEqual(['Shard Hauler', 'Rifleman', 'Rocketeer', 'Scout Buggy', 'Bulwark Tank', 'Hammer Artillery', 'Field Mender', 'Paladin']);
     expect(unitCards('alien').map((c) => c.name)).toEqual(['Gorger', 'Skitterer', 'Spitter', 'Stalker', 'Brute', 'Lobber', 'Dreadstrider']);
   });
 

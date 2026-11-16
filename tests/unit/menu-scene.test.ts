@@ -102,7 +102,8 @@ describe('menu faction scene (MENU-10, MENU-11)', () => {
         expect(UNIT_DEFS[k]!.faction).toBe(f);
       }
       expect(BUILDING_RIGS[c.hq]).toBeDefined();
-      expect(c.others).toHaveLength(5);
+      // Every unit kind of the faction but its hero and hauler.
+      expect(c.others).toHaveLength(Object.keys(UNIT_DEFS).filter((k) => UNIT_DEFS[k]!.faction === f).length - 2);
     }
   });
 
