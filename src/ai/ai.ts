@@ -231,7 +231,7 @@ export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record
       w.inf += 0.1;
     }
     // An infantry-heavy enemy is met with crushers and rifles rather than more anti-armour (BAL-6).
-    if ((intel.squads ?? 0) > 0.45) {
+    if ((intel.squads ?? 0) > INFANTRY_HEAVY) {
       w.tank += 0.25;
       w.inf += 0.1;
       w.at = Math.max(0.05, w.at - 0.1);
@@ -284,7 +284,10 @@ export function heavyShareByCost(seen: Iterable<{ kind: string; t: number }>, ti
  * otherwise.
  */
 export const skimmerOf = (trainable: readonly string[]): string | null => trainable.find((u) => unitDef(u).firesMoving && unitDef(u).weapon?.type === 'lance') ?? null;
-/** What a building trains against armour (SKM-6): the Skimmer, `skim`, when it has one, in place of its usual choice, unless that is artillery. */
+/** Share of infantry squads among the armed enemies seen above which the enemy is infantry-heavy (BAL-6). */
+export const INFANTRY_HEAVY = 0.45;
+
+/** The Skimmer, `skim`, in place of a building's usual choice unless that is artillery (SKM-6, AI-19); the usual choice when `skim` is null. */
 export const skimOr = (skim: string | null, usual: string | null): string | null => (skim !== null && (usual === null || roleOf(unitDef(usual)) !== 'art') ? skim : usual);
 
 /** Launch a wave only with a real army that clearly outclasses what we know of the target. */
@@ -1287,9 +1290,11 @@ export class AI {
       // Artillery floor against enemy infantry (AI-19), when it is available here.
       const gun = counts.art < floor ? allowed.find((k) => roleOf(unitDef(k)) === 'art' && !unitDef(k).hero) : undefined;
       const scout = scoutWanted && scoutKind !== null && allowed.includes(scoutKind) ? scoutKind : undefined;
-      // The Skimmer only against armour, and then in place of whatever this building's mix would train but artillery (SKM-6).
+      // The Skimmer only against armour (SKM-6): then it is in this building's mix as its anti-armour choice, and it comes
+      // ahead of the rest of the mix (not of artillery) unless the enemy is infantry-heavy by count, which crushers answer (BAL-6).
       const skimmer = skimmerOf(allowed);
-      const mix = allowed.filter((k) => k !== skimmer);
+      const mix = armoured ? allowed : allowed.filter((k) => k !== skimmer);
+      const skimFirst = armoured && skimmer !== null && (intel.squads ?? 0) <= INFANTRY_HEAVY;
       const usual = (): string | null =>
         extraScouts > 0
           ? chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
@@ -1302,7 +1307,7 @@ export class AI {
             hero ??
             rifle ??
             gun ??
-            skimOr(armoured ? skimmer : null, usual()));
+            skimOr(skimFirst ? skimmer : null, usual()));
       if (!pick) continue;
       // Doomsday does not flood the field with cheap infantry beyond its rifle floor: tanks and artillery set the pace (AI-15).
       if (doom && !rifle && pick !== skimmer && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && this.doomCaps(counts, rifles, urgent)) continue;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { AI, ARMOUR_INTEL_TICKS, DIFFICULTIES, heavyShareByCost, MOSTLY_HEAVY, skimmerOf, skimOr, type Personality } from '../../src/ai/ai';
+import { AI, ARMOUR_INTEL_TICKS, DIFFICULTIES, heavyShareByCost, MOSTLY_HEAVY, INFANTRY_HEAVY, skimmerOf, skimOr, type Personality } from '../../src/ai/ai';
 import { soundFor } from '../../src/audio/plan';
 import { ACK_KINDS, MOVE_LOOPS, moveClass, moveLoopSamples, recipeFor } from '../../src/audio/recipes';
 import { canCrush, DAMAGE_PCT, trainableAt, UNIT_DEFS, unitDef } from '../../src/data/defs';
@@ -228,11 +228,6 @@ describe('the AI trains Skimmers against armour', () => {
     expect(heavyShareByCost([], 0)).toBe(0);
     expect(skimmerOf(trainableAt('ali_pit'))).toBe(SKIM);
     expect(skimmerOf(trainableAt('hum_factory'))).toBeNull();
-    // It takes the place of the Pit's usual choice, but not of artillery (AI-19).
-    expect(skimOr(SKIM, 'ali_brute')).toBe(SKIM);
-    expect(skimOr(SKIM, null)).toBe(SKIM);
-    expect(skimOr(SKIM, 'ali_lobber')).toBe('ali_lobber');
-    expect(skimOr(null, 'ali_brute')).toBe('ali_brute');
   });
 
   /** A built-up Vrax base (player 0) on seed 6 with enemies `foes` in sight of it. */
@@ -260,16 +255,19 @@ describe('the AI trains Skimmers against armour', () => {
     return g;
   }
 
-  /** Every unit kind its Brood Pits order over some decisions, with the bank refilled each time. */
-  function pitOrders(foes: string[], difficulty: keyof typeof DIFFICULTIES, personality: Personality): string[] {
+  /** Every unit kind its Brood Pits order, and every one it orders anywhere, over some decisions, with the bank refilled each time. */
+  function orders(foes: string[], difficulty: keyof typeof DIFFICULTIES, personality: Personality): { pit: string[]; all: string[] } {
     const g = vraxBase(foes);
     const ai = new AI(0, 'alien', DIFFICULTIES[difficulty], g.state.cfg.map, 6, personality);
     const pits = new Set(g.state.buildings.filter((b) => b.owner === 0 && b.kind === 'ali_pit').map((b) => b.id));
-    const out: string[] = [];
+    const out = { pit: [] as string[], all: [] as string[] };
     for (let i = 0; i < 40; i++) {
       g.state.players[0]!.credits = 20000;
       for (const c of ai.think(snapshot(g, 0))) {
-        if (c.type === 'produce' && pits.has(c.source)) out.push(c.kind);
+        if (c.type === 'produce' && UNIT_DEFS[c.kind]) {
+          out.all.push(c.kind);
+          if (pits.has(c.source)) out.pit.push(c.kind);
+        }
         submit(g, c as Command);
       }
       // Hold the enemies in place, in sight, so the picture does not change.
@@ -278,16 +276,34 @@ describe('the AI trains Skimmers against armour', () => {
     }
     return out;
   }
+  const pitOrders = (foes: string[], difficulty: keyof typeof DIFFICULTIES, personality: Personality): string[] => orders(foes, difficulty, personality).pit;
 
-  it('SKM-6: against mostly heavy armour its Brood Pits train Skimmers as the main anti-armour unit, at every difficulty and personality', () => {
+  it('SKM-6: against mostly heavy armour it trains Skimmers as its main anti-armour unit, within the Brood Pit mix, at every difficulty and personality', () => {
     const armour = ['hum_tank', 'hum_tank', 'hum_tank', 'hum_tank', 'hum_rifleman', 'hum_rifleman'];
     for (const difficulty of ['easy', 'medium', 'hard'] as const) {
       for (const personality of ['balanced', 'raider', 'doomsday'] as const) {
-        const orders = pitOrders(armour, difficulty, personality).filter((k) => k !== 'ali_gorger' && k !== 'ali_stalker');
-        expect(orders.length, `${difficulty} ${personality}`).toBeGreaterThan(0);
-        expect(orders.filter((k) => k === SKIM).length, `${difficulty} ${personality}: ${orders.join(',')}`).toBeGreaterThan(orders.length / 2);
+        const o = orders(armour, difficulty, personality);
+        const what = `${difficulty} ${personality}: ${o.all.join(',')}`;
+        // Its Brood Pits train Skimmers ahead of their usual mix, and of the anti-armour it orders, Skimmers are most by value.
+        const mixed = o.pit.filter((k) => k !== 'ali_gorger' && k !== 'ali_stalker');
+        expect(mixed.filter((k) => k === SKIM).length, what).toBeGreaterThan(mixed.length / 2);
+        const value = (k: string): number => o.all.filter((x) => x === k).length * unitDef(k).cost;
+        expect(value(SKIM), what).toBeGreaterThan(value('ali_spitter'));
       }
     }
+  });
+  it('SKM-6, BAL-6: against armour that comes with an infantry-heavy army (by count) the Skimmer only joins the mix, beside the crushers', () => {
+    expect(INFANTRY_HEAVY).toBe(0.45);
+    // It takes the place of a building's usual choice, but never of artillery (AI-19).
+    expect(skimOr(SKIM, 'ali_brute')).toBe(SKIM);
+    expect(skimOr(SKIM, null)).toBe(SKIM);
+    expect(skimOr(SKIM, 'ali_lobber')).toBe('ali_lobber');
+    expect(skimOr(null, 'ali_brute')).toBe('ali_brute');
+    // Four tanks (3200) and six rifle squads (600): mostly armour by cost, but 60% squads by count.
+    const mixed = ['hum_tank', 'hum_tank', 'hum_tank', 'hum_tank', ...Array<string>(6).fill('hum_rifleman')];
+    const pit = pitOrders(mixed, 'hard', 'balanced').filter((k) => k !== 'ali_gorger' && k !== 'ali_stalker');
+    expect(pit).toContain('ali_brute');
+    expect(pit.filter((k) => k === SKIM).length).toBeLessThan(pit.length / 2 + 1e-9);
   });
 
   it('SKM-6: against an army that is not mostly armour it trains no Skimmers', () => {
