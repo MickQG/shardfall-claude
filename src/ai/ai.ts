@@ -600,6 +600,8 @@ type Ctx = {
    * to one were taken out of it for orders, plus the squads riding in its Menders.
    */
   strength: UnitSnap[];
+  /** The squads riding in its Field Menders, placed at their carriers (AI-29): they fight with the army the Menders follow. */
+  riders: UnitSnap[];
 };
 
 /**
@@ -727,7 +729,7 @@ export class AI {
     const c: Ctx = {
       snap, tick: snap.tick, own, foes, buildings,
       enemyBuildings: [...snap.buildings.filter((b) => b.owner !== me), ...snap.ghosts],
-      hq, credits: pl.credits, powerOut: pl.powerOut, powerIn: pl.powerIn, counts, army, haulers, strength: [...army],
+      hq, credits: pl.credits, powerOut: pl.powerOut, powerIn: pl.powerIn, counts, army, haulers, strength: [...army], riders: [],
     };
     this.updateIntel(c);
     this.scoutBook(c);
@@ -740,7 +742,12 @@ export class AI {
     if (mend.busy.size > 0) c.army = c.army.filter((u) => !mend.busy.has(u.id));
     // Those still count as its strength, and so do the squads riding in its Menders (gone from its snapshot's units):
     // what it trains and when it feels strong must not change because some of its army is aboard or being mended.
-    for (const u of own) if (u.cargo) c.strength.push({ ...u, id: u.cargo.id, kind: u.cargo.kind, hp: u.cargo.hp, rank: u.cargo.rank, cargo: undefined, mend: undefined });
+    for (const u of own) {
+      if (!u.cargo) continue;
+      const rider = { ...u, id: u.cargo.id, kind: u.cargo.kind, hp: u.cargo.hp, rank: u.cargo.rank, cargo: undefined, mend: undefined };
+      c.strength.push(rider);
+      c.riders.push(rider);
+    }
     const out: Command[] = mend.orders.slice(0, Math.max(1, Math.floor(this.diff.maxCommands / 4)));
     this.placeReady(c, out);
     this.defendBase(c, out);
@@ -1677,7 +1684,9 @@ export class AI {
     const army = c.army;
     // The steamroll opponent keeps its own attack rule and never retreats (HAR-5).
     const ordinary = this.doctrine.retreats;
-    const own = this.armyPower(army);
+    // The squads riding in its Menders go with the army and fire from inside: they count in its strength (AI-29).
+    const riding = c.riders.length > 0 ? this.armyPower(c.riders) : 0;
+    const own = this.armyPower(army) + riding;
     if (army.length === 0) {
       if (this.wave) this.wave = null;
       this.squads = [];
@@ -1729,7 +1738,7 @@ export class AI {
     }
 
     if (threatened || c.tick < this.waveCooldown) return;
-    const p = inSquad.size > 0 ? this.armyPower(free) : own;
+    const p = inSquad.size > 0 ? this.armyPower(free) + riding : own;
     const raiding = this.plan === 'raider';
     const sw = c.buildings.find((b) => buildingDef(b.kind).superweapon && b.charge >= 100);
     // Doomsday with a charged superweapon sends its wave at what it will strike (AI-15).
