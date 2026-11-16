@@ -4,6 +4,7 @@ import { sanitizeCommand, NET_VERSION } from '../../src/net/protocol';
 import { createGame, hash, isVehicle, mayCarry, maxHpOf, snapshot, submit, tick, unitDamage, type Command, type Game, type MapDef, type UnitSpawn } from '../../src/sim';
 import type { Unit } from '../../src/sim/state';
 
+const RATE = unitDef('hum_mender').repair!.rate;
 const open = (w: number, h: number): MapDef => ({ width: w, height: h, heights: new Array<number>(w * h).fill(0) });
 const game = (units: UnitSpawn[], map = open(30, 30)): Game => createGame({ seed: 3, map, units });
 const run = (g: Game, n: number): void => {
@@ -46,7 +47,7 @@ describe('CMB-15: the Field Mender', () => {
 });
 
 describe('CMB-16, CMB-17: repair', () => {
-  it('CMB-16: it mends one damaged friendly vehicle in reach at 6 hp a second', () => {
+  it('CMB-16: it mends one damaged friendly vehicle in reach at 5 hp a second', () => {
     const g = game([
       { owner: 0, kind: 'hum_mender', tx: 10, ty: 10 },
       { owner: 0, kind: 'hum_tank', tx: 12, ty: 10 },
@@ -56,7 +57,8 @@ describe('CMB-16, CMB-17: repair', () => {
     run(g, 1);
     const at = tank.hp;
     run(g, 200);
-    expect(tank.hp - at).toBe(60); // ten seconds
+    expect(RATE).toBe(5);
+    expect(tank.hp - at).toBe(10 * RATE); // ten seconds
     expect(snapshot(g).units.find((u) => u.kind === 'hum_mender')?.mend).toBe(tank.id);
   });
 
@@ -75,7 +77,7 @@ describe('CMB-16, CMB-17: repair', () => {
     buggy.hp = 120; // 75%
     run(g, 1);
     run(g, 40);
-    expect(arty.hp).toBe(75 + 6 + 12);
+    expect(arty.hp).toBe(75 + 3 * RATE);
     expect(tank.hp).toBe(275);
     expect(buggy.hp).toBe(120);
   });
@@ -90,7 +92,7 @@ describe('CMB-16, CMB-17: repair', () => {
     hero.sinceHurt = 0; // no regeneration of its own yet
     run(g, 41);
     expect(isVehicle('hum_paladin')).toBe(true);
-    expect(hero.hp).toBe(1350 + 18);
+    expect(hero.hp).toBe(1350 + 3 * RATE);
   });
 
   it('CMB-16: never infantry, buildings or anything beyond 3 tiles', () => {
