@@ -40,14 +40,34 @@ export const RING_RADIUS = 4.8;
 export const HERO_ANGLE = Math.PI / 2 - 0.3;
 /** Width of the arc the shard field takes, radians (about 90 degrees). */
 export const FIELD_ARC = Math.PI / 2;
-/** Six slots, evenly spaced over the arc the field leaves free; offsets from the field's centre. */
+/** Six slots for the Aegis cast, a quarter turn apart over the arc the field leaves free; offsets from the field's centre. */
 const SLOT_STEP = (Math.PI * 2 - FIELD_ARC) / 6;
 const slotOffset = (i: number): number => FIELD_ARC / 2 + SLOT_STEP * (i + 0.5);
-/** The slot the hero takes, and the order the other kinds take the rest (nearest the hero first, alternating sides). */
+/** The slot the hero takes in a six-slot ring. */
 const HERO_SLOT = 2;
-const OTHER_SLOTS: readonly number[] = [3, 1, 4, 0, 5];
 /** Where the shard field is centred around the HQ: opposite the hero, a little turned. */
 export const FIELD_ANGLE = HERO_ANGLE - slotOffset(HERO_SLOT);
+/** Clearance kept from the field's edge by a larger ring's outermost slot, radians. */
+const FIELD_EDGE = 0.14;
+
+/**
+ * Ring places of `n` slots (the hero and the other kinds), as offsets from the field's centre, and the hero's slot: the hero
+ * always at its own angle, the rest a step apart either side of it, the step closing up as more kinds share the arc. Six
+ * slots give the evenly spaced ring of SLOT_STEP; a seventh (the Vrax Glare Skimmer) closes them up a little.
+ */
+function ringSlots(n: number): { offsets: number[]; hero: number } {
+  const hero = Math.floor((n - 1) / 2);
+  const heroAt = slotOffset(HERO_SLOT);
+  const step = Math.min(SLOT_STEP, (heroAt - FIELD_ARC / 2 - FIELD_EDGE) / hero);
+  return { offsets: [...Array(n)].map((_, i) => heroAt + step * (i - hero)), hero };
+}
+
+/** The order the other kinds take the free slots: nearest the hero first, alternating sides. */
+function otherOrder(n: number, hero: number): number[] {
+  const out: number[] = [];
+  for (let d = 1; out.length < n - 1; d++) for (const s of [hero + d, hero - d]) if (s >= 0 && s < n && out.length < n - 1) out.push(s);
+  return out;
+}
 /** The hero's clear radius for crystals, and the HQ's. */
 export const HERO_CLEAR = 2.2;
 export const HQ_CLEAR = 3.0;
@@ -64,9 +84,11 @@ export function sceneSlots(f: SceneFaction): Record<string, SceneSlot> {
     return { x: HQ_SPOT.x + Math.cos(aa) * rr, z: HQ_SPOT.z + Math.sin(aa) * rr, heading: aa };
   };
   const out: Record<string, SceneSlot> = {};
-  out[cast.hero] = at(FIELD_ANGLE + slotOffset(HERO_SLOT), RING_RADIUS, false);
+  const { offsets, hero } = ringSlots(cast.others.length + 1);
+  const order = otherOrder(offsets.length, hero);
+  out[cast.hero] = at(FIELD_ANGLE + offsets[hero]!, RING_RADIUS, false);
   cast.others.forEach((k, i) => {
-    out[k] = at(FIELD_ANGLE + slotOffset(OTHER_SLOTS[i % OTHER_SLOTS.length]!), RING_RADIUS, true);
+    out[k] = at(FIELD_ANGLE + offsets[order[i]!]!, RING_RADIUS, true);
   });
   out[cast.hauler] = at(FIELD_ANGLE, HAULER_RADIUS, false);
   return out;

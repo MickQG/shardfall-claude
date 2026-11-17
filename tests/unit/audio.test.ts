@@ -351,7 +351,7 @@ describe('UI sounds', () => {
     expect(() => {
       for (const n of UI_SOUNDS) e.play(n);
       e.ack('hum_tank', 'select');
-      e.setMovement({ vehicle: 1, walker: 1, infantry: 1, swarm: 1 });
+      e.setMovement({ vehicle: 1, walker: 1, infantry: 1, swarm: 1, skim: 1 });
       e.setAmbience({ water: 1, rumble: 1 });
     }).not.toThrow();
     expect(e.stats.requested.hover).toBe(1);

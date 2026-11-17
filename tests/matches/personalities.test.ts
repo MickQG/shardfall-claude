@@ -3,13 +3,14 @@ import { SUPERWEAPON_ARMY, SUPERWEAPON_HAULERS, type Personality } from '../../s
 import { DIFFICULTIES, printTally } from './levels';
 import type { MatchResult } from '../../src/ai/harness';
 import { playMatches } from './pool';
+import { aiRules, rulesLine } from './aiRules';
 
 /**
  * Full AI-vs-AI matches (#107): statistical checks that need whole games, run by `npm run test:matches` and by CI only
  * when the simulation, AI or data change (and on every push to main), not with the fast unit tests.
  */
 
-const LONG = 900_000;
+const LONG = 1_500_000;
 const SIDES = [
   [1, ['human', 'alien']],
   [1, ['alien', 'human']],
@@ -22,8 +23,13 @@ const SIDES = [
   [4, ['alien', 'human']],
 ] as const;
 
-/** Ten minutes covers Raider's opening and Balanced's comparison; Doomsday needs seventeen for its strikes to land (the 8 s sight linger, FOG-7, makes games last longer). */
-const SERIES_TICKS = { raider: 20 * 60 * 10, balanced: 20 * 60 * 10, doomsday: 20 * 60 * 17 } as const;
+/**
+ * Ten minutes covers Raider's opening and Balanced's comparison. Doomsday needs longer for its strikes to land (the 8 s
+ * sight linger, FOG-7, makes games last longer): twenty-four minutes since the Glare Skimmer (SKM-6) lets Balanced Vrax
+ * hold off its tanks for longer, which left most games undecided at seventeen. `DOOMSDAY_MINUTES` overrides it for measuring.
+ */
+const DOOMSDAY_MINUTES = Number(process.env['DOOMSDAY_MINUTES'] ?? 24);
+const SERIES_TICKS = { raider: 20 * 60 * 10, balanced: 20 * 60 * 10, doomsday: 20 * 60 * DOOMSDAY_MINUTES } as const;
 
 /** Player 0 plays `p` against a Balanced player 1, Medium against Medium, from every seed and side; cached per personality. */
 const cache = new Map<string, Promise<MatchResult[]>>();
@@ -31,7 +37,7 @@ function series(p: Personality): Promise<MatchResult[]> {
   const key = p;
   const hit = cache.get(key);
   if (hit) return hit;
-  const rs = playMatches(SIDES.map(([seed, f]) => ({ seed, factions: [f[0], f[1]], difficulties: [DIFFICULTIES.medium, DIFFICULTIES.medium], maxTicks: SERIES_TICKS[p], personalities: [p, 'balanced'] as [Personality, Personality] })));
+  const rs = playMatches(SIDES.map(([seed, f]) => ({ seed, factions: [f[0], f[1]], difficulties: [DIFFICULTIES.medium, DIFFICULTIES.medium], maxTicks: SERIES_TICKS[p], personalities: [p, 'balanced'] as [Personality, Personality], rules: aiRules() })));
   cache.set(key, rs);
   return rs;
 }
@@ -79,7 +85,7 @@ describe('AI personalities in full matches', () => {
     const arrivals = d.filter((m) => m.ai[0].strikeAt >= 0).map((m) => never(m.ai[0].strikeArrival)).sort((x, y) => x - y);
     expect(arrivals.length).toBeGreaterThanOrEqual(2);
     expect(arrivals[Math.floor((arrivals.length - 1) / 2)]).toBeLessThanOrEqual(20 * 10);
-    await printTally([`AI-15: Doomsday ${d.filter((m) => m.winner === 0).length} - Balanced ${d.filter((m) => m.winner === 1).length}, ${d.filter((m) => m.winner === null).length} undecided of ${d.length}; strikes in ${arrivals.length} games`]);
+    await printTally([rulesLine(), `AI-15: Doomsday ${d.filter((m) => m.winner === 0).length} - Balanced ${d.filter((m) => m.winner === 1).length}, ${d.filter((m) => m.winner === null).length} undecided of ${d.length}; strikes in ${arrivals.length} games`, ...d.map((m, i) => `game ${i}: winner ${String(m.winner)}; Doomsday produced ${JSON.stringify(m.ai[0].produced)}, Balanced ${JSON.stringify(m.ai[1].produced)}`)]);
     // A fair opponent: it wins at least three of eight games against Balanced.
     expect(d.filter((m) => m.winner === 0).length).toBeGreaterThanOrEqual(3);
   }, LONG);

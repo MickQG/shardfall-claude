@@ -30,6 +30,8 @@ interface Look {
   shake: number;
   /** Vrax weapons: bioluminescent spit, drips and wakes instead of fire and smoke (R3D-12). */
   bio?: boolean;
+  /** A held beam (SKM-4): drawn whole from muzzle to target for this long, ms, flashing where it hits from the start. */
+  beam?: number;
 }
 
 /** Vrax bioluminescence: body glow and the deep green it fades to. */
@@ -46,6 +48,9 @@ const SW = {
 
 /** Shots fired by top-rank (elite) units glow in this colour instead of their weapon's own (BAL-7). */
 export const ELITE_SHOT = 0xd36bff;
+
+/** How long a lance beam is held on its target, ms (SKM-4). */
+export const LANCE_BEAM_MS = 420;
 
 export const LOOKS: Record<WeaponLook, Look> = {
   rifle: { color: 0xffe2a0, intensity: 1.3, speed: 38, len: 0.26, width: 0.0065, arc: 0, flash: 0.09, flashColor: 0xffd27a, smokeTrail: false, hit: 'spark', shake: 0 },
@@ -70,6 +75,8 @@ export const LOOKS: Record<WeaponLook, Look> = {
   heroAcid: { color: 0xc8ff50, intensity: 2.6, speed: 0, len: 0.5, width: 0.12, arc: 0, flash: 0.75, flashColor: 0xc8ff4a, smokeTrail: false, hit: 'acid', shake: 0.09, bio: true },
   sting: { color: 0xe8ff70, intensity: 1.35, speed: 26, len: 0.2, width: 0.013, arc: 0, flash: 0.07, flashColor: 0xe0ff80, smokeTrail: false, hit: 'spark', shake: 0, bio: true },
   spine: { color: 0xf0e6cc, intensity: 1.1, speed: 22, len: 0.26, width: 0.017, arc: 0.04, flash: 0.09, flashColor: 0xb6ff5c, smokeTrail: false, hit: 'bone', shake: 0, bio: true },
+  // The Glare Skimmer's lance (SKM-4): a continuous, flickering beam held on the target with a flash and sparks where it burns.
+  lance: { color: 0xc6ff6a, intensity: 2.4, speed: 0, len: 0, width: 0.035, arc: 0, flash: 0.22, flashColor: 0xd8ff8a, smokeTrail: false, hit: 'spark', shake: 0, bio: true, beam: LANCE_BEAM_MS },
 };
 
 /**
@@ -78,6 +85,7 @@ export const LOOKS: Record<WeaponLook, Look> = {
  */
 export function shotDuration(look: WeaponLook, distance: number, flightMs: number): number {
   const L = LOOKS[look];
+  if (L.beam) return L.beam;
   return L.speed > 0 ? Math.max(30, (distance / L.speed) * 1000) : Math.max(80, flightMs);
 }
 
@@ -218,6 +226,8 @@ interface Shot {
   lastTrail: number;
   /** Colour of the bolt and its trail: the look's own, or the elite colour (BAL-7). */
   color: number;
+  /** A held beam (SKM-4): drawn whole, its hit flashed when it starts rather than when it ends. */
+  beam?: boolean;
 }
 
 interface Flash {
@@ -452,6 +462,13 @@ export class CombatFx {
     const L = LOOKS[look];
     if (look === 'claw') {
       this.impact(L, to, now, 0);
+      return;
+    }
+    if (L.beam) {
+      // The lance burns at once (SKM-4): the hit flashes as the beam lands, and the beam is held for a moment.
+      this.impact(L, to, now, 0);
+      this.glow.emit({ x: to.x, y: to.y, z: to.z, life: 140, size0: 0.32, size1: 0.12, color0: 0xffffff, color1: L.flashColor, alpha: 1.4 }, now);
+      this.shots.push({ look: L, from: from.clone(), to: to.clone(), born: now, dur: L.beam, straight: true, splash: 0, lastTrail: now, color: elite ? ELITE_SHOT : L.color, beam: true });
       return;
     }
     const straight = L.speed > 0;
@@ -990,6 +1007,7 @@ export class CombatFx {
     for (const s of this.shots) {
       const k = (now - s.born) / s.dur;
       if (k >= 1) {
+        if (s.beam) continue;
         this.impact(s.look, s.to, now, s.splash);
         if (!s.straight && s.splash === 0) this.landed.push({ look: s.look, to: s.to, at: now });
         continue;
@@ -997,7 +1015,19 @@ export class CombatFx {
       keep.push(s);
       this.pathAt(s, Math.max(0, k), this.v);
       const L = s.look;
-      if (s.straight) {
+      if (s.beam) {
+        // A held lance beam (SKM-4): a flickering glow along its whole length with a white-hot core, fading at the end,
+        // and motes thrown off where it burns into the target.
+        const fade = k < 0.7 ? 1 : (1 - k) / 0.3;
+        const flicker = 0.85 + 0.15 * Math.sin(now / 18 + s.born);
+        this.streaks.add(s.from, s.to, L.width * flicker * fade, s.color, L.intensity * fade);
+        this.streaks.add(s.from, s.to, L.width * 0.35 * fade, 0xffffff, L.intensity * fade);
+        if (now - s.lastTrail > 45) {
+          s.lastTrail = now;
+          const r = this.rng;
+          this.glow.emit({ x: s.to.x, y: s.to.y, z: s.to.z, vx: r.range(-0.8, 0.8), vy: r.range(0.4, 1.4), vz: r.range(-0.8, 0.8), life: r.range(160, 300), size0: 0.06, size1: 0.02, color0: L.flashColor, color1: BIO_DEEP, alpha: 1.2 * fade, gravity: 5 }, now);
+        }
+      } else if (s.straight) {
         // Tracer: a bright bolt whose tail never starts behind the muzzle.
         const back = Math.min(L.len, s.from.distanceTo(this.v));
         this.w.subVectors(s.to, s.from).normalize().multiplyScalar(-back).add(this.v);

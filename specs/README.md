@@ -34,5 +34,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `028-world.md` | World detail: model surface detail, terrain, horizon, GPU particles, debris, zoom-linked tilt, harvester, Hammer and Scout Buggy models | 28 |
 | `029-unit-restyle.md` | Unit restyle: Aegis vehicles as grounded science fiction (Shard Hauler, Bulwark Tank, Hammer Artillery), hopper tip and refinery trough; the Brute with real joints and a claw blow; parts never come apart; triangle limits | 29 |
 | `030-ai-against-steamroll.md` | The AI against a steamroll (one massed, mixed army around crushers): the harness steamroll opponent, the standing scout, production first, no feeding of losing waves, squads scatter from crushers, the pass mark, waves that vary their approach, hit squads at the economy | 30 |
+| `031-glare-skimmer.md` | The Glare Skimmer: a Vrax hover tank with a long-range lance against armour, the `lance` damage type, fire on the move apart from crushing, its model, beam, sounds and AI use | 31 |
 
 Umbrella spec: GitHub issue #1.

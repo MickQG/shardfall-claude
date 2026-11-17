@@ -21,7 +21,7 @@ import { newMember, stepSquad, type Member } from './squad3d';
 import { poseRig, recoil, rigTree, strikeAfter, strikeSideOf, turretReach, type RigDef, type RigPose, type RigTree } from './rig';
 import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
-import { HAULER_VENT, UNIT_RIGS } from './units3d';
+import { HAULER_VENT, SKIMMER_HOVER, UNIT_RIGS } from './units3d';
 import { DEFAULT_TARGET, scatterKind, shotScatter, wallEnd, type Offset, type ScatterKind, type ScatterTarget } from './scatter';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
 import { applySurface, modelMaterials, setSurface } from './surface3d';
@@ -88,6 +88,8 @@ const CRASH_CARRY = 0.8;
 
 /** How long a fallen squad member stays before it has sunk away, ms (R3D-15). */
 const FALLEN_MS = 2600;
+/** How long a dying hover hull takes to drop onto the ground, ms (SKM-4). */
+const HOVER_DROP_MS = 350;
 /** Air units fly this high (tiles). */
 export const AIR_Y = 0.85;
 /** Units are drawn when their bounding circle (plus a shadow margin) touches the view. */
@@ -179,6 +181,9 @@ interface UnitObj {
   work: number;
   /** The howitzer's barrel elevation, 0 in its travel lock .. 1 raised (R3D-32), and when the hauler last breathed vapour. */
   elev: number;
+  /** Has a gun that pitches toward its target (SKM-4), and how far up it points, radians, eased. */
+  pitches: boolean;
+  aimPitch: number;
   /** The hauler's stop settle (R3D-30). */
   settle: Settle;
   lastPuff: number;
@@ -762,6 +767,8 @@ export class View3D {
       drum: 0,
       work: 0,
       elev: 0,
+      pitches: figures[0]!.anims.some((a) => a.anim.k === 'aim'),
+      aimPitch: 0,
       settle: restingSettle(),
       lastPuff: 0,
       alive: size,
@@ -1312,6 +1319,18 @@ export class View3D {
       else if (tb) o.aim = Math.atan2(tb.ty + buildingDef(tb.kind).h / 2 - o.z, tb.tx + buildingDef(tb.kind).w / 2 - o.x);
       const aiming = !!tgt || !!tb || t <= o.aimHold;
       o.turretYaw = turnToward(o.turretYaw, aiming ? o.aim : o.motion.heading, TURRET_RATE * dt);
+      // A gun that pitches (the Skimmer's lance, SKM-4) tilts toward the middle of its target, and back to level without one.
+      if (o.pitches) {
+        let want = 0;
+        if (tgt || tb) {
+          const ax = tgt ? tgt.tx : tb!.tx + buildingDef(tb!.kind).w / 2;
+          const az = tgt ? tgt.ty : tb!.ty + buildingDef(tb!.kind).h / 2;
+          const to = tgt ? this.units.get(tgt.id) : undefined;
+          const ay = this.groundAt(ax, az) + (to ? to.def.height * (to.def.scale ?? 1) * 0.5 : 0.5);
+          want = Math.atan2(ay - (o.groundY + def.height * (def.scale ?? 1)), Math.max(0.5, Math.hypot(ax - o.x, az - o.z)));
+        }
+        o.aimPitch += (want - o.aimPitch) * Math.min(1, dt * 5);
+      }
       this.poseUnit(o, aiming, t, dt);
       // UI: selection ring on the ground, health bar over the model (both instanced, R3D-13).
       const sel = vs.selectedUnits.has(u.id);
@@ -1512,6 +1531,7 @@ export class View3D {
         head: o.work,
         feed: o.work,
         elev: o.elev,
+        aim: o.aimPitch,
         pod: podOpen(t - o.podSince, salvoOf(o.kind, this.msPerTick)),
       });
     });
@@ -1617,9 +1637,10 @@ export class View3D {
       this.tint.setScalar(1 - 0.5 * Math.min(1, age / 600));
       return true;
     }
-    // Vehicles: a blackened, burning hulk that sinks away at the end.
+    // Vehicles: a blackened, burning hulk that sinks away at the end. A hovering hull first drops onto the ground (SKM-4).
     const sink = Math.max(0, (age - (life - 2500)) / 2500);
-    o.root.position.y = o.groundY - sink * o.def.height;
+    const drop = o.def.move === 'hover' ? SKIMMER_HOVER * Math.min(1, age / HOVER_DROP_MS) ** 2 : 0;
+    o.root.position.y = o.groundY - sink * o.def.height - drop;
     if (t - o.lastBurn > 150 && age < life - 1500) {
       o.lastBurn = t;
       this.fx.burn(this.v.set(o.x, o.groundY + o.def.height * 0.6, o.z), age < 4000, o.def.radius, t);

@@ -231,7 +231,7 @@ export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record
       w.inf += 0.1;
     }
     // An infantry-heavy enemy is met with crushers and rifles rather than more anti-armour (BAL-6).
-    if ((intel.squads ?? 0) > 0.45) {
+    if ((intel.squads ?? 0) > INFANTRY_HEAVY) {
       w.tank += 0.25;
       w.inf += 0.1;
       w.at = Math.max(0.05, w.at - 0.1);
@@ -256,6 +256,39 @@ export function chooseUnitKind(cands: readonly string[], counts: Readonly<Record
   }
   return best;
 }
+
+/** How recently (ticks) an enemy must have been seen to count toward the armour mix, and what share is "mostly" (SKM-6). */
+export const ARMOUR_INTEL_TICKS = 2400;
+export const MOSTLY_HEAVY = 0.5;
+
+/**
+ * Share of heavy armour, by cost, among the armed enemy units seen in the last ARMOUR_INTEL_TICKS (two minutes; SKM-6):
+ * the credits' worth of heavy-armoured ones over the credits' worth of all of them; 0 when none were seen.
+ */
+export function heavyShareByCost(seen: Iterable<{ kind: string; t: number }>, tick: number): number {
+  let heavy = 0;
+  let all = 0;
+  for (const e of seen) {
+    const d = UNIT_DEFS[e.kind];
+    if (!d || !d.weapon || tick - e.t > ARMOUR_INTEL_TICKS) continue;
+    all += d.cost;
+    if (d.armor === 'heavy') heavy += d.cost;
+  }
+  return all === 0 ? 0 : heavy / all;
+}
+
+/**
+ * The Vrax answer to an armoured enemy (SKM-6): of the kinds a building can train, the hover tank that fires on the
+ * move with a lance made for heavy armour (the Glare Skimmer), or null. The AI trains it as its main anti-armour unit
+ * while the armed enemies seen lately are mostly heavy armour by cost (heavyShareByCost above MOSTLY_HEAVY), and not
+ * otherwise.
+ */
+export const skimmerOf = (trainable: readonly string[]): string | null => trainable.find((u) => unitDef(u).firesMoving && unitDef(u).weapon?.type === 'lance') ?? null;
+/** Share of infantry squads among the armed enemies seen above which the enemy is infantry-heavy (BAL-6). */
+export const INFANTRY_HEAVY = 0.45;
+
+/** The Skimmer, `skim`, in place of a building's usual choice unless that is artillery (SKM-6, AI-19); the usual choice when `skim` is null. */
+export const skimOr = (skim: string | null, usual: string | null): string | null => (skim !== null && (usual === null || roleOf(unitDef(usual)) !== 'art') ? skim : usual);
 
 /** Launch a wave only with a real army that clearly outclasses what we know of the target. */
 /**
@@ -508,6 +541,8 @@ export interface AiRules {
   hitShare: number;
   /** (AI-27 a) Each squad of a split raid is worth at least this many times the enemy army seen lately; 0: no such condition. */
   splitRatio: number;
+  /** (SKM-6) Trains Glare Skimmers against an enemy that is mostly heavy armour; off: never trains them. */
+  skimmers: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -527,6 +562,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   approachFlank: APPROACH_FLANK,
   hitShare: HIT_SHARE,
   splitRatio: SPLIT_RATIO,
+  skimmers: true,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -1226,6 +1262,8 @@ export class AI {
     // those queued for the army do not hold back a standing scout, and a standing scout queued is told apart from them.
     const raiderScouts = scoutKind !== null && this.raiderScoutRule();
     let extraScouts = 0;
+    // Against mostly heavy armour (by cost, seen in the last two minutes) Vrax trains Skimmers as its main anti-armour (SKM-6).
+    const armoured = this.rules.skimmers && heavyShareByCost(this.intel.values(), c.tick) > MOSTLY_HEAVY;
     if (raiderScouts) {
       const queuedScouts = queued.get(scoutKind) ?? 0;
       this.standingOrdered = Math.min(this.standingOrdered, queuedScouts);
@@ -1252,6 +1290,15 @@ export class AI {
       // Artillery floor against enemy infantry (AI-19), when it is available here.
       const gun = counts.art < floor ? allowed.find((k) => roleOf(unitDef(k)) === 'art' && !unitDef(k).hero) : undefined;
       const scout = scoutWanted && scoutKind !== null && allowed.includes(scoutKind) ? scoutKind : undefined;
+      // The Skimmer only against armour (SKM-6): then it is in this building's mix as its anti-armour choice, and it comes
+      // ahead of the rest of the mix (not of artillery) unless the enemy is infantry-heavy by count, which crushers answer (BAL-6).
+      const skimmer = skimmerOf(allowed);
+      const mix = armoured ? allowed : allowed.filter((k) => k !== skimmer);
+      const skimFirst = armoured && skimmer !== null && (intel.squads ?? 0) <= INFANTRY_HEAVY;
+      const usual = (): string | null =>
+        extraScouts > 0
+          ? chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
+          : chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt);
       const pick: string | null = this.doctrine.pick
         ? this.doctrine.pick(b.kind, allowed, haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore))
         : b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler)
@@ -1260,12 +1307,10 @@ export class AI {
             hero ??
             rifle ??
             gun ??
-            (extraScouts > 0
-              ? chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
-              : chooseUnitKind(allowed.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt)));
+            skimOr(skimFirst ? skimmer : null, usual()));
       if (!pick) continue;
       // Doomsday does not flood the field with cheap infantry beyond its rifle floor: tanks and artillery set the pace (AI-15).
-      if (doom && !rifle && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && this.doomCaps(counts, rifles, urgent)) continue;
+      if (doom && !rifle && pick !== skimmer && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && this.doomCaps(counts, rifles, urgent)) continue;
       const cost = unitDef(pick).cost;
       const reserve = pick === this.kit.hauler || pick === scout || urgent || (b.queue.length === 0 && !saving && !steamroll) ? 0 : hold;
       if (c.credits < cost + reserve) continue;

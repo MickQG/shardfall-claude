@@ -63,6 +63,8 @@ export type Anim =
   | { k: 'arm'; up: number; bob?: number }
   /** A gun cradle: elevated from `lo` to `hi` radians as `elev` goes 0..1 (R3D-32). */
   | { k: 'elev'; lo: number; hi: number }
+  /** A gun that pitches toward what it aims at (`RigPose.aim`, radians up), held within `lo`..`hi` radians (SKM-4). */
+  | { k: 'aim'; lo: number; hi: number }
   /** Feeding limbs (mandibles, tendrils): swing about `axis` by up to `amp` in a cycle of `rate` rad/s while feeding (R3D-31). */
   | { k: 'feed'; axis: Axis; amp: number; rate: number; phase: number }
   /** A segment or throat that pulses in scale: with each swallow while feeding (`swallow`), in a wave front to back while unloading (`wave`) (R3D-31). */
@@ -81,10 +83,11 @@ export interface RigNode {
   kids?: RigNode[];
 }
 
-export type Locomotion = 'tracked' | 'wheeled' | 'walker' | 'air' | 'static';
+/** `hover`: a hull that floats a little above the ground (SKM-4), drawn by its own rig, banking gently. */
+export type Locomotion = 'tracked' | 'wheeled' | 'walker' | 'hover' | 'air' | 'static';
 
 /** How a weapon looks when it fires (chosen by the shooter's kind). */
-export type WeaponLook = 'rifle' | 'mg' | 'cannon' | 'heroCannon' | 'rocket' | 'howitzer' | 'chaingun' | 'pulse' | 'claw' | 'acid' | 'acidBig' | 'heroAcid' | 'missile' | 'sting' | 'spine';
+export type WeaponLook = 'rifle' | 'mg' | 'cannon' | 'heroCannon' | 'rocket' | 'howitzer' | 'chaingun' | 'pulse' | 'claw' | 'acid' | 'acidBig' | 'heroAcid' | 'missile' | 'sting' | 'spine' | 'lance';
 
 export interface RigDef {
   shapes: Record<string, () => Shape>;
@@ -231,6 +234,8 @@ export interface RigPose {
   feed?: number;
   /** Gun elevation, 0 resting in the travel lock .. 1 raised to fire (R3D-32). */
   elev?: number;
+  /** How far up toward its target a pitching gun points, radians (negative down; SKM-4). */
+  aim?: number;
 }
 
 /** Pose every animated node of a rig. Pure apart from writing the nodes' transforms. */
@@ -401,6 +406,9 @@ export function poseRig(tree: RigTree, p: RigPose): void {
       }
       case 'elev':
         turn(obj, 'z', a.rot.z + an.lo + (an.hi - an.lo) * smoothstep(p.elev ?? 0));
+        break;
+      case 'aim':
+        turn(obj, 'z', a.rot.z + Math.max(an.lo, Math.min(an.hi, p.aim ?? 0)));
         break;
       case 'feed': {
         const f = Math.max(0, Math.min(1, p.feed ?? 0));

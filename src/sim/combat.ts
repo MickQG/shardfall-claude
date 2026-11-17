@@ -204,7 +204,8 @@ const rechase = (s: State, u: Unit, t: Entity): boolean => (u.path.length === 0 
 
 /**
  * A crusher on the move keeps shooting at whatever comes into range without stopping (BAL-11): it guns enemies down on
- * its way in and runs over those that get close.
+ * its way in and runs over those that get close. A unit that fires on the move (`firesMoving`, the Glare Skimmer, SKM-3)
+ * does the same without crushing.
  */
 function fireOnTheMove(s: State, u: Unit, w: WeaponDef, byId: Map<number, Entity>, occ: Int32Array): void {
   let t = u.target >= 0 ? byId.get(u.target) : undefined;
@@ -230,7 +231,7 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
   u.sinceHurt = Math.min(u.sinceHurt + 1, 100000);
   if (u.mode === 'move' && u.path.length === 0 && !u.waiting) u.mode = 'idle';
   const w = def.weapon;
-  if (w && u.mode === 'move' && def.crusher) return fireOnTheMove(s, u, w, byId, occ);
+  if (w && u.mode === 'move' && (def.crusher || def.firesMoving)) return fireOnTheMove(s, u, w, byId, occ);
   if (!w || u.mode === 'move') {
     if (u.mode === 'move') u.target = -1;
     return;

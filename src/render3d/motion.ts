@@ -131,6 +131,9 @@ export interface WalkStyle {
   blend: number;
 }
 
+/** How far a hovering skimmer bobs up and down on its cushion, tiles (SKM-4). */
+export const HOVER_BOB = 0.02;
+
 /** 0 to 1 with zero slope at both ends. */
 const ease = (x: number): number => {
   const c = Math.max(0, Math.min(1, x));
@@ -139,9 +142,9 @@ const ease = (x: number): number => {
 
 /**
  * Body pose by locomotion: vehicles squat on acceleration and dip on braking and roll out of turns; walkers bob with
- * each step; aircraft hover and bank into turns.
+ * each step; aircraft hover and bank into turns; a hovering skimmer bobs gently on its cushion and banks a little (SKM-4).
  */
-export function bodyPose(kind: 'tracked' | 'wheeled' | 'walker' | 'air' | 'static', m: MotionState, phase: number, t: number, seed: number, walk?: WalkStyle): BodyPose {
+export function bodyPose(kind: 'tracked' | 'wheeled' | 'walker' | 'hover' | 'air' | 'static', m: MotionState, phase: number, t: number, seed: number, walk?: WalkStyle): BodyPose {
   const clamp = (x: number, a: number): number => Math.max(-a, Math.min(a, x));
   if (kind === 'tracked' || kind === 'wheeled') {
     const rumble = m.stride * (kind === 'tracked' ? 0.004 : 0.007) * Math.sin(t * 0.031 + seed);
@@ -154,6 +157,7 @@ export function bodyPose(kind: 'tracked' | 'wheeled' | 'walker' | 'air' | 'stati
     return { pitch: e * 0.04, roll: e * walk.sway * Math.sin(phase), bob: e * walk.bob * Math.cos(phase) ** 2 };
   }
   if (kind === 'walker') return { pitch: m.stride * 0.04, roll: m.stride * 0.012 * Math.sin(phase), bob: m.stride * 0.006 * Math.abs(Math.sin(phase)) };
+  if (kind === 'hover') return { pitch: clamp(-m.accel * 0.04, 0.06), roll: clamp(m.turnRate * m.speed * 0.05, 0.08), bob: Math.sin(t * 0.0021 + seed) * HOVER_BOB };
   if (kind === 'air') return { pitch: clamp(-m.accel * 0.08, 0.2) - m.speed * 0.05, roll: clamp(m.turnRate * 0.35, 0.45), bob: Math.sin(t * 0.0017 + seed) * 0.04 };
   return { pitch: 0, roll: 0, bob: 0 };
 }

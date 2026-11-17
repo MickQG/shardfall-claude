@@ -14,7 +14,7 @@ export interface UnitCard {
   canAttack: boolean;
   /** Armour classes the weapon deals full damage or more to, with the enemy kinds of that class. */
   strong: { armour: string; units: string[] }[];
-  /** Enemy kinds that can hit this unit for full damage or more. */
+  /** Enemy kinds that can hit this unit for full damage or more, but those it kites (fires on the move and out-ranges, hurting them). */
   weak: string[];
   /** Building that trains it, and the other buildings the player must own (INF-6). */
   trainedAt: string;
@@ -61,6 +61,15 @@ const ARMOUR: readonly [ArmorType, string][] = [
 const canHit = (w: WeaponDef, armour: ArmorType): boolean => (armour === 'air' ? w.antiAir : w.antiGround);
 const hurts = (w: WeaponDef, armour: ArmorType): boolean => canHit(w, armour) && DAMAGE_PCT[w.type][armour] >= 100;
 
+/** The longest reach of any of a unit's weapons, tiles. */
+const reachOf = (d: UnitDef): number => Math.max(d.weapon?.range ?? 0, d.weapon2?.range ?? 0);
+
+/**
+ * Whether unit `d` beats enemy `e` by kiting it (INF-4, SKM-4): it fires on the move, out-ranges every weapon of `e` and
+ * hurts `e`'s armour, so it can wear `e` down while backing off. Such an enemy is no weakness of `d`'s.
+ */
+const kites = (d: UnitDef, e: UnitDef): boolean => !!d.firesMoving && !!d.weapon && hurts(d.weapon, e.armor) && d.weapon.range > reachOf(e);
+
 const toughness = (hp: number): UnitCard['toughness'] => (hp < 150 ? 'Fragile' : hp < 400 ? 'Sturdy' : 'Very tough');
 const speed = (s: number): UnitCard['speed'] => (s < 30 ? 'Slow' : s < 50 ? 'Average' : 'Fast');
 const range = (r: number): NonNullable<UnitCard['range']> => (r < 2 ? 'Melee' : r < 5 ? 'Short' : r < 8 ? 'Medium' : 'Long');
@@ -94,7 +103,7 @@ export function unitCards(faction: Faction): UnitCard[] {
         trainedAt: BUILDING_DEFS[d.builtAt]?.name ?? d.builtAt,
         needs: d.requires.map((r) => BUILDING_DEFS[r]?.name ?? r),
         stats: unitStats(d),
-        weak: enemies.filter((e) => e.weapon && hurts(e.weapon, d.armor)).map((e) => e.name),
+        weak: enemies.filter((e) => e.weapon && hurts(e.weapon, d.armor) && !kites(d, e)).map((e) => e.name),
       };
     });
 }

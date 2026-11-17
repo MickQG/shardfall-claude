@@ -4,7 +4,7 @@ import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
 import { angleDiff, bodyPose, gunYaw, readyToFire, restingMotion, turretOnBody, walkerFacing } from '../../src/render3d/motion';
 import { MAX_STEER, poseRig, rigTree, turretReach, walk, type RigDef, type RigPose, type RigTree } from '../../src/render3d/rig';
 import type { Shape } from '../../src/render3d/kit';
-import { PALADIN_SWIVEL, UNIT_RIGS } from '../../src/render3d/units3d';
+import { PALADIN_SWIVEL, SKIMMER_HOVER, UNIT_RIGS } from '../../src/render3d/units3d';
 
 const STILL: RigPose = { turret: 0, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: 0, stride: 0, dist: 0, turnRate: 0, time: 0, reach: 0, walker: false };
 
@@ -74,6 +74,11 @@ export function aimPoses(def: RigDef): [string, RigPose][] {
     ['unload wave', { ...STILL, walker, tip: 1, time: 600 }],
     ['barrel raised', { ...STILL, walker, elev: 1 }],
     ['barrel raised and firing', { ...STILL, walker, elev: 1, kick: 1, turret: 1.2 }],
+    // A gun that pitches toward its target (SKM-4), as far up and down as it goes, turned and not.
+    ['gun pitched up', { ...STILL, walker, aim: 1 }],
+    ['gun pitched down', { ...STILL, walker, aim: -1 }],
+    ['gun pitched up, turned', { ...STILL, walker, aim: 1, turret: 1.6 }],
+    ['gun pitched down, turned', { ...STILL, walker, aim: -1, turret: -2.4, kick: 1 }],
     ['turning', { ...STILL, walker, turnRate: 3, turned: 2, dist: 1 }],
     ['lean forward', { ...STILL, walker, pitch: hero ? 0.16 : lean, bob: hero ? -0.07 : 0 }],
     ['lean back', { ...STILL, walker, pitch: hero ? -0.16 : -lean, bob: hero ? -0.07 : 0 }],
@@ -214,9 +219,10 @@ describe('models do not clip', () => {
           for (let i = 0; i < pos.count; i++) low = Math.min(low, v.fromBufferAttribute(pos, i).applyMatrix4(d.obj.matrixWorld).y);
         }
       }
-      // Tyres may squash onto the ground a touch; nothing sinks in or hovers.
-      expect(low * (def.scale ?? 1), kind).toBeGreaterThan(-0.02);
-      expect(low * (def.scale ?? 1), kind).toBeLessThan(0.02);
+      // Tyres may squash onto the ground a touch; nothing sinks in or hovers, but a hover hull (SKM-4), which floats at its set height.
+      const ground = def.move === 'hover' ? SKIMMER_HOVER : 0;
+      expect(low * (def.scale ?? 1) - ground, kind).toBeGreaterThan(-0.02);
+      expect(low * (def.scale ?? 1) - ground, kind).toBeLessThan(0.02);
     }
   });
 
