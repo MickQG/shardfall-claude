@@ -440,13 +440,15 @@ export const RAID_GUARD_SHARE = 0.5;
 /**
  * Not chasing what it cannot catch (AI-30): a melee crusher of its own (weapon range under MELEE_RANGE, not a hero) that
  * sees heavy enemy armour faster than itself within CHASE_SEEN tiles moving away from it (farther than at its last
- * decision), with no enemy within its reach plus one tile, falls back for HOLD_BACK ticks: to its nearest defence within
- * HOLD_SPIRE tiles, else to the middle of its ranged army, else to its staging point.
+ * decision), with no enemy within its reach plus one tile, holds back for HOLD_BACK ticks: where it stands when ranged
+ * units of its own are within HOLD_NEAR tiles of it, else at its nearest defence within HOLD_SPIRE tiles, else at the
+ * middle of its ranged army, else at its staging point.
  */
 export const MELEE_RANGE = 3;
 export const CHASE_SEEN = 10;
 export const HOLD_BACK = 20 * 5;
 export const HOLD_SPIRE = 15;
+export const HOLD_NEAR = 8;
 /**
  * The enemy's armour is away from its base (AI-31) when the middle, by cost, of the heavy armed enemy units it has seen in
  * the last BALL_SEEN ticks is at least BALL_AWAY tiles from every enemy building it knows; then a hit squad of fast
@@ -915,10 +917,15 @@ export class AI {
     });
   }
 
-  /** Where a crusher held back falls back to (AI-30): its nearest defence within HOLD_SPIRE tiles, else the middle of its ranged army, else its staging point. */
+  /**
+   * Where a crusher held back goes (AI-30): with ranged units of its own within HOLD_NEAR tiles it holds where it stands,
+   * beside them; else to its nearest defence within HOLD_SPIRE tiles, else the middle of its ranged army, else its
+   * staging point.
+   */
   private fallbackPoint(c: Ctx, u: UnitSnap): { tx: number; ty: number } {
     const x = u.x / FP;
     const y = u.y / FP;
+    if (c.army.some((a) => (unitDef(a.kind).weapon?.range ?? 0) >= MELEE_RANGE && dist(a.x / FP, a.y / FP, x, y) <= HOLD_NEAR)) return { tx: Math.floor(x), ty: Math.floor(y) };
     let spire: BuildingSnap | null = null;
     let sd = HOLD_SPIRE;
     for (const b of c.buildings) {
