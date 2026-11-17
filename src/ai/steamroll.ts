@@ -1,4 +1,4 @@
-import { buildingDef, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
+import { buildingDef, canCrush, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
 import { BUILD_RANGE, EXPLORED, FP, type BuildingSnap, type Command, type MapDef, type Snapshot, type UnitSnap } from '../sim';
 import { AI, DIFFICULTIES, homeFields, shardFields, type AiStats, type Difficulty, type Doctrine, type ShardField } from './ai';
 
@@ -62,8 +62,8 @@ export const KITE_STEP = 3;
 export const KITE_ORDERS = 6;
 
 /**
- * Kite orders (HAR-7): for each of `player`'s crushers (not heroes) that sees a ground enemy it outranges within that
- * enemy's reach plus KITE_GAP tiles, a plain move KITE_STEP tiles straight away from those enemies (the nearest counting
+ * Kite orders (HAR-7): for each of `player`'s crushers (not heroes) that sees a ground enemy it outranges and cannot run
+ * over (not an infantry squad) within that enemy's reach plus KITE_GAP tiles, a plain move KITE_STEP tiles straight away from those enemies (the nearest counting
  * most), so it keeps firing on the move (BAL-11) and stays out of their reach. Nearest threats first, at most `max`.
  * Pure: a function of what the player sees and the map.
  */
@@ -84,7 +84,8 @@ export function kiteOrders(player: number, units: readonly UnitSnap[], map: MapD
     let nearest = Infinity;
     for (const f of foes) {
       const r = unitDef(f.kind).weapon?.range ?? 0;
-      if (r >= reach) continue;
+      // Squads it can run over it crushes instead (BAL-5).
+      if (r >= reach || canCrush(t.kind, f.kind)) continue;
       const fx = f.x / FP;
       const fy = f.y / FP;
       const dd = Math.hypot(x - fx, y - fy);
