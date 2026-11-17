@@ -19,7 +19,8 @@ import { TILE_H, TILE_W, tileToScreen } from './iso';
 import { selectedRings } from './rings';
 import type { RallyLine } from '../ui/rally';
 import type { AckMarker } from '../ui/acknowledge';
-import { animateUnit, drawRankPips, drawUnit, setFacing, setSquad, type UnitArt } from './unitArt';
+import { animateUnit, drawRankBadge, drawUnit, setFacing, setSquad, type UnitArt } from './unitArt';
+import { BADGE_BOB_PX, badgeBob } from './rank';
 import { facingOf } from './voxel/bake';
 import { FACINGS } from './voxel/spriteCache';
 
@@ -576,8 +577,10 @@ export class GameView implements WorldRenderer {
       if (s.art.mates.length > 0) setSquad(s.art, squadAlive(u.kind, u.hp, max));
       if (s.rank !== u.rank) {
         s.rank = u.rank;
-        drawRankPips(s.pips, u.rank, -s.art.topY - 7);
+        drawRankBadge(s.pips, u.kind, u.rank, -s.art.topY - 11);
       }
+      // The badge floats over the unit (VET-3).
+      if (u.rank > 0) s.pips.y = BADGE_BOB_PX * badgeBob(vs.time, u.id, vs.fx.shake);
       const sel = vs.selectedUnits.has(u.id);
       s.ring.visible = sel;
       // The ordered units' brackets flash outward (UI-15).
