@@ -75,6 +75,11 @@ describe('unit sheet', () => {
     expect(html).toContain('44.4/s');
     expect(html).toContain('Trained at:</b> Motor Pool · needs Tech Lab');
     expect(factsHtml(card('human', 'Shard Hauler'), max)).toContain('Cannot attack');
+    // INF-3, R3D-38: the Field Mender says what it does, not that it cannot attack.
+    const mender = factsHtml(card('human', 'Field Mender'), max);
+    expect(mender).toContain('<b>What it does:</b> Repairs vehicles within 3 tiles; carries one infantry squad');
+    expect(mender).not.toContain('Cannot attack');
+    expect(mender).not.toContain('Strong against');
   });
 
   it('INF-8: the menu loads no 3D code; the sheet imports the preview only on demand', () => {

@@ -5,7 +5,8 @@ import type { RigDef, RigNode } from './rig';
  * The Field Mender (R3D-38): an Aegis utility vehicle in the grounded science-fiction style of R3D-35, an original design.
  * Six wheels in armoured hubs carry a long sealed chassis; a low wedge cab under a tinted canopy at the front, a taller
  * closed crew compartment at the back with a roof hatch whose light glows only while a squad is inside; and on a swivel at
- * the front of the compartment roof a jointed repair arm whose tool head turns toward what it mends. Sealed faceted panels,
+ * the front of the compartment roof a long crane arm (boom, stick and tool head) that rests folded on the roof and, while
+ * it mends, swings toward the vehicle, unfolds and pitches its tool head down at it. Sealed faceted panels,
  * cyan-lit details, team colour on the flank belts and the arm; no exhaust stack, exposed rams, stowage or crew.
  */
 
@@ -31,8 +32,24 @@ const TRACK = 0.33;
 export const MENDER_ROOF = 0.64;
 /** The arm's swivel on the compartment roof, body frame, and how far it turns either way (AIM-2): clear of nothing, it may turn all round. */
 export const MENDER_SWIVEL: V3 = [-0.08, MENDER_ROOF, 0];
-/** The arm's tip, where the repair stream leaves, in the swivel's frame (R3D-38). */
-export const MENDER_TIP: V3 = [0.6, 0.11, 0];
+/** The crane arm (R3D-38): the boom's shoulder pin in the swivel's frame, and the boom's and the stick's lengths. */
+export const MENDER_SHOULDER: V3 = [0, 0.16, 0];
+export const MENDER_BOOM = 0.52;
+export const MENDER_STICK = 0.42;
+/** The stick hangs beside the boom (its own side of the elbow), so the arm folds flat on the roof. */
+const STICK_SIDE = 0.068;
+/**
+ * The joints' turns, radians, folded and unfolded: folded, the boom lies back over the roof and the stick and tool head
+ * fold forward beside it; unfolded, the boom rises forward and the stick and tool reach out and down. Unfolded, the stick
+ * also pitches toward what it mends, within `lo`..`hi` (R3D-38, AIM-2).
+ */
+export const MENDER_JOINTS = {
+  boom: { fold: Math.PI - 0.06, out: 0.8 },
+  stick: { fold: -Math.PI + 0.1, out: -1.35, lo: -0.35, hi: 0.2 },
+  tool: { fold: 0, out: -0.55 },
+} as const;
+/** The tool head's tip, where the repair stream leaves, in the tool head's frame (R3D-38). */
+export const MENDER_TIP: V3 = [0.15, 0, 0];
 /** The roof hatch, body frame: where the hatch light glows and where the passenger's shots leave (R3D-38). */
 export const MENDER_HATCH: V3 = [-0.4, MENDER_ROOF + 0.03, 0];
 
@@ -104,23 +121,43 @@ export function mender(): RigDef {
         s.cyl(0.075, 0.006, AMBER, { at: [0, -0.008, 0], seg: 12, glow: true });
         return s;
       },
-      // The repair arm on its swivel, in the swivel's frame: a turret block, two sealed arm segments meeting at a covered
-      // joint, and a tool head with a green-blue emitter at the tip.
+      // The arm's swivel: a turret block with one cheek plate carrying the shoulder pin.
       arm: () => {
         const s = shape();
-        s.cyl(0.075, 0.07, STEEL2, { at: [0, 0.05, 0], seg: 10 });
-        s.box(0.12, 0.06, 0.12, 'team', { at: [0.01, 0.1, 0], bevel: 0.25 });
-        const shoulder: V3 = [0.03, 0.12, 0];
-        const elbow: V3 = [0.28, 0.3, 0];
-        const wrist: V3 = [0.52, 0.17, 0];
-        s.strut(shoulder, elbow, 0.03, STEEL, { r2: 0.026, seg: 8 });
-        s.strut(elbow, wrist, 0.026, STEEL, { r2: 0.022, seg: 8 });
-        s.ball(0.04, STEEL2, { at: elbow, seg: 8 });
-        s.ball(0.032, STEEL2, { at: wrist, seg: 8 });
-        // The tool head: a short housing pointing forward and down, its lit emitter at the tip.
-        s.tube(0.035, 0.09, GUN, { at: [0.56, 0.14, 0], rot: [0, 0, -0.5], seg: 8 });
-        s.cyl(0.024, 0.02, MEND_GLOW, { at: [MENDER_TIP[0] - 0.005, MENDER_TIP[1] + 0.008, 0], rot: [0, 0, 1.07], seg: 8, glow: true });
-        s.box(0.06, 0.012, 0.02, CYAN, { at: [0.28, 0.33, 0], glow: true, bevel: 0 }); // a lit band on the joint cover
+        s.cyl(0.075, 0.07, STEEL2, { at: [0, 0.035, 0], seg: 10 });
+        s.box(0.14, 0.07, 0.13, 'team', { at: [0, 0.1, 0], bevel: 0.25 });
+        s.box(0.08, 0.1, 0.02, STEEL2, { at: [0, 0.15, -0.055], bevel: 0.1 });
+        s.cyl(0.022, 0.1, DARK, { at: [MENDER_SHOULDER[0], MENDER_SHOULDER[1], -0.015], rot: [Math.PI / 2, 0, 0], seg: 8 });
+        return s;
+      },
+      // The boom, along +X from the shoulder: a sealed beam with a team plate, its hydraulic ram and the elbow joint.
+      boom: () => {
+        const s = shape();
+        const L = MENDER_BOOM;
+        s.strut([0, 0, 0], [L, 0, 0], 0.034, STEEL, { r2: 0.027, seg: 8 });
+        s.box(0.3, 0.016, 0.05, 'team', { at: [0.24, 0.03, 0], bevel: 0 });
+        s.cyl(0.018, 0.16, GUN, { at: [0.12, -0.04, -0.02], rot: [0, 0, Math.PI / 2 - 0.05], seg: 6 }); // ram cylinder
+        s.strut([0.2, -0.036, -0.02], [0.34, -0.026, -0.02], 0.01, STEEL2, { seg: 5 }); // its rod
+        s.box(0.06, 0.012, 0.012, CYAN, { at: [0.4, 0.03, 0], glow: true, bevel: 0 });
+        s.ball(0.042, STEEL2, { at: [L, 0, 0], seg: 8 });
+        s.cyl(0.02, 0.08, DARK, { at: [L, 0, 0.035], rot: [Math.PI / 2, 0, 0], seg: 8 }); // elbow pin
+        return s;
+      },
+      // The stick, along +X from the elbow, beside the boom.
+      stick: () => {
+        const s = shape();
+        s.ball(0.034, STEEL2, { seg: 8 });
+        s.strut([0, 0, 0], [MENDER_STICK, 0, 0], 0.026, STEEL, { r2: 0.022, seg: 8 });
+        s.box(0.16, 0.012, 0.036, 'team', { at: [0.2, 0.024, 0], bevel: 0 });
+        s.box(0.05, 0.01, 0.01, CYAN, { at: [0.33, 0.022, 0], glow: true, bevel: 0 });
+        return s;
+      },
+      // The tool head at the end of the stick: a wrist, a short housing and the green-blue emitter at its tip.
+      tool: () => {
+        const s = shape();
+        s.ball(0.03, STEEL2, { seg: 8 });
+        s.tube(0.034, 0.1, GUN, { at: [0.07, 0, 0], r2: 0.026, seg: 8 });
+        s.cyl(0.024, 0.02, MEND_GLOW, { at: [MENDER_TIP[0] - 0.02, 0, 0], rot: [0, 0, Math.PI / 2], seg: 8, glow: true });
         return s;
       },
     },
@@ -132,7 +169,26 @@ export function mender(): RigDef {
           geo: 'body',
           kids: [
             { geo: 'lamp', at: [MENDER_HATCH[0], MENDER_HATCH[1] + 0.025, 0], anim: { k: 'cargo', pivot: [0, 0, 0] } },
-            { geo: 'arm', at: MENDER_SWIVEL, anim: { k: 'turret' } },
+            {
+              geo: 'arm',
+              at: MENDER_SWIVEL,
+              anim: { k: 'turret' },
+              kids: [
+                {
+                  geo: 'boom',
+                  at: MENDER_SHOULDER,
+                  anim: { k: 'crane', ...MENDER_JOINTS.boom },
+                  kids: [
+                    {
+                      geo: 'stick',
+                      at: [MENDER_BOOM, 0, STICK_SIDE],
+                      anim: { k: 'crane', ...MENDER_JOINTS.stick },
+                      kids: [{ geo: 'tool', at: [MENDER_STICK, 0, 0], anim: { k: 'crane', ...MENDER_JOINTS.tool } }],
+                    },
+                  ],
+                },
+              ],
+            },
           ],
         },
       ],

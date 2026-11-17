@@ -12,9 +12,11 @@ export interface UnitCard {
   hitsAir: boolean;
   regenerates: boolean;
   canAttack: boolean;
+  /** What an unarmed support unit does instead of fighting (repairing, carrying a squad), in plain words; null for others. */
+  work: string | null;
   /** Armour classes the weapon deals full damage or more to, with the enemy kinds of that class. */
   strong: { armour: string; units: string[] }[];
-  /** Enemy kinds that can hit this unit for full damage or more. */
+  /** Enemy kinds that can hit this unit for full damage or more, but those it kites (fires on the move and out-ranges, hurting them). */
   weak: string[];
   /** Building that trains it, and the other buildings the player must own (INF-6). */
   trainedAt: string;
@@ -61,9 +63,27 @@ const ARMOUR: readonly [ArmorType, string][] = [
 const canHit = (w: WeaponDef, armour: ArmorType): boolean => (armour === 'air' ? w.antiAir : w.antiGround);
 const hurts = (w: WeaponDef, armour: ArmorType): boolean => canHit(w, armour) && DAMAGE_PCT[w.type][armour] >= 100;
 
+/** The longest reach of any of a unit's weapons, tiles. */
+const reachOf = (d: UnitDef): number => Math.max(d.weapon?.range ?? 0, d.weapon2?.range ?? 0);
+
+/**
+ * Whether unit `d` beats enemy `e` by kiting it (INF-4, SKM-4): it fires on the move, out-ranges every weapon of `e` and
+ * hurts `e`'s armour, so it can wear `e` down while backing off. Such an enemy is no weakness of `d`'s.
+ */
+const kites = (d: UnitDef, e: UnitDef): boolean => !!d.firesMoving && !!d.weapon && hurts(d.weapon, e.armor) && d.weapon.range > reachOf(e);
+
 const toughness = (hp: number): UnitCard['toughness'] => (hp < 150 ? 'Fragile' : hp < 400 ? 'Sturdy' : 'Very tough');
 const speed = (s: number): UnitCard['speed'] => (s < 30 ? 'Slow' : s < 50 ? 'Average' : 'Fast');
 const range = (r: number): NonNullable<UnitCard['range']> => (r < 2 ? 'Melee' : r < 5 ? 'Short' : r < 8 ? 'Medium' : 'Long');
+
+/** What an unarmed unit does in place of fighting (INF-3, R3D-38): repairs and carries, in plain words, or null. */
+export function workOf(d: UnitDef): string | null {
+  if (d.weapon) return null;
+  const parts = [d.repair ? `repairs vehicles within ${d.repair.range} tiles` : '', d.carries?.length ? 'carries one infantry squad' : ''].filter(Boolean);
+  if (!parts.length) return null;
+  const text = parts.join('; ');
+  return text[0]!.toUpperCase() + text.slice(1);
+}
 
 /** One card per unit kind of `faction`, in definition order. */
 export function unitCards(faction: Faction): UnitCard[] {
@@ -84,6 +104,7 @@ export function unitCards(faction: Faction): UnitCard[] {
         hitsAir: !!w?.antiAir,
         regenerates: d.regen !== undefined,
         canAttack: !!w,
+        work: workOf(d),
         // Unit armour classes the enemy fields no unit of (no aircraft, since the heroes replaced them) are left out.
         strong: w
           ? ARMOUR.filter(([a]) => hurts(w, a))
@@ -94,7 +115,7 @@ export function unitCards(faction: Faction): UnitCard[] {
         trainedAt: BUILDING_DEFS[d.builtAt]?.name ?? d.builtAt,
         needs: d.requires.map((r) => BUILDING_DEFS[r]?.name ?? r),
         stats: unitStats(d),
-        weak: enemies.filter((e) => e.weapon && hurts(e.weapon, d.armor)).map((e) => e.name),
+        weak: enemies.filter((e) => e.weapon && hurts(e.weapon, d.armor) && !kites(d, e)).map((e) => e.name),
       };
     });
 }

@@ -33,6 +33,12 @@ describe('unit info cards', () => {
     expect(card('human', 'Rifleman').canAttack).toBe(true);
   });
 
+  it('INF-3, R3D-38: an unarmed support unit says what it does instead: the Field Mender repairs and carries a squad', () => {
+    expect(card('human', 'Field Mender')).toMatchObject({ canAttack: false, strong: [], work: 'Repairs vehicles within 3 tiles; carries one infantry squad' });
+    expect(card('human', 'Shard Hauler').work).toBeNull();
+    expect(card('human', 'Bulwark Tank').work).toBeNull();
+  });
+
   it('INF-4: weak against lists enemy kinds that can hit it for full damage or more', () => {
     expect(card('human', 'Rocketeer').weak).toEqual(['Skitterer', 'Stalker', 'Brute']);
     expect(card('human', 'Paladin').weak).toEqual(['Spitter', 'Glare Skimmer', 'Dreadstrider']);
@@ -44,7 +50,16 @@ describe('unit info cards', () => {
   it('SKM-1, INF-2, INF-3, INF-4: the Glare Skimmer card: a very tough, long-range anti-armour unit, strong against heavy armour, ground only', () => {
     expect(card('alien', 'Glare Skimmer')).toMatchObject({ cost: 950, role: 'Anti-armour', toughness: 'Very tough', speed: 'Average', range: 'Long', hitsAir: false, regenerates: true, canAttack: true });
     expect(card('alien', 'Glare Skimmer').strong).toEqual([{ armour: 'Heavy', units: ['Shard Hauler', 'Bulwark Tank', 'Hammer Artillery', 'Field Mender', 'Paladin'] }]);
-    expect(card('alien', 'Glare Skimmer').weak).toEqual(['Rocketeer', 'Bulwark Tank', 'Paladin']);
+    expect(card('alien', 'Glare Skimmer').weak).toEqual(['Rocketeer', 'Paladin']);
+  });
+
+  it('INF-4, SKM-4: a unit that fires on the move is not weak against an enemy it out-ranges and hurts: it kites it', () => {
+    // The Skimmer's lance (range 8, 160% to heavy) out-ranges the Bulwark's rockets (6) while it skims away.
+    expect(card('alien', 'Glare Skimmer').weak).not.toContain('Bulwark Tank');
+    // The Paladin's missile salvo reaches 9 tiles, past the lance: still a threat. Rocketeers are light: the lance barely hurts them.
+    expect(card('alien', 'Glare Skimmer').weak).toEqual(expect.arrayContaining(['Paladin', 'Rocketeer']));
+    // Units that do not fire on the move keep the plain rule.
+    expect(card('alien', 'Brute').weak).toContain('Bulwark Tank');
   });
 
   it('INF-5: cards are a pure function of the definitions', () => {

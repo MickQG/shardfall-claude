@@ -8,7 +8,7 @@ import { paletteOf, recipeFor, WORLD_SOUNDS } from '../../src/audio/recipes';
 import { unitDef } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
 import { UNIT_MODELS } from '../../src/render/voxel/models';
-import { MENDER_HATCH, MENDER_TIP } from '../../src/render3d/mender3d';
+import { MENDER_BOOM, MENDER_HATCH, MENDER_JOINTS, MENDER_ROOF, MENDER_STICK, MENDER_SWIVEL, MENDER_TIP } from '../../src/render3d/mender3d';
 import { poseRig, previewDraws, rigTree, turretReach, type RigPose } from '../../src/render3d/rig';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
 import { createGame, FP, snapshot, tick, type Command, type SimEvent, type UnitSnap } from '../../src/sim';
@@ -133,19 +133,69 @@ describe('R3D-38: the Field Mender model', () => {
     expect(def.shapes.lamp!().build(0xff0000).glow).toBeTruthy();
   });
 
-  it('R3D-38: the arm tip turns toward the aim, and stays above the hull and clear of the hatch all the way round', () => {
+  /** World points of the arm's parts (swivel, boom, stick, tool head) and the tool tip and its pointing, in a pose. */
+  const armAt = (pose: Partial<RigPose>) => {
     const def = UNIT_RIGS.hum_mender!();
     const t = rigTree(def);
-    const arm = t.drawn.find((d) => d.geo === 'arm')!;
-    for (let a = -Math.PI; a < Math.PI; a += Math.PI / 8) {
-      poseRig(t, { ...STILL, turret: a });
-      t.root.updateMatrixWorld(true);
-      const tip = new THREE.Vector3(...MENDER_TIP).applyMatrix4(arm.obj.matrixWorld);
-      // Rigs turn by minus the yaw: a yaw `a` points the arm along (cos a, sin a) in x and z.
-      const dir = Math.atan2(tip.z, tip.x - (-0.08));
-      expect(Math.abs(Math.atan2(Math.sin(dir - a), Math.cos(dir - a)))).toBeLessThan(0.05);
-      expect(tip.y).toBeGreaterThan(MENDER_HATCH[1] + 0.05);
+    poseRig(t, { ...STILL, ...pose });
+    t.root.updateMatrixWorld(true);
+    const pts: THREE.Vector3[] = [];
+    for (const d of t.drawn.filter((x) => ['arm', 'boom', 'stick', 'tool'].includes(x.geo))) {
+      for (const p of def.shapes[d.geo]!().pieces) {
+        const pos = p.geo.getAttribute('position');
+        for (let i = 0; i < pos.count; i++) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(d.obj.matrixWorld));
+      }
     }
+    const tool = t.drawn.find((d) => d.geo === 'tool')!;
+    const tip = new THREE.Vector3(...MENDER_TIP).applyMatrix4(tool.obj.matrixWorld);
+    const dir = new THREE.Vector3().setFromMatrixColumn(tool.obj.matrixWorld, 0).normalize();
+    return { pts, tip, dir };
+  };
+
+  it('R3D-38: a long crane arm (boom, stick and tool head) that rests folded flat on the roof', () => {
+    // Clearly longer than a single short arm: boom and stick together reach close to a tile.
+    expect(MENDER_BOOM + MENDER_STICK).toBeGreaterThanOrEqual(0.9);
+    for (const turret of [0, 1.2, -2.5]) {
+      const { pts } = armAt({ turret, arm: 0 });
+      // Folded: low over the roof, nothing above a hand's breadth of it or below it.
+      for (const v of pts) {
+        expect(v.y).toBeGreaterThan(MENDER_ROOF - 1e-6);
+        expect(v.y).toBeLessThan(MENDER_ROOF + 0.26);
+      }
+    }
+    // Facing ahead, it lies within the vehicle's length.
+    for (const v of armAt({ arm: 0 }).pts) expect(Math.abs(v.x)).toBeLessThan(0.78);
+  });
+
+  it('R3D-38: unfolded, the arm swings toward the aim all the way round, reaches out, stays above the hull and clear of the hatch', () => {
+    for (let a = -Math.PI; a < Math.PI; a += Math.PI / 8) {
+      for (const aim of [-1, 0, 1]) {
+        const { tip, pts, dir: d } = armAt({ turret: a, arm: 1, aim });
+        // Rigs turn by minus the yaw: a yaw `a` points the arm along (cos a, sin a) in x and z. The tool head points
+        // exactly that way; its tip sits a little to the side, as the stick hangs beside the boom.
+        const off = (y: number): number => Math.abs(Math.atan2(Math.sin(y - a), Math.cos(y - a)));
+        expect(off(Math.atan2(d.z, d.x))).toBeLessThan(1e-6);
+        expect(off(Math.atan2(tip.z - MENDER_SWIVEL[2], tip.x - MENDER_SWIVEL[0]))).toBeLessThan(0.12);
+        expect(Math.hypot(tip.x - MENDER_SWIVEL[0], tip.z - MENDER_SWIVEL[2])).toBeGreaterThan(0.6);
+        expect(tip.y).toBeGreaterThan(MENDER_ROOF);
+        for (const v of pts) expect(v.y).toBeGreaterThan(MENDER_HATCH[1] - 0.04);
+      }
+    }
+    // Unfolded it stands well above the folded arm.
+    expect(Math.max(...armAt({ arm: 1 }).pts.map((v) => v.y))).toBeGreaterThan(MENDER_ROOF + 0.45);
+  });
+
+  it('R3D-38: unfolded, the arm pitches its tool head down toward a vehicle below it, within its limits; folded it does not', () => {
+    const level = armAt({ arm: 1, aim: 0 });
+    const down = armAt({ arm: 1, aim: -0.25 });
+    expect(down.tip.y).toBeLessThan(level.tip.y - 0.05);
+    expect(Math.asin(down.dir.y)).toBeCloseTo(Math.asin(level.dir.y) - 0.25, 5);
+    // Held within its limits.
+    expect(Math.asin(armAt({ arm: 1, aim: -2 }).dir.y)).toBeCloseTo(Math.asin(level.dir.y) + MENDER_JOINTS.stick.lo, 5);
+    // The tool points down at what it mends.
+    expect(level.dir.y).toBeLessThan(-0.5);
+    // Folded, the aim moves nothing.
+    expect(armAt({ arm: 0, aim: -0.3 }).tip.distanceTo(armAt({ arm: 0 }).tip)).toBeLessThan(1e-9);
   });
 
   it('R3D-38: in the grounded style of R3D-35: no crew colours, no exhaust stack, team colour on it', () => {
@@ -170,6 +220,34 @@ describe('R3D-38: the Field Mender model', () => {
       expect(streaks()).toBeGreaterThan(0);
       fx.update(200, 0.016);
       expect(streaks()).toBe(0);
+    });
+  });
+
+  it('R3D-38: welding sparks spray from the contact point continuously while it mends, at a steady rate, and a light flickers there', () => {
+    return import('../../src/render3d/fx3d').then(({ CombatFx, WELD_SPARKS_PER_S, WELD_G }) => {
+      const fx = new CombatFx();
+      const at = new THREE.Vector3(2, 0.3, 0);
+      const from = new THREE.Vector3(0, 0.9, 0);
+      // Fed every frame for a second, at two frame rates: about as many sparks either way.
+      const sprayed = (frameMs: number): number => {
+        const f = new CombatFx();
+        for (let t = 0; t <= 1000; t += frameMs) {
+          f.repairStream(from, at, t, 7, t % 100 < frameMs);
+          f.update(t, frameMs / 1000);
+        }
+        return f.particleCounts.glow;
+      };
+      expect(WELD_SPARKS_PER_S).toBeGreaterThanOrEqual(40);
+      expect(WELD_G).toBeGreaterThan(0);
+      const a = sprayed(16);
+      const b = sprayed(33);
+      expect(a).toBeGreaterThan(WELD_SPARKS_PER_S * 0.25);
+      expect(Math.abs(a - b) / a).toBeLessThan(0.35);
+      // The welding light: a pooled point light lights up at the contact point.
+      fx.repairStream(from, at, 10, 7, true);
+      fx.update(12, 0.016);
+      const lights = fx.root.children.filter((c): c is THREE.PointLight => c instanceof THREE.PointLight);
+      expect(lights.some((l) => l.intensity > 0 && l.position.distanceTo(at) < 0.4)).toBe(true);
     });
   });
 
