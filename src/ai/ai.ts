@@ -465,6 +465,30 @@ export const SCREEN_PER = 3;
 /** Where its second standing scout watches (AI-21): this far along the way from its staging point to the enemy start, and PICKET_SIDE tiles to one side. */
 export const PICKET_ALONG = 0.3;
 export const PICKET_SIDE = 6;
+/**
+ * Standing units answer an attack as a group (AI-34). Its units not out on a wave, raid or hit squad that lost health
+ * since its last decision, with the armed enemy units it sees within RESPONSE_R tiles of them, call in its other such
+ * units within RESPONSE_R tiles. A counter-attack goes no farther than RESPONSE_LEASH tiles from where the group stood and
+ * lasts at most RESPONSE_MAX ticks, its order renewed every RESPONSE_STEP ticks; a retreat goes to a refuge at least
+ * RESPONSE_AWAY tiles off, and its units stay out of the army's orders for RETREAT_STAY ticks.
+ */
+export const RESPONSE_R = 9;
+export const RESPONSE_LEASH = 8;
+export const RESPONSE_MAX = 20 * 6;
+export const RESPONSE_STEP = 40;
+export const RESPONSE_AWAY = 6;
+export const RETREAT_STAY = 20 * 10;
+
+/** A group of its standing units answering an attack (AI-34): counter-attacking, or retreating to a refuge. */
+interface Response {
+  mode: 'counter' | 'retreat';
+  members: Set<number>;
+  /** Where the group stood (its middle, in tiles), and where it is going. */
+  home: { x: number; y: number };
+  to: { x: number; y: number };
+  since: number;
+  lastOrder: number;
+}
 
 export interface AiStats {
   waves: number;
@@ -533,6 +557,9 @@ export interface AiStats {
   ballRaids: number;
   /** Orders that held back a slow melee crusher from chasing faster armour moving away (AI-30). */
   heldBack: number;
+  /** Groups of its standing units that answered an attack (AI-34): by counter-attacking together, and by retreating. */
+  counters: number;
+  withdrawals: number;
 }
 
 /** Options of an AI beyond difficulty and personality. */
@@ -603,6 +630,8 @@ export interface AiRules {
   twoScouts: boolean;
   /** (AI-21) How far along the way from its staging point to the enemy start the second scout's post lies. */
   picketAlong: number;
+  /** (AI-34) Its standing units answer an attack as a group; off: each hit unit retaliates alone (the simulation's own rule). */
+  groupResponse: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -634,6 +663,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   screen: false,
   twoScouts: false,
   picketAlong: PICKET_ALONG,
+  groupResponse: true,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -710,7 +740,7 @@ type Ctx = {
 export class AI {
   readonly kit: Kit;
   protected readonly doctrine: Doctrine = FULL_DOCTRINE;
-  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, hitSquads: 0, raiderScouts: 0, ballRaids: 0, heldBack: 0 };
+  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, hitSquads: 0, raiderScouts: 0, ballRaids: 0, heldBack: 0, counters: 0, withdrawals: 0 };
   /** Its Field Menders (AI-29): loading, following, fallback and unloading. */
   protected readonly menders: MenderPlan;
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
@@ -802,6 +832,9 @@ export class AI {
   private picketFleeing: { tx: number; ty: number } | null = null;
   private picketHop: { tx: number; ty: number } | null = null;
   private picketAt: { x: number; y: number } | null = null;
+  /** Its units' health at its last decision, and its groups answering an attack (AI-34). */
+  private lastHp = new Map<number, number>();
+  private responses: Response[] = [];
 
   constructor(
     readonly player: number,
@@ -866,12 +899,21 @@ export class AI {
     const out: Command[] = [...mend.orders.slice(0, Math.max(1, Math.floor(this.diff.maxCommands / 4))), ...hold];
     this.placeReady(c, out);
     this.defendBase(c, out);
+    // Its standing units answer an attack as a group (AI-34); the base defence above takes precedence.
+    this.respond(c, out);
     // Scouting goes ahead of building and production in the command budget, or the scout is rarely sent (AI-6, AI-17).
     this.scout(c, out);
     this.structures(c, out);
     this.production(c, out);
     this.economy(c, out);
+    // Units answering an attack (AI-34) take no wave, gathering or reinforcement orders meanwhile.
+    const whole = c.army;
+    if (this.responses.length > 0) {
+      const answering = new Set(this.responses.flatMap((r) => [...r.members]));
+      c.army = c.army.filter((u) => !answering.has(u.id));
+    }
     this.attackLogic(c, out);
+    c.army = whole;
     this.maintain(c, out);
     this.superweapon(c, out);
     // Crush orders go last so they override this tick's wave orders for the same units, and always get a share of the
@@ -972,6 +1014,146 @@ export class AI {
       return this.nearestFree(Math.floor(mx), Math.floor(my));
     }
     return this.staging as { tx: number; ty: number };
+  }
+
+  /**
+   * Its standing units answer an attack as a group (AI-34). A unit of its army not out on a wave, raid or hit squad (nor
+   * held back, AI-30, nor busy with a Field Mender, AI-29) that has less health than at its last decision has been hit.
+   * With the armed enemy units it sees within RESPONSE_R tiles of the hit units (the attackers) and its other such units
+   * within RESPONSE_R tiles of them (the group), it compares their values, cost scaled by health:
+   * - attackers worth no more than the group: the whole group attack-moves to the attackers' middle;
+   * - attackers worth more: the group moves to a refuge (refuge) when its slowest unit is faster than the fastest attacker
+   *   and it has one; otherwise it fights together, as above.
+   * A counter-attack is renewed every RESPONSE_STEP ticks toward the attackers it still sees within RESPONSE_R tiles of
+   * its units, never beyond RESPONSE_LEASH tiles from where the group stood (judged anew, so a group that is now
+   * outmatched and can outrun them retreats); it ends, and the group moves back to where it stood, when it sees no
+   * attacker so near, when its middle is more than RESPONSE_LEASH tiles from there, or after RESPONSE_MAX ticks. A retreat
+   * ends after RETREAT_STAY ticks. While the base defence (AI-7) answers a threat near its buildings, no group answers.
+   */
+  private respond(c: Ctx, out: Command[]): void {
+    const before = this.lastHp;
+    this.lastHp = new Map(c.own.map((u) => [u.id, u.hp]));
+    if (!this.rules.groupResponse || !this.doctrine.retreats || this.lastThreat === c.tick) {
+      this.responses = [];
+      return;
+    }
+    const byId = new Map(c.army.map((u) => [u.id, u]));
+    const armed = c.foes.filter((f) => unitDef(f.kind).weapon && unitDef(f.kind).capacity === undefined);
+    const at = (u: UnitSnap): { x: number; y: number } => ({ x: u.x / FP, y: u.y / FP });
+    const middle = (us: readonly UnitSnap[]): { x: number; y: number } => ({ x: us.reduce((s, u) => s + u.x, 0) / us.length / FP, y: us.reduce((s, u) => s + u.y, 0) / us.length / FP });
+    const within = (us: readonly UnitSnap[]): UnitSnap[] => armed.filter((f) => us.some((u) => dist(f.x / FP, f.y / FP, at(u).x, at(u).y) <= RESPONSE_R));
+    const order = (type: 'move' | 'attackmove', ids: readonly number[], p: { x: number; y: number }): void => {
+      out.push({ type, player: this.player, units: [...ids], x: Math.floor(p.x) * FP + FP / 2, y: Math.floor(p.y) * FP + FP / 2 });
+    };
+    const committed = new Set([...(this.wave ? [...this.wave.members] : []), ...this.squads.flatMap((s) => [...s.members])]);
+    // Groups already answering.
+    for (const r of [...this.responses]) {
+      const members = [...r.members].map((id) => byId.get(id)).filter((u): u is UnitSnap => u !== undefined && !committed.has(u.id));
+      r.members = new Set(members.map((u) => u.id));
+      const drop = (): void => {
+        this.responses = this.responses.filter((x) => x !== r);
+      };
+      if (members.length === 0) {
+        drop();
+        continue;
+      }
+      if (r.mode === 'retreat') {
+        if (c.tick - r.since >= RETREAT_STAY) drop();
+        continue;
+      }
+      const foes = within(members);
+      const m = middle(members);
+      if (foes.length === 0 || dist(m.x, m.y, r.home.x, r.home.y) > RESPONSE_LEASH || c.tick - r.since >= RESPONSE_MAX) {
+        order('move', [...r.members], r.home);
+        drop();
+        continue;
+      }
+      if (c.tick - r.lastOrder < RESPONSE_STEP) continue;
+      const next = this.answer(c, members, foes, r.home);
+      r.lastOrder = c.tick;
+      if (next.mode === 'retreat') {
+        r.mode = 'retreat';
+        r.since = c.tick;
+        r.to = next.to;
+        this.stats.withdrawals++;
+        order('move', [...r.members], next.to);
+      } else {
+        r.to = next.to;
+        order('attackmove', [...r.members], next.to);
+      }
+    }
+    // Units newly hit.
+    const busy = new Set([...committed, ...this.responses.flatMap((r) => [...r.members])]);
+    const pool = c.army.filter((u) => !busy.has(u.id));
+    const hit = pool.filter((u) => {
+      const was = before.get(u.id);
+      return was !== undefined && u.hp < was;
+    });
+    const taken = new Set<number>();
+    for (const h of hit) {
+      if (taken.has(h.id)) continue;
+      const group = pool.filter((u) => !taken.has(u.id) && dist(at(u).x, at(u).y, at(h).x, at(h).y) <= RESPONSE_R);
+      for (const u of group) taken.add(u.id);
+      const attackers = within(group.filter((u) => hit.includes(u)));
+      if (attackers.length === 0) continue;
+      const home = middle(group);
+      const a = this.answer(c, group, attackers, home, pool.filter((u) => !group.includes(u)));
+      const ids = group.map((u) => u.id);
+      this.responses.push({ mode: a.mode, members: new Set(ids), home, to: a.to, since: c.tick, lastOrder: c.tick });
+      if (a.mode === 'retreat') this.stats.withdrawals++;
+      else this.stats.counters++;
+      order(a.mode === 'retreat' ? 'move' : 'attackmove', ids, a.to);
+    }
+  }
+
+  /**
+   * How a group answers these attackers (AI-34): retreat to a refuge when they are worth more than it, it can outrun them
+   * (its slowest unit is faster than the fastest of them) and it has a refuge; else counter-attack toward their middle,
+   * at most RESPONSE_LEASH tiles from where it stood.
+   */
+  private answer(c: Ctx, group: readonly UnitSnap[], attackers: readonly UnitSnap[], home: { x: number; y: number }, rest?: readonly UnitSnap[]): { mode: 'counter' | 'retreat'; to: { x: number; y: number } } {
+    const ax = attackers.reduce((s, u) => s + u.x, 0) / attackers.length / FP;
+    const ay = attackers.reduce((s, u) => s + u.y, 0) / attackers.length / FP;
+    const theirs = this.armyPower(attackers);
+    if (theirs > this.armyPower(group)) {
+      const slowest = Math.min(...group.map((u) => unitDef(u.kind).speed));
+      const fastest = Math.max(...attackers.map((u) => unitDef(u.kind).speed));
+      if (slowest > fastest) {
+        const to = this.refuge(c, group, { x: ax, y: ay }, theirs, rest);
+        if (to) return { mode: 'retreat', to };
+      }
+    }
+    const d = dist(ax, ay, home.x, home.y);
+    const k = d > RESPONSE_LEASH ? RESPONSE_LEASH / d : 1;
+    return { mode: 'counter', to: { x: home.x + (ax - home.x) * k, y: home.y + (ay - home.y) * k } };
+  }
+
+  /**
+   * Where an outmatched group retreats to (AI-34): its hold point by its buildings (AI-23), or the middle of the rest of its
+   * standing army when that with the group is worth at least the attackers; of those at least RESPONSE_AWAY tiles from
+   * the group and farther from the attackers than the group is, the nearest; null if none.
+   */
+  private refuge(c: Ctx, group: readonly UnitSnap[], foe: { x: number; y: number }, theirs: number, rest?: readonly UnitSnap[]): { x: number; y: number } | null {
+    const g = { x: group.reduce((s, u) => s + u.x, 0) / group.length / FP, y: group.reduce((s, u) => s + u.y, 0) / group.length / FP };
+    const hold = this.holdPoint(c);
+    const cands: { x: number; y: number }[] = [{ x: hold.tx + 0.5, y: hold.ty + 0.5 }];
+    if (rest && rest.length > 0 && this.armyPower(rest) + this.armyPower(group) >= theirs) cands.push({ x: rest.reduce((s, u) => s + u.x, 0) / rest.length / FP, y: rest.reduce((s, u) => s + u.y, 0) / rest.length / FP });
+    const far = dist(g.x, g.y, foe.x, foe.y);
+    let best: { x: number; y: number } | null = null;
+    let bd = Infinity;
+    for (const p of cands) {
+      const d = dist(p.x, p.y, g.x, g.y);
+      if (d >= RESPONSE_AWAY && dist(p.x, p.y, foe.x, foe.y) > far && d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  /** Its groups answering an attack (AI-34): mode, units, where they stood and where they are going: for tests only. */
+  get responseState(): { mode: 'counter' | 'retreat'; members: readonly number[]; home: { x: number; y: number }; to: { x: number; y: number } }[] {
+    return this.responses.map((r) => ({ mode: r.mode, members: [...r.members], home: { ...r.home }, to: { ...r.to } }));
   }
 
   /** Where it last called a wave home to (AI-23 c), or null: for tests and measurement only. */
