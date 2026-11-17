@@ -182,6 +182,9 @@ interface UnitObj {
   work: number;
   /** The howitzer's barrel elevation, 0 in its travel lock .. 1 raised (R3D-32), and when the hauler last breathed vapour. */
   elev: number;
+  /** Has a gun that pitches toward its target (SKM-4), and how far up it points, radians, eased. */
+  pitches: boolean;
+  aimPitch: number;
   /** The hauler's stop settle (R3D-30). */
   settle: Settle;
   lastPuff: number;
@@ -769,6 +772,8 @@ export class View3D {
       drum: 0,
       work: 0,
       elev: 0,
+      pitches: figures[0]!.anims.some((a) => a.anim.k === 'aim'),
+      aimPitch: 0,
       settle: restingSettle(),
       lastPuff: 0,
       alive: size,
@@ -1346,6 +1351,18 @@ export class View3D {
       else if (tb) o.aim = Math.atan2(tb.ty + buildingDef(tb.kind).h / 2 - o.z, tb.tx + buildingDef(tb.kind).w / 2 - o.x);
       const aiming = !!tgt || !!tb || t <= o.aimHold;
       o.turretYaw = turnToward(o.turretYaw, aiming ? o.aim : o.motion.heading, TURRET_RATE * dt);
+      // A gun that pitches (the Skimmer's lance, SKM-4) tilts toward the middle of its target, and back to level without one.
+      if (o.pitches) {
+        let want = 0;
+        if (tgt || tb) {
+          const ax = tgt ? tgt.tx : tb!.tx + buildingDef(tb!.kind).w / 2;
+          const az = tgt ? tgt.ty : tb!.ty + buildingDef(tb!.kind).h / 2;
+          const to = tgt ? this.units.get(tgt.id) : undefined;
+          const ay = this.groundAt(ax, az) + (to ? to.def.height * (to.def.scale ?? 1) * 0.5 : 0.5);
+          want = Math.atan2(ay - (o.groundY + def.height * (def.scale ?? 1)), Math.max(0.5, Math.hypot(ax - o.x, az - o.z)));
+        }
+        o.aimPitch += (want - o.aimPitch) * Math.min(1, dt * 5);
+      }
       this.poseUnit(o, aiming, t, dt);
       // UI: selection ring on the ground, health bar over the model (both instanced, R3D-13).
       const sel = vs.selectedUnits.has(u.id);
@@ -1560,6 +1577,7 @@ export class View3D {
         head: o.work,
         feed: o.work,
         elev: o.elev,
+        aim: o.aimPitch,
         pod: podOpen(t - o.podSince, salvoOf(o.kind, this.msPerTick)),
       });
     });

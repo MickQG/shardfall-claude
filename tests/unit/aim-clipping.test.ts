@@ -74,6 +74,11 @@ export function aimPoses(def: RigDef): [string, RigPose][] {
     ['unload wave', { ...STILL, walker, tip: 1, time: 600 }],
     ['barrel raised', { ...STILL, walker, elev: 1 }],
     ['barrel raised and firing', { ...STILL, walker, elev: 1, kick: 1, turret: 1.2 }],
+    // A gun that pitches toward its target (SKM-4), as far up and down as it goes, turned and not.
+    ['gun pitched up', { ...STILL, walker, aim: 1 }],
+    ['gun pitched down', { ...STILL, walker, aim: -1 }],
+    ['gun pitched up, turned', { ...STILL, walker, aim: 1, turret: 1.6 }],
+    ['gun pitched down, turned', { ...STILL, walker, aim: -1, turret: -2.4, kick: 1 }],
     ['turning', { ...STILL, walker, turnRate: 3, turned: 2, dist: 1 }],
     ['lean forward', { ...STILL, walker, pitch: hero ? 0.16 : lean, bob: hero ? -0.07 : 0 }],
     ['lean back', { ...STILL, walker, pitch: hero ? -0.16 : -lean, bob: hero ? -0.07 : 0 }],

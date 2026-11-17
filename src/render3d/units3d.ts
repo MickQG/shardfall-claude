@@ -1263,15 +1263,25 @@ function lobber(): RigDef {
 
 /** How high the Glare Skimmer's hull floats: the underside's lowest point above the ground, tiles (SKM-4). */
 export const SKIMMER_HOVER = 0.3;
-/** How high the lance's axis rides above the hull's underside, tiles: clear of the carapace as it turns all round (AIM-2). */
-const LANCE_Y = 0.34;
+/** The lance's swivel on the hull's back, hull frame (SKM-4). */
+export const LANCE_MOUNT: V3 = [-0.06, 0.25, 0];
+/** How high the lance's axis lies above its swivel, tiles: just over the carapace, clear of it as it turns all round (AIM-2). */
+export const LANCE_AXIS = 0.09;
+/** How far the lance pitches toward its target, radians: a little down, a little more up, never into the hull (SKM-4, AIM-2). */
+export const LANCE_PITCH = { lo: -0.03, hi: 0.16 } as const;
+/** The lance's tip, where the beam leaves, along its axis from the pivot, tiles (SKM-4). */
+export const LANCE_TIP = 0.86;
+/** The lance's ribs: an older, darker bone than its shaft, so it reads as one long barrel rather than a striped pole. */
+const LANCE_RIB = 0xa39274;
 
 /**
  * The Glare Skimmer (SKM-4): a Vrax hover tank, an original design. A long, flattened, organic hull like a ray's body
  * floats about 0.3 tiles above the ground (its shadow lies apart from it on the ground), its underside glowing with the
  * acid that holds it up; team-coloured carapace over the back, finned flanks, a blunt head with glowing eyes and a bone
- * tail. On its back a swivelling bone mount carries the long lance emitter: a ribbed, tapering spine with glowing coils,
- * a feeding sac behind and a glowing tip, which turns to its target as the hull skims on. It fires a held beam.
+ * tail. A fleshy collar on its back carries the lance like a gun barrel: a long, tapering bone emitter lying forward along
+ * the back and out past the head, ribbed with chitin, fed by glowing veins from a sac at its breech under a team-coloured
+ * hood, and ending in two bone prongs round a glowing core. It swivels all round to its target and pitches a little
+ * toward it as the hull skims on, and fires a held beam from the tip.
  */
 function skimmer(): RigDef {
   return {
@@ -1300,18 +1310,26 @@ function skimmer(): RigDef {
         for (const z of [0.12, -0.12]) s.cone(0.025, 0.12, BONE, { at: [0.36, 0.2, z], rot: [0, 0, -1.2], seg: 5 }); // brow horns
         return s;
       },
+      // The fleshy collar the lance swivels on, low on the carapace.
+      mount: () => {
+        const s = shape();
+        s.ball(0.12, CHITIN2, { scale: [1.3, 0.45, 1.1], seg: 12 });
+        s.ring(0.105, 0.012, ACID, { at: [0, 0.03, 0], scale: [1.2, 1, 1], seg: 14, glow: true });
+        return s;
+      },
+      // The lance, along +X from its pivot: the breech sac under its hood, the ribbed barrel with its veins, the pronged tip.
       lance: () => {
         const s = shape();
-        // The bone mount, round so it turns in place on the carapace.
-        s.ball(0.11, CHITIN2, { at: [0, 0.02, 0], scale: [1.2, 0.6, 1.2], seg: 12 });
-        s.cyl(0.05, 0.1, BONE, { at: [0, 0.06, 0], seg: 8 });
-        const y = LANCE_Y - 0.25;
-        // The emitter: a long, tapering, ribbed spine with glowing coils and a sac at the back.
-        s.tube(0.04, 0.78, BONE, { at: [0.17, y, 0], r2: 0.028, seg: 8 });
-        for (let i = 0; i < 4; i++) s.tube(0.05, 0.035, CHITIN, { at: [0.0 + i * 0.13, y, 0], seg: 8, shadow: false });
-        for (const x of [0.065, 0.195, 0.325]) s.tube(0.046, 0.016, ACID, { at: [x, y, 0], seg: 8, glow: true });
-        s.ball(0.06, SAC, { at: [-0.2, y, 0], scale: [1.4, 0.9, 0.9], seg: 10 });
-        s.cone(0.04, 0.08, GREEN, { at: [0.6, y, 0], rot: [0, 0, -Math.PI / 2], seg: 8, glow: true }); // glowing tip
+        s.ball(0.068, SAC, { at: [-0.05, 0, 0], scale: [1.35, 0.85, 0.95], seg: 10 }); // the feeding sac at the breech
+        s.ball(0.075, 'team', { at: [-0.03, 0.005, 0], scale: [1.7, 0.85, 1.05], seg: 12, cut: 0.5 }); // its hood
+        s.tube(0.05, 0.72, BONE, { at: [0.38, 0, 0], r2: 0.03, seg: 10 }); // the barrel, tapering forward
+        // Ribs of darker bone round it, smaller toward the tip, and a glowing vein along each side.
+        for (const [x, r] of [[0.2, 0.055], [0.4, 0.05], [0.6, 0.044]] as const) s.tube(r, 0.03, LANCE_RIB, { at: [x, 0, 0], seg: 10, shadow: false });
+        for (const z of [0.041, -0.041]) s.tube(0.008, 0.56, ACID, { at: [0.36, 0.006, z], r2: 0.006, seg: 5, glow: true, shadow: false });
+        // The emitter head: a chitin bulb, two bone prongs reaching forward and a glowing core between them.
+        s.ball(0.045, CHITIN2, { at: [0.74, 0, 0], scale: [1.4, 0.9, 1.05], seg: 10 });
+        for (const z of [1, -1]) s.cone(0.016, 0.13, BONE, { at: [0.81, 0, z * 0.032], rot: [z * 0.18, 0, -Math.PI / 2], seg: 5 });
+        s.ball(0.03, GREEN, { at: [0.8, 0, 0], seg: 8, glow: true });
         return s;
       },
     },
@@ -1320,7 +1338,15 @@ function skimmer(): RigDef {
         {
           anim: { k: 'body' },
           at: [0, SKIMMER_HOVER, 0],
-          kids: [{ geo: 'hull' }, { geo: 'lance', at: [-0.04, 0.25, 0], anim: { k: 'turret' }, kids: [{ muzzle: true, at: [0.66, LANCE_Y - 0.25, 0] }] }],
+          kids: [
+            { geo: 'hull' },
+            {
+              geo: 'mount',
+              at: LANCE_MOUNT,
+              anim: { k: 'turret' },
+              kids: [{ geo: 'lance', at: [0, LANCE_AXIS, 0], anim: { k: 'aim', ...LANCE_PITCH }, kids: [{ muzzle: true, at: [LANCE_TIP, 0, 0] }] }],
+            },
+          ],
         },
       ],
     },
