@@ -1,9 +1,12 @@
 import { unitDef } from '../data/defs';
 import { FP } from '../sim';
 
-/** Ids of the player's living combat units (units with a weapon; harvesters are not combat units). */
+/**
+ * Ids of the player's living combat units: units with a weapon, and carriers (the Field Mender), which fight through
+ * their passenger (SQD-7). Harvesters are not combat units.
+ */
 export function combatUnitIds(units: readonly { id: number; owner: number; kind: string }[], player: number): number[] {
-  return units.filter((u) => u.owner === player && unitDef(u.kind).weapon !== undefined).map((u) => u.id);
+  return units.filter((u) => u.owner === player && (unitDef(u.kind).weapon !== undefined || unitDef(u.kind).carries !== undefined)).map((u) => u.id);
 }
 
 /** The combat units among `selected`: the only ones an attack-move is given to. */

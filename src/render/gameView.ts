@@ -476,9 +476,16 @@ export class GameView implements WorldRenderer {
     best.aimHold = now + 700;
   }
 
-  private drawOverlay(vs: ViewState): void {
+  private drawOverlay(vs: ViewState, units: readonly RenderUnit[]): void {
     const g = this.overlay;
     g.clear();
+    // A selected Field Mender's repair reach (R3D-38): a thin green-blue ellipse on the ground.
+    for (const u of units) {
+      const reach = vs.selectedUnits.has(u.id) ? unitDef(u.kind).repair?.range : undefined;
+      if (!reach) continue;
+      const c = tileToScreen(u.tx, u.ty);
+      g.ellipse(c.x, c.y, (reach * Math.SQRT2 * TILE_W) / 2, (reach * Math.SQRT2 * TILE_H) / 2).stroke({ color: 0x4fffd0, width: 1.5, alpha: 0.6 });
+    }
     const r = vs.rally;
     if (r) {
       const a = tileToScreen(r.from.tx, r.from.ty);
@@ -529,7 +536,7 @@ export class GameView implements WorldRenderer {
       }
       this.syncBuildings(snap, vs);
     }
-    this.drawOverlay(vs);
+    this.drawOverlay(vs, units);
 
     const seen = new Set<number>();
     // Where each unit's target is (tile space), so turrets keep tracking it between shots.

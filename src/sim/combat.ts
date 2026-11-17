@@ -225,6 +225,19 @@ function fireOnTheMove(s: State, u: Unit, w: WeaponDef, byId: Map<number, Entity
   }
 }
 
+/**
+ * The reach an unarmed carrier (the Field Mender) fights an attack or attack-move order with (SQD-8): its passenger's
+ * weapon when it carries one; when empty, only on an attack order, a reach of its repair range that can follow any
+ * target. Undefined otherwise: an idle carrier never goes after an enemy on its own. It is never fired.
+ */
+function carrierReach(u: Unit): WeaponDef | undefined {
+  const d = unitDef(u.kind);
+  if (!d.carries || (u.mode !== 'attack' && u.mode !== 'amove')) return undefined;
+  if (u.cargo) return unitDef(u.cargo.kind).weapon;
+  if (u.mode !== 'attack') return undefined;
+  return { damage: 0, range: d.repair?.range ?? 3, cooldown: 0, type: 'pierce', antiAir: true, antiGround: true };
+}
+
 function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array): void {
   const def = unitDef(u.kind);
   if (u.cooldown > 0) u.cooldown--;
@@ -236,8 +249,11 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
     return;
   }
   if (u.mode === 'move' && u.path.length === 0 && !u.waiting) u.mode = 'idle';
-  const w = def.weapon;
-  if (w && u.mode === 'move' && (def.crusher || def.firesMoving)) return fireOnTheMove(s, u, w, byId, occ);
+  const own = def.weapon;
+  if (own && u.mode === 'move' && (def.crusher || def.firesMoving)) return fireOnTheMove(s, u, own, byId, occ);
+  const w = own ?? carrierReach(u);
+  // An empty carrier on an attack-move just drives to the point (SQD-8).
+  if (!w && u.mode === 'amove') u.mode = 'move';
   if (!w || u.mode === 'move') {
     if (u.mode === 'move') u.target = -1;
     return;
@@ -278,6 +294,8 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
   }
 
   const d = distTo(u.x, u.y, t);
+  // A carrier's passenger shoots the carrier's target first once it is in its reach (SQD-8).
+  if (!own && u.cargo && d <= rangeFp(w)) u.cargo.target = t.id;
   if (def.weapon2) firePod(s, u, def.weapon2, t);
   // In range but behind a building: move for a clear shot instead of firing through it (CMB-14).
   if (d <= rangeFp(w) && !lineOfFire(s, occ, u.x, u.y, t, w, !!def.air)) {
@@ -289,8 +307,8 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
       u.path = [];
       u.waiting = false;
     }
-    // A slow turner fires only once it faces its target (HERO-5).
-    if (u.cooldown === 0 && faces(u, t)) {
+    // A slow turner fires only once it faces its target (HERO-5). A carrier never fires itself (SQD-8).
+    if (own && u.cooldown === 0 && faces(u, t)) {
       fire(s, { x: u.x, y: u.y, owner: u.owner, id: u.id }, w, t, u);
       u.cooldown = w.cooldown;
     }
