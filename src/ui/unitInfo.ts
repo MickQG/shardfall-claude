@@ -14,6 +14,8 @@ export interface UnitCard {
   canAttack: boolean;
   /** What an unarmed support unit does instead of fighting (repairing, carrying a squad), in plain words; null for others. */
   work: string | null;
+  /** A hero's aura (HERO-9) in plain words, or null. */
+  aura: string | null;
   /** Armour classes the weapon deals full damage or more to, with the enemy kinds of that class. */
   strong: { armour: string; units: string[] }[];
   /** Enemy kinds that can hit this unit for full damage or more, but those it kites (fires on the move and out-ranges, hurting them). */
@@ -85,6 +87,9 @@ export function workOf(d: UnitDef): string | null {
   return text[0]!.toUpperCase() + text.slice(1);
 }
 
+/** A hero's aura (HERO-9) in plain words, or null. */
+export const auraOf = (d: UnitDef): string | null => (d.aura ? `Boosts the firepower of friendly units within ${d.aura.range} tiles by ${d.aura.pct}%` : null);
+
 /** One card per unit kind of `faction`, in definition order. */
 export function unitCards(faction: Faction): UnitCard[] {
   const all = Object.entries(UNIT_DEFS);
@@ -105,6 +110,7 @@ export function unitCards(faction: Faction): UnitCard[] {
         regenerates: d.regen !== undefined,
         canAttack: !!w,
         work: workOf(d),
+        aura: auraOf(d),
         // Unit armour classes the enemy fields no unit of (no aircraft, since the heroes replaced them) are left out.
         strong: w
           ? ARMOUR.filter(([a]) => hurts(w, a))
