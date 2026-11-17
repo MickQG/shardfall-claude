@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI, DIFFICULTIES, SCOUT_FLEE, SCOUT_HOP, SCOUT_KEEP, SCOUT_REPLACE, SCOUT_STANDOFF, SCOUT_YOUNG, STANDING_SCOUTS } from '../../src/ai/ai';
+import { AI, DEFAULT_RULES, DIFFICULTIES, PICKET_ALONG, PICKET_SIDE, SCOUT_FLEE, SCOUT_HOP, SCOUT_KEEP, SCOUT_REPLACE, SCOUT_STANDOFF, SCOUT_YOUNG, STANDING_SCOUTS } from '../../src/ai/ai';
 import { kitOf } from '../../src/ai/kit';
 import { SteamrollAI } from '../../src/ai/steamroll';
 import { buildingDef, UNIT_DEFS, unitDef, type Faction } from '../../src/data/defs';
@@ -82,8 +82,9 @@ describe('the standing scout (AI-21)', () => {
       const earlyCfg = config(faction, 6, 5000);
       expect(produced(drive(createGame(earlyCfg), new AI(0, faction, DIFFICULTIES.hard, earlyCfg.map, 6), 1), scout), faction).toBe(0);
 
+      // One standing scout (rules.twoScouts off); the second is tested below.
       const { g, cfg } = builtBase(faction, 20000);
-      const ai = new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6);
+      const ai = new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6, 'balanced', { rules: { twoScouts: false } });
       const first = drive(g, ai, 1).map((l) => l.cmd);
       // Exactly one scout, and it is what one factory trains this turn, ahead of its other combat units.
       const scouts = first.filter((c) => c.type === 'produce' && c.kind === scout);
@@ -117,6 +118,54 @@ describe('the standing scout (AI-21)', () => {
       expect(late[0]!.tick - youngAt, faction).toBeGreaterThanOrEqual(2 * SCOUT_REPLACE);
       expect(ai.stats.standingLives.length, faction).toBe(2);
       expect(ai.stats.standingLives[1]!, faction).toBeLessThan(SCOUT_YOUNG);
+    }
+  }, LONG);
+
+  it('AI-21: with rules.twoScouts it keeps two standing scouts, one touring the enemy base and one at its post on the way between the bases, and replaces a lost one after the gap', () => {
+    expect(DEFAULT_RULES.twoScouts).toBe(true);
+    expect([PICKET_ALONG, PICKET_SIDE]).toEqual([0.5, 6]);
+    for (const faction of FACTIONS) {
+      const scout = scoutOf(faction);
+      const { g, cfg } = builtBase(faction, 20000);
+      const ai = new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6);
+      // One a decision, ahead of other combat units, until it has two; never a third.
+      drive(g, ai, 1600);
+      expect(scoutsOf(g, scout), faction).toBe(2);
+      expect(queuedOf(g, scout), faction).toBe(0);
+      expect(ai.standingScout, faction).toBeGreaterThanOrEqual(0);
+      expect(ai.pickedScout, faction).toBeGreaterThanOrEqual(0);
+      expect(ai.pickedScout, faction).not.toBe(ai.standingScout);
+      // The second heads for its post and waits there; it is no part of the army.
+      const post = ai.picketPost();
+      drive(g, ai, 1600);
+      const p = g.state.units.find((u) => u.id === ai.pickedScout)!;
+      expect(Math.hypot(p.x / FP - post.tx - 0.5, p.y / FP - post.ty - 0.5), faction).toBeLessThan(4);
+      // Lost: replaced after the gap, like the first (once a factory or pit has room in its queue).
+      const lostAt = g.state.tick;
+      g.state.units = g.state.units.filter((u) => u.id !== ai.pickedScout);
+      const log = drive(g, ai, SCOUT_REPLACE + 3000);
+      const again = log.filter((l) => l.cmd.type === 'produce' && l.cmd.kind === scout);
+      expect(again.length, faction).toBe(1);
+      expect(again[0]!.tick - lostAt, faction).toBeGreaterThanOrEqual(SCOUT_REPLACE);
+    }
+  }, LONG);
+
+  it('AI-21: the second standing scout flees from an armed enemy unit within scoutKeep tiles, as the first does', () => {
+    for (const faction of FACTIONS) {
+      const scout = scoutOf(faction);
+      const { g, cfg } = builtBase(faction, 20000);
+      const ai = new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6);
+      drive(g, ai, 3200);
+      const p = g.state.units.find((u) => u.id === ai.pickedScout)!;
+      expect(p.kind, faction).toBe(scout);
+      const foe = faction === 'human' ? 'ali_brute' : 'hum_tank';
+      const at = { x: p.x + 6 * FP, y: p.y };
+      const s = snapshot(g, 0);
+      s.units.push({ id: 900001, owner: 1, kind: foe, x: at.x, y: at.y, hp: unitDef(foe).hp, dest: null, load: 0, rank: 0, target: -1 });
+      const to = moveOf(ai.think(s), p.id);
+      expect(to, faction).not.toBeNull();
+      // Farther from the threat than it stands (moveOf gives tiles).
+      expect(Math.hypot(to!.x - at.x / FP, to!.y - at.y / FP), faction).toBeGreaterThan(Math.hypot(p.x - at.x, p.y - at.y) / FP + 2);
     }
   }, LONG);
 

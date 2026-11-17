@@ -40,14 +40,17 @@ export interface SteamrollTuning {
   kite: number;
   /** 1: Field Menders in its army by the AI's count (AI-29), loaded with anti-armour squads; 0: none. */
   menders: number;
+  /** How deep its unit queues may be (HAR-7), so its credits go into factories before queues; 0: its deeper calibrated queues. */
+  queue: number;
 }
-export const STEAMROLL_TUNING: Readonly<SteamrollTuning> = { launch: 14000, crushers: 6, bonus: STEAMROLL_DIFFICULTY.bonus, antiArmour: 0.55, barracks: 5, factories: 5, fields: 3, haulers: 4, tankspam: 0, kite: 0, menders: 1 };
+export const STEAMROLL_TUNING: Readonly<SteamrollTuning> = { launch: 14000, crushers: 6, bonus: STEAMROLL_DIFFICULTY.bonus, antiArmour: 0.55, barracks: 5, factories: 5, fields: 3, haulers: 4, tankspam: 0, kite: 0, menders: 1, queue: 0 };
 
 /**
  * The tank-spam opponent (HAR-7): the steamroll opponent playing the build the owner beats the Hard AI as Vrax with: one
  * barracks, five factories massing crushers (Bulwark Tanks) that kite, and no Field Menders unless `menders: 1` is added.
+ * It mines its two home fields and keeps its unit queues two deep, so its credits go into factories first.
  */
-export const TANKSPAM: Readonly<Partial<SteamrollTuning>> = { tankspam: 1, kite: 1, menders: 0, barracks: 1, crushers: 12 };
+export const TANKSPAM: Readonly<Partial<SteamrollTuning>> = { tankspam: 1, kite: 1, menders: 0, barracks: 1, crushers: 12, queue: 2, fields: 2 };
 
 /** Named opponent variants a match series may ask for (STEAMROLL_VARIANT), as changes to STEAMROLL_TUNING. */
 export const STEAMROLL_PRESETS: Readonly<Record<string, Readonly<Partial<SteamrollTuning>>>> = { tankspam: TANKSPAM };
@@ -196,6 +199,7 @@ export class SteamrollAI extends AI {
         this.lastLaunch = { value: Math.round(value), crushers };
         return value >= tuning.launch && crushers >= tuning.crushers;
       },
+      ...(tuning.queue > 0 ? { depth: () => tuning.queue } : {}),
       scouts: false,
       retreats: false,
     };
