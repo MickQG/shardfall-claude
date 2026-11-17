@@ -8,7 +8,7 @@ import type { Command } from '../sim';
  */
 
 /** Bumped whenever the protocol or the simulation changes in a way that would desync older clients. */
-export const NET_VERSION = 10;
+export const NET_VERSION = 11;
 /** Ticks per lockstep turn: 125 ms of real time at the online game speed of ×0.8 (UX-3). */
 export const TURN_TICKS = 2;
 export const TURN_MS = TURN_TICKS * tickMsAt(ONLINE_SPEED);
@@ -113,6 +113,15 @@ export function sanitizeCommand(raw: unknown, player: number): Command | null {
     case 'attack': {
       const u = ids(r.units);
       return u && isInt(r.target, 0) ? { type: 'attack', player, units: u, target: r.target } : null;
+    }
+    // The Field Mender (NET-7): squads board a carrier; carriers let their squad out.
+    case 'board': {
+      const u = ids(r.units);
+      return u && isInt(r.carrier, 0) ? { type: 'board', player, units: u, carrier: r.carrier } : null;
+    }
+    case 'unload': {
+      const u = ids(r.units);
+      return u ? { type: 'unload', player, units: u } : null;
     }
     default:
       return null;

@@ -57,6 +57,10 @@ export function aimPoses(def: RigDef): [string, RigPose][] {
   const lean = walker ? 0.04 : 0.08;
   const poses: [string, RigPose][] = [];
   for (let a = -Math.PI; a < Math.PI; a += Math.PI / 8) poses.push([`turret ${a.toFixed(2)}`, { ...STILL, walker, turret: a }]);
+  // A crane arm (R3D-38) swings all round unfolded too, pitched up and down.
+  if (rigTree(def).anims.some((x) => x.anim.k === 'crane')) {
+    for (let a = -Math.PI; a < Math.PI; a += Math.PI / 8) for (const aim of [-1, 0, 1]) poses.push([`arm out ${a.toFixed(2)} aim ${aim}`, { ...STILL, walker, turret: a, arm: 1, aim }]);
+  }
   for (let ph = 0; ph < Math.PI * 2; ph += Math.PI / 6) {
     // A walker with its own walk (HERO-6) bobs and sways its hull with each step as well.
     const own = def.walk ? bodyPose('walker', { ...restingMotion(), stride: 1 }, ph, 0, 0, def.walk) : { pitch: 0, roll: 0, bob: 0 };
@@ -79,6 +83,11 @@ export function aimPoses(def: RigDef): [string, RigPose][] {
     ['gun pitched down', { ...STILL, walker, aim: -1 }],
     ['gun pitched up, turned', { ...STILL, walker, aim: 1, turret: 1.6 }],
     ['gun pitched down, turned', { ...STILL, walker, aim: -1, turret: -2.4, kick: 1 }],
+    // A crane arm (R3D-38) unfolding and unfolded, pitched as far as it goes, while the vehicle leans.
+    ['arm unfolding', { ...STILL, walker, arm: 0.3 }],
+    ['arm half out', { ...STILL, walker, arm: 0.5, turret: 2 }],
+    ['arm nearly out', { ...STILL, walker, arm: 0.8, aim: -1 }],
+    ['arm out, leaning', { ...STILL, walker, arm: 1, pitch: lean, roll: 0.08 }],
     ['turning', { ...STILL, walker, turnRate: 3, turned: 2, dist: 1 }],
     ['lean forward', { ...STILL, walker, pitch: hero ? 0.16 : lean, bob: hero ? -0.07 : 0 }],
     ['lean back', { ...STILL, walker, pitch: hero ? -0.16 : -lean, bob: hero ? -0.07 : 0 }],

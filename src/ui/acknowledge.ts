@@ -60,8 +60,12 @@ export function acknowledge(cmd: Command, now: number, rallyColor: number, foot?
       const f = foot ?? { w: 1, h: 1 };
       return { ...base, at: { x: cmd.tx + f.w / 2, y: cmd.ty + f.h / 2 }, color: ACK_COLORS.place, sound: 'order', r: Math.max(f.w, f.h) * 0.6 };
     }
+    case 'board':
+      // The marker rides on the Field Mender being boarded (CUR-6).
+      return { ...base, at: null, target: cmd.carrier, color: ACK_COLORS.move, sound: 'order' };
     case 'stop':
     case 'scatter':
+    case 'unload':
       return { ...base, color: null, sound: 'order' };
     default:
       return null;

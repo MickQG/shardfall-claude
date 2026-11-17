@@ -9,7 +9,7 @@ const card = (faction: 'human' | 'alien', name: string): UnitCard => {
 
 describe('unit info cards', () => {
   it('INF-1: one card per unit kind of the chosen faction', () => {
-    expect(unitCards('human').map((c) => c.name)).toEqual(['Shard Hauler', 'Rifleman', 'Rocketeer', 'Scout Buggy', 'Bulwark Tank', 'Hammer Artillery', 'Paladin']);
+    expect(unitCards('human').map((c) => c.name)).toEqual(['Shard Hauler', 'Rifleman', 'Rocketeer', 'Scout Buggy', 'Bulwark Tank', 'Hammer Artillery', 'Field Mender', 'Paladin']);
     expect(unitCards('alien').map((c) => c.name)).toEqual(['Gorger', 'Skitterer', 'Spitter', 'Stalker', 'Brute', 'Lobber', 'Glare Skimmer', 'Dreadstrider']);
   });
 
@@ -33,6 +33,12 @@ describe('unit info cards', () => {
     expect(card('human', 'Rifleman').canAttack).toBe(true);
   });
 
+  it('INF-3, R3D-38: an unarmed support unit says what it does instead: the Field Mender repairs and carries a squad', () => {
+    expect(card('human', 'Field Mender')).toMatchObject({ canAttack: false, strong: [], work: 'Repairs vehicles within 3 tiles; carries one infantry squad' });
+    expect(card('human', 'Shard Hauler').work).toBeNull();
+    expect(card('human', 'Bulwark Tank').work).toBeNull();
+  });
+
   it('INF-4: weak against lists enemy kinds that can hit it for full damage or more', () => {
     expect(card('human', 'Rocketeer').weak).toEqual(['Skitterer', 'Stalker', 'Brute']);
     expect(card('human', 'Paladin').weak).toEqual(['Spitter', 'Glare Skimmer', 'Dreadstrider']);
@@ -43,7 +49,7 @@ describe('unit info cards', () => {
 
   it('SKM-1, INF-2, INF-3, INF-4: the Glare Skimmer card: a very tough, long-range anti-armour unit, strong against heavy armour, ground only', () => {
     expect(card('alien', 'Glare Skimmer')).toMatchObject({ cost: 950, role: 'Anti-armour', toughness: 'Very tough', speed: 'Average', range: 'Long', hitsAir: false, regenerates: true, canAttack: true });
-    expect(card('alien', 'Glare Skimmer').strong).toEqual([{ armour: 'Heavy', units: ['Shard Hauler', 'Bulwark Tank', 'Hammer Artillery', 'Paladin'] }]);
+    expect(card('alien', 'Glare Skimmer').strong).toEqual([{ armour: 'Heavy', units: ['Shard Hauler', 'Bulwark Tank', 'Hammer Artillery', 'Field Mender', 'Paladin'] }]);
     expect(card('alien', 'Glare Skimmer').weak).toEqual(['Rocketeer', 'Paladin']);
   });
 

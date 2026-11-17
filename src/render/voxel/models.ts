@@ -165,6 +165,31 @@ function hauler(): UnitModel {
   return { hull: m, loadPivot: { x: -4, y: 0, z: 6 } };
 }
 
+/**
+ * The Field Mender in the classic view (R3D-38): a six-wheeled hull with a team stripe, a low cab at the front, a crew
+ * compartment at the back with a roof hatch (its light is drawn as an overlay while a squad is inside), and the repair arm
+ * as a turret that turns toward what it mends.
+ */
+function mender(): UnitModel {
+  const m = unit(22, 12, 9, [STEEL, STEEL_D, RUBBER, TEAM, GLASS, WARM]);
+  for (const x of [2, 9, 16]) for (const y of [0, 10]) box(m, x, y, 0, 4, 2, 4, 3); // wheels
+  box(m, 1, 2, 2, 20, 8, 2, 2); // chassis
+  box(m, 2, 1, 3, 18, 1, 1, 4); // team stripes
+  box(m, 2, 10, 3, 18, 1, 1, 4);
+  box(m, 14, 2, 4, 7, 8, 2, 1); // cab
+  box(m, 20, 3, 5, 1, 6, 1, 5); // windshield
+  box(m, 1, 2, 4, 12, 8, 4, 1); // crew compartment
+  box(m, 3, 4, 8, 4, 4, 1, 2); // hatch rim
+  box(m, 21, 3, 3, 1, 1, 1, 6); // headlights
+  box(m, 21, 8, 3, 1, 1, 1, 6);
+  const t = unit(14, 6, 6, [STEEL, STEEL_D, TEAM, GLASS]);
+  cylinder(t, 3, 3, 0, 2.2, 1, 2); // swivel
+  box(t, 3, 2, 1, 6, 2, 2, 1); // arm
+  box(t, 8, 2, 2, 4, 2, 2, 2);
+  box(t, 12, 2, 1, 2, 2, 2, 4); // emitter
+  return { hull: m, turret: { model: t, pivot: { x: 0, y: 0, z: 8 } }, loadPivot: { x: -6, y: 0, z: 9 } };
+}
+
 function gorger(): UnitModel {
   const m = unit(24, 16, 12, [HIVE, HIVE_D, HIVE_L, SAC, TEAM, BONE]);
   sphere(m, 6, 8, 5, 4.6, 1);
@@ -313,6 +338,7 @@ export const UNIT_MODELS: Readonly<Record<string, () => UnitModel>> = {
   hum_artillery: artillery,
   hum_hauler: hauler,
   hum_paladin: paladin,
+  hum_mender: mender,
   ali_gorger: gorger,
   ali_skitter: skitter,
   ali_spitter: spitter,

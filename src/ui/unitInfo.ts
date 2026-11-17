@@ -12,6 +12,8 @@ export interface UnitCard {
   hitsAir: boolean;
   regenerates: boolean;
   canAttack: boolean;
+  /** What an unarmed support unit does instead of fighting (repairing, carrying a squad), in plain words; null for others. */
+  work: string | null;
   /** Armour classes the weapon deals full damage or more to, with the enemy kinds of that class. */
   strong: { armour: string; units: string[] }[];
   /** Enemy kinds that can hit this unit for full damage or more, but those it kites (fires on the move and out-ranges, hurting them). */
@@ -50,7 +52,7 @@ export function statMax(): UnitStats {
 /** How full a bar is, 0..1: the square root of the share of the largest, so small units still show (INF-7). */
 export const statFill = (value: number, max: number): number => (max > 0 ? Math.sqrt(Math.max(0, value) / max) : 0);
 
-const ROLE: Record<UnitDef['role'], string> = { harvester: 'Harvester', infantry: 'Infantry', antiarmor: 'Anti-armour', scout: 'Scout', tank: 'Tank', artillery: 'Artillery', air: 'Air', raider: 'Raider' };
+const ROLE: Record<UnitDef['role'], string> = { harvester: 'Harvester', infantry: 'Infantry', antiarmor: 'Anti-armour', scout: 'Scout', tank: 'Tank', artillery: 'Artillery', air: 'Air', raider: 'Raider', support: 'Repair and transport' };
 const ARMOUR: readonly [ArmorType, string][] = [
   ['light', 'Light'],
   ['heavy', 'Heavy'],
@@ -74,6 +76,15 @@ const toughness = (hp: number): UnitCard['toughness'] => (hp < 150 ? 'Fragile' :
 const speed = (s: number): UnitCard['speed'] => (s < 30 ? 'Slow' : s < 50 ? 'Average' : 'Fast');
 const range = (r: number): NonNullable<UnitCard['range']> => (r < 2 ? 'Melee' : r < 5 ? 'Short' : r < 8 ? 'Medium' : 'Long');
 
+/** What an unarmed unit does in place of fighting (INF-3, R3D-38): repairs and carries, in plain words, or null. */
+export function workOf(d: UnitDef): string | null {
+  if (d.weapon) return null;
+  const parts = [d.repair ? `repairs vehicles within ${d.repair.range} tiles` : '', d.carries?.length ? 'carries one infantry squad' : ''].filter(Boolean);
+  if (!parts.length) return null;
+  const text = parts.join('; ');
+  return text[0]!.toUpperCase() + text.slice(1);
+}
+
 /** One card per unit kind of `faction`, in definition order. */
 export function unitCards(faction: Faction): UnitCard[] {
   const all = Object.entries(UNIT_DEFS);
@@ -93,6 +104,7 @@ export function unitCards(faction: Faction): UnitCard[] {
         hitsAir: !!w?.antiAir,
         regenerates: d.regen !== undefined,
         canAttack: !!w,
+        work: workOf(d),
         // Unit armour classes the enemy fields no unit of (no aircraft, since the heroes replaced them) are left out.
         strong: w
           ? ARMOUR.filter(([a]) => hurts(w, a))

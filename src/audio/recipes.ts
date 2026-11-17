@@ -7,11 +7,11 @@ import { Rng } from '../sim';
  * recipes, the variation, the voice budget, the pan and the mixes can be tested without any audio device.
  */
 
-export type WorldName = 'zap' | 'rocket' | 'cannon' | 'slash' | 'laser' | 'lance' | 'boom' | 'pop' | 'bigboom' | 'crunch' | 'sw_launch' | 'sw_strike';
+export type WorldName = 'zap' | 'rocket' | 'cannon' | 'slash' | 'laser' | 'lance' | 'boom' | 'pop' | 'bigboom' | 'crunch' | 'sw_launch' | 'sw_strike' | 'weld' | 'clunk';
 export type UiName = 'hover' | 'click' | 'built' | 'ready' | 'alert' | 'deny' | 'ack' | 'ackAttack';
 export type SoundName = WorldName | UiName;
 
-export const WORLD_SOUNDS: readonly WorldName[] = ['zap', 'rocket', 'cannon', 'slash', 'laser', 'lance', 'boom', 'pop', 'bigboom', 'crunch', 'sw_launch', 'sw_strike'];
+export const WORLD_SOUNDS: readonly WorldName[] = ['zap', 'rocket', 'cannon', 'slash', 'laser', 'lance', 'boom', 'pop', 'bigboom', 'crunch', 'sw_launch', 'sw_strike', 'weld', 'clunk'];
 export const UI_SOUNDS: readonly UiName[] = ['hover', 'click', 'built', 'ready', 'alert', 'deny', 'ack', 'ackAttack'];
 
 export interface FilterSpec {
@@ -91,6 +91,10 @@ const AEGIS: Record<WorldName, Recipe> = {
   crunch: { layers: [aClick(0.08, 0, 1800), noise('body', [bp(900, 120, 1)], 0, 0.16, 0.2), osc('body', 'triangle', 75, 40, 0, 0.12, 0.16), aRing(330, 260, 0.14, 0.03, 0.005, 'tail')] },
   sw_launch: { layers: [aClick(0.08, 0, 1500), aWhine(200, 1600, 1.2, 0.1, 0.01), noise('tail', [bp(300, 3000, 1.1)], 0.02, 1.2, 0.08), aRing(400, 1200, 1.1, 0.03, 0.02, 'tail')] },
   sw_strike: { layers: [noise('attack', [lp(5000)], 0, 0.05, 0.4, { attack: 0.001 }), osc('body', 'sine', 55, 20, 0, 1.6, 0.6), noise('tail', [bp(1200, 40, 0.8)], 0.02, 1.7, 0.5), aRing(90, 70, 1.4, 0.08, 0.03, 'tail')] },
+  // The Field Mender at work (AUD-17): a welding crackle, a run of sharp arc snaps over a short, low electric buzz, ringing off the metal.
+  weld: { layers: [aClick(0.05, 0, 4200), aClick(0.04, 0.05, 3600), aClick(0.05, 0.11, 4600), aClick(0.035, 0.17, 3900), osc('body', 'sawtooth', 120, 118, 0, 0.24, 0.025, { filters: [lp(1600)], trill: 55 }), aRing(2100, 1900, 0.12, 0.012, 0.02, 'tail')] },
+  // A squad climbing in or out (AUD-17): a heavy hatch clunk, a low thud with a short metallic ring.
+  clunk: { layers: [aClick(0.06, 0, 1800), osc('body', 'sine', 150, 70, 0, 0.12, 0.2), aRing(320, 300, 0.16, 0.03, 0.008, 'tail')] },
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -114,6 +118,9 @@ const VRAX: Record<WorldName, Recipe> = {
   crunch: { layers: [vClick(0.1, 170), vWet('body', 500, 1500, 200, 600, 0, 0.17, 0.26, 3), osc('body', 'sine', 70, 35, 0, 0.12, 0.2)] },
   sw_launch: { layers: [vClick(0.08, 150), osc('body', 'triangle', 150, 900, 0.01, 1.2, 0.08, { wobble: { rate: 18, depth: 40 } }), vWet('tail', 300, 900, 1200, 3000, 0.02, 1.2, 0.1, 4)] },
   sw_strike: { layers: [vClick(0.22, 90), osc('body', 'sine', 55, 20, 0, 1.6, 0.6), vWet('tail', 200, 700, 40, 150, 0.01, 1.7, 0.5, 3), vGurgle(100, 40, 1.4, 0.08, 0.05, 7)] },
+  // Only the Aegis field the Field Mender; the Vrax palette keeps a wet version of each for completeness (AUD-6).
+  weld: { layers: [vClick(0.05, 300), vWet('body', 1800, 3600, 1200, 2600, 0, 0.18, 0.06, 4), osc('tail', 'triangle', 600, 500, 0.02, 0.12, 0.02, { trill: 40 })] },
+  clunk: { layers: [vClick(0.08, 160), osc('body', 'sine', 120, 60, 0, 0.12, 0.18), vWet('tail', 300, 900, 150, 400, 0.01, 0.14, 0.08, 4)] },
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -154,7 +161,7 @@ export function paletteOf(faction: Faction): { inharmonic: number; ringing: numb
 // ---------------------------------------------------------------------------------------------------------------
 /** Base pitch of each unit kind's acknowledgement: light units chirp high, heavy ones speak low. */
 const ACK_PITCH: Readonly<Record<string, number>> = {
-  hum_hauler: 300, hum_rifleman: 880, hum_rocketeer: 760, hum_buggy: 1040, hum_tank: 420, hum_artillery: 340, hum_paladin: 200,
+  hum_hauler: 300, hum_rifleman: 880, hum_rocketeer: 760, hum_buggy: 1040, hum_tank: 420, hum_artillery: 340, hum_paladin: 200, hum_mender: 560,
   ali_gorger: 180, ali_skitter: 1200, ali_spitter: 900, ali_stalker: 1400, ali_brute: 150, ali_lobber: 260, ali_skimmer: 340, ali_strider: 120,
 };
 export const ACK_KINDS: readonly string[] = Object.keys(ACK_PITCH);
@@ -305,7 +312,7 @@ export type MoveClass = 'vehicle' | 'walker' | 'infantry' | 'swarm' | 'skim';
 export const MOVE_CLASSES: readonly MoveClass[] = ['vehicle', 'walker', 'infantry', 'swarm', 'skim'];
 
 const MOVE_CLASS: Readonly<Record<string, MoveClass>> = {
-  hum_hauler: 'vehicle', hum_buggy: 'vehicle', hum_tank: 'vehicle', hum_artillery: 'vehicle', hum_paladin: 'walker', hum_rifleman: 'infantry', hum_rocketeer: 'infantry',
+  hum_hauler: 'vehicle', hum_buggy: 'vehicle', hum_tank: 'vehicle', hum_artillery: 'vehicle', hum_paladin: 'walker', hum_rifleman: 'infantry', hum_rocketeer: 'infantry', hum_mender: 'vehicle',
   ali_gorger: 'walker', ali_brute: 'walker', ali_lobber: 'walker', ali_strider: 'walker', ali_skitter: 'swarm', ali_spitter: 'swarm', ali_stalker: 'swarm', ali_skimmer: 'skim',
 };
 /** The movement sound class of a unit kind, or null for kinds that make none. */

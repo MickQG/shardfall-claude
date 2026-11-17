@@ -129,6 +129,8 @@ export function animateUnit(a: UnitArt, t: number, moving: boolean, loadFrac: nu
   if (a.load) {
     a.load.clear();
     if (loadFrac > 0 && a.kind === 'hum_hauler') for (let i = 0; i < Math.ceil(loadFrac * 3); i++) a.load.poly([-7 + i * 5, 0, -4 + i * 5, -7, -1 + i * 5, 0]).fill(0x35e0a1);
+    // The Field Mender's hatch light, lit while a squad is inside (R3D-38).
+    if (loadFrac > 0 && UNIT_DEFS[a.kind]?.carries) a.load.circle(0, -1, 2.4).fill(0xffd34a);
   }
 }
 

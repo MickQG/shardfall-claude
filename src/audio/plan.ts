@@ -24,6 +24,11 @@ export function soundFor(e: SimEvent, viewer: number): Sound {
       return { name: 'sw_launch', gain: 0.8 };
     case 'strike':
       return { name: 'sw_strike', gain: 1 };
+    // The Field Mender (AUD-17): a welding crackle as it mends, a clunk as a squad climbs in or out.
+    case 'mend':
+      return { name: 'weld', gain: e.owner === viewer ? 0.45 : 0.3 };
+    case 'board':
+      return { name: 'clunk', gain: 0.6 };
   }
 }
 
@@ -62,6 +67,9 @@ export function worldSoundFor(e: SimEvent, viewer: number, who: SoundWho): World
     case 'launch':
     case 'strike':
       return { ...base, at, size: 1, faction: e.kind ? factionOfKind(e.kind) : who.factionOf(e.owner) };
+    case 'mend':
+    case 'board':
+      return { ...base, at, size: 1, faction: who.factionOf(e.owner) };
   }
 }
 

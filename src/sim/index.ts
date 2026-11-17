@@ -1,4 +1,5 @@
 import { buildingDef, unitDef } from '../data/defs';
+import { boardUnits, tickCarriers, unloadUnits } from './carrier';
 import { chase, chaseTile, fireSuperweapon, tickCombat } from './combat';
 import { crush, isCrusher } from './crush';
 import { dirOf, dirVec, mayWalk, turnUnit } from './facing';
@@ -13,6 +14,7 @@ import type { BuildingSnap, Command, GameConfig, SimEvent, Snapshot, Superweapon
 
 export type { BuildingSnap, BuildingSpawn, Command, GameConfig, MapDef, PlayerSetup, PlayerSnap, PlayerStats, QueueSnap, SimEvent, Snapshot, StrikeTimer, SuperweaponTimer, UnitSnap, UnitSpawn } from './types';
 export { damageAgainst } from './combat';
+export { isMender, isVehicle, mayCarry, REPAIR_EVERY } from './carrier';
 export { Rng } from './rng';
 export { FP } from './fixed';
 export { EXPLORED, VISIBLE } from './fog';
@@ -93,6 +95,8 @@ function updateFog(s: State): void {
 }
 
 function applyCommand(s: State, cmd: Command): void {
+  // Any other order to a squad on its way to board replaces that (SQD-3).
+  if ('units' in cmd && cmd.type !== 'board') for (const u of s.units) if (u.ride >= 0 && u.owner === cmd.player && cmd.units.includes(u.id)) u.ride = -1;
   switch (cmd.type) {
     case 'stop':
       for (const u of s.units) {
@@ -157,6 +161,10 @@ function applyCommand(s: State, cmd: Command): void {
       return setRepair(s, cmd.player, cmd.building, cmd.on);
     case 'rally':
       return setRally(s, cmd.player, cmd.building, cmd.x, cmd.y);
+    case 'board':
+      return boardUnits(s, cmd.player, cmd.units, cmd.carrier);
+    case 'unload':
+      return unloadUnits(s, cmd.player, cmd.units);
     default:
       return;
   }
@@ -241,6 +249,7 @@ export function tick(game: Game): void {
   updatePower(s);
   tickProduction(s);
   tickCombat(s);
+  tickCarriers(s);
   servePathQueue(s);
   tickHaulers(s);
   const moved = new Set<number>();
@@ -265,7 +274,11 @@ export function tick(game: Game): void {
 function sampleArmy(s: State): void {
   s.players.forEach((p, i) => {
     let v = 0;
-    for (const u of s.units) if (u.owner === i) v += Math.floor((unitDef(u.kind).cost * u.hp) / unitDef(u.kind).hp);
+    for (const u of s.units) {
+      if (u.owner !== i) continue;
+      v += Math.floor((unitDef(u.kind).cost * u.hp) / unitDef(u.kind).hp);
+      if (u.cargo) v += Math.floor((unitDef(u.cargo.kind).cost * u.cargo.hp) / unitDef(u.cargo.kind).hp);
+    }
     p.stats.army.push(v);
   });
 }
@@ -296,6 +309,8 @@ export function snapshot(game: Game, viewer?: number): Snapshot {
       dest: u.goal >= 0 ? [u.goal % w, Math.floor(u.goal / w)] : null,
       ...(unitDef(u.kind).turnRate ? { facing: u.facing } : {}),
       ...(u.hv === Hv.Unload && u.auto ? { dock: u.dock } : {}),
+      ...(u.cargo ? { cargo: { id: u.cargo.id, kind: u.cargo.kind, hp: u.cargo.hp, rank: u.cargo.rank } } : {}),
+      ...(u.mend >= 0 ? { mend: u.mend } : {}),
     })),
     buildings: visibleBuildings.map((b) => buildingSnap(b, god || b.owner === viewer)),
     ghosts: god ? [] : [...(s.players[viewer]?.ghosts.values() ?? [])].filter((g) => !shown.has(g.id)),
@@ -347,6 +362,15 @@ export function hash(game: Game): number {
   for (const v of s.cfg.map.heights) h.int(v);
   for (const v of s.grid.blocked) h.int(v);
   for (const u of s.units) h.int(u.id).int(u.owner).int(u.x).int(u.y).int(u.hp).int(u.path.length).int(u.goal).int(u.waiting ? 1 : 0).int(u.load).int(u.hv).int(u.dock).int(u.queuedAt).int(u.dockTries).int(u.home).int(u.auto ? 1 : 0).int(u.target).int(u.cooldown).int(u.cooldown2).int(u.amove).int(u.sinceHurt > 100 ? 100 : u.sinceHurt).int(u.mode.length).int(u.xp).int(u.rank).int(u.facing);
+  // Carriers and their passengers (SQD-3, NET-7): who rides where, in what state, and what each mender mends.
+  // Only units that take part add to the hash, so games without them hash as before.
+  for (const u of s.units) {
+    if (u.ride < 0 && u.mend < 0 && !u.cargo) continue;
+    h.int(u.id).int(u.ride).int(u.mend);
+    const r = u.cargo;
+    if (r) h.int(r.id).int(r.hp).int(r.target).int(r.cooldown).int(r.xp).int(r.rank);
+    else h.int(-1);
+  }
   for (const b of s.buildings) {
     h.int(b.id).int(b.owner).int(b.tx).int(b.ty).int(b.hp).int(b.pad ? b.pad[1] * s.grid.width + b.pad[0] : -1).int(b.queue.length).int(b.charge).int(b.cooldown).int(b.target);
     for (const q of b.queue) h.int(q.progress).int(q.ready ? 1 : 0);

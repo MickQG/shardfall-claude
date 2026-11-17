@@ -9,6 +9,8 @@ const CSS = `
 #hud #minimap-box canvas { display: block; cursor: crosshair; }
 #hud #info { left: 50%; bottom: 12px; transform: translateX(-50%); min-width: 240px; text-align: center; }
 #hud #info.empty { display: none; }
+#hud #info button.unload { margin-top: 6px; font-size: 13px; padding: 5px 14px; }
+#hud #info button.unload[hidden] { display: none; }
 #hud #topbar { left: 12px; top: 12px; font-family: var(--font-head); font-stretch: 87.5%; letter-spacing: .1em; text-transform: uppercase; font-size: 14px; font-weight: 600; }
 #hud #topbar b { color: var(--accent); font-weight: 700; }
 #hud #result { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; background: rgba(4,8,12,.72); pointer-events: auto; text-align: center; }
@@ -83,6 +85,8 @@ function scoreHtml(s: ScoreView): string {
 export interface Hud {
   minimapHost: HTMLElement;
   setInfo(lines: string[]): void;
+  /** The selection panel's Unload button (UI-23): shown with its action while a selected Field Mender carries a squad, hidden for null. */
+  setUnload(onUnload: (() => void) | null): void;
   setTop(text: string): void;
   /** The F1 controls overlay (UI-18). */
   showHelp(show: boolean): void;
@@ -108,6 +112,13 @@ export function createHud(faction: SkinId = 'human'): Hud {
   document.body.appendChild(root);
   const q = (sel: string): HTMLElement => root.querySelector(sel) as HTMLElement;
   const info = q('#info');
+  // The selection text, and the Field Mender's Unload button under it (UI-23).
+  info.innerHTML = '<div class="txt"></div><button class="btn unload" id="unload" hidden>Unload (R)</button>';
+  const infoText = info.querySelector('.txt') as HTMLElement;
+  infoText.style.whiteSpace = 'pre-line';
+  const unload = info.querySelector('#unload') as HTMLButtonElement;
+  let unloadAction: (() => void) | null = null;
+  unload.onclick = () => unloadAction?.();
   const box = q('#selbox');
   const countdown = q('#countdown');
   const help = q('#help');
@@ -124,8 +135,12 @@ export function createHud(faction: SkinId = 'human'): Hud {
     minimapHost: q('#minimap-box'),
     setInfo(lines) {
       info.classList.toggle('empty', lines.length === 0);
-      info.textContent = lines.join('\n');
-      info.style.whiteSpace = 'pre-line';
+      const text = lines.join('\n');
+      if (infoText.textContent !== text) infoText.textContent = text;
+    },
+    setUnload(onUnload) {
+      unloadAction = onUnload;
+      if (unload.hidden !== !onUnload) unload.hidden = !onUnload;
     },
     setTop(text) {
       q('#topbar').textContent = text;

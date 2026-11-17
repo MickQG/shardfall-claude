@@ -67,8 +67,15 @@ export interface UnitDef {
    * fires only at what it faces, and is never shoved by smaller units.
    */
   turnRate?: number;
+  /**
+   * A repair vehicle (CMB-16, CMB-17): hit points a second it restores to one damaged friendly vehicle within `range`
+   * tiles (`rate`), and to itself at all times (`self`).
+   */
+  repair?: { rate: number; range: number; self: number };
+  /** Unit kinds it carries as its one passenger, a squad that fires from inside (SQD-3). */
+  carries?: readonly string[];
   /** Role hint used by the AI for composition. */
-  role: 'harvester' | 'infantry' | 'antiarmor' | 'scout' | 'tank' | 'artillery' | 'air' | 'raider';
+  role: 'harvester' | 'infantry' | 'antiarmor' | 'scout' | 'tank' | 'artillery' | 'air' | 'raider' | 'support';
 }
 
 export interface BuildingDef {
@@ -164,6 +171,13 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   hum_artillery: {
     faction: 'human', name: 'Hammer Artillery', speed: 24, hp: 250, radius: 100, vision: 8, cost: 900, buildTime: 520, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', role: 'artillery',
     weapon: { damage: 64, range: 11, cooldown: 60, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
+  },
+  // A repair vehicle with no gun of its own (CMB-15): it mends one damaged friendly vehicle at a time and itself (CMB-16,
+  // CMB-17), and carries one Rifleman or Rocketeer squad that fires from inside (SQD-3, SQD-4). It never crushes.
+  hum_mender: {
+    faction: 'human', name: 'Field Mender', speed: 40, hp: 350, radius: 100, vision: 7, cost: 750, buildTime: 450, builtAt: 'hum_factory', requires: [], armor: 'heavy', role: 'support',
+    repair: { rate: 4, range: 3, self: 3 },
+    carries: ['hum_rifleman', 'hum_rocketeer'],
   },
   // The Aegis hero (HERO-1): a giant four-legged assault walker whose cannons and missile pods engage ground and air alike; one at a
   // time, and it slowly repairs itself. Heroes fire slow, heavy shots that burst over an area (HERO-4).

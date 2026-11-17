@@ -1,4 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
+import { UNIT_DEFS } from '../../src/data/defs';
+
+/** Each faction's unit kinds, as the sheet lists them. */
+const HUMAN = Object.fromEntries(Object.entries(UNIT_DEFS).filter(([, d]) => d.faction === 'human'));
+const ALIEN = Object.fromEntries(Object.entries(UNIT_DEFS).filter(([, d]) => d.faction === 'alien'));
 
 /** Pixels of the live preview canvas that are not transparent. */
 const painted = (page: Page): Promise<number> =>
@@ -17,7 +22,7 @@ test('INF-1 INF-2 INF-3 INF-4: the unit sheet lists the picked faction, explains
 
   await page.locator('#info-btn').click();
   await expect(panel).toBeVisible();
-  await expect(panel.locator('.u')).toHaveCount(7);
+  await expect(panel.locator('.u')).toHaveCount(Object.keys(HUMAN).length);
   await expect(panel.locator('[data-tab="human"]')).toHaveClass(/sel/);
   await panel.locator('.u', { hasText: 'Rocketeer' }).click();
   await expect(panel.locator('.facts')).toContainText('Strong against: Heavy (Gorger, Brute, Lobber, Glare Skimmer, Dreadstrider)');
@@ -46,7 +51,7 @@ test('INF-6 INF-7 INF-8: the sheet shows each unit as a moving 3D model with pic
   await page.locator('#info-btn').click();
   const panel = page.locator('#unit-info');
   // A picture of every model in the list, and a live model in the detail pane.
-  await expect(panel.locator('.u .pic img')).toHaveCount(7, { timeout: 30_000 });
+  await expect(panel.locator('.u .pic img')).toHaveCount(Object.keys(HUMAN).length, { timeout: 30_000 });
   expect(await panel.locator('.u .pic img').first().getAttribute('src')).toMatch(/^data:image\/png/);
   expect((await chunks()).length).toBeGreaterThan(0);
   await expect(panel.locator('.noview')).toBeHidden();
@@ -68,6 +73,18 @@ test('INF-6 INF-7 INF-8: the sheet shows each unit as a moving 3D model with pic
   // Right switches to the other faction.
   await page.keyboard.press('ArrowRight');
   await expect(panel.locator('[data-tab="alien"]')).toHaveClass(/sel/);
-  // The Vrax have one more kind: the Glare Skimmer (SKM-1).
-  await expect(panel.locator('.u .pic img')).toHaveCount(8);
+  await expect(panel.locator('.u .pic img')).toHaveCount(Object.keys(ALIEN).length);
+});
+
+test('R3D-38 CMB-15: the unit sheet shows the Field Mender as a 3D model, trained at the Motor Pool, with no weapon', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#menu h1 svg[role="img"]')).toHaveAttribute('aria-label', 'Shardfall');
+  await page.locator('#info-btn').click();
+  const panel = page.locator('#unit-info');
+  await panel.locator('.u', { hasText: 'Field Mender' }).click();
+  await expect(panel.locator('.facts h3')).toHaveText('Field Mender');
+  await expect(panel.locator('.facts')).toContainText('What it does: Repairs vehicles within 3 tiles; carries one infantry squad');
+  await expect(panel.locator('.facts')).not.toContainText('Cannot attack');
+  await expect(panel.locator('.facts')).toContainText('Trained at: Motor Pool');
+  await expect.poll(() => painted(page), { timeout: 15_000 }).toBeGreaterThan(2000);
 });

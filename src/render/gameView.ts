@@ -559,11 +559,12 @@ export class GameView implements WorldRenderer {
       s.moving = moved ? 6 : Math.max(0, s.moving - 1);
       if (moved) s.heading = facingOf(mdx, mdy, FACINGS);
       // The weapon points at its target while a shot holds it, else along the heading. Hulls without a turret turn with it.
-      const aimF = aimFacing({ x: u.tx, y: u.ty }, targetAt(u.target), s.heading, vs.time <= s.aimHold ? s.aim : null, FACINGS);
+      // A Field Mender's arm turns toward what it mends (R3D-38).
+      const aimF = aimFacing({ x: u.tx, y: u.ty }, targetAt(u.mend ?? u.target), s.heading, vs.time <= s.aimHold ? s.aim : null, FACINGS);
       setFacing(s.art, s.art.turret ? s.heading : aimF, aimF);
       s.lastTx = u.tx;
       s.lastTy = u.ty;
-      animateUnit(s.art, vs.time + u.id * 37, s.moving > 0, u.load / 200, vs.fx.particles || vs.fx.shake);
+      animateUnit(s.art, vs.time + u.id * 37, s.moving > 0, u.cargo ? 1 : u.load / 200, vs.fx.particles || vs.fx.shake);
       const max = maxHpOf(u.kind, u.rank);
       if (s.art.mates.length > 0) setSquad(s.art, squadAlive(u.kind, u.hp, max));
       if (s.rank !== u.rank) {

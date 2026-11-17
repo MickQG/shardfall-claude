@@ -37,7 +37,8 @@ import { FrameStats } from './ui/frameStats';
 import { Sidebar } from './ui/sidebar';
 import { Soundscape } from './ui/soundscape';
 import { wireUiSounds } from './ui/uiSounds';
-import { hitTest, hoverKind, rightClickOrder, type HitContext } from './ui/hit';
+import { hitTest, hoverKind, rightClickOrder, type Hit, type HitContext } from './ui/hit';
+import { boardOrder, cargoLines, unloadIds } from './ui/carrier';
 import { FLY_HUD_CSS, FlyIn, flyEnabled, flyPose, smootherstep } from './render/flyIn';
 import { chooseRenderer, probeGpu } from './render/chooseRenderer';
 import { buttonKinds } from './render/menuPlan';
@@ -393,13 +394,29 @@ function playEvents(events: readonly SimEvent[], snap: Snapshot | null): void {
   if (away > 0) soundscape.noteOffscreenFight(away);
 }
 
+/** The board order a right-click on what `h` hits would give (CUR-6): only on an own unit with no enemy under the pointer. */
+function boardFor(snap: Snapshot, h: Hit): Extract<Command, { type: 'board' }> | null {
+  return boardOrder(snap.units, selection.selected, PLAYER, h.enemyUnit === null && h.enemyBuilding === null ? h.ownUnit : null);
+}
+
+/** Unload the selected Field Menders that carry a squad (CTL-22, UI-23); nothing is sent without any. */
+function unloadSelected(): void {
+  const snap = sim.curr;
+  if (!snap) return;
+  const ids = unloadIds(snap.units, selection.selected, PLAYER);
+  if (ids.length > 0) give({ type: 'unload', player: PLAYER, units: ids });
+}
+
 /** What the pointer is over and the current input mode, for choosing the cursor. */
 function cursorState(): CursorState {
   const snap = sim.curr;
   const anySelected = selection.selected.length > 0;
   const combatSelected = !!snap && combatUnitIds(snap.units.filter((u) => selection.has(u.id)), PLAYER).length > 0;
   const mode: CursorState['mode'] = targeting ? 'targeting' : placing ? 'placing' : amoveMode ? 'amove' : 'normal';
-  const hover: CursorState['hover'] = snap && mouse.x >= 0 ? hoverKind(hitTest(hitContext(snap), mouse.x, mouse.y), anySelected) : 'ground';
+  const hit = snap && mouse.x >= 0 ? hitTest(hitContext(snap), mouse.x, mouse.y) : null;
+  let hover: CursorState['hover'] = hit ? hoverKind(hit, anySelected) : 'ground';
+  // Over an own Field Mender with room, with squads that can board it selected: the board cursor (CUR-6).
+  if (snap && hit && hover === 'ownUnit' && boardFor(snap, hit)) hover = 'carrier';
   const p = snap && mode === 'placing' ? placementPreview(snap) : null;
   const harvesterSelected = !!snap && snap.units.some((u) => selection.has(u.id) && unitDef(u.kind).capacity !== undefined);
   return { mode, combatSelected, harvesterSelected, anySelected, hover, placementOk: p?.ok };
@@ -487,7 +504,9 @@ function frame(prevTime: number): (t: number) => void {
       const own = curr.units.filter((u) => selection.has(u.id));
       const kinds = new Map<string, number>();
       for (const u of own) kinds.set(unitDef(u.kind).name, (kinds.get(unitDef(u.kind).name) ?? 0) + 1);
-      hud.setInfo(own.length ? [`${own.length} selected`, [...kinds].map(([k, n]) => `${n}× ${k}`).join(', ')] : []);
+      hud.setInfo(own.length ? [`${own.length} selected`, [...kinds].map(([k, n]) => `${n}× ${k}`).join(', '), ...cargoLines(curr.units, selection.selected, PLAYER)] : []);
+      // The Unload button, while a selected Field Mender carries a squad (UI-23).
+      hud.setUnload(unloadIds(curr.units, selection.selected, PLAYER).length > 0 ? unloadSelected : null);
 
       if (!minimap) {
         minimap = new Minimap(curr);
@@ -764,6 +783,8 @@ async function boot(): Promise<void> {
       if (selection.selected.length > 0) give({ type: 'stop', player: PLAYER, units: selection.selected });
     } else if (k === 'x') {
       if (selection.selected.length > 0) give({ type: 'scatter', player: PLAYER, units: selection.selected });
+    } else if (k === 'r' && !e.ctrlKey && !e.repeat) {
+      unloadSelected(); // CTL-22
     } else if (k === ' ' && sim.curr) {
       centerOnUnits(sim.curr.units.filter((u) => selection.has(u.id)));
       e.preventDefault();
@@ -824,7 +845,14 @@ async function boot(): Promise<void> {
       const snap = sim.curr;
       if (snap && selection.selected.length > 0) {
         const combat = combatUnitIds(snap.units.filter((u) => selection.has(u.id)), PLAYER).length > 0;
-        const o = rightClickOrder(hitTest(hitContext(snap), e.offsetX, e.offsetY), combat);
+        const h = hitTest(hitContext(snap), e.offsetX, e.offsetY);
+        // Right-clicking an own Field Mender with room sends the selected squads aboard (CUR-6).
+        const b = boardFor(snap, h);
+        if (b) {
+          give(b);
+          return;
+        }
+        const o = rightClickOrder(h, combat);
         if (o.kind === 'attack') {
           give({ type: 'attack', player: PLAYER, units: selection.selected, target: o.target });
           return;

@@ -8,7 +8,7 @@ import { aimPoint, cameraAngle, FADE_IN_MS, FADE_OUT_MS, HQ_SPOT, SCENE_CAST, SC
 import { bodyPose, restingMotion, rideMotion } from './motion';
 import { Instancer } from './instancer';
 import { PR_MAX } from './resolution';
-import { poseRig, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
+import { poseRig, previewDraws, rigTree, type RigDef, type RigPose, type RigTree } from './rig';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { UNIT_RIGS } from './units3d';
 import { modelMaterials, setSurface } from './surface3d';
@@ -227,7 +227,7 @@ class Scene3d implements MenuScene {
     const lit = def.organic ? this.organic : this.metal;
     for (const d of tree.drawn) {
       const make = def.shapes[d.geo];
-      if (!make) continue;
+      if (!make || !previewDraws(def, d.geo)) continue; // a carrier stands empty (R3D-38)
       const b = make().build(team);
       if (b.lit) {
         const m = new THREE.Mesh(b.lit, lit);

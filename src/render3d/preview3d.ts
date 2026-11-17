@@ -4,7 +4,7 @@ import { OWNER_COLORS } from '../render/colors';
 import { FP, TICKS_PER_SECOND } from '../sim';
 import { CombatFx } from './fx3d';
 import { bodyPose, elevationReady, ELEV_DOWN_MS, ELEV_UP_MS, elevTarget, HEAD_MS, rideMotion, slew, missileLaunchAt, podOpen, salvoOf, POD_OPEN_MS, follow, heroHeave, gaitPhase, gunYaw, readyToFire, restingMotion, stepMotion, turnToward, turretOnBody, TURRET_RATE, walkerFacing, type Follow, type MotionState } from './motion';
-import { poseRig, recoil, rigTree, strikeAfter, strikeSideOf, turretReach, type RigDef, type RigTree } from './rig';
+import { poseRig, previewDraws, recoil, rigTree, strikeAfter, strikeSideOf, turretReach, type RigDef, type RigTree } from './rig';
 import { newMember, stepSquad, type Member } from './squad3d';
 import { BUILDING_RIGS } from './buildings3d';
 import { UNIT_RIGS } from './units3d';
@@ -211,6 +211,7 @@ export class UnitPreview {
     for (let i = 0; i < n; i++) {
       const tree = rigTree(def);
       for (const d of tree.drawn) {
+        if (!previewDraws(def, d.geo)) continue; // shown empty (R3D-38)
         const g = this.geo(kind, def, d.geo, team);
         if (g.lit) {
           const m = new THREE.Mesh(g.lit, def.organic ? this.organic : this.metal);
@@ -642,6 +643,7 @@ export function restFitPoints(kind: string): V3[] {
   for (let i = 0; i < n; i++) {
     const tree = rigTree(def);
     for (const d of tree.drawn) {
+      if (!previewDraws(def, d.geo)) continue;
       const b = def.shapes[d.geo]?.().build(0xffffff);
       for (const g of [b?.lit, b?.glow]) if (g) d.obj.add(new THREE.Mesh(g, mat));
     }

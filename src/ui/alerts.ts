@@ -66,7 +66,8 @@ export class AlertTracker {
       if (prev !== undefined && u.hp < prev) this.fire(out, t, { id: 'units', text: 'Units under attack', level: 'warn', at: { tx: Math.floor(u.x / 256), ty: Math.floor(u.y / 256) } });
       this.unitHp.set(u.id, u.hp);
     }
-    const own = s.units.filter((u) => u.owner === me).length;
+    // A squad inside a Field Mender still counts, so climbing out is not a new unit (SQD-6).
+    const own = s.units.reduce((n, u) => (u.owner === me ? n + 1 + (u.cargo ? 1 : 0) : n), 0);
     if (this.unitCount >= 0 && own > this.unitCount) this.fire(out, t, { id: 'unit', text: 'Unit ready', level: 'info' });
     this.unitCount = own;
 

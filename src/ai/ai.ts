@@ -1,6 +1,7 @@
 import { BUILDING_DEFS, buildingDef, canCrush, choosePad, UNIT_DEFS, unitDef, type Faction, type UnitDef } from '../data/defs';
 import { BUILD_RANGE, canPlace, EXPLORED, FP, QUEUE_MAX, Rng, VISIBLE, type BuildingSnap, type Command, type MapDef, type Snapshot, type UnitSnap } from '../sim';
 import { kitOf, type Kit } from './kit';
+import { isTank, MENDER_FALLBACK, MenderPlan, menderOf, mendersWanted } from './menders';
 
 /** Difficulty changes only how fast the AI reacts, how many orders it can give, and a shard-income bonus. */
 export interface Difficulty {
@@ -543,6 +544,14 @@ export interface AiRules {
   splitRatio: number;
   /** (SKM-6) Trains Glare Skimmers against an enemy that is mostly heavy armour; off: never trains them. */
   skimmers: boolean;
+  /** (AI-29) Aegis trains Field Menders, one for every three tanks; off: none (so neither of the two below applies). */
+  menders: boolean;
+  /** (AI-29) Badly damaged tanks fall back to a Field Mender until mended. */
+  menderFallback: boolean;
+  /** (AI-29) Field Menders take an anti-armour squad aboard. */
+  menderLoad: boolean;
+  /** (AI-29) The share of its health below which a tank falls back to a Field Mender. */
+  menderFallbackAt: number;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -563,6 +572,10 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   hitShare: HIT_SHARE,
   splitRatio: SPLIT_RATIO,
   skimmers: true,
+  menders: true,
+  menderFallback: true,
+  menderLoad: true,
+  menderFallbackAt: MENDER_FALLBACK,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -621,6 +634,13 @@ type Ctx = {
   counts: Map<string, number>;
   army: UnitSnap[];
   haulers: UnitSnap[];
+  /**
+   * Its whole army for counting (AI-29): `army` as it was before squads boarding a Field Mender and tanks falling back
+   * to one were taken out of it for orders, plus the squads riding in its Menders.
+   */
+  strength: UnitSnap[];
+  /** The squads riding in its Field Menders, placed at their carriers (AI-29): they fight with the army the Menders follow. */
+  riders: UnitSnap[];
 };
 
 /**
@@ -631,6 +651,8 @@ export class AI {
   readonly kit: Kit;
   protected readonly doctrine: Doctrine = FULL_DOCTRINE;
   readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, hitSquads: 0, raiderScouts: 0 };
+  /** Its Field Menders (AI-29): loading, following, fallback and unloading. */
+  protected readonly menders: MenderPlan;
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
   private adapted = false;
   private raidsLost = 0;
@@ -718,6 +740,7 @@ export class AI {
     readonly options: Readonly<AiOptions> = {},
   ) {
     this.kit = kitOf(faction);
+    this.menders = new MenderPlan(player, menderOf(faction));
     const r = new Rng(seed * 7919 + player * 104729 + 13);
     const f = (): number => r.int(1000) / 1000;
     this.jitter = { wave: 0.9 + 0.35 * f(), ratio: 1.15 + 0.3 * f(), stage: 11 + Math.floor(4 * f()) };
@@ -745,14 +768,26 @@ export class AI {
     const c: Ctx = {
       snap, tick: snap.tick, own, foes, buildings,
       enemyBuildings: [...snap.buildings.filter((b) => b.owner !== me), ...snap.ghosts],
-      hq, credits: pl.credits, powerOut: pl.powerOut, powerIn: pl.powerIn, counts, army, haulers,
+      hq, credits: pl.credits, powerOut: pl.powerOut, powerIn: pl.powerIn, counts, army, haulers, strength: [...army], riders: [],
     };
     this.updateIntel(c);
     this.scoutBook(c);
     this.setupPoints(c);
     this.updatePlan(c);
 
-    const out: Command[] = [];
+    // The Field Menders (AI-29): squads on their way to board and tanks falling back leave the army for this turn; their
+    // orders go first, a share of the budget at most.
+    const mend = this.menders.turn(c.tick, own, foes, c.army, snap.mapWidth, this.doctrine.retreats && this.rules.menderFallback, this.rules.menderLoad, this.rules.menderFallbackAt);
+    if (mend.busy.size > 0) c.army = c.army.filter((u) => !mend.busy.has(u.id));
+    // Those still count as its strength, and so do the squads riding in its Menders (gone from its snapshot's units):
+    // what it trains and when it feels strong must not change because some of its army is aboard or being mended.
+    for (const u of own) {
+      if (!u.cargo) continue;
+      const rider = { ...u, id: u.cargo.id, kind: u.cargo.kind, hp: u.cargo.hp, rank: u.cargo.rank, cargo: undefined, mend: undefined };
+      c.strength.push(rider);
+      c.riders.push(rider);
+    }
+    const out: Command[] = mend.orders.slice(0, Math.max(1, Math.floor(this.diff.maxCommands / 4)));
     this.placeReady(c, out);
     this.defendBase(c, out);
     // Scouting goes ahead of building and production in the command budget, or the scout is rarely sent (AI-6, AI-17).
@@ -1084,7 +1119,7 @@ export class AI {
    */
   private canAffordDoom(c: Ctx): boolean {
     const refineries = c.buildings.filter((b) => buildingDef(b.kind).refinery).length;
-    return this.armyPower(c.army) >= SUPERWEAPON_ARMY && refineries >= 2 && c.haulers.length >= SUPERWEAPON_HAULERS && c.tick - this.lastThreat > 600;
+    return this.armyPower(this.strengthOf(c)) >= SUPERWEAPON_ARMY && refineries >= 2 && c.haulers.length >= SUPERWEAPON_HAULERS && c.tick - this.lastThreat > 600;
   }
 
   private structures(c: Ctx, out: Command[]): void {
@@ -1092,7 +1127,7 @@ export class AI {
     const kind = this.wantedStructure(c);
     if (kind && this.can(c, kind)) {
       if (kind === this.kit.lab && this.stats.labAt < 0) this.stats.labAt = c.tick;
-      if (kind === this.kit.superweapon && !this.stats.superweaponOrder) this.stats.superweaponOrder = { haulers: c.haulers.length, army: this.armyPower(c.army) };
+      if (kind === this.kit.superweapon && !this.stats.superweaponOrder) this.stats.superweaponOrder = { haulers: c.haulers.length, army: this.armyPower(this.strengthOf(c)) };
       out.push({ type: 'produce', player: this.player, source: c.hq.id, kind });
       // Spent now, so units ordered in the same turn cannot count on it (AI-3).
       c.credits -= buildingDef(kind).cost;
@@ -1208,12 +1243,13 @@ export class AI {
   /** Its army by role, the units queued in its buildings counted in, and the queued units by kind. */
   private roleCounts(c: Ctx): { counts: Record<Role, number>; queued: Map<string, number> } {
     const counts: Record<Role, number> = { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0 };
-    for (const u of c.army) counts[roleOf(unitDef(u.kind))]++;
+    for (const u of this.strengthOf(c)) counts[roleOf(unitDef(u.kind))]++;
     if (this.scoutId >= 0) counts.scout++;
     if (this.standing >= 0) counts.scout++;
     const queued = new Map<string, number>();
     for (const b of c.buildings) for (const q of b.queue) if (!BUILDING_DEFS[q.kind]) queued.set(q.kind, (queued.get(q.kind) ?? 0) + 1);
-    for (const [kind, n] of queued) counts[roleOf(unitDef(kind))] += n;
+    // Field Menders are not part of the fighting mix (AI-29).
+    for (const [kind, n] of queued) if (!unitDef(kind).repair) counts[roleOf(unitDef(kind))] += n;
     return { counts, queued };
   }
 
@@ -1225,8 +1261,13 @@ export class AI {
     return this.plan === 'doomsday' && !urgent && counts.tank + counts.art >= 4 && counts.inf + counts.at >= rifles + 3 * (counts.tank + counts.art);
   }
 
+  /** Its whole army for counting (AI-29): `strength` less a scout taken from the army this turn. */
+  private strengthOf(c: Ctx): UnitSnap[] {
+    return c.strength.filter((u) => u.id !== this.scoutId && u.id !== this.standing);
+  }
+
   private urgent(c: Ctx): boolean {
-    return c.army.length < 4 || c.tick - this.lastThreat < 600;
+    return this.strengthOf(c).length < 4 || c.tick - this.lastThreat < 600;
   }
 
   private production(c: Ctx, out: Command[]): void {
@@ -1271,6 +1312,9 @@ export class AI {
       extraScouts = this.plan === 'raider' ? RAIDER_SCOUTS - this.armyScouts.size - (queuedScouts - this.standingOrdered) : 0;
     }
 
+    // One Field Mender for every three tanks, alive and queued (AI-29).
+    let menderWant = this.menderWant(c, queued);
+
     for (const b of c.buildings) {
       // Shallow queues (AI-22): credits are not locked in orders that will not start soon. The steamroll opponent keeps
       // the deeper queues it was calibrated with (HAR-5).
@@ -1290,25 +1334,39 @@ export class AI {
       // Artillery floor against enemy infantry (AI-19), when it is available here.
       const gun = counts.art < floor ? allowed.find((k) => roleOf(unitDef(k)) === 'art' && !unitDef(k).hero) : undefined;
       const scout = scoutWanted && scoutKind !== null && allowed.includes(scoutKind) ? scoutKind : undefined;
+      // A Field Mender only when it is wanted, affordable now and not out of savings for the lab or a superweapon (AI-22,
+      // AI-29); otherwise the building trains what it would have.
+      const menderCost = this.menders.kind ? unitDef(this.menders.kind).cost + (urgent || (b.queue.length === 0 && !steamroll) ? 0 : hold) : Infinity;
+      const mender = menderWant > 0 && this.menders.kind !== null && allowed.includes(this.menders.kind) && !(saving && !urgent) && c.credits >= menderCost ? this.menders.kind : undefined;
       // The Skimmer only against armour (SKM-6): then it is in this building's mix as its anti-armour choice, and it comes
       // ahead of the rest of the mix (not of artillery) unless the enemy is infantry-heavy by count, which crushers answer (BAL-6).
       const skimmer = skimmerOf(allowed);
       const mix = armoured ? allowed : allowed.filter((k) => k !== skimmer);
       const skimFirst = armoured && skimmer !== null && (intel.squads ?? 0) <= INFANTRY_HEAVY;
+      // Field Menders are not part of the fighting mix (AI-29).
       const usual = (): string | null =>
         extraScouts > 0
-          ? chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
-          : chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && k !== scoutKind), counts, intel, tilt);
+          ? chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && !unitDef(k).repair), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
+          : chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && !unitDef(k).repair && k !== scoutKind), counts, intel, tilt);
       const pick: string | null = this.doctrine.pick
-        ? this.doctrine.pick(b.kind, allowed, haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore))
+        ? this.doctrine.pick(b.kind, allowed.filter((k) => !unitDef(k).repair || k === mender), haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore))
         : b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler)
           ? this.kit.hauler
           : (scout ??
             hero ??
             rifle ??
             gun ??
+            mender ??
             skimOr(skimFirst ? skimmer : null, usual()));
       if (!pick) continue;
+      if (unitDef(pick).repair) {
+        // A Field Mender: bought like any unit, but outside the fighting mix (AI-29).
+        if (c.credits < menderCost) continue;
+        c.credits -= unitDef(pick).cost;
+        out.push({ type: 'produce', player: this.player, source: b.id, kind: pick });
+        menderWant--;
+        continue;
+      }
       // Doomsday does not flood the field with cheap infantry beyond its rifle floor: tanks and artillery set the pace (AI-15).
       if (doom && !rifle && pick !== skimmer && (roleOf(unitDef(pick)) === 'inf' || roleOf(unitDef(pick)) === 'at') && this.doomCaps(counts, rifles, urgent)) continue;
       const cost = unitDef(pick).cost;
@@ -1326,6 +1384,18 @@ export class AI {
       }
       if (roleOf(unitDef(pick)) === 'art') guns++;
     }
+  }
+
+  /** How many more Field Menders it wants (AI-29): one per three of its tanks, alive and queued, less those it has or has queued. */
+  private menderWant(c: Ctx, queued: ReadonlyMap<string, number>): number {
+    const kind = this.menders.kind;
+    // The steamroll opponent keeps its own build and ignores the rules (HAR-5).
+    if (!kind || (!this.rules.menders && this.doctrine.pick === undefined)) return 0;
+    // Raider's fast, cheap raiding army has no place for a slow Mender: none while it plays Raider (AI-14, AI-29).
+    if (this.plan === 'raider' && this.doctrine.pick === undefined) return 0;
+    let tanks = c.own.filter((u) => isTank(u.kind)).length;
+    for (const [k, n] of queued) if (isTank(k)) tanks += n;
+    return mendersWanted(tanks, c.own.filter((u) => u.kind === kind).length + (queued.get(kind) ?? 0));
   }
 
   private haulerTarget(c: Ctx): number {
@@ -1663,7 +1733,9 @@ export class AI {
     const army = c.army;
     // The steamroll opponent keeps its own attack rule and never retreats (HAR-5).
     const ordinary = this.doctrine.retreats;
-    const own = this.armyPower(army);
+    // The squads riding in its Menders go with the army and fire from inside: they count in its strength (AI-29).
+    const riding = c.riders.length > 0 ? this.armyPower(c.riders) : 0;
+    const own = this.armyPower(army) + riding;
     if (army.length === 0) {
       if (this.wave) this.wave = null;
       this.squads = [];
@@ -1715,7 +1787,7 @@ export class AI {
     }
 
     if (threatened || c.tick < this.waveCooldown) return;
-    const p = inSquad.size > 0 ? this.armyPower(free) : own;
+    const p = inSquad.size > 0 ? this.armyPower(free) + riding : own;
     const raiding = this.plan === 'raider';
     const sw = c.buildings.find((b) => buildingDef(b.kind).superweapon && b.charge >= 100);
     // Doomsday with a charged superweapon sends its wave at what it will strike (AI-15).

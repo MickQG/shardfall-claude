@@ -22,6 +22,7 @@ import { poseRig, recoil, rigTree, strikeAfter, strikeSideOf, turretReach, type 
 import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { HAULER_VENT, SKIMMER_HOVER, UNIT_RIGS } from './units3d';
+import { MENDER_HATCH, MENDER_TIP } from './mender3d';
 import { DEFAULT_TARGET, scatterKind, shotScatter, wallEnd, type Offset, type ScatterKind, type ScatterTarget } from './scatter';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
 import { applySurface, modelMaterials, setSurface } from './surface3d';
@@ -88,6 +89,13 @@ const CRASH_CARRY = 0.8;
 
 /** How long a fallen squad member stays before it has sunk away, ms (R3D-15). */
 const FALLEN_MS = 2600;
+/** How long a Field Mender's arm takes to unfold to what it mends, and to fold back onto the roof, ms (R3D-38). */
+export const ARM_UNFOLD_MS = 650;
+export const ARM_FOLD_MS = 900;
+/** How far unfolded the arm must be before the repair stream and sparks show (R3D-38). */
+const ARM_READY = 0.85;
+/** How often the welding light at the contact point flickers anew, ms (R3D-38). */
+const WELD_FLICKER_MS = 110;
 /** How long a dying hover hull takes to drop onto the ground, ms (SKM-4). */
 const HOVER_DROP_MS = 350;
 /** Air units fly this high (tiles). */
@@ -181,9 +189,13 @@ interface UnitObj {
   work: number;
   /** The howitzer's barrel elevation, 0 in its travel lock .. 1 raised (R3D-32), and when the hauler last breathed vapour. */
   elev: number;
-  /** Has a gun that pitches toward its target (SKM-4), and how far up it points, radians, eased. */
+  /** Has a gun or arm that pitches toward its target (SKM-4, R3D-38), and how far up it points, radians, eased. */
   pitches: boolean;
   aimPitch: number;
+  /** A Field Mender's crane arm: how far it is unfolded, 0 folded on the roof .. 1 reaching out (R3D-38). */
+  arm: number;
+  /** When its welding light last flickered, ms (R3D-38). */
+  lastWeld: number;
   /** The hauler's stop settle (R3D-30). */
   settle: Settle;
   lastPuff: number;
@@ -228,6 +240,8 @@ interface PendingShot {
   e: Extract<SimEvent, { t: 'shot' }>;
   look: RigDef['weapon'];
   to: THREE.Vector3;
+  /** A passenger's shot: the carrier it fires from, out of its hatch (SQD-4, R3D-38). */
+  carrier?: UnitObj;
 }
 
 /** A crystal or prop: a fixed placement of one model. */
@@ -282,6 +296,8 @@ export class View3D {
   private pending: PendingShot[] = [];
   /** Missiles of a Paladin's salvo waiting to leave their pods (HERO-7). */
   private missiles: { at: number; src: UnitObj; side: number; to: THREE.Vector3; flightMs: number; elite: boolean }[] = [];
+  /** Passenger squads by id, with the carrier each rides in (SQD-4, R3D-38): their shots leave from its hatch. */
+  private riders = new Map<number, UnitObj>();
   private missileTurn = 0;
   /** Shots each shooter has fired so far, by id: picks where each lands on its target (AIM-3). Render state only. */
   private shotCount = new Map<number, number>();
@@ -767,8 +783,10 @@ export class View3D {
       drum: 0,
       work: 0,
       elev: 0,
-      pitches: figures[0]!.anims.some((a) => a.anim.k === 'aim'),
+      pitches: figures[0]!.anims.some((a) => a.anim.k === 'aim' || (a.anim.k === 'crane' && a.anim.lo !== undefined)),
       aimPitch: 0,
+      arm: 0,
+      lastWeld: 0,
       settle: restingSettle(),
       lastPuff: 0,
       alive: size,
@@ -829,7 +847,19 @@ export class View3D {
           src.strikeAt = now;
           src.strikes++;
         }
-      } else this.pending.push({ at: now, src, figure: 0, e, look, to: this.shotEnd(e.src, shot, 0, kind, tx, base, tz, dx, dz) });
+      } else {
+        // A passenger fires out of its carrier's hatch (SQD-4, R3D-38).
+        const carrier = src ? undefined : this.riders.get(e.src);
+        this.pending.push({ at: now, src, figure: 0, e, look, to: this.shotEnd(e.src, shot, 0, kind, tx, base, tz, dx, dz), ...(carrier ? { carrier } : {}) });
+      }
+      return;
+    }
+    if (e.t === 'mend') {
+      // Sparks where the repair lands, each time it does (R3D-38).
+      const [x, z] = P(e.x, e.y);
+      const m = this.units.get(e.id);
+      const u = this.units.get(e.to);
+      this.fx.sparks(this.mendContact(m ? m.x : x, m ? m.z : z, e.to, u ? u.x : x, u ? u.z : z, this.v), false, now);
       return;
     }
     if (e.t === 'boom') {
@@ -991,6 +1021,14 @@ export class View3D {
         this.v2.setFromMatrixColumn(muzzle.matrixWorld, 0).normalize();
         this.fx.muzzle(look, this.v, this.v2, now);
         this.fx.shot(look, this.v, p.to, flight, now, p.e.elite === true);
+      } else if (p.carrier) {
+        // Out of the carrier's roof hatch (R3D-38).
+        const c = p.carrier;
+        const h = c.motion.heading;
+        const from = new THREE.Vector3(c.x + Math.cos(h) * MENDER_HATCH[0], c.groundY + MENDER_HATCH[1] + 0.08, c.z + Math.sin(h) * MENDER_HATCH[0]);
+        this.v2.subVectors(p.to, from).normalize();
+        this.fx.muzzle(look, from, this.v2, now);
+        this.fx.shot(look, from, p.to, flight, now, p.e.elite === true);
       } else {
         // The shooter is not drawn (out of sight): start at its position.
         const from = new THREE.Vector3(p.e.x / FP, this.groundAt(p.e.x / FP, p.e.y / FP) + 0.3, p.e.y / FP);
@@ -1276,6 +1314,7 @@ export class View3D {
   private animateUnits(units: readonly RenderUnit[], vs: ViewState, snap: Snapshot | null, t: number, dt: number): void {
     const byId = new Map(units.map((u) => [u.id, u]));
     const seen = new Set<number>();
+    this.riders.clear();
     for (const u of units) {
       seen.add(u.id);
       let o = this.units.get(u.id);
@@ -1309,17 +1348,25 @@ export class View3D {
       if (u.load > o.load) o.mineAt = t;
       else if (u.load < o.load) o.unloadAt = t;
       o.load = u.load;
+      // A Field Mender's hatch light shows while a squad is inside, and its passenger's shots leave from it (R3D-38).
+      if (u.cargo) {
+        o.load = 1;
+        this.riders.set(u.cargo.id, o);
+      }
       o.groundY += (this.groundAt(o.x, o.z) - o.groundY) * Math.min(1, dt * 10);
       const max = maxHpOf(u.kind, u.rank);
       this.setAlive(o, squadAlive(u.kind, u.hp, max), t);
-      // Aim: the current target (GFX-10), else a recently fired direction, else straight ahead.
-      const tgt = u.target >= 0 ? byId.get(u.target) : undefined;
-      const tb = !tgt && u.target >= 0 && snap ? snap.buildings.find((b) => b.id === u.target) : undefined;
+      // Aim: the current target (GFX-10), else a recently fired direction, else straight ahead; a Field Mender's arm turns
+      // toward what it mends (R3D-38).
+      const aimId = u.mend ?? u.target;
+      const tgt = aimId >= 0 ? byId.get(aimId) : undefined;
+      const tb = !tgt && aimId >= 0 && snap ? snap.buildings.find((b) => b.id === aimId) : undefined;
       if (tgt) o.aim = Math.atan2(tgt.ty - o.z, tgt.tx - o.x);
       else if (tb) o.aim = Math.atan2(tb.ty + buildingDef(tb.kind).h / 2 - o.z, tb.tx + buildingDef(tb.kind).w / 2 - o.x);
       const aiming = !!tgt || !!tb || t <= o.aimHold;
       o.turretYaw = turnToward(o.turretYaw, aiming ? o.aim : o.motion.heading, TURRET_RATE * dt);
-      // A gun that pitches (the Skimmer's lance, SKM-4) tilts toward the middle of its target, and back to level without one.
+      // A gun or arm that pitches (the Skimmer's lance, SKM-4; the Mender's arm, R3D-38) tilts toward the middle of its
+      // target, and back to level without one.
       if (o.pitches) {
         let want = 0;
         if (tgt || tb) {
@@ -1331,6 +1378,8 @@ export class View3D {
         }
         o.aimPitch += (want - o.aimPitch) * Math.min(1, dt * 5);
       }
+      // A Field Mender unfolds its arm while it mends and folds it back onto the roof after (R3D-38).
+      if (u.kind === 'hum_mender') o.arm = slew(o.arm, u.mend !== undefined ? 1 : 0, dt, ARM_UNFOLD_MS, ARM_FOLD_MS);
       this.poseUnit(o, aiming, t, dt);
       // UI: selection ring on the ground, health bar over the model (both instanced, R3D-13).
       const sel = vs.selectedUnits.has(u.id);
@@ -1355,7 +1404,11 @@ export class View3D {
         const [vx, vy, vz] = HAULER_VENT;
         for (let i = 0; i < 2; i++) this.fx.steam(this.v.set(o.x + Math.cos(h) * vx - Math.sin(h) * vz, o.groundY + vy + i * 0.04, o.z + Math.sin(h) * vx + Math.cos(h) * vz), t);
       }
-      if (this.inView(o.x, o.root.position.y, o.z, def.radius + (o.members.length ? 0.5 : 0))) this.drawUnit(o, this.tint.setRGB(1, 1, 1), t);
+      if (this.inView(o.x, o.root.position.y, o.z, def.radius + (o.members.length ? 0.5 : 0))) {
+        this.drawUnit(o, this.tint.setRGB(1, 1, 1), t);
+        // The repair stream from the arm's tip to what it mends (R3D-38).
+        if (tgt && u.mend !== undefined) this.mendStream(o, tgt, t);
+      }
     }
     for (const [id, o] of this.units) {
       if (seen.has(id)) continue;
@@ -1368,6 +1421,33 @@ export class View3D {
       // A dead shooter fires no more (one out of sight keeps its count, so its scatter carries on when it returns).
       if (o.dying) this.shotCount.delete(id);
     }
+  }
+
+  /**
+   * A Field Mender's repair stream (R3D-38), once its arm is out: from the tool head's tip, whose matrices are current, to
+   * the contact point on the side of the vehicle it mends facing the tip, where welding sparks spray and a light flickers.
+   */
+  private mendStream(o: UnitObj, to: RenderUnit, t: number): void {
+    if (o.arm < ARM_READY) return;
+    const tool = o.figures[0]?.drawn.find((d) => d.geo === 'tool');
+    if (!tool) return;
+    const from = this.v.set(...MENDER_TIP).applyMatrix4(tool.obj.matrixWorld);
+    const at = this.mendContact(from.x, from.z, to.id, to.tx, to.ty, this.v2);
+    const weld = t - o.lastWeld > WELD_FLICKER_MS;
+    if (weld) o.lastWeld = t;
+    this.fx.repairStream(from, at, t, o.seed, weld);
+  }
+
+  /** Where a repair lands on unit `id` at (`tx`, `ty`): on its side facing (`fx`, `fz`), at about half its height (R3D-38). */
+  private mendContact(fx: number, fz: number, id: number, tx: number, ty: number, out: THREE.Vector3): THREE.Vector3 {
+    const target = this.units.get(id);
+    const k = target ? (target.def.scale ?? 1) : 1;
+    const y = this.groundAt(tx, ty) + (target ? Math.min(0.45, target.def.height * k * 0.55) : 0.3);
+    const dx = fx - tx;
+    const dz = fz - ty;
+    const d = Math.hypot(dx, dz);
+    const r = target && d > 1e-3 ? Math.min(d * 0.8, target.def.radius * k * 0.6) / d : 0;
+    return out.set(tx + dx * r, y, ty + dz * r);
   }
 
   private drawUnit(o: UnitObj, tint: THREE.Color, t: number): void {
@@ -1532,6 +1612,7 @@ export class View3D {
         feed: o.work,
         elev: o.elev,
         aim: o.aimPitch,
+        arm: o.arm,
         pod: podOpen(t - o.podSince, salvoOf(o.kind, this.msPerTick)),
       });
     });

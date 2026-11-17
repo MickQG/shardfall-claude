@@ -1,4 +1,5 @@
 import { Shape, type V3 } from './kit';
+import { mender } from './mender3d';
 import type { RigDef, RigNode } from './rig';
 
 /**
@@ -1624,6 +1625,7 @@ export const UNIT_RIGS: Readonly<Record<string, () => RigDef>> = {
   hum_artillery: artillery,
   hum_hauler: hauler,
   hum_paladin: paladin,
+  hum_mender: mender,
   ali_skitter: skitterer,
   ali_spitter: spitter,
   ali_stalker: stalker,
