@@ -1,6 +1,7 @@
 import { Container, Graphics, Sprite } from 'pixi.js';
 import { UNIT_DEFS } from '../data/defs';
 import { OWNER_COLORS } from './colors';
+import { BADGE_EDGE, BADGE_SHAPES, badgePieces, rankBadge } from './rank';
 import { squadOffsets } from './gfx';
 import { localOffset } from './voxel/compose';
 import { sprites } from './voxel/spriteCache';
@@ -134,11 +135,19 @@ export function animateUnit(a: UnitArt, t: number, moving: boolean, loadFrac: nu
   }
 }
 
-/** Veterancy chevrons (one per rank) centred above a unit at height `y`; cleared at rank 0 (VET-3). */
-export function drawRankPips(g: Graphics, rank: number, y: number): void {
+/** The classic view's badge width, pixels (VET-3). */
+export const BADGE_PX = 12;
+
+/**
+ * The veterancy badge centred above a unit at height `y` (VET-3): gold chevrons and a star for the Aegis, acid-green
+ * thorns and an eye for the Vrax (src/render/rank.ts); cleared at rank 0. The caller bobs the graphic up and down.
+ */
+export function drawRankBadge(g: Graphics, kind: string, rank: number, y: number): void {
   g.clear();
-  for (let i = 0; i < rank; i++) {
-    const cy = y - i * 4;
-    g.poly([-5, cy, 0, cy - 3, 5, cy, 5, cy + 1.6, 0, cy - 1.4, -5, cy + 1.6]).fill(0xffd34a).stroke({ color: 0x04130d, width: 0.8 });
+  const faction = UNIT_DEFS[kind]?.faction ?? 'human';
+  for (const p of badgePieces(rankBadge(rank, faction))) {
+    const pts = BADGE_SHAPES[p.shape].flatMap(([x, py]) => [(p.x + x) * BADGE_PX, y - (p.y + py) * BADGE_PX]);
+    g.poly(pts).fill(p.color);
+    if (p.edge) g.poly(pts).stroke({ color: BADGE_EDGE, width: 0.9 });
   }
 }

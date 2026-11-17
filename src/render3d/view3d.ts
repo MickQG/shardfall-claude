@@ -24,6 +24,7 @@ import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, 
 import { HAULER_VENT, SKIMMER_HOVER, UNIT_RIGS } from './units3d';
 import { MENDER_HATCH, MENDER_TIP } from './mender3d';
 import { selectedRings } from '../render/rings';
+import { BADGE_BOB_TILES, BADGE_EDGE, BADGE_SHAPES, badgeBob, badgePieces, rankBadge, type BadgeShape } from '../render/rank';
 import { DEFAULT_TARGET, scatterKind, shotScatter, wallEnd, type Offset, type ScatterKind, type ScatterTarget } from './scatter';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
 import { applySurface, modelMaterials, setSurface } from './surface3d';
@@ -101,6 +102,8 @@ const WELD_FLICKER_MS = 110;
 const HOVER_DROP_MS = 350;
 /** Air units fly this high (tiles). */
 export const AIR_Y = 0.85;
+/** A veterancy badge's width, tiles (VET-3). */
+export const BADGE_TILES = 0.26;
 /** Units are drawn when their bounding circle (plus a shadow margin) touches the view. */
 const CULL_MARGIN = 1.6;
 
@@ -351,6 +354,9 @@ export class View3D {
   private tint = new THREE.Color();
   private frame = 0;
   private camRight = new THREE.Vector3();
+  private camUp = new THREE.Vector3();
+  /** Veterancy badge shapes (VET-3), filled and as a slightly larger dark outline, built on first use. */
+  private badgeGeos = new Map<BadgeShape, { fill: THREE.BufferGeometry; edge: THREE.BufferGeometry }>();
   private ringGeo = new THREE.RingGeometry(0.86, 1, 40).rotateX(-Math.PI / 2);
   private ringMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false });
   /** A selected Field Mender's repair reach (R3D-38) and a hero's aura (HERO-9): thin rings, drawn with the selection rings' material. */
@@ -1182,6 +1188,7 @@ export class View3D {
     this.renderer.info.reset();
     this.frame++;
     this.camRight.setFromMatrixColumn(this.camera.matrixWorld, 0);
+    this.camUp.setFromMatrixColumn(this.camera.matrixWorld, 1);
     if (this.waterNormal) this.waterNormal.offset.set((t * WATER.driftX) % 1, (t * WATER.driftY) % 1);
     this.inst.begin();
     this.animateUnits(units, vs, snap, t, dt);
@@ -1306,6 +1313,38 @@ export class View3D {
     this.inst.push('ui/barFg', this.barFgGeo, this.barMat, false, this.uiM, this.uiC.setHex(frac > 0.5 ? 0x4cd964 : frac > 0.25 ? 0xffcc00 : 0xff3b30), 21);
   }
 
+  /** A badge shape's geometry (VET-3): the outline as a flat shape, and a copy grown about its middle for the dark edge. */
+  private badgeGeo(shape: BadgeShape): { fill: THREE.BufferGeometry; edge: THREE.BufferGeometry } {
+    let g = this.badgeGeos.get(shape);
+    if (!g) {
+      const pts = BADGE_SHAPES[shape];
+      const cx = (Math.min(...pts.map((p) => p[0])) + Math.max(...pts.map((p) => p[0]))) / 2;
+      const cy = (Math.min(...pts.map((p) => p[1])) + Math.max(...pts.map((p) => p[1]))) / 2;
+      const make = (k: number): THREE.BufferGeometry => new THREE.ShapeGeometry(new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(cx + (x - cx) * k, cy + (y - cy) * k))));
+      g = { fill: make(1), edge: make(1.3) };
+      this.badgeGeos.set(shape, g);
+    }
+    return g;
+  }
+
+  /**
+   * A unit's veterancy badge (VET-3), facing the camera with its middle at (x, y, z) and bobbing slowly: gold chevrons
+   * and a star for the Aegis, acid-green thorns and an eye for the Vrax, each over a dark edge, drawn over the world.
+   */
+  private badgeAt(x: number, y: number, z: number, kind: string, rank: number, id: number, t: number, motion: boolean): void {
+    const pieces = badgePieces(rankBadge(rank, unitDef(kind).faction));
+    if (pieces.length === 0) return;
+    const q = this.camera.quaternion;
+    const lift = BADGE_BOB_TILES * badgeBob(t, id, motion);
+    for (const p of pieces) {
+      const g = this.badgeGeo(p.shape);
+      this.uiP.set(x, y + lift, z).addScaledVector(this.camRight, p.x * BADGE_TILES).addScaledVector(this.camUp, p.y * BADGE_TILES);
+      this.uiM.compose(this.uiP, q, this.uiS.set(BADGE_TILES, BADGE_TILES, 1));
+      if (p.edge) this.inst.push(`ui/badgeEdge/${p.shape}`, g.edge, this.barMat, false, this.uiM, this.uiC.setHex(BADGE_EDGE), 22);
+      this.inst.push(`ui/badge/${p.shape}`, g.fill, this.barMat, false, this.uiM, this.uiC.setHex(p.color), p.shape === 'pupil' ? 24 : 23);
+    }
+  }
+
   /** Queue a rig's parts; its world matrices must be current (the caller updates its root). */
   private drawRig(rig: RigInst, tint: THREE.Color, load: number): void {
     for (const p of rig.parts) {
@@ -1401,6 +1440,8 @@ export class View3D {
         }
         this.barAt(o.x, o.groundY + def.height * (def.scale ?? 1) + (air ? AIR_Y : 0) + 0.22, o.z, frac);
       }
+      // A ranked unit's veterancy badge floats above where its health bar shows (VET-3).
+      if (u.rank > 0 && this.inView(o.x, o.groundY, o.z, 0.5)) this.badgeAt(o.x, o.groundY + def.height * (def.scale ?? 1) + (air ? AIR_Y : 0) + 0.42, o.z, u.kind, u.rank, u.id, t, vs.fx.shake);
       // Dust behind moving vehicles (R3D-12).
       if ((def.move === 'tracked' || def.move === 'wheeled') && o.motion.speed > 0.4 && t - o.lastDust > 70 && this.inView(o.x, 0, o.z, 1) && !(this.shardTiles?.[Math.floor(o.z) * this.mapW + Math.floor(o.x)])) {
         o.lastDust = t;
