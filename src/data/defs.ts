@@ -205,7 +205,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
     weapon: { damage: 8, range: 1.6, cooldown: 7, type: 'bite', antiAir: false, antiGround: true },
   },
   ali_brute: {
-    faction: 'alien', name: 'Brute', speed: 38, hp: 620, radius: 112, vision: 6, cost: 830, buildTime: 500, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 2, crusher: true, role: 'tank',
+    faction: 'alien', name: 'Brute', speed: 38, hp: 680, radius: 112, vision: 6, cost: 830, buildTime: 500, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 2, crusher: true, role: 'tank',
     weapon: { damage: 58, range: 1.9, cooldown: 20, type: 'claw', antiAir: false, antiGround: true },
   },
   ali_lobber: {

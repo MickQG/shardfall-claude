@@ -134,7 +134,7 @@ describe('infantry damage and armour', () => {
     const perCredit = (k: string): number => (damageAgainst(unitDef(k).weapon!, 'heavy') * 20) / unitDef(k).weapon!.cooldown / unitDef(k).cost;
     expect(perCredit('ali_skitter')).toBeLessThan(perCredit('hum_rocketeer') * 0.6);
     expect(perCredit('hum_rifleman')).toBeLessThan(perCredit('hum_rocketeer') * 0.6);
-    expect(unitDef('ali_brute').hp).toBe(620);
+    expect(unitDef('ali_brute').hp).toBe(680);
     expect(damageAgainst({ damage: 100, type: 'claw' }, 'heavy')).toBe(80);
   });
 });
