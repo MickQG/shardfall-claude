@@ -78,6 +78,12 @@ jobs:
           - { name: steamroll raider, run: npm run test:matches -- steamroll -t raider }
           - { name: steamroll balanced, run: npm run test:matches -- steamroll -t balanced }
           - { name: steamroll doomsday, run: npm run test:matches -- steamroll -t doomsday }
+          - { name: tankspam raider, run: npm run test:matches -- tankspam -t "no menders raider" }
+          - { name: tankspam balanced, run: npm run test:matches -- tankspam -t "no menders balanced" }
+          - { name: tankspam doomsday, run: npm run test:matches -- tankspam -t "no menders doomsday" }
+          - { name: tankspam menders raider, run: npm run test:matches -- tankspam -t "with menders raider" }
+          - { name: tankspam menders balanced, run: npm run test:matches -- tankspam -t "with menders balanced" }
+          - { name: tankspam menders doomsday, run: npm run test:matches -- tankspam -t "with menders doomsday" }
           - { name: scout hard, run: SCOUT_DIFFICULTY=hard npm run test:matches -- scout.test }
           - { name: scout medium, run: npm run test:matches -- scout.test }
           - { name: economy scale, run: npm run test:matches -- economy-scale }

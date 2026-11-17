@@ -471,6 +471,8 @@ export interface AiStats {
     peakFactories: number;
     peakHaulers: number;
     peakArmy: number;
+    /** Kite orders its crushers were given (HAR-7). */
+    kites: number;
   };
   /** Units it sent scouting (of any kind) that died while scouting (AI-21). */
   scoutsLost: number;
@@ -496,6 +498,10 @@ export interface AiStats {
   hitSquads: number;
   /** Raider's scout units that came out for its army, beyond its standing scout (AI-27 a). */
   raiderScouts: number;
+  /** Hit squads sent at the enemy economy while the enemy's armour was away from its base (AI-31). */
+  ballRaids: number;
+  /** Orders that held back a slow melee crusher from chasing faster armour moving away (AI-30). */
+  heldBack: number;
 }
 
 /** Options of an AI beyond difficulty and personality. */
@@ -650,7 +656,7 @@ type Ctx = {
 export class AI {
   readonly kit: Kit;
   protected readonly doctrine: Doctrine = FULL_DOCTRINE;
-  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, hitSquads: 0, raiderScouts: 0 };
+  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, hitSquads: 0, raiderScouts: 0, ballRaids: 0, heldBack: 0 };
   /** Its Field Menders (AI-29): loading, following, fallback and unloading. */
   protected readonly menders: MenderPlan;
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
