@@ -1,5 +1,5 @@
-import { buildingDef, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
-import { BUILD_RANGE, EXPLORED, type BuildingSnap, type Command, type MapDef, type Snapshot } from '../sim';
+import { buildingDef, canCrush, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
+import { BUILD_RANGE, EXPLORED, FP, type BuildingSnap, type Command, type MapDef, type Snapshot, type UnitSnap } from '../sim';
 import { AI, DIFFICULTIES, homeFields, shardFields, type AiStats, type Difficulty, type Doctrine, type ShardField } from './ai';
 
 /**
@@ -31,8 +31,103 @@ export interface SteamrollTuning {
   fields: number;
   /** Haulers it keeps on a big field; one fewer on a smaller one. */
   haulers: number;
+  /**
+   * 1: tank spam (HAR-7): once its opening is over its barracks train only the anti-armour squads its Field Menders carry,
+   * and its factories crushers; 0: its squads in the mix above.
+   */
+  tankspam: number;
+  /** 1: its crushers kite (HAR-7): they keep just outside the reach of the enemy units they outrange while they shoot. */
+  kite: number;
+  /** 1: Field Menders in its army by the AI's count (AI-29), loaded with anti-armour squads; 0: none. */
+  menders: number;
+  /** How deep its unit queues may be (HAR-7), so its credits go into factories before queues; 0: its deeper calibrated queues. */
+  queue: number;
 }
-export const STEAMROLL_TUNING: Readonly<SteamrollTuning> = { launch: 14000, crushers: 6, bonus: STEAMROLL_DIFFICULTY.bonus, antiArmour: 0.55, barracks: 5, factories: 5, fields: 3, haulers: 4 };
+export const STEAMROLL_TUNING: Readonly<SteamrollTuning> = { launch: 14000, crushers: 6, bonus: STEAMROLL_DIFFICULTY.bonus, antiArmour: 0.55, barracks: 5, factories: 5, fields: 3, haulers: 4, tankspam: 0, kite: 0, menders: 1, queue: 0 };
+
+/**
+ * The tank-spam opponent (HAR-7): the steamroll opponent playing the build the owner beats the Hard AI as Vrax with: one
+ * barracks, five factories massing crushers (Bulwark Tanks) that kite, and no Field Menders unless `menders: 1` is added.
+ * It mines its two home fields and keeps its unit queues two deep, so its credits go into factories first.
+ */
+export const TANKSPAM: Readonly<Partial<SteamrollTuning>> = { tankspam: 1, kite: 1, menders: 0, barracks: 1, crushers: 12, queue: 2, fields: 2 };
+
+/** Named opponent variants a match series may ask for (STEAMROLL_VARIANT), as changes to STEAMROLL_TUNING. */
+export const STEAMROLL_PRESETS: Readonly<Record<string, Readonly<Partial<SteamrollTuning>>>> = { tankspam: TANKSPAM };
+
+/**
+ * Kiting (HAR-7): a crusher backs off from an enemy unit whose gun reaches less far than its own once that unit is within
+ * its reach plus KITE_GAP tiles, moving KITE_STEP tiles straight away from such units (turning up to 90 degrees round
+ * rock or water); at most KITE_ORDERS of these orders a decision, out of its budget.
+ */
+export const KITE_GAP = 3;
+export const KITE_STEP = 3;
+export const KITE_ORDERS = 6;
+
+/**
+ * Kite orders (HAR-7): for each of `player`'s crushers (not heroes) that sees a ground enemy it outranges and cannot run
+ * over (not an infantry squad) within that enemy's reach plus KITE_GAP tiles, a plain move KITE_STEP tiles straight away from those enemies (the nearest counting
+ * most), so it keeps firing on the move (BAL-11) and stays out of their reach. Nearest threats first, at most `max`.
+ * Pure: a function of what the player sees and the map.
+ */
+export function kiteOrders(player: number, units: readonly UnitSnap[], map: MapDef, max = KITE_ORDERS): Command[] {
+  const W = map.width;
+  const H = map.height;
+  const open = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < W && y < H && !map.blocked?.[Math.floor(y) * W + Math.floor(x)];
+  const foes = units.filter((u) => u.owner !== player && unitDef(u.kind).weapon && !unitDef(u.kind).air);
+  const out: { d: number; id: number; c: Command }[] = [];
+  for (const t of units) {
+    const d = unitDef(t.kind);
+    if (t.owner !== player || !d.crusher || d.hero || !d.weapon) continue;
+    const reach = d.weapon.range;
+    const x = t.x / FP;
+    const y = t.y / FP;
+    let ux = 0;
+    let uy = 0;
+    let nearest = Infinity;
+    for (const f of foes) {
+      const r = unitDef(f.kind).weapon?.range ?? 0;
+      // Squads it can run over it crushes instead (BAL-5).
+      if (r >= reach || canCrush(t.kind, f.kind)) continue;
+      const fx = f.x / FP;
+      const fy = f.y / FP;
+      const dd = Math.hypot(x - fx, y - fy);
+      if (dd > r + KITE_GAP) continue;
+      const d2 = Math.max(0.25, dd * dd);
+      ux += (x - fx) / d2;
+      uy += (y - fy) / d2;
+      nearest = Math.min(nearest, dd);
+    }
+    if (nearest === Infinity) continue;
+    const l = Math.hypot(ux, uy);
+    if (l < 1e-6) continue;
+    ux /= l;
+    uy /= l;
+    const C = Math.SQRT1_2;
+    const turns: [number, number][] = [
+      [1, 0],
+      [C, C],
+      [C, -C],
+      [0, 1],
+      [0, -1],
+    ];
+    for (const [cs, sn] of turns) {
+      const dx = ux * cs - uy * sn;
+      const dy = ux * sn + uy * cs;
+      let ok = true;
+      for (let k = 1; k <= 2 * KITE_STEP && ok; k++) ok = open(x + (dx * k) / 2, y + (dy * k) / 2);
+      if (!ok) continue;
+      const px = Math.floor(x + dx * KITE_STEP);
+      const py = Math.floor(y + dy * KITE_STEP);
+      out.push({ d: nearest, id: t.id, c: { type: 'move', player, units: [t.id], x: px * FP + FP / 2, y: py * FP + FP / 2 } });
+      break;
+    }
+  }
+  return out
+    .sort((a, b) => a.d - b.d || a.id - b.id)
+    .slice(0, max)
+    .map((o) => o.c);
+}
 
 const find = (faction: Faction, what: string, f: (k: string) => boolean): string => {
   const k = Object.keys(UNIT_DEFS).find((u) => unitDef(u).faction === faction && f(u));
@@ -65,6 +160,7 @@ const gap = (b: BuildingSnap, x: number, y: number): number => {
  * with `crushers` crushers. Then everything attacks as one body with crush orders and never turns back; what it trains
  * meanwhile follows in groups. No scouts, artillery, aircraft, hero, lab, turrets or superweapon. As Aegis it keeps Field
  * Menders in its army by the AI's count, loaded with anti-armour squads, though its tanks never fall back to them (AI-29).
+ * Its tank-spam variant (HAR-7, TANKSPAM) trains crushers and only the squads its Menders carry, and its crushers kite.
  */
 export class SteamrollAI extends AI {
   protected override readonly doctrine: Doctrine;
@@ -90,9 +186,9 @@ export class SteamrollAI extends AI {
     const rifle = (this.rifle = rifleOf(faction));
     const at = (this.antiArmour = antiArmourOf(faction));
     const hauler = this.kit.hauler;
-    this.stats.steamroll = { launches: [], peakRefineries: 0, peakBarracks: 0, peakFactories: 0, peakHaulers: 0, peakArmy: 0 };
-    // Field Menders in its army by the AI's own count, loaded the same way (AI-29); the Vrax have none.
-    const mender = this.menders.kind;
+    this.stats.steamroll = { launches: [], peakRefineries: 0, peakBarracks: 0, peakFactories: 0, peakHaulers: 0, peakArmy: 0, kites: 0 };
+    // Field Menders in its army by the AI's own count, loaded the same way (AI-29), unless its tuning says none; the Vrax have none.
+    const mender = tuning.menders ? this.menders.kind : null;
     this.doctrine = {
       trains: (k) => k === crusher || k === rifle || k === at || k === hauler || k === mender,
       structure: (have) => this.structure(have),
@@ -103,6 +199,7 @@ export class SteamrollAI extends AI {
         this.lastLaunch = { value: Math.round(value), crushers };
         return value >= tuning.launch && crushers >= tuning.crushers;
       },
+      ...(tuning.queue > 0 ? { depth: () => tuning.queue } : {}),
       scouts: false,
       retreats: false,
     };
@@ -152,8 +249,22 @@ export class SteamrollAI extends AI {
     }
     if (building !== this.kit.barracks) return null;
     if (!allowed.includes(this.antiArmour) || this.openingRifles < 0) return allowed.includes(this.rifle) ? this.rifle : null;
+    // Tank spam (HAR-7): after its opening, only a squad for each Field Mender to carry.
+    if (this.tuning.tankspam) return this.squadsForMenders() > 0 ? this.antiArmour : null;
     const rifles = p.inf - this.openingRifles;
     return p.at < this.tuning.antiArmour * (p.at + rifles + 1) ? this.antiArmour : this.rifle;
+  }
+
+  /** Anti-armour squads its Field Menders still want aboard (HAR-7): its Menders, less the squads it has (aboard or not) or has queued. */
+  private squadsForMenders(): number {
+    const s = this.snap;
+    const kind = this.menders.kind;
+    if (!s || !kind || !this.tuning.menders) return 0;
+    const own = s.units.filter((u) => u.owner === this.player);
+    const menders = own.filter((u) => u.kind === kind);
+    const squads = own.filter((u) => u.kind === this.antiArmour).length + menders.filter((u) => u.cargo).length;
+    const queued = this.own.reduce((n, b) => n + b.queue.filter((q) => q.kind === this.antiArmour).length, 0);
+    return menders.length - squads - queued;
   }
 
   /** Haulers: per field it mines, `haulers` on a big field, one fewer on a smaller one; the AI's number while it mines none. */
@@ -203,7 +314,14 @@ export class SteamrollAI extends AI {
       this.reachable = t !== null && t.tiles.some((i) => ((snap.fog?.[i] as number) & EXPLORED) !== 0 && own.some((b) => gap(b, i % W, Math.floor(i / W)) <= BUILD_RANGE - 1));
     }
     const waves = this.stats.waves;
-    const out = super.think(snap);
+    let out = super.think(snap);
+    // Its crushers kite (HAR-7): their orders go last, so they hold over this decision's others for the same units, and
+    // come out of its budget.
+    if (this.tuning.kite) {
+      const kite = kiteOrders(me, snap.units, this.terrain);
+      if (kite.length > 0) out = [...out.slice(0, Math.max(0, this.diff.maxCommands - kite.length)), ...kite];
+      sr.kites += kite.length;
+    }
     if (this.stats.waves > waves) sr.launches.push({ tick: snap.tick, ...this.lastLaunch });
     const n = (f: (kind: string) => boolean): number => own.filter((b) => f(b.kind)).length;
     sr.peakRefineries = Math.max(sr.peakRefineries, n((x) => !!buildingDef(x).refinery));

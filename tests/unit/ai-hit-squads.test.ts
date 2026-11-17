@@ -291,15 +291,16 @@ describe('hit squads (AI-27)', () => {
     }, LONG);
 
     it('AI-27 (b): a threat to the base calls the hit squad home like any other group (AI-7, AI-23 c)', () => {
-      // An attack on the base: every group comes back to defend it.
-      const one = beside('balanced', 7);
+      // An attack on the base: every group comes back to defend it. (Brutes attacking are armour away from its base: with
+      // rules.ballRaid a hit squad would go for the economy at once, AI-31; that rule is tested on its own.)
+      const one = beside('balanced', 7, undefined, { ballRaid: false });
       const hit = one.who.groupState[1]!;
       const raiders = [0, 1, 2].map((i) => ({ kind: 'ali_brute', tx: 14 + i, ty: 18 }));
       const log = run(one.g, one.who, 16, [BY_TARGET, hauler(D), hauler(E), ...raiders]);
       expect(one.who.groupState).toEqual([]);
       expect(log.some((c) => c.type === 'attackmove' && hit.members.every((id) => c.units.includes(id)))).toBe(true);
       // A big enemy force seen near the base, beyond the defence's reach: it comes home to the hold point (AI-23 c).
-      const two = beside('balanced', 7);
+      const two = beside('balanced', 7, undefined, { ballRaid: false });
       const hit2 = two.who.groupState[1]!;
       run(two.g, two.who, 200, [BY_TARGET, hauler(D), hauler(E)]);
       // Six Brutes (4 980): at least half its army (9 500).

@@ -400,6 +400,8 @@ interface Wave {
   size: number;
   /** Whether the last order held the wave back to close up. */
   held: boolean;
+  /** A hit squad sent while the enemy's armour was away (AI-31): no threat to the base calls it home. */
+  ball?: boolean;
 }
 
 /** Wave pacing (AI-11): ticks between orders, tiles per hop, the spread at which it closes up, and gathering rules. */
@@ -434,6 +436,35 @@ export const STALEMATE_SEEN = 20 * 120;
 export const RAID_GUARD_R = 10;
 export const RAID_GUARD_AGE = 20 * 60;
 export const RAID_GUARD_SHARE = 0.5;
+
+/**
+ * Not chasing what it cannot catch (AI-30): a melee crusher of its own (weapon range under MELEE_RANGE, not a hero) that
+ * sees heavy enemy armour faster than itself within CHASE_SEEN tiles moving away from it (farther than at its last
+ * decision), with no enemy within its reach plus one tile, at every decision for CHASE_PATIENCE ticks, holds back for HOLD_BACK ticks: where it stands when ranged
+ * units of its own are within HOLD_NEAR tiles of it, else at its nearest defence within HOLD_SPIRE tiles, else at the
+ * middle of its ranged army, else at its staging point.
+ */
+export const MELEE_RANGE = 3;
+export const CHASE_SEEN = 10;
+export const HOLD_BACK = 20 * 5;
+export const HOLD_SPIRE = 15;
+export const HOLD_NEAR = 8;
+export const CHASE_PATIENCE = 20 * 3;
+/**
+ * The enemy's armour is away from its base (AI-31) when the middle, by cost, of the heavy armed enemy units it has seen in
+ * the last BALL_SEEN ticks is at least BALL_AWAY tiles from every enemy building it knows; then a hit squad of fast
+ * units, at most BALL_RAID_SHARE of its army's value, goes for the enemy economy.
+ */
+export const BALL_SEEN = 20 * 30;
+export const BALL_AWAY = 20;
+export const BALL_RAID_SHARE = 0.25;
+/** No such hit squad sets out within BALL_RAID_GAP ticks of the last one (AI-31). */
+export const BALL_RAID_GAP = 20 * 30;
+/** Against armour, Vrax keeps one Brute for every SCREEN_PER Skimmers it has or has queued (AI-33). */
+export const SCREEN_PER = 3;
+/** Where its second standing scout watches (AI-21): this far along the way from its staging point to the enemy start, and PICKET_SIDE tiles to one side. */
+export const PICKET_ALONG = 0.3;
+export const PICKET_SIDE = 6;
 
 export interface AiStats {
   waves: number;
@@ -471,6 +502,8 @@ export interface AiStats {
     peakFactories: number;
     peakHaulers: number;
     peakArmy: number;
+    /** Kite orders its crushers were given (HAR-7). */
+    kites: number;
   };
   /** Units it sent scouting (of any kind) that died while scouting (AI-21). */
   scoutsLost: number;
@@ -496,6 +529,10 @@ export interface AiStats {
   hitSquads: number;
   /** Raider's scout units that came out for its army, beyond its standing scout (AI-27 a). */
   raiderScouts: number;
+  /** Hit squads sent at the enemy economy while the enemy's armour was away from its base (AI-31). */
+  ballRaids: number;
+  /** Orders that held back a slow melee crusher from chasing faster armour moving away (AI-30). */
+  heldBack: number;
 }
 
 /** Options of an AI beyond difficulty and personality. */
@@ -544,6 +581,8 @@ export interface AiRules {
   splitRatio: number;
   /** (SKM-6) Trains Glare Skimmers against an enemy that is mostly heavy armour; off: never trains them. */
   skimmers: boolean;
+  /** (SKM-6) The share of heavy armour by cost among the enemies seen above which it trains Skimmers. */
+  skimAt: number;
   /** (AI-29) Aegis trains Field Menders, one for every three tanks; off: none (so neither of the two below applies). */
   menders: boolean;
   /** (AI-29) Badly damaged tanks fall back to a Field Mender until mended. */
@@ -552,6 +591,18 @@ export interface AiRules {
   menderLoad: boolean;
   /** (AI-29) The share of its health below which a tank falls back to a Field Mender. */
   menderFallbackAt: number;
+  /** (AI-30) Against mostly heavy armour, its slow melee crushers do not chase faster armour moving away; they fall back. */
+  noChase: boolean;
+  /** (AI-31) Against mostly heavy armour, a hit squad goes for the enemy economy whenever the enemy's armour is away from its base. */
+  ballRaid: boolean;
+  /** (AI-31) The largest share of the army's value that hit squad may take. */
+  ballRaidShare: number;
+  /** (AI-33) Against mostly heavy armour, Vrax keeps a few Brutes beside its Skimmers to screen them. */
+  screen: boolean;
+  /** (AI-21) Two standing scouts: one tours the enemy base, the other watches the way between the bases; off: one. */
+  twoScouts: boolean;
+  /** (AI-21) How far along the way from its staging point to the enemy start the second scout's post lies. */
+  picketAlong: number;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -572,10 +623,17 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   hitShare: HIT_SHARE,
   splitRatio: SPLIT_RATIO,
   skimmers: true,
+  skimAt: MOSTLY_HEAVY,
   menders: true,
   menderFallback: true,
   menderLoad: true,
   menderFallbackAt: MENDER_FALLBACK,
+  noChase: true,
+  ballRaid: false,
+  ballRaidShare: BALL_RAID_SHARE,
+  screen: false,
+  twoScouts: false,
+  picketAlong: PICKET_ALONG,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -603,6 +661,8 @@ export interface Doctrine {
   place?(kind: string): { reach: number; toward?: { x: number; y: number } } | undefined;
   /** Whether its army, of this value (credits) and with this many crushers, sets out now; replaces the AI's own attack rule, and the whole army goes. */
   launch?(value: number, crushers: number): boolean;
+  /** How deep its unit queues may be, given its bank; the steamroll opponent's own depth when absent. */
+  depth?(credits: number): number;
   /** Whether it sends out a scout. */
   scouts: boolean;
   /** Whether it pulls a beaten wave back to the staging point, or calls it home to defend the base. */
@@ -650,7 +710,7 @@ type Ctx = {
 export class AI {
   readonly kit: Kit;
   protected readonly doctrine: Doctrine = FULL_DOCTRINE;
-  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, hitSquads: 0, raiderScouts: 0 };
+  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, hitSquads: 0, raiderScouts: 0, ballRaids: 0, heldBack: 0 };
   /** Its Field Menders (AI-29): loading, following, fallback and unloading. */
   protected readonly menders: MenderPlan;
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
@@ -729,6 +789,19 @@ export class AI {
   readonly rules: Readonly<AiRules>;
   /** The tick each of its squads was last told to scatter from a crusher (AI-24). */
   private scattered = new Map<number, number>();
+  /** Where it saw each enemy unit at its last decision (AI-30), and its crushers held back from a chase, until when. */
+  private lastFoes = new Map<number, { x: number; y: number }>();
+  private held = new Map<number, number>();
+  /** Since when each of its melee crushers has been chasing armour it cannot catch (AI-30). */
+  private chasing = new Map<number, number>();
+  /** When its last hit squad went for the economy while the enemy's armour was away (AI-31). */
+  private ballRaidAt = -100000;
+  /** Its second standing scout (AI-21), watching the way between the bases: its unit or -1, when it stood, and where it flees to. */
+  private picket = -1;
+  private picketSince = -1;
+  private picketFleeing: { tx: number; ty: number } | null = null;
+  private picketHop: { tx: number; ty: number } | null = null;
+  private picketAt: { x: number; y: number } | null = null;
 
   constructor(
     readonly player: number,
@@ -764,7 +837,7 @@ export class AI {
     const haulers = own.filter((u) => unitDef(u.kind).capacity !== undefined);
     this.keepStanding(own, snap.tick);
     // The scouts are not part of the army: no wave, gathering or defence order takes them (AI-17, AI-21).
-    const army = own.filter((u) => unitDef(u.kind).weapon && unitDef(u.kind).capacity === undefined && u.id !== this.scoutId && u.id !== this.standing);
+    const army = own.filter((u) => unitDef(u.kind).weapon && unitDef(u.kind).capacity === undefined && u.id !== this.scoutId && u.id !== this.standing && u.id !== this.picket);
     const c: Ctx = {
       snap, tick: snap.tick, own, foes, buildings,
       enemyBuildings: [...snap.buildings.filter((b) => b.owner !== me), ...snap.ghosts],
@@ -787,7 +860,10 @@ export class AI {
       c.strength.push(rider);
       c.riders.push(rider);
     }
-    const out: Command[] = mend.orders.slice(0, Math.max(1, Math.floor(this.diff.maxCommands / 4)));
+    // Its slow melee crushers held back from chasing armour they cannot catch (AI-30) leave the army for a while.
+    const hold = this.holdBack(c);
+    if (this.held.size > 0) c.army = c.army.filter((u) => !this.held.has(u.id));
+    const out: Command[] = [...mend.orders.slice(0, Math.max(1, Math.floor(this.diff.maxCommands / 4))), ...hold];
     this.placeReady(c, out);
     this.defendBase(c, out);
     // Scouting goes ahead of building and production in the command budget, or the scout is rarely sent (AI-6, AI-17).
@@ -806,7 +882,96 @@ export class AI {
     for (const o of crush) if (o.type === 'scatter') for (const id of o.units) this.scattered.set(id, c.tick);
     // Doomsday's strike and the order sending its wave into it go first, ahead of everything else (AI-15).
     const first = this.first.splice(0);
+    this.lastFoes = new Map(foes.map((f) => [f.id, { x: f.x, y: f.y }]));
     return [...first, ...out.slice(0, Math.max(0, this.diff.maxCommands - crush.length - first.length)), ...crush];
+  }
+
+  /**
+   * Not chasing what it cannot catch (AI-30): while the armed enemies it has seen in the last two minutes are mostly heavy
+   * armour by cost (SKM-6), each melee crusher of its own (not a hero) that sees heavy enemy armour faster than itself
+   * within CHASE_SEEN tiles moving away from it, with no enemy within its reach plus a tile, falls back for HOLD_BACK ticks
+   * (fallbackPoint) instead of chasing. Returns the orders, one for each place it falls back to.
+   */
+  private holdBack(c: Ctx): Command[] {
+    for (const [id, until] of this.held) if (until <= c.tick || !c.own.some((u) => u.id === id)) this.held.delete(id);
+    for (const id of [...this.chasing.keys()]) if (!c.own.some((u) => u.id === id)) this.chasing.delete(id);
+    if (!this.rules.noChase || !this.doctrine.retreats || heavyShareByCost(this.intel.values(), c.tick) <= MOSTLY_HEAVY) {
+      this.held.clear();
+      this.chasing.clear();
+      return [];
+    }
+    const groups = new Map<number, { to: { tx: number; ty: number }; ids: number[] }>();
+    for (const u of c.army) {
+      const d = unitDef(u.kind);
+      if (this.held.has(u.id) || !d.crusher || d.hero || !d.weapon || d.weapon.range >= MELEE_RANGE) continue;
+      const reach = (d.weapon.range + 1) * FP;
+      if (c.foes.some((f) => unitDef(f.kind).weapon && Math.hypot(f.x - u.x, f.y - u.y) <= reach)) {
+        this.chasing.delete(u.id);
+        continue;
+      }
+      const runs = c.foes.some((f) => {
+        const fd = unitDef(f.kind);
+        if (!fd.weapon || fd.armor !== 'heavy' || fd.speed <= d.speed) return false;
+        const now = Math.hypot(f.x - u.x, f.y - u.y);
+        const was = this.lastFoes.get(f.id);
+        return now <= CHASE_SEEN * FP && was !== undefined && now > Math.hypot(was.x - u.x, was.y - u.y);
+      });
+      if (!runs) {
+        this.chasing.delete(u.id);
+        continue;
+      }
+      // Only a chase that has gone on for CHASE_PATIENCE ticks: armour that is kiting, not merely turning away.
+      const since = this.chasing.get(u.id) ?? c.tick;
+      this.chasing.set(u.id, since);
+      if (c.tick - since < CHASE_PATIENCE) continue;
+      this.chasing.delete(u.id);
+      const to = this.fallbackPoint(c, u);
+      const k = to.ty * this.map.width + to.tx;
+      const g = groups.get(k) ?? { to, ids: [] };
+      g.ids.push(u.id);
+      groups.set(k, g);
+      this.held.set(u.id, c.tick + HOLD_BACK);
+      this.stats.heldBack++;
+    }
+    return [...groups.keys()].sort((a, b) => a - b).map((k): Command => {
+      const g = groups.get(k) as { to: { tx: number; ty: number }; ids: number[] };
+      return { type: 'move', player: this.player, units: g.ids, x: g.to.tx * FP + FP / 2, y: g.to.ty * FP + FP / 2 };
+    });
+  }
+
+  /**
+   * Where a crusher held back goes (AI-30): with ranged units of its own within HOLD_NEAR tiles it holds where it stands,
+   * beside them; else to its nearest defence within HOLD_SPIRE tiles, else the middle of its ranged army, else its
+   * staging point.
+   */
+  private fallbackPoint(c: Ctx, u: UnitSnap): { tx: number; ty: number } {
+    const x = u.x / FP;
+    const y = u.y / FP;
+    if (c.army.some((a) => (unitDef(a.kind).weapon?.range ?? 0) >= MELEE_RANGE && dist(a.x / FP, a.y / FP, x, y) <= HOLD_NEAR)) return { tx: Math.floor(x), ty: Math.floor(y) };
+    let spire: BuildingSnap | null = null;
+    let sd = HOLD_SPIRE;
+    for (const b of c.buildings) {
+      if (!buildingDef(b.kind).weapon) continue;
+      const d = edgeDist(b, x, y);
+      if (d <= sd && (spire === null || d < sd || b.id < spire.id)) {
+        sd = d;
+        spire = b;
+      }
+    }
+    if (spire) {
+      // Beside it, on its side toward the headquarters.
+      const bx = spire.tx + 0.5;
+      const by = spire.ty + 0.5;
+      const l = dist(bx, by, this.centre.x, this.centre.y) || 1;
+      return this.nearestFree(Math.floor(bx + (1.5 * (this.centre.x - bx)) / l), Math.floor(by + (1.5 * (this.centre.y - by)) / l));
+    }
+    const ranged = c.army.filter((a) => (unitDef(a.kind).weapon?.range ?? 0) >= MELEE_RANGE && !this.held.has(a.id));
+    if (ranged.length >= 3) {
+      const mx = ranged.reduce((t, a) => t + a.x, 0) / ranged.length / FP;
+      const my = ranged.reduce((t, a) => t + a.y, 0) / ranged.length / FP;
+      return this.nearestFree(Math.floor(mx), Math.floor(my));
+    }
+    return this.staging as { tx: number; ty: number };
   }
 
   /** Where it last called a wave home to (AI-23 c), or null: for tests and measurement only. */
@@ -1246,6 +1411,7 @@ export class AI {
     for (const u of this.strengthOf(c)) counts[roleOf(unitDef(u.kind))]++;
     if (this.scoutId >= 0) counts.scout++;
     if (this.standing >= 0) counts.scout++;
+    if (this.picket >= 0) counts.scout++;
     const queued = new Map<string, number>();
     for (const b of c.buildings) for (const q of b.queue) if (!BUILDING_DEFS[q.kind]) queued.set(q.kind, (queued.get(q.kind) ?? 0) + 1);
     // Field Menders are not part of the fighting mix (AI-29).
@@ -1263,7 +1429,7 @@ export class AI {
 
   /** Its whole army for counting (AI-29): `strength` less a scout taken from the army this turn. */
   private strengthOf(c: Ctx): UnitSnap[] {
-    return c.strength.filter((u) => u.id !== this.scoutId && u.id !== this.standing);
+    return c.strength.filter((u) => u.id !== this.scoutId && u.id !== this.standing && u.id !== this.picket);
   }
 
   private urgent(c: Ctx): boolean {
@@ -1298,17 +1464,20 @@ export class AI {
     // or is queued and none was lost lately (SCOUT_REPLACE, or twice that after a young one). Production trains no other
     // scout unit. The steamroll opponent sends out no scout (HAR-5).
     const scoutKind = this.doctrine.scouts ? this.scoutKind() : null;
-    let scoutWanted = scoutKind !== null && (this.standing >= 0 ? 1 : 0) + (queued.get(scoutKind) ?? 0) < STANDING_SCOUTS && c.tick - this.standingLostAt >= this.replaceGap;
+    // Two standing scouts with rules.twoScouts (AI-21), one without.
+    const slots = this.rules.twoScouts ? 2 : STANDING_SCOUTS;
+    const standingNow = (this.standing >= 0 ? 1 : 0) + (this.picket >= 0 ? 1 : 0);
+    let scoutWanted = scoutKind !== null && standingNow + (queued.get(scoutKind) ?? 0) < slots && c.tick - this.standingLostAt >= this.replaceGap;
     // Raider may train up to RAIDER_SCOUTS scout units beyond its standing scout, for its army (AI-27 a, amending AI-21):
     // those queued for the army do not hold back a standing scout, and a standing scout queued is told apart from them.
     const raiderScouts = scoutKind !== null && this.raiderScoutRule();
     let extraScouts = 0;
     // Against mostly heavy armour (by cost, seen in the last two minutes) Vrax trains Skimmers as its main anti-armour (SKM-6).
-    const armoured = this.rules.skimmers && heavyShareByCost(this.intel.values(), c.tick) > MOSTLY_HEAVY;
+    const armoured = this.rules.skimmers && heavyShareByCost(this.intel.values(), c.tick) > this.rules.skimAt;
     if (raiderScouts) {
       const queuedScouts = queued.get(scoutKind) ?? 0;
       this.standingOrdered = Math.min(this.standingOrdered, queuedScouts);
-      scoutWanted = this.standing < 0 && this.standingOrdered === 0 && c.tick - this.standingLostAt >= this.replaceGap;
+      scoutWanted = standingNow + this.standingOrdered < slots && c.tick - this.standingLostAt >= this.replaceGap;
       extraScouts = this.plan === 'raider' ? RAIDER_SCOUTS - this.armyScouts.size - (queuedScouts - this.standingOrdered) : 0;
     }
 
@@ -1318,7 +1487,7 @@ export class AI {
     for (const b of c.buildings) {
       // Shallow queues (AI-22): credits are not locked in orders that will not start soon. The steamroll opponent keeps
       // the deeper queues it was calibrated with (HAR-5).
-      const depth = steamroll ? (c.credits > 3000 ? 5 : c.credits > 2000 ? 4 : c.credits > 1100 ? 3 : 2) : c.credits > QUEUE_DEEP_BANK ? this.rules.queueDepthRich : this.rules.queueDepth;
+      const depth = this.doctrine.depth ? this.doctrine.depth(c.credits) : steamroll ? (c.credits > 3000 ? 5 : c.credits > 2000 ? 4 : c.credits > 1100 ? 3 : 2) : c.credits > QUEUE_DEEP_BANK ? this.rules.queueDepthRich : this.rules.queueDepth;
       if (b.queue.length >= depth || b.queue.length >= QUEUE_MAX) continue;
       const trainable = Object.keys(UNIT_DEFS).filter((k) => unitDef(k).builtAt === b.kind && unitDef(k).faction === this.faction && this.doctrine.trains(k));
       if (trainable.length === 0) continue;
@@ -1343,10 +1512,14 @@ export class AI {
       const skimmer = skimmerOf(allowed);
       const mix = armoured ? allowed : allowed.filter((k) => k !== skimmer);
       const skimFirst = armoured && skimmer !== null && (intel.squads ?? 0) <= INFANTRY_HEAVY;
+      // A few Brutes beside the Skimmers to screen them (AI-33): one for every SCREEN_PER Skimmers, alive and queued.
+      const brute = skimFirst && this.rules.screen ? allowed.find((k) => unitDef(k).crusher && !unitDef(k).hero) : undefined;
+      const have = (k: string): number => c.own.filter((u) => u.kind === k).length + (queued.get(k) ?? 0);
+      const screen = brute !== undefined && skimmer !== null && have(brute) < Math.floor(have(skimmer) / SCREEN_PER) ? brute : undefined;
       // Field Menders are not part of the fighting mix (AI-29).
       const usual = (): string | null =>
         extraScouts > 0
-          ? chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && !unitDef(k).repair), counts, intel, tilt, STANDING_SCOUTS + RAIDER_SCOUTS)
+          ? chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && !unitDef(k).repair), counts, intel, tilt, slots + RAIDER_SCOUTS)
           : chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && !unitDef(k).repair && k !== scoutKind), counts, intel, tilt);
       const pick: string | null = this.doctrine.pick
         ? this.doctrine.pick(b.kind, allowed.filter((k) => !unitDef(k).repair || k === mender), haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore))
@@ -1357,7 +1530,7 @@ export class AI {
             rifle ??
             gun ??
             mender ??
-            skimOr(skimFirst ? skimmer : null, usual()));
+            skimOr(skimFirst ? (screen ?? skimmer) : null, usual()));
       if (!pick) continue;
       if (unitDef(pick).repair) {
         // A Field Mender: bought like any unit, but outside the fighting mix (AI-29).
@@ -1383,6 +1556,8 @@ export class AI {
         else extraScouts--;
       }
       if (roleOf(unitDef(pick)) === 'art') guns++;
+      // Queued Skimmers and Brutes count toward the screen (AI-33).
+      if (pick === skimmer || pick === screen) queued.set(pick, (queued.get(pick) ?? 0) + 1);
     }
   }
 
@@ -1520,9 +1695,11 @@ export class AI {
     // Hit squads come home like any other group (AI-7, AI-27); a split raid called home starts the cooldown a wave would.
     if (this.squads.length > 0 && !pressing) {
       if (this.squads.some((s) => s.kind === 'raid')) this.waveCooldown = c.tick + 500;
-      this.squads = [];
+      // A hit squad out at the economy while the enemy's armour is away carries on (AI-31).
+      this.squads = this.squads.filter((s) => s.ball);
     }
-    const ids = (pressing ? c.army.filter((u) => !w.members.has(u.id)) : c.army).map((u) => u.id);
+    const away = new Set(this.squads.flatMap((s) => (s.ball ? [...s.members] : [])));
+    const ids = (pressing ? c.army.filter((u) => !w.members.has(u.id)) : c.army).filter((u) => !away.has(u.id)).map((u) => u.id);
     if (ids.length > 0) {
       this.stats.defends++;
       out.push({ type: 'attackmove', player: this.player, units: ids, x: Math.round(cx), y: Math.round(cy) });
@@ -1747,6 +1924,8 @@ export class AI {
     };
     const centre = (us: UnitSnap[]): { x: number; y: number } => ({ x: us.reduce((s, u) => s + u.x, 0) / us.length / FP, y: us.reduce((s, u) => s + u.y, 0) / us.length / FP });
 
+    // While the enemy's armour is away from its base, a hit squad goes for its economy (AI-31).
+    if (ordinary && this.rules.ballRaid && this.plan !== 'raider' && this.squads.length === 0) this.ballRaid(c, army, order, centre);
     // Units out in a hit squad (AI-27) are no part of the wave, its reinforcements or the gathering.
     const inSquad = new Set(this.squads.flatMap((s) => [...s.members]));
     const free = inSquad.size > 0 ? army.filter((u) => !inSquad.has(u.id)) : army;
@@ -1903,6 +2082,74 @@ export class AI {
   }
 
   /**
+   * The enemy's armour away from its base (AI-31): the middle, by cost, of the heavy armed enemy units it has seen in the
+   * last BALL_SEEN ticks, when it is at least BALL_AWAY tiles from every enemy building it knows (the enemy start while it
+   * knows none); else null.
+   */
+  private ballAway(c: Ctx): { x: number; y: number } | null {
+    let sx = 0;
+    let sy = 0;
+    let sw = 0;
+    for (const e of this.intel.values()) {
+      const d = UNIT_DEFS[e.kind];
+      if (!d?.weapon || d.armor !== 'heavy' || d.capacity !== undefined || c.tick - e.t > BALL_SEEN) continue;
+      sx += (e.x / FP) * d.cost;
+      sy += (e.y / FP) * d.cost;
+      sw += d.cost;
+    }
+    if (sw === 0) return null;
+    const x = sx / sw;
+    const y = sy / sw;
+    return this.enemyAnchors(c).every((b) => edgeDist(b, x, y) >= BALL_AWAY) ? { x, y } : null;
+  }
+
+  /**
+   * A hit squad at the enemy economy while its armour is away (AI-31): while the armed enemies it has seen in the last two
+   * minutes are mostly heavy armour by cost (SKM-6) and their armour is away from its base (ballAway), at most once in
+   * BALL_RAID_GAP ticks, the fastest of its fast units not out in a wave (FAST_SPEED; no hero), as many as stay within
+   * rules.ballRaidShare of the army's value and at least HIT_MIN, set out at the economy target it may go for (AI-23 e)
+   * that is farthest from that armour, by the flank away from it. A threat to the base does not call it home.
+   */
+  private ballRaid(c: Ctx, army: readonly UnitSnap[], order: Drive['order'], centre: Drive['centre']): void {
+    if (c.tick - this.ballRaidAt < BALL_RAID_GAP || heavyShareByCost(this.intel.values(), c.tick) <= MOSTLY_HEAVY) return;
+    const ball = this.ballAway(c);
+    if (!ball) return;
+    const w = this.wave;
+    const fast = army.filter((u) => !w?.members.has(u.id) && unitDef(u.kind).speed >= FAST_SPEED && !unitDef(u.kind).hero).sort((a, b) => unitDef(b.kind).speed - unitDef(a.kind).speed || a.id - b.id);
+    if (fast.length < HIT_MIN) return;
+    const cap = this.rules.ballRaidShare * this.armyPower(army);
+    const units: UnitSnap[] = [];
+    let v = 0;
+    for (const u of fast) {
+      const uv = this.armyPower([u]);
+      if (v + uv > cap) break;
+      units.push(u);
+      v += uv;
+    }
+    if (units.length < HIT_MIN) return;
+    let best: { tx: number; ty: number } | null = null;
+    let bd = -1;
+    for (const t of this.economyTargets(c)) {
+      const d = dist(t.tx, t.ty, ball.x, ball.y);
+      if (d > bd && this.mayRaid(c, t, v)) {
+        bd = d;
+        best = t;
+      }
+    }
+    if (!best) return;
+    const stage = this.staging as { tx: number; ty: number };
+    const side = this.sideOf(stage, best, { tx: ball.x, ty: ball.y }) === 'left' ? 'right' : 'left';
+    const via = this.flankPoint(stage, best, side);
+    this.squads = [{ kind: 'hit', ball: true, via, passed: false, trail: new Set(), tx: best.tx, ty: best.ty, peak: v, start: v, lastOrder: c.tick, members: new Set(units.map((u) => u.id)), size: units.length, held: false }];
+    this.ballRaidAt = c.tick;
+    this.stats.ballRaids++;
+    const aim = via ?? best;
+    const { x, y } = centre(units);
+    const d = dist(x, y, aim.tx, aim.ty);
+    order('attackmove', units, x + ((aim.tx - x) * Math.min(d, WAVE_HOP)) / Math.max(1, d), y + ((aim.ty - y) * Math.min(d, WAVE_HOP)) / Math.max(1, d));
+  }
+
+  /**
    * Raider's split raid (AI-27 a): with at least SPLIT_MIN units setting out, dealt alternately from the dearest down into
    * two squads, each worth at least rules.splitRatio times the armed enemy units it has seen within APPROACH_SEEN ticks, the first to the nearest economy target it may go for and the second to the one farthest from that, at
    * least SPLIT_APART tiles away (each judged against its own squad, AI-23 e); each by the flank on its target's side of
@@ -2006,7 +2253,7 @@ export class AI {
     if (!ordinary) {
       // The steamroll opponent never pulls a wave back (HAR-5): it drives on until the wave is gone, then forms the next.
       if (members.length === 0) return 'gone';
-    } else if (this.rules.recall && members.length > 0 && (h.danger ??= this.baseInDanger(c, h.own))) {
+    } else if (this.rules.recall && !g.ball && members.length > 0 && (h.danger ??= this.baseInDanger(c, h.own))) {
       // An enemy force worth half its army near its buildings: the group comes home to fight at the hold point (AI-23).
       const holdAt = this.holdPoint(c);
       this.recallPoint = holdAt;
@@ -2168,6 +2415,7 @@ export class AI {
 
     // The standing scout watches the enemy (AI-21); the old scouting below sends a new scout only while there is none (AI-17).
     this.watch(c, out);
+    this.picketWatch(c, out);
 
     if (me) {
       // A scout is expendable until it has been hit; then it falls back with what it learned.
@@ -2247,27 +2495,134 @@ export class AI {
       this.replaceGap = life < SCOUT_YOUNG ? 2 * SCOUT_REPLACE : SCOUT_REPLACE;
       this.tourSide = -this.tourSide;
     }
-    let next: UnitSnap | undefined;
+    if (this.picket >= 0 && !own.some((u) => u.id === this.picket)) {
+      // Its second standing scout lost (AI-21): replaced as the first is.
+      const life = tick - this.picketSince;
+      this.picket = -1;
+      this.picketSince = -1;
+      this.standingLostAt = tick;
+      this.replaceGap = life < SCOUT_YOUNG ? 2 * SCOUT_REPLACE : SCOUT_REPLACE;
+      this.picketFleeing = null;
+      this.picketHop = null;
+    }
+    // Standing scouts it lacks: the touring one first, then the one watching the way between the bases (AI-21).
+    const open = (): number => (this.standing < 0 ? 1 : 0) + (this.rules.twoScouts && this.picket < 0 ? 1 : 0);
+    const fresh: UnitSnap[] = [];
     if (this.raiderScoutRule()) {
-      // Raider's scout units (AI-27 a): one that comes out while a standing scout is ordered becomes the standing scout;
-      // any other belongs to the army, and never becomes the standing scout.
+      // Raider's scout units (AI-27 a): one that comes out while a standing scout is ordered becomes a standing scout;
+      // any other belongs to the army, and never becomes a standing scout.
       for (const id of this.armyScouts) if (!own.some((u) => u.id === id)) this.armyScouts.delete(id);
       for (const u of [...own].sort((a, b) => a.id - b.id)) {
-        if (u.kind !== kind || u.id === this.standing || u.id === this.scoutId || this.armyScouts.has(u.id)) continue;
-        if (this.standing < 0 && next === undefined && this.standingOrdered > 0) {
+        if (u.kind !== kind || u.id === this.standing || u.id === this.picket || u.id === this.scoutId || this.armyScouts.has(u.id)) continue;
+        if (open() - fresh.length > 0 && this.standingOrdered > 0) {
           this.standingOrdered--;
-          next = u;
+          fresh.push(u);
         } else {
           this.armyScouts.add(u.id);
           this.stats.raiderScouts++;
         }
       }
-      if (this.standing >= 0 || !next) return;
-    } else {
-      if (this.standing >= 0) return;
-      next = own.filter((u) => u.kind === kind).sort((a, b) => a.id - b.id)[0];
+    } else if (open() > 0) {
+      fresh.push(...own.filter((u) => u.kind === kind && u.id !== this.standing && u.id !== this.picket).sort((a, b) => a.id - b.id).slice(0, open()));
     }
-    if (!next) return;
+    for (const u of fresh) {
+      if (this.standing < 0) this.takeStanding(u, tick);
+      else {
+        this.picket = u.id;
+        this.picketSince = tick;
+        this.picketFleeing = null;
+        this.picketHop = null;
+        if (u.id === this.scoutId) {
+          this.scoutId = -1;
+          this.scoutRoute = [];
+        }
+        this.startScouting(u.id, tick);
+      }
+    }
+  }
+
+  /** Its second standing scout's unit id, or -1 (AI-21): for tests and measurement only. */
+  get pickedScout(): number {
+    return this.picket;
+  }
+
+  /**
+   * Where its second standing scout watches the way between the bases (AI-21): PICKET_ALONG of the way from its staging
+   * point to the enemy start, PICKET_SIDE tiles to one side (the left, seen along the way; the right when that is off the
+   * map), on open ground.
+   */
+  picketPost(): { tx: number; ty: number } {
+    const stage = this.staging as { tx: number; ty: number };
+    const to = this.enemyStart();
+    const W = this.map.width;
+    const H = this.map.height;
+    const dx = to.tx - stage.tx;
+    const dy = to.ty - stage.ty;
+    const len = Math.hypot(dx, dy) || 1;
+    for (const s of [1, -1]) {
+      const x = Math.round(stage.tx + dx * this.rules.picketAlong + (s * dy * PICKET_SIDE) / len);
+      const y = Math.round(stage.ty + dy * this.rules.picketAlong - (s * dx * PICKET_SIDE) / len);
+      if (x >= 1 && y >= 1 && x < W - 1 && y < H - 1) return this.nearestFree(x, y);
+    }
+    return this.nearestFree(Math.round(stage.tx + dx * this.rules.picketAlong), Math.round(stage.ty + dy * this.rules.picketAlong));
+  }
+
+  /**
+   * Its second standing scout (AI-21) watches the way between the bases from its post (picketPost). It flees from threats
+   * as the first does (an armed enemy unit within scoutKeep tiles, a defence within SCOUT_DANGER), and otherwise goes back
+   * to its post in hops of at most SCOUT_HOP tiles, waiting where the next hop would take it onto ground closed to it
+   * (near an armed unit seen lately or the enemy base).
+   */
+  private picketWatch(c: Ctx, out: Command[]): void {
+    const me = c.own.find((u) => u.id === this.picket);
+    if (!me) return;
+    const W = this.map.width;
+    const H = this.map.height;
+    const stage = this.staging as { tx: number; ty: number };
+    const x = me.x / FP;
+    const y = me.y / FP;
+    const move = (p: { tx: number; ty: number }): void => {
+      out.push({ type: 'move', player: this.player, units: [me.id], x: p.tx * FP + FP / 2, y: p.ty * FP + FP / 2 });
+    };
+    const at = (p: { tx: number; ty: number }): number => dist(x, y, p.tx + 0.5, p.ty + 0.5);
+    const sight = unitDef(me.kind).vision;
+    const armed = c.foes.filter((u) => unitDef(u.kind).weapon && dist(u.x / FP, u.y / FP, x, y) <= Math.max(sight, scoutKeep(u.kind))).map((u) => ({ x: u.x / FP, y: u.y / FP, r: scoutKeep(u.kind) }));
+    const defences = c.enemyBuildings.filter((b) => buildingDef(b.kind).weapon && edgeDist(b, x, y) <= SCOUT_DANGER).map((b) => ({ x: b.tx + buildingDef(b.kind).w / 2, y: b.ty + buildingDef(b.kind).h / 2 }));
+    if (armed.some((u) => dist(u.x, u.y, x, y) <= u.r) || defences.length > 0) {
+      const target = this.fleeFrom(x, y, [...armed, ...defences], stage);
+      const f = this.picketFleeing;
+      this.picketHop = null;
+      if (f && me.dest !== null && at(f) > 1.5 && !this.turned(x, y, f, target)) return;
+      this.picketFleeing = target;
+      return move(target);
+    }
+    this.picketFleeing = null;
+    const post = this.picketPost();
+    const d = at(post);
+    if (d < 2.5) return;
+    // A new hop once it has nearly reached the last one, or stopped short of it.
+    const hop = this.picketHop;
+    const last = this.picketAt;
+    this.picketAt = { x: me.x, y: me.y };
+    const moving = last !== null && (last.x !== me.x || last.y !== me.y);
+    if (hop && me.dest !== null && moving && at(hop) > 1) return;
+    // Its way there round the ground closed to it (as the first scout's, AI-21); none: it waits.
+    const here = { tx: Math.max(0, Math.min(W - 1, Math.floor(x))), ty: Math.max(0, Math.min(H - 1, Math.floor(y))) };
+    const route = this.safeWays(here, this.scoutGround(c))(post);
+    if (!route) return;
+    let next = route[route.length - 1] as number;
+    for (const i of route) {
+      if (dist((i % W) + 0.5, Math.floor(i / W) + 0.5, x, y) > SCOUT_HOP) break;
+      next = i;
+    }
+    const p = { tx: next % W, ty: Math.floor(next / W) };
+    if (p.tx === here.tx && p.ty === here.ty) return;
+    this.picketHop = p;
+    move(p);
+  }
+
+  /** A scout unit becomes its touring standing scout (AI-21). */
+  private takeStanding(next: UnitSnap, tick: number): void {
     this.standing = next.id;
     this.stats.standingSince = tick;
     this.scoutGoal = null;
@@ -2476,8 +2831,6 @@ export class AI {
   private watch(c: Ctx, out: Command[]): void {
     const me = c.own.find((u) => u.id === this.standing);
     if (!me) return;
-    const W = this.map.width;
-    const H = this.map.height;
     const stage = this.staging as { tx: number; ty: number };
     const x = me.x / FP;
     const y = me.y / FP;
@@ -2491,11 +2844,42 @@ export class AI {
     const armed = c.foes.filter((u) => unitDef(u.kind).weapon && dist(u.x / FP, u.y / FP, x, y) <= Math.max(sight, scoutKeep(u.kind))).map((u) => ({ x: u.x / FP, y: u.y / FP, r: scoutKeep(u.kind) }));
     const defences = c.enemyBuildings.filter((b) => buildingDef(b.kind).weapon && edgeDist(b, x, y) <= SCOUT_DANGER).map((b) => ({ x: b.tx + buildingDef(b.kind).w / 2, y: b.ty + buildingDef(b.kind).h / 2 }));
     if (armed.some((u) => dist(u.x, u.y, x, y) <= u.r) || defences.length > 0) {
-      const from = [...armed, ...defences];
+      if (!this.fleeing) this.tourDir = -this.tourDir;
+      const target = this.fleeFrom(x, y, [...armed, ...defences], stage);
+      // Decided afresh every time; a new order only when the way to flee has turned (or it has got there).
+      const f = this.fleeing;
+      this.scoutHop = null;
+      this.scoutGoal = null;
+      this.way = null;
+      if (f && me.dest !== null && at(f) > 1.5 && !this.turned(x, y, f, target)) return;
+      this.fleeing = target;
+      return move(target);
+    }
+    this.fleeing = null;
+    this.tourOn(c, me, x, y, move, at);
+  }
+
+  /** Whether the way to flee has turned (AI-21): the new point lies more than about 30 degrees off the old one, seen from (x, y). */
+  private turned(x: number, y: number, f: { tx: number; ty: number }, target: { tx: number; ty: number }): boolean {
+    const ax = f.tx + 0.5 - x;
+    const ay = f.ty + 0.5 - y;
+    const bx = target.tx + 0.5 - x;
+    const by = target.ty + 0.5 - y;
+    return (ax * bx + ay * by) / ((Math.hypot(ax, ay) || 1) * (Math.hypot(bx, by) || 1)) <= 0.87;
+  }
+
+  /**
+   * Where a scout at (x, y) flees to (AI-21): SCOUT_FLEE tiles straight away from the threats `from` (the nearest counting
+   * most), turning off by 45 and then 90 degrees either way round rock or water, to a point farther from them; else its
+   * staging point.
+   */
+  private fleeFrom(x: number, y: number, from: readonly { x: number; y: number }[], stage: { tx: number; ty: number }): { tx: number; ty: number } {
+    const W = this.map.width;
+    const H = this.map.height;
+    {
       const cx = from.reduce((t, p) => t + p.x, 0) / from.length;
       const cy = from.reduce((t, p) => t + p.y, 0) / from.length;
       const nearest = (px: number, py: number): number => Math.min(...from.map((p) => dist(p.x, p.y, px, py)));
-      if (!this.fleeing) this.tourDir = -this.tourDir;
       // Away from what it sees, the nearest counting most.
       let ux = 0;
       let uy = 0;
@@ -2532,23 +2916,15 @@ export class AI {
           break;
         }
       }
-      // Decided afresh every time; a new order only when the way to flee has turned (or it has got there).
-      const f = this.fleeing;
-      const target = to ?? stage;
-      this.scoutHop = null;
-      this.scoutGoal = null;
-      this.way = null;
-      if (f && me.dest !== null && at(f) > 1.5) {
-        const ax = f.tx + 0.5 - x;
-        const ay = f.ty + 0.5 - y;
-        const bx = target.tx + 0.5 - x;
-        const by = target.ty + 0.5 - y;
-        if ((ax * bx + ay * by) / ((Math.hypot(ax, ay) || 1) * (Math.hypot(bx, by) || 1)) > 0.87) return;
-      }
-      this.fleeing = target;
-      return move(target);
+      return to ?? stage;
     }
-    this.fleeing = null;
+  }
+
+  /** The standing scout's tour (AI-21), in hops along its way round the closed ground. */
+  private tourOn(c: Ctx, me: UnitSnap, x: number, y: number, move: (p: { tx: number; ty: number }) => void, at: (p: { tx: number; ty: number }) => number): void {
+    const W = this.map.width;
+    const H = this.map.height;
+    const stage = this.staging as { tx: number; ty: number };
     // Touring, in hops along its way round the closed ground.
     const ground = this.scoutGround(c);
     const here = { tx: Math.max(0, Math.min(W - 1, Math.floor(x))), ty: Math.max(0, Math.min(H - 1, Math.floor(y))) };

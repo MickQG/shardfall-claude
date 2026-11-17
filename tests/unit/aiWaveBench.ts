@@ -53,7 +53,8 @@ export function base(o: Base = {}): Game {
   return g;
 }
 
-export const ai = (personality: Personality = 'balanced', rules?: Partial<AiRules>, seed = SEED): AI => new AI(0, 'human', DIFFICULTIES.hard, MAP, seed, personality, { rules });
+/** The bench's AI: one standing scout (AI-21 without rules.twoScouts), so the second does not take a unit from the army it is given. */
+export const ai = (personality: Personality = 'balanced', rules?: Partial<AiRules>, seed = SEED): AI => new AI(0, 'human', DIFFICULTIES.hard, MAP, seed, personality, { rules: { twoScouts: false, ...rules } });
 export const many = (kind: string, n: number): string[] => [...Array(n)].map(() => kind);
 
 /** An enemy unit it sees, at a tile. */

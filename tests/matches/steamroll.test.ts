@@ -3,10 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { APPROACHES, DEFAULT_RULES, PERSONALITIES, type Personality } from '../../src/ai/ai';
 import { DIFFICULTIES } from './levels';
 import { lengthReport, playMatch, type ArmyAt, type EconomyAt, type MatchOptions, type MatchResult } from '../../src/ai/harness';
-import { STEAMROLL_DIFFICULTY, STEAMROLL_TUNING, type SteamrollTuning } from '../../src/ai/steamroll';
+import { STEAMROLL_DIFFICULTY, STEAMROLL_TUNING } from '../../src/ai/steamroll';
 import type { Faction } from '../../src/data/defs';
 import { aiRules, rulesLine } from './aiRules';
 import { playMatches } from './pool';
+import { variant } from './variant';
 
 /**
  * The Hard AI against the steamroll opponent (HAR-5, #174): each personality, seeds 1 to 8, Aegis against Vrax both ways
@@ -18,7 +19,7 @@ import { playMatches } from './pool';
  * - STEAMROLL_AI_FACTION: `human` or `alien`, the Hard AI's faction;
  * - STEAMROLL_SEAT: `0` or `1`, the Hard AI's seat;
  * - STEAMROLL_VARIANT: knobs of the opponent to change, for calibration, such as `launch:18000,crushers:8,bonus:15` (`=` works
- *   too); any key of SteamrollTuning, all numbers;
+ *   too); any key of SteamrollTuning, all numbers, or a named variant such as `tankspam` (HAR-7, STEAMROLL_PRESETS);
  * - AI_RULES: changes to the Hard AI's rules (AiRules), such as `recall:0,queueDepth:2` (see aiRules.ts);
  * - MATCH_SHARD: `k/n`, to play only the k-th of n shares of the selected games.
  * Pick the personality with `-t raider` (or balanced, doomsday).
@@ -39,16 +40,7 @@ const SERIES_TIMEOUT = 3_000_000;
 
 const env = (k: string): string => (typeof process !== 'undefined' ? (process.env[k] ?? '') : '');
 
-/** The opponent variant the environment asks for (STEAMROLL_VARIANT), as changes to STEAMROLL_TUNING. */
-export function variant(spec = env('STEAMROLL_VARIANT')): Partial<SteamrollTuning> {
-  const out: Partial<SteamrollTuning> = {};
-  for (const part of spec.split(',').filter(Boolean)) {
-    const [k, v] = part.split(/[=:]/) as [string, string]; // `:` too: the Balance workflow's variables cannot carry `=` in a value (HAR-6)
-    if (!(k in STEAMROLL_TUNING) || !Number.isFinite(Number(v))) throw new Error(`STEAMROLL_VARIANT: bad part ${part}`);
-    out[k as keyof SteamrollTuning] = Number(v);
-  }
-  return out;
-}
+export { variant };
 
 export interface SteamrollGame {
   o: MatchOptions;
