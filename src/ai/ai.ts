@@ -581,6 +581,8 @@ export interface AiRules {
   splitRatio: number;
   /** (SKM-6) Trains Glare Skimmers against an enemy that is mostly heavy armour; off: never trains them. */
   skimmers: boolean;
+  /** (SKM-6) The share of heavy armour by cost among the enemies seen above which it trains Skimmers. */
+  skimAt: number;
   /** (AI-29) Aegis trains Field Menders, one for every three tanks; off: none (so neither of the two below applies). */
   menders: boolean;
   /** (AI-29) Badly damaged tanks fall back to a Field Mender until mended. */
@@ -619,6 +621,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   hitShare: HIT_SHARE,
   splitRatio: SPLIT_RATIO,
   skimmers: true,
+  skimAt: MOSTLY_HEAVY,
   menders: true,
   menderFallback: true,
   menderLoad: true,
@@ -1467,7 +1470,7 @@ export class AI {
     const raiderScouts = scoutKind !== null && this.raiderScoutRule();
     let extraScouts = 0;
     // Against mostly heavy armour (by cost, seen in the last two minutes) Vrax trains Skimmers as its main anti-armour (SKM-6).
-    const armoured = this.rules.skimmers && heavyShareByCost(this.intel.values(), c.tick) > MOSTLY_HEAVY;
+    const armoured = this.rules.skimmers && heavyShareByCost(this.intel.values(), c.tick) > this.rules.skimAt;
     if (raiderScouts) {
       const queuedScouts = queued.get(scoutKind) ?? 0;
       this.standingOrdered = Math.min(this.standingOrdered, queuedScouts);
