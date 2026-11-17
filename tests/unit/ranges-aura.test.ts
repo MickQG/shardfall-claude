@@ -18,9 +18,10 @@ const bag = (u: Unit): Unit => {
 };
 
 describe('BAL-17: artillery reaches further than it sees', () => {
-  it('BAL-17: Hammer Artillery and Lobber both reach 13 tiles, both with vision 8', () => {
+  it('BAL-17: Hammer Artillery and Lobber both reach 13 tiles, both with vision 8; the Lobber hits for 68', () => {
     expect(unitDef('hum_artillery').weapon!.range).toBe(13);
     expect(unitDef('ali_lobber').weapon!.range).toBe(13);
+    expect(unitDef('ali_lobber').weapon!.damage).toBe(68);
     expect(unitDef('hum_artillery').vision).toBe(8);
     expect(unitDef('ali_lobber').vision).toBe(8);
   });
