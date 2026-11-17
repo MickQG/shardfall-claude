@@ -24,6 +24,8 @@ const PALE = 0xa9b2ad;
 const PALE2 = 0x8e9893;
 export const MEND_GLOW = 0x4fffd0;
 
+/** The Mender is drawn at four fifths of its modelled size, smaller than a Bulwark tank (R3D-38). Wheels roll by the scaled radius. */
+export const MENDER_SCALE = 0.8;
 /** Wheel radius and positions (R3D-38). */
 const R = 0.13;
 const AXLES = [0.48, 0.0, -0.48] as const;
@@ -34,8 +36,8 @@ export const MENDER_ROOF = 0.64;
 export const MENDER_SWIVEL: V3 = [-0.08, MENDER_ROOF, 0];
 /** The crane arm (R3D-38): the boom's shoulder pin in the swivel's frame, and the boom's and the stick's lengths. */
 export const MENDER_SHOULDER: V3 = [0, 0.16, 0];
-export const MENDER_BOOM = 0.52;
-export const MENDER_STICK = 0.42;
+export const MENDER_BOOM = 0.57;
+export const MENDER_STICK = 0.46;
 /** The stick hangs beside the boom (its own side of the elbow), so the arm folds flat on the roof. */
 const STICK_SIDE = 0.068;
 /**
@@ -70,12 +72,13 @@ function hubTire(r: number, w: number): Shape {
 
 export function mender(): RigDef {
   const wheel = (x: number, z: number, front: boolean): RigNode =>
-    front ? { anim: { k: 'steer' }, at: [x, R, z], kids: [{ geo: 'wheel', anim: { k: 'wheel', r: R } }] } : { geo: 'wheel', at: [x, R, z], anim: { k: 'wheel', r: R } };
+    front ? { anim: { k: 'steer' }, at: [x, R, z], kids: [{ geo: 'wheel', anim: { k: 'wheel', r: R * MENDER_SCALE } }] } : { geo: 'wheel', at: [x, R, z], anim: { k: 'wheel', r: R * MENDER_SCALE } };
   const top = MENDER_ROOF;
   return {
     move: 'wheeled',
     turn: 5.5,
-    radius: 0.78,
+    scale: MENDER_SCALE,
+    radius: 0.62,
     height: 0.86,
     loadedOnly: ['lamp'],
     shapes: {

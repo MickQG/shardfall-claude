@@ -120,7 +120,8 @@ function applyCommand(s: State, cmd: Command): void {
     case 'attack': {
       const target = s.units.find((q) => q.id === cmd.target && q.owner !== cmd.player) ?? s.buildings.find((q) => q.id === cmd.target && q.owner !== cmd.player);
       if (!target) return;
-      const attackers = s.units.filter((u) => u.owner === cmd.player && cmd.units.includes(u.id) && unitDef(u.kind).weapon);
+      // Carriers (the Field Mender) take attack orders too, fought through their passenger (SQD-8).
+      const attackers = s.units.filter((u) => u.owner === cmd.player && cmd.units.includes(u.id) && (unitDef(u.kind).weapon || unitDef(u.kind).carries));
       const group = groupRoute(s, attackers, chaseTile(s, target));
       for (const u of attackers) {
         u.auto = false;

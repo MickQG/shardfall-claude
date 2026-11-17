@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { canCrush, trainableAt, unitDef } from '../../src/data/defs';
 import { sanitizeCommand, NET_VERSION } from '../../src/net/protocol';
-import { createGame, hash, isVehicle, mayCarry, maxHpOf, snapshot, submit, tick, unitDamage, type Command, type Game, type MapDef, type UnitSpawn } from '../../src/sim';
+import { createGame, FP, hash, isVehicle, mayCarry, maxHpOf, snapshot, submit, tick, unitDamage, type Command, type Game, type MapDef, type UnitSpawn } from '../../src/sim';
 import type { Unit } from '../../src/sim/state';
 
 const RATE = unitDef('hum_mender').repair!.rate;
@@ -47,7 +47,7 @@ describe('CMB-15: the Field Mender', () => {
 });
 
 describe('CMB-16, CMB-17: repair', () => {
-  it('CMB-16: it mends one damaged friendly vehicle in reach at 4 hp a second', () => {
+  it('CMB-16: it mends one damaged friendly vehicle in reach at 6 hp a second', () => {
     const g = game([
       { owner: 0, kind: 'hum_mender', tx: 10, ty: 10 },
       { owner: 0, kind: 'hum_tank', tx: 12, ty: 10 },
@@ -57,7 +57,7 @@ describe('CMB-16, CMB-17: repair', () => {
     run(g, 1);
     const at = tank.hp;
     run(g, 200);
-    expect(RATE).toBe(4);
+    expect(RATE).toBe(6);
     expect(tank.hp - at).toBe(10 * RATE); // ten seconds
     expect(snapshot(g).units.find((u) => u.kind === 'hum_mender')?.mend).toBe(tank.id);
   });
@@ -458,5 +458,123 @@ describe('NET-7: board and unload are ordinary commands', () => {
     const b = play(true);
     expect(b.slice(0, 120)).toEqual(a.slice(0, 120));
     expect(b[125]).not.toBe(a[125]);
+  });
+});
+
+describe('SQD-8: the Field Mender takes attack orders through its passenger', () => {
+  /** An unarmed enemy target that stays put and does not die. */
+  const bag = (g: Game, u: Unit): Unit => {
+    u.hp = 100000;
+    u.auto = false;
+    return u;
+  };
+  const edge = (a: Unit, b: Unit): number => Math.hypot(b.x - a.x, b.y - a.y) - unitDef(b.kind).radius;
+  const shotsOf = (g: Game, owner: number) => g.state.events.filter((e): e is Extract<typeof e, { t: 'shot' }> => e.t === 'shot' && e.owner === owner);
+
+  it('SQD-8: loaded, it closes to its passenger\'s range of the target, holds there, and the passenger shoots that target first', () => {
+    const g = game([
+      { owner: 0, kind: 'hum_mender', tx: 7, ty: 10 },
+      { owner: 0, kind: 'hum_rocketeer', tx: 6, ty: 10 },
+      { owner: 1, kind: 'ali_gorger', tx: 14, ty: 10 },
+      { owner: 1, kind: 'ali_gorger', tx: 11, ty: 12 },
+    ]);
+    const m = byKind(g, 'hum_mender');
+    const r = byKind(g, 'hum_rocketeer');
+    const [target, decoy] = g.state.units.filter((u) => u.owner === 1).map((u) => bag(g, u)) as [Unit, Unit];
+    board(g, r, m);
+    m.hp = 200;
+    submit(g, { type: 'attack', player: 0, units: [m.id], target: target.id });
+    const shots: { src: number; tx: number; ty: number }[] = [];
+    for (let i = 0; i < 400; i++) {
+      tick(g);
+      for (const e of shotsOf(g, 0)) shots.push({ src: e.src, tx: e.tx, ty: e.ty });
+    }
+    // It drove up and holds inside the Rocketeer's 6 tiles of the target, without running onto it.
+    expect(edge(m, target)).toBeLessThanOrEqual(6 * FP);
+    expect(edge(m, target)).toBeGreaterThan(3 * FP);
+    const at = { x: m.x, y: m.y };
+    run(g, 60);
+    expect({ x: m.x, y: m.y }).toEqual(at);
+    expect(m.mode).toBe('attack');
+    // Only the passenger fires; once in reach every shot goes to the ordered target, though the decoy is in range too.
+    expect(shots.length).toBeGreaterThan(3);
+    for (const s of shots) expect(s.src).toBe(r.id);
+    expect(edge(m, decoy)).toBeLessThanOrEqual(6 * FP);
+    for (const s of shots.slice(-4)) expect({ x: s.tx, y: s.ty }).toEqual({ x: target.x, y: target.y });
+    // It kept repairing itself throughout (CMB-17).
+    expect(m.hp).toBeGreaterThan(200);
+  });
+
+  it('SQD-8: empty, it follows the target to within its repair range and holds there, never firing', () => {
+    const g = game([
+      { owner: 0, kind: 'hum_mender', tx: 8, ty: 10 },
+      { owner: 1, kind: 'ali_gorger', tx: 14, ty: 10 },
+    ]);
+    const m = byKind(g, 'hum_mender');
+    const target = bag(g, byKind(g, 'ali_gorger', 1));
+    submit(g, { type: 'attack', player: 0, units: [m.id], target: target.id });
+    let shots = 0;
+    for (let i = 0; i < 400; i++) {
+      tick(g);
+      shots += shotsOf(g, 0).length;
+    }
+    expect(shots).toBe(0);
+    expect(edge(m, target)).toBeLessThanOrEqual(3 * FP);
+    expect(m.mode).toBe('attack');
+    // The target moves off: the Mender follows it.
+    submit(g, { type: 'move', player: 1, units: [target.id], x: 26 * FP + FP / 2, y: 10 * FP + FP / 2 });
+    run(g, 500);
+    expect(edge(m, target)).toBeLessThanOrEqual(3 * FP + FP / 2);
+  });
+
+  it('SQD-8: on an attack-move, loaded it stops for an enemy its passenger can hit; empty it drives to the point', () => {
+    const play = (loaded: boolean): { m: Unit; shots: number; g: Game } => {
+      const g = game([
+        { owner: 0, kind: 'hum_mender', tx: 3, ty: 10 },
+        { owner: 0, kind: 'hum_rifleman', tx: 4, ty: 10 },
+        { owner: 1, kind: 'ali_gorger', tx: 14, ty: 13 },
+      ]);
+      const m = byKind(g, 'hum_mender');
+      bag(g, byKind(g, 'ali_gorger', 1));
+      if (loaded) board(g, byKind(g, 'hum_rifleman'), m);
+      submit(g, { type: 'attackmove', player: 0, units: [m.id], x: 26 * FP + FP / 2, y: 10 * FP + FP / 2 });
+      let shots = 0;
+      for (let i = 0; i < 700; i++) {
+        tick(g);
+        shots += shotsOf(g, 0).length;
+      }
+      return { m, shots, g };
+    };
+    const loaded = play(true);
+    expect(loaded.shots).toBeGreaterThan(0);
+    expect(Math.floor(loaded.m.x / FP)).toBeLessThan(20);
+    expect(loaded.m.mode).toBe('amove');
+    const empty = play(false);
+    expect(Math.floor(empty.m.x / FP)).toBeGreaterThanOrEqual(25);
+    expect(empty.m.mode).toBe('idle');
+  });
+
+  it('SQD-8: idle, it never goes after an enemy on its own; its passenger still fires at what comes in reach', () => {
+    const g = game([
+      { owner: 0, kind: 'hum_mender', tx: 5, ty: 10 },
+      { owner: 0, kind: 'hum_rocketeer', tx: 6, ty: 10 },
+      { owner: 1, kind: 'ali_gorger', tx: 13, ty: 10 },
+    ]);
+    const m = byKind(g, 'hum_mender');
+    const far = bag(g, byKind(g, 'ali_gorger', 1));
+    board(g, byKind(g, 'hum_rocketeer'), m);
+    m.mode = 'idle';
+    // Out of the Rocketeer's 6 tiles but within the 8 an armed idle unit would go after.
+    expect(edge(m, far)).toBeGreaterThan(6 * FP);
+    expect(edge(m, far)).toBeLessThan(8 * FP);
+    const at = { x: m.x, y: m.y };
+    let shots = 0;
+    for (let i = 0; i < 200; i++) {
+      tick(g);
+      shots += shotsOf(g, 0).length;
+    }
+    expect({ x: m.x, y: m.y }).toEqual(at);
+    expect(m.target).toBe(-1);
+    expect(shots).toBe(0);
   });
 });

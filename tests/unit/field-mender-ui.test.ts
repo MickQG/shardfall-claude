@@ -8,18 +8,43 @@ import { paletteOf, recipeFor, WORLD_SOUNDS } from '../../src/audio/recipes';
 import { unitDef } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
 import { UNIT_MODELS } from '../../src/render/voxel/models';
-import { MENDER_BOOM, MENDER_HATCH, MENDER_JOINTS, MENDER_ROOF, MENDER_STICK, MENDER_SWIVEL, MENDER_TIP } from '../../src/render3d/mender3d';
+import { MENDER_BOOM, MENDER_HATCH, MENDER_JOINTS, MENDER_ROOF, MENDER_SCALE, MENDER_STICK, MENDER_SWIVEL, MENDER_TIP } from '../../src/render3d/mender3d';
 import { poseRig, previewDraws, rigTree, turretReach, type RigPose } from '../../src/render3d/rig';
 import { UNIT_RIGS } from '../../src/render3d/units3d';
 import { createGame, FP, snapshot, tick, type Command, type SimEvent, type UnitSnap } from '../../src/sim';
 import { acknowledge } from '../../src/ui/acknowledge';
 import { AlertTracker } from '../../src/ui/alerts';
 import { boardOrder, boarders, cargoLines, unloadIds } from '../../src/ui/carrier';
+import { attackMoveIds, combatUnitIds } from '../../src/ui/controls';
 import { CONTROLS } from '../../src/ui/controlsHelp';
+import { rightClickOrder, type Hit } from '../../src/ui/hit';
+import { boxSelect, type ScreenUnit } from '../../src/ui/selection';
 import { cursorCss, cursorFor, type CursorState } from '../../src/ui/cursor';
 
 const STILL: RigPose = { turret: 0, kick: 0, lunge: 0, pitch: 0, roll: 0, bob: 0, phase: 0, stride: 0, dist: 0, turnRate: 0, time: 0, reach: 0, walker: false };
 const snapUnit = (id: number, owner: number, kind: string, x: number, y: number, extra: Partial<UnitSnap> = {}): UnitSnap => ({ id, owner, kind, x: x * FP + FP / 2, y: y * FP + FP / 2, hp: unitDef(kind).hp, dest: null, load: 0, rank: 0, target: -1, ...extra });
+
+describe('SQD-7: the Field Mender is a combat unit for the controls', () => {
+  const su = (id: number, kind: string, sx: number, sy: number): ScreenUnit => ({ id, owner: 0, kind, sx, sy });
+  const field = [su(1, 'hum_mender', 100, 100), su(2, 'hum_tank', 110, 100), su(3, 'hum_rifleman', 120, 100), su(4, 'hum_hauler', 105, 110)];
+
+  it('SQD-7: a box holding tanks and infantry keeps the Mender and leaves the hauler out; Q and attack-move include it', () => {
+    expect(boxSelect(field, 90, 90, 130, 130, 0).sort()).toEqual([1, 2, 3]);
+    // A Mender alone with a hauler is the combat unit of the box (CTL-2).
+    expect(boxSelect([field[0]!, field[3]!], 90, 90, 130, 130, 0)).toEqual([1]);
+    // Q selects the combat units (CTL-6); an attack-move reaches only those (CTL-13).
+    expect(combatUnitIds(field, 0)).toEqual([1, 2, 3]);
+    expect(attackMoveIds(field, [1, 4], 0)).toEqual([1]);
+  });
+
+  it('SQD-7: with only a Mender selected, an enemy under the pointer shows the attack cursor and a right-click attacks it', () => {
+    const combat = combatUnitIds([snapUnit(1, 0, 'hum_mender', 5, 5)], 0).length > 0;
+    expect(combat).toBe(true);
+    expect(cursorFor({ mode: 'normal', combatSelected: combat, harvesterSelected: false, anySelected: true, hover: 'enemy' })).toBe('attack');
+    const h: Hit = { ownUnit: null, enemyUnit: 9, ownBuilding: null, enemyBuilding: null, tx: 7, ty: 5, blocked: false, resource: false };
+    expect(rightClickOrder(h, combat)).toEqual({ kind: 'attack', target: 9 });
+  });
+});
 
 describe('CUR-6: the board cursor and right-click', () => {
   const base: CursorState = { mode: 'normal', combatSelected: true, harvesterSelected: false, anySelected: true, hover: 'carrier' };
@@ -152,9 +177,24 @@ describe('R3D-38: the Field Mender model', () => {
     return { pts, tip, dir };
   };
 
+  it('R3D-38: it is drawn at four fifths of its modelled size, smaller than a Bulwark tank', () => {
+    const m = UNIT_RIGS.hum_mender!();
+    const tank = UNIT_RIGS.hum_tank!();
+    expect(m.scale).toBe(0.8);
+    expect(MENDER_SCALE).toBe(0.8);
+    // Footprint as drawn: the selection ring and the body's length.
+    expect(m.radius).toBeLessThan(tank.radius * (tank.scale ?? 1));
+    const len = (d: typeof m, shape: string): number => {
+      const box = new THREE.Box3();
+      for (const p of d.shapes[shape]!().pieces) box.expandByObject(new THREE.Mesh(p.geo));
+      return (box.max.x - box.min.x) * (d.scale ?? 1);
+    };
+    expect(len(m, 'body')).toBeLessThan(len(tank, 'hull'));
+  });
+
   it('R3D-38: a long crane arm (boom, stick and tool head) that rests folded flat on the roof', () => {
-    // Clearly longer than a single short arm: boom and stick together reach close to a tile.
-    expect(MENDER_BOOM + MENDER_STICK).toBeGreaterThanOrEqual(0.9);
+    // Clearly longer than a single short arm: boom, stick and tool head together reach close to a tile as drawn.
+    expect((MENDER_BOOM + MENDER_STICK + MENDER_TIP[0]) * MENDER_SCALE).toBeGreaterThanOrEqual(0.9);
     for (const turret of [0, 1.2, -2.5]) {
       const { pts } = armAt({ turret, arm: 0 });
       // Folded: low over the roof, nothing above a hand's breadth of it or below it.

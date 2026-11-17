@@ -176,7 +176,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // CMB-17), and carries one Rifleman or Rocketeer squad that fires from inside (SQD-3, SQD-4). It never crushes.
   hum_mender: {
     faction: 'human', name: 'Field Mender', speed: 40, hp: 350, radius: 100, vision: 7, cost: 750, buildTime: 450, builtAt: 'hum_factory', requires: [], armor: 'heavy', role: 'support',
-    repair: { rate: 4, range: 3, self: 3 },
+    repair: { rate: 6, range: 3, self: 3 },
     carries: ['hum_rifleman', 'hum_rocketeer'],
   },
   // The Aegis hero (HERO-1): a giant four-legged assault walker whose cannons and missile pods engage ground and air alike; one at a
