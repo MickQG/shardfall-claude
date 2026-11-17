@@ -78,10 +78,44 @@ function hurt(s: State, e: Entity, amount: number, attackerId: number, credit?: 
   if (e.mode === 'idle' && e.target < 0 && attackerId >= 0 && unitDef(e.kind).weapon) e.target = attackerId;
 }
 
-/** Fire `w` at `t`. A unit shooter fires its squad- and rank-adjusted damage and is credited with what it deals. */
+/** The heroes with an aura alive this tick (HERO-9), worked out once per state and tick. */
+const auraCache = new WeakMap<State, { tick: number; heroes: Unit[] }>();
+
+/**
+ * The damage bonus, percent, a unit of `owner` firing from (x, y) gets from a hero's aura (HERO-9): the best aura of a
+ * living hero of its owner, other than itself, whose centre is within the aura's range of (x, y); 0 outside any.
+ */
+export function auraBonus(s: State, owner: number, x: number, y: number, self: number): number {
+  let c = auraCache.get(s);
+  if (!c || c.tick !== s.tick) {
+    c = { tick: s.tick, heroes: s.units.filter((u) => unitDef(u.kind).aura !== undefined) };
+    auraCache.set(s, c);
+  }
+  let best = 0;
+  for (const h of c.heroes) {
+    const a = unitDef(h.kind).aura;
+    if (!a || h.owner !== owner || h.id === self || h.hp <= 0 || a.pct <= best) continue;
+    const r = Math.round(a.range * FP);
+    const dx = h.x - x;
+    const dy = h.y - y;
+    if (Math.abs(dx) <= r && Math.abs(dy) <= r && isqrt(dx * dx + dy * dy) <= r) best = a.pct;
+  }
+  return best;
+}
+
+/** `damage` raised by the aura bonus a unit firing from (x, y) stands in (HERO-9). */
+const boosted = (s: State, owner: number, x: number, y: number, self: number, damage: number): number => {
+  const pct = auraBonus(s, owner, x, y, self);
+  return pct > 0 ? Math.floor((damage * (100 + pct)) / 100) : damage;
+};
+
+/**
+ * Fire `w` at `t`. A unit shooter fires its squad- and rank-adjusted damage, raised by a hero's aura it stands in
+ * (HERO-9), and is credited with what it deals.
+ */
 function fire(s: State, shooter: { x: number; y: number; owner: number; id: number }, w: WeaponDef, t: Entity, unit?: Unit): void {
   const tp = pos(t);
-  const damage = unit ? unitDamage(unit.kind, unit.hp, unit.rank) : w.damage;
+  const damage = unit ? boosted(s, shooter.owner, shooter.x, shooter.y, unit.id, unitDamage(unit.kind, unit.hp, unit.rank)) : w.damage;
   s.events.push({ t: 'shot', x: shooter.x, y: shooter.y, tx: tp.x, ty: tp.y, weapon: w.type, owner: shooter.owner, air: armorOf(t) === 'air', flight: w.flight ?? 0, src: shooter.id, ...(unit && unit.rank >= MAX_RANK ? { elite: true } : {}) });
   if ((w.flight ?? 0) > 0) {
     s.projectiles.push({ hit: s.tick + (w.flight as number), x: tp.x, y: tp.y, targetId: t.id, owner: shooter.owner, damage, type: w.type, splash: w.splash ?? 0, air: armorOf(t) === 'air', shooter: unit ? unit.id : -1 });
@@ -100,7 +134,7 @@ function firePod(s: State, u: Unit, w: WeaponDef, t: Entity): void {
   const tp = pos(t);
   const { count, gap } = w.salvo ?? { count: 1, gap: 0 };
   const air = armorOf(t) === 'air';
-  const damage = missileDamage(u.kind, u.rank);
+  const damage = boosted(s, u.owner, u.x, u.y, u.id, missileDamage(u.kind, u.rank));
   for (let i = 0; i < count; i++) {
     const delay = i * gap;
     s.events.push({ t: 'shot', x: u.x, y: u.y, tx: tp.x, ty: tp.y, weapon: 'missile', owner: u.owner, air, flight: w.flight ?? 0, src: u.id, delay, ...(u.rank >= MAX_RANK ? { elite: true } : {}) });

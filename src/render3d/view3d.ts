@@ -22,7 +22,8 @@ import { poseRig, recoil, rigTree, strikeAfter, strikeSideOf, turretReach, type 
 import { HAZE_COLOR, horizonMesh, skyTexture } from './horizon3d';
 import { contourWarp, EDGE_AMP, groundTexture, LEVEL_H, scatter, terrainMeshes, type MeshData, type Warp } from './terrain3d';
 import { HAULER_VENT, SKIMMER_HOVER, UNIT_RIGS } from './units3d';
-import { MEND_GLOW, MENDER_HATCH, MENDER_TIP } from './mender3d';
+import { MENDER_HATCH, MENDER_TIP } from './mender3d';
+import { selectedRings } from '../render/rings';
 import { DEFAULT_TARGET, scatterKind, shotScatter, wallEnd, type Offset, type ScatterKind, type ScatterTarget } from './scatter';
 import { BREAK_FIRST_MS, pieceAt, planBreakup, type Piece, type PieceStart } from './breakup';
 import { applySurface, modelMaterials, setSurface } from './surface3d';
@@ -352,9 +353,9 @@ export class View3D {
   private camRight = new THREE.Vector3();
   private ringGeo = new THREE.RingGeometry(0.86, 1, 40).rotateX(-Math.PI / 2);
   private ringMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false });
-  /** A selected Field Mender's repair reach (R3D-38): a thin ring, drawn with the selection rings' material. */
+  /** A selected Field Mender's repair reach (R3D-38) and a hero's aura (HERO-9): thin rings, drawn with the selection rings' material. */
   private reachGeo = new THREE.RingGeometry(0.975, 1, 96).rotateX(-Math.PI / 2);
-  private reachTint = new THREE.Color(MEND_GLOW).multiplyScalar(0.75);
+  private reachTint = new THREE.Color();
   /** Order acknowledgement rings (UI-13); its opacity fades with the newest marker (they rarely overlap in time). */
   private ackMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
   private ackEdge = new THREE.RingGeometry(0.8, 1.06, 40).rotateX(-Math.PI / 2);
@@ -1391,11 +1392,12 @@ export class View3D {
         // The ordered units' rings flash white and wide for a moment (UI-15).
         const fl = vs.flash?.get(u.id) ?? 0;
         if (sel) this.ringAt(o.x, o.groundY + 0.03, o.z, o.ringR * (1 + 0.35 * fl), o.team, fl);
-        // A selected Field Mender shows how far it repairs (R3D-38, CMB-16).
-        const reach = sel ? unitDef(u.kind).repair?.range : undefined;
-        if (reach) {
-          this.uiM.compose(this.uiP.set(o.x, o.groundY + 0.035, o.z), this.uiQ, this.uiS.set(reach, 1, reach));
-          this.inst.push('ui/reach', this.reachGeo, this.ringMat, false, this.uiM, this.reachTint, 3);
+        // A selected Field Mender shows how far it repairs (R3D-38, CMB-16), a selected hero how far its aura reaches (HERO-9).
+        if (sel) {
+          for (const r of selectedRings(u.kind)) {
+            this.uiM.compose(this.uiP.set(o.x, o.groundY + 0.035, o.z), this.uiQ, this.uiS.set(r.range, 1, r.range));
+            this.inst.push('ui/reach', this.reachGeo, this.ringMat, false, this.uiM, this.reachTint.setHex(r.color).multiplyScalar(0.75), 3);
+          }
         }
         this.barAt(o.x, o.groundY + def.height * (def.scale ?? 1) + (air ? AIR_Y : 0) + 0.22, o.z, frac);
       }

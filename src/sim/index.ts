@@ -13,7 +13,7 @@ import { createState, Hv, STATS_EVERY, type Building, type State } from './state
 import type { BuildingSnap, Command, GameConfig, SimEvent, Snapshot, SuperweaponTimer } from './types';
 
 export type { BuildingSnap, BuildingSpawn, Command, GameConfig, MapDef, PlayerSetup, PlayerSnap, PlayerStats, QueueSnap, SimEvent, Snapshot, StrikeTimer, SuperweaponTimer, UnitSnap, UnitSpawn } from './types';
-export { damageAgainst } from './combat';
+export { auraBonus, damageAgainst } from './combat';
 export { isMender, isVehicle, mayCarry, REPAIR_EVERY } from './carrier';
 export { Rng } from './rng';
 export { FP } from './fixed';

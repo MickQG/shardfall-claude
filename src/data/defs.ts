@@ -56,6 +56,8 @@ export interface UnitDef {
   squad?: number;
   /** A hero (HERO-1): one at a time per player, alive or in production. */
   hero?: boolean;
+  /** A hero's aura (HERO-9): the owner's other units within `range` tiles of it deal `pct` percent more damage. */
+  aura?: { range: number; pct: number };
   /** A heavy vehicle that crushes enemy infantry squads it drives over (BAL-1). */
   crusher?: boolean;
   /** How far from its centre a crusher flattens, fixed-point (default its radius); a hero crushes all under its body (BAL-16). */
@@ -170,7 +172,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   },
   hum_artillery: {
     faction: 'human', name: 'Hammer Artillery', speed: 24, hp: 250, radius: 100, vision: 8, cost: 900, buildTime: 520, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', role: 'artillery',
-    weapon: { damage: 64, range: 11, cooldown: 60, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
+    weapon: { damage: 64, range: 13, cooldown: 60, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
   },
   // A repair vehicle with no gun of its own (CMB-15): it mends one damaged friendly vehicle at a time and itself (CMB-16,
   // CMB-17), and carries one Rifleman or Rocketeer squad that fires from inside (SQD-3, SQD-4). It never crushes.
@@ -182,7 +184,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // The Aegis hero (HERO-1): a giant four-legged assault walker whose cannons and missile pods engage ground and air alike; one at a
   // time, and it slowly repairs itself. Heroes fire slow, heavy shots that burst over an area (HERO-4).
   hum_paladin: {
-    faction: 'human', name: 'Paladin', speed: 20, hp: 4500, radius: 180, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, crusher: true, crushRadius: 256, turnRate: 2, role: 'tank',
+    faction: 'human', name: 'Paladin', speed: 20, hp: 4500, radius: 180, vision: 9, cost: 2000, buildTime: 900, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', regen: 2, hero: true, aura: { range: 5, pct: 10 }, crusher: true, crushRadius: 256, turnRate: 2, role: 'tank',
     weapon: { damage: 80, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 5, splash: 0.9 },
     // The shoulder missile pods (HERO-7): a salvo of four every 4 s at range 9, ground and air.
     weapon2: { damage: 14, range: 9, cooldown: 80, type: 'rocket', antiAir: true, antiGround: true, flight: 12, splash: 1, indirect: true, arc: 43, salvo: { count: 4, gap: 3 } },
@@ -208,17 +210,17 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   },
   ali_lobber: {
     faction: 'alien', name: 'Lobber', speed: 25, hp: 240, radius: 100, vision: 8, cost: 800, buildTime: 500, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 2, role: 'artillery',
-    weapon: { damage: 62, range: 10, cooldown: 56, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
+    weapon: { damage: 68, range: 13, cooldown: 56, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
   },
   // A hovering anti-armour skimmer (SKM-1): out-ranges tanks with a lance beam it fires on the move (SKM-3); crushes nothing.
   ali_skimmer: {
     faction: 'alien', name: 'Glare Skimmer', speed: 40, hp: 400, radius: 104, vision: 9, cost: 950, buildTime: 520, builtAt: 'ali_pit', requires: [], armor: 'heavy', regen: 2, firesMoving: true, role: 'antiarmor',
-    weapon: { damage: 60, range: 8, cooldown: 40, type: 'lance', antiAir: false, antiGround: true },
+    weapon: { damage: 60, range: 9, cooldown: 40, type: 'lance', antiAir: false, antiGround: true },
   },
   // The Vrax hero (HERO-2): a towering six-legged bio-walker whose acid cannon hits ground and air; one at a time, and
   // it regenerates.
   ali_strider: {
-    faction: 'alien', name: 'Dreadstrider', speed: 20, hp: 4500, radius: 150, vision: 10, cost: 2000, buildTime: 900, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 3, hero: true, crusher: true, crushRadius: 224, turnRate: 2, role: 'tank',
+    faction: 'alien', name: 'Dreadstrider', speed: 20, hp: 4500, radius: 150, vision: 10, cost: 2000, buildTime: 900, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 3, hero: true, aura: { range: 5, pct: 10 }, crusher: true, crushRadius: 224, turnRate: 2, role: 'tank',
     weapon: { damage: 90, range: 7, cooldown: 36, type: 'rocket', antiAir: true, antiGround: true, flight: 5, splash: 0.9 },
   },
 };
