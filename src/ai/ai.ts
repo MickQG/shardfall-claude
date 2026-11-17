@@ -906,10 +906,11 @@ export class AI {
     this.structures(c, out);
     this.production(c, out);
     this.economy(c, out);
-    // Units answering an attack (AI-34) take no wave, gathering or reinforcement orders meanwhile.
+    // Units retreating from an attack (AI-34) take no wave, gathering or reinforcement orders meanwhile; a counter-attack
+    // stays part of the army (a wave setting out takes its units with it).
     const whole = c.army;
-    if (this.responses.length > 0) {
-      const answering = new Set(this.responses.flatMap((r) => [...r.members]));
+    if (this.responses.some((r) => r.mode === 'retreat')) {
+      const answering = new Set(this.responses.flatMap((r) => (r.mode === 'retreat' ? [...r.members] : [])));
       c.army = c.army.filter((u) => !answering.has(u.id));
     }
     this.attackLogic(c, out);
