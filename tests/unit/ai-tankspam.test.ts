@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI, BALL_AWAY, BALL_RAID_SHARE, CHASE_SEEN, DEFAULT_RULES, DIFFICULTIES, HOLD_BACK, MELEE_RANGE, SCREEN_PER, type AiRules } from '../../src/ai/ai';
+import { AI, BALL_AWAY, BALL_RAID_SHARE, CHASE_PATIENCE, CHASE_SEEN, DEFAULT_RULES, DIFFICULTIES, HOLD_BACK, MELEE_RANGE, SCREEN_PER, type AiRules } from '../../src/ai/ai';
 import { KITE_GAP, KITE_ORDERS, KITE_STEP, kiteOrders, STEAMROLL_PRESETS, STEAMROLL_TUNING, TANKSPAM } from '../../src/ai/steamroll';
 import { UNIT_DEFS, unitDef } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
@@ -53,19 +53,24 @@ const ids = (g: Game, kind: string): number[] => g.state.units.filter((u) => u.o
 const tanks = (n: number, x: number, y: number): Foe[] => [...Array(n)].map((_, i) => ({ kind: 'hum_tank', x: x + (i % 2), y: y + Math.floor(i / 2) }));
 
 describe('the answer to tank spam', () => {
-  it('AI-30: against mostly heavy armour, a Brute does not chase faster armour moving away: it falls back to its Spine Spire', () => {
-    expect([MELEE_RANGE, CHASE_SEEN, HOLD_BACK]).toEqual([3, 10, 100]);
+  it('AI-30: against mostly heavy armour, a Brute that has chased faster armour moving away for three seconds stops: it falls back to its Spine Spire', () => {
+    expect([MELEE_RANGE, CHASE_SEEN, HOLD_BACK, CHASE_PATIENCE]).toEqual([3, 10, 100, 60]);
     expect(DEFAULT_RULES.noChase).toBe(true);
     expect(unitDef('hum_tank').speed).toBeGreaterThan(unitDef('ali_brute').speed);
     const g = vrax(['ali_brute', 'ali_brute']);
     const ai = vraxAi();
     const brutes = ids(g, 'ali_brute');
-    // Tanks six tiles off, then seven: moving away.
+    // Tanks eight tiles off, moving away.
     const b = g.state.units.find((u) => u.id === brutes[0])!;
     const x0 = b.x / FP;
     const y0 = b.y / FP;
-    look(g, ai, tanks(4, x0 + 6, y0));
-    const cmds = look(g, ai, tanks(4, x0 + 7, y0));
+    // Moving away for CHASE_PATIENCE ticks (a decision every 8): not yet held before that.
+    const cmds: Command[] = [];
+    for (let k = 0; k <= CHASE_PATIENCE / 8 + 3; k++) {
+      const out = look(g, ai, tanks(4, x0 + 8 + 0.6 * k, y0));
+      if (k < CHASE_PATIENCE / 8) expect(ai.stats.heldBack).toBe(0);
+      cmds.push(...out);
+    }
     const back = cmds.find((c) => c.type === 'move' && brutes.every((id) => c.units.includes(id)));
     expect(back).toBeDefined();
     // Beside the spire, on its side toward the headquarters.
@@ -80,30 +85,33 @@ describe('the answer to tank spam', () => {
       const b = g.state.units.find((u) => u.owner === 0 && u.kind === 'ali_brute')!;
       const x0 = b.x / FP;
       const y0 = b.y / FP;
-      for (let k = 0; k < 3; k++) look(g, ai, foes(x0, y0, k));
+      for (let k = 0; k < 14; k++) look(g, ai, foes(x0, y0, k));
       return ai.stats.heldBack;
     };
     // Moving away: held (the case above), as a check of this bench.
-    expect(run((x, y, k) => tanks(2, x + 6 + k, y))).toBeGreaterThan(0);
+    expect(run((x, y, k) => tanks(2, x + 8 + 0.6 * k, y))).toBeGreaterThan(0);
     expect(run((x, y) => tanks(2, x + 7, y))).toBe(0);
-    expect(run((x, y, k) => tanks(2, x + 9 - k, y))).toBe(0);
+    expect(run((x, y, k) => tanks(2, x + 20 - 1.2 * k, y))).toBe(0);
+    // Turning away for a moment and back: no hold.
+    expect(run((x, y, k) => tanks(2, x + 8 + (k % 4 < 2 ? 0.6 : 0), y))).toBe(0);
     // A tank in its reach where it stands: it fights.
     const g = vrax(['ali_brute']);
     const ai = vraxAi();
     const b = g.state.units.find((u) => u.owner === 0 && u.kind === 'ali_brute')!;
-    for (let k = 0; k < 3; k++) look(g, ai, [...tanks(2, 50 + k, 50), { kind: 'hum_tank', x: b.x / FP + 1.5, y: b.y / FP }]);
+    for (let k = 0; k < 12; k++) look(g, ai, [...tanks(2, 50 + k, 50), { kind: 'hum_tank', x: b.x / FP + 1.5, y: b.y / FP }]);
     expect(ai.stats.heldBack).toBe(0);
-    expect(run((x, y, k) => [...tanks(1, x + 6 + k, y), ...[...Array(6)].map((_, i) => ({ kind: 'hum_rocketeer', x: x + 20, y: y + i }))])).toBe(0);
-    expect(run((x, y, k) => tanks(2, x + 6 + k, y), { noChase: false })).toBe(0);
+    expect(run((x, y, k) => [...tanks(1, x + 8 + 0.6 * k, y), ...[...Array(6)].map((_, i) => ({ kind: 'hum_rocketeer', x: x + 20, y: y + i }))])).toBe(0);
+    expect(run((x, y, k) => tanks(2, x + 8 + 0.6 * k, y), { noChase: false })).toBe(0);
   });
 
-  it('AI-31: while the enemy armour is away from its base, fast units go for its economy as a hit squad, and a threat to the base does not call them home', () => {
+  it('AI-31: with rules.ballRaid, while the enemy armour is away from its base, fast units go for its economy as a hit squad, and a threat to the base does not call them home', () => {
     expect([BALL_AWAY, BALL_RAID_SHARE]).toEqual([20, 0.25]);
-    expect(DEFAULT_RULES.ballRaid).toBe(true);
+    // Off by default: measured, it did not help (see the spec); rules.ballRaid switches it on.
+    expect(DEFAULT_RULES.ballRaid).toBe(false);
     const army = [...Array(8)].map(() => 'ali_skitter').concat(['ali_brute', 'ali_brute', 'ali_spitter', 'ali_spitter']);
     // Armour seen far from the enemy base (its start, 83,83, read off the map).
     const g = vrax(army);
-    const ai = vraxAi();
+    const ai = vraxAi({ ballRaid: true });
     look(g, ai, tanks(4, 40, 40));
     const hit = ai.groupState.filter((s) => s.kind === 'hit');
     expect(hit).toHaveLength(1);
@@ -123,7 +131,7 @@ describe('the answer to tank spam', () => {
     const army = [...Array(8)].map(() => 'ali_skitter').concat(['ali_brute', 'ali_brute']);
     const sent = (foes: Foe[], rules?: Partial<AiRules>): number => {
       const g = vrax(army);
-      const ai = vraxAi(rules);
+      const ai = vraxAi({ ballRaid: true, ...rules });
       look(g, ai, foes);
       return ai.stats.ballRaids;
     };
@@ -133,9 +141,10 @@ describe('the answer to tank spam', () => {
     expect(sent(tanks(4, 40, 40), { ballRaid: false })).toBe(0);
   });
 
-  it('AI-33: against mostly heavy armour, its Brood Pits keep one Brute for every three Skimmers beside them', () => {
+  it('AI-33: with rules.screen, against mostly heavy armour, its Brood Pits keep one Brute for every three Skimmers beside them', () => {
     expect(SCREEN_PER).toBe(3);
-    expect(DEFAULT_RULES.screen).toBe(true);
+    // Off by default: measured, it did not help (see the spec); rules.screen switches it on.
+    expect(DEFAULT_RULES.screen).toBe(false);
     const pitOrders = (rules?: Partial<AiRules>): string[] => {
       const g = vrax([], 20000);
       const ai = vraxAi(rules);
@@ -147,7 +156,7 @@ describe('the answer to tank spam', () => {
       }
       return out;
     };
-    const on = pitOrders();
+    const on = pitOrders({ screen: true });
     const skim = on.filter((k) => k === 'ali_skimmer').length;
     const brutes = on.filter((k) => k === 'ali_brute').length;
     expect(skim).toBeGreaterThan(brutes);

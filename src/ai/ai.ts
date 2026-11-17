@@ -440,7 +440,7 @@ export const RAID_GUARD_SHARE = 0.5;
 /**
  * Not chasing what it cannot catch (AI-30): a melee crusher of its own (weapon range under MELEE_RANGE, not a hero) that
  * sees heavy enemy armour faster than itself within CHASE_SEEN tiles moving away from it (farther than at its last
- * decision), with no enemy within its reach plus one tile, holds back for HOLD_BACK ticks: where it stands when ranged
+ * decision), with no enemy within its reach plus one tile, at every decision for CHASE_PATIENCE ticks, holds back for HOLD_BACK ticks: where it stands when ranged
  * units of its own are within HOLD_NEAR tiles of it, else at its nearest defence within HOLD_SPIRE tiles, else at the
  * middle of its ranged army, else at its staging point.
  */
@@ -449,6 +449,7 @@ export const CHASE_SEEN = 10;
 export const HOLD_BACK = 20 * 5;
 export const HOLD_SPIRE = 15;
 export const HOLD_NEAR = 8;
+export const CHASE_PATIENCE = 20 * 3;
 /**
  * The enemy's armour is away from its base (AI-31) when the middle, by cost, of the heavy armed enemy units it has seen in
  * the last BALL_SEEN ticks is at least BALL_AWAY tiles from every enemy building it knows; then a hit squad of fast
@@ -623,9 +624,9 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   menderLoad: true,
   menderFallbackAt: MENDER_FALLBACK,
   noChase: true,
-  ballRaid: true,
+  ballRaid: false,
   ballRaidShare: BALL_RAID_SHARE,
-  screen: true,
+  screen: false,
   twoScouts: true,
 };
 
@@ -785,6 +786,8 @@ export class AI {
   /** Where it saw each enemy unit at its last decision (AI-30), and its crushers held back from a chase, until when. */
   private lastFoes = new Map<number, { x: number; y: number }>();
   private held = new Map<number, number>();
+  /** Since when each of its melee crushers has been chasing armour it cannot catch (AI-30). */
+  private chasing = new Map<number, number>();
   /** When its last hit squad went for the economy while the enemy's armour was away (AI-31). */
   private ballRaidAt = -100000;
   /** Its second standing scout (AI-21), watching the way between the bases: its unit or -1, when it stood, and where it flees to. */
@@ -885,8 +888,10 @@ export class AI {
    */
   private holdBack(c: Ctx): Command[] {
     for (const [id, until] of this.held) if (until <= c.tick || !c.own.some((u) => u.id === id)) this.held.delete(id);
+    for (const id of [...this.chasing.keys()]) if (!c.own.some((u) => u.id === id)) this.chasing.delete(id);
     if (!this.rules.noChase || !this.doctrine.retreats || heavyShareByCost(this.intel.values(), c.tick) <= MOSTLY_HEAVY) {
       this.held.clear();
+      this.chasing.clear();
       return [];
     }
     const groups = new Map<number, { to: { tx: number; ty: number }; ids: number[] }>();
@@ -894,7 +899,10 @@ export class AI {
       const d = unitDef(u.kind);
       if (this.held.has(u.id) || !d.crusher || d.hero || !d.weapon || d.weapon.range >= MELEE_RANGE) continue;
       const reach = (d.weapon.range + 1) * FP;
-      if (c.foes.some((f) => unitDef(f.kind).weapon && Math.hypot(f.x - u.x, f.y - u.y) <= reach)) continue;
+      if (c.foes.some((f) => unitDef(f.kind).weapon && Math.hypot(f.x - u.x, f.y - u.y) <= reach)) {
+        this.chasing.delete(u.id);
+        continue;
+      }
       const runs = c.foes.some((f) => {
         const fd = unitDef(f.kind);
         if (!fd.weapon || fd.armor !== 'heavy' || fd.speed <= d.speed) return false;
@@ -902,7 +910,15 @@ export class AI {
         const was = this.lastFoes.get(f.id);
         return now <= CHASE_SEEN * FP && was !== undefined && now > Math.hypot(was.x - u.x, was.y - u.y);
       });
-      if (!runs) continue;
+      if (!runs) {
+        this.chasing.delete(u.id);
+        continue;
+      }
+      // Only a chase that has gone on for CHASE_PATIENCE ticks: armour that is kiting, not merely turning away.
+      const since = this.chasing.get(u.id) ?? c.tick;
+      this.chasing.set(u.id, since);
+      if (c.tick - since < CHASE_PATIENCE) continue;
+      this.chasing.delete(u.id);
       const to = this.fallbackPoint(c, u);
       const k = to.ty * this.map.width + to.tx;
       const g = groups.get(k) ?? { to, ids: [] };
