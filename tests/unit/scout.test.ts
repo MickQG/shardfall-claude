@@ -122,12 +122,13 @@ describe('the standing scout (AI-21)', () => {
   }, LONG);
 
   it('AI-21: with rules.twoScouts it keeps two standing scouts, one touring the enemy base and one at its post on the way between the bases, and replaces a lost one after the gap', () => {
-    expect(DEFAULT_RULES.twoScouts).toBe(true);
+    // Off by default: measured, it did not help against tank spam and tipped faction balance (see the spec).
+    expect(DEFAULT_RULES.twoScouts).toBe(false);
     expect([PICKET_ALONG, PICKET_SIDE]).toEqual([0.3, 6]);
     for (const faction of FACTIONS) {
       const scout = scoutOf(faction);
       const { g, cfg } = builtBase(faction, 20000);
-      const ai = new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6);
+      const ai = new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6, 'balanced', { rules: { twoScouts: true } });
       // One a decision, ahead of other combat units, until it has two; never a third.
       drive(g, ai, 1600);
       expect(scoutsOf(g, scout), faction).toBe(2);
@@ -154,7 +155,7 @@ describe('the standing scout (AI-21)', () => {
     for (const faction of FACTIONS) {
       const scout = scoutOf(faction);
       const { g, cfg } = builtBase(faction, 20000);
-      const ai = new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6);
+      const ai = new AI(0, faction, DIFFICULTIES.hard, cfg.map, 6, 'balanced', { rules: { twoScouts: true } });
       drive(g, ai, 3200);
       const p = g.state.units.find((u) => u.id === ai.pickedScout)!;
       expect(p.kind, faction).toBe(scout);

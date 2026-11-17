@@ -632,7 +632,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   ballRaid: false,
   ballRaidShare: BALL_RAID_SHARE,
   screen: false,
-  twoScouts: true,
+  twoScouts: false,
   picketAlong: PICKET_ALONG,
 };
 
