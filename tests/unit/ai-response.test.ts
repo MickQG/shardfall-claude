@@ -151,7 +151,7 @@ describe('standing units answer an attack as a group (AI-34)', () => {
     expect(who.stats.withdrawals).toBe(1);
     expect(who.stats.counters).toBe(0);
     // It stays away: no order of the army's (gathering) sends it back meanwhile.
-    const later = run(g, who, 200, brutes);
+    const later = run(g, who, 150, brutes);
     expect(later.some((c) => c.type !== 'scatter' && 'units' in c && c.units.some((id) => ids.includes(id)))).toBe(false);
   }, LONG);
 
@@ -202,19 +202,19 @@ describe('standing units answer an attack as a group (AI-34)', () => {
       const sy = front.y;
       const sk = addUnit(g.state, 1, 'ali_skimmer', sx, sy);
       submit(g, { type: 'attack', player: 1, units: [sk.id], target: front.id });
-      // It must not walk off: hold it where it is after each step.
+      // It must not walk off: hold it where it is after each step. Which squads went out, at any time.
+      const out = new Set<number>();
       for (let i = 0; i < 160; i++) {
         run(g, who, 1, FOG);
         sk.x = sx;
         sk.y = sy;
         sk.path = [];
+        for (const u of g.state.units) {
+          const s = start.get(u.id);
+          if (s && Math.hypot(u.x - s.x, u.y - s.y) > 1.5 * FP) out.add(u.id);
+        }
       }
-      const moved = ids.filter((id) => {
-        const u = g.state.units.find((x) => x.id === id);
-        const s = start.get(id)!;
-        return u !== undefined && Math.hypot(u.x - s.x, u.y - s.y) > 1.5 * FP;
-      }).length;
-      return { moved, ids };
+      return { moved: out.size, ids };
     };
     // Without the rule only the squad it hits goes for it (the simulation's retaliation); with it, all of them.
     expect(play({ groupResponse: false }).moved).toBeLessThanOrEqual(2);

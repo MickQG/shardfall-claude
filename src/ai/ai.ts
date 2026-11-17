@@ -474,10 +474,10 @@ export const PICKET_SIDE = 6;
  */
 export const RESPONSE_R = 9;
 export const RESPONSE_LEASH = 8;
-export const RESPONSE_MAX = 20 * 20;
+export const RESPONSE_MAX = 20 * 6;
 export const RESPONSE_STEP = 40;
 export const RESPONSE_AWAY = 6;
-export const RETREAT_STAY = 20 * 30;
+export const RETREAT_STAY = 20 * 10;
 
 /** A group of its standing units answering an attack (AI-34): counter-attacking, or retreating to a refuge. */
 interface Response {
