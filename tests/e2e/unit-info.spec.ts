@@ -83,7 +83,8 @@ test('R3D-38 CMB-15: the unit sheet shows the Field Mender as a 3D model, traine
   const panel = page.locator('#unit-info');
   await panel.locator('.u', { hasText: 'Field Mender' }).click();
   await expect(panel.locator('.facts h3')).toHaveText('Field Mender');
-  await expect(panel.locator('.facts')).toContainText('Cannot attack');
+  await expect(panel.locator('.facts')).toContainText('What it does: Repairs vehicles within 3 tiles; carries one infantry squad');
+  await expect(panel.locator('.facts')).not.toContainText('Cannot attack');
   await expect(panel.locator('.facts')).toContainText('Trained at: Motor Pool');
   await expect.poll(() => painted(page), { timeout: 15_000 }).toBeGreaterThan(2000);
 });

@@ -89,6 +89,13 @@ const CRASH_CARRY = 0.8;
 
 /** How long a fallen squad member stays before it has sunk away, ms (R3D-15). */
 const FALLEN_MS = 2600;
+/** How long a Field Mender's arm takes to unfold to what it mends, and to fold back onto the roof, ms (R3D-38). */
+export const ARM_UNFOLD_MS = 650;
+export const ARM_FOLD_MS = 900;
+/** How far unfolded the arm must be before the repair stream and sparks show (R3D-38). */
+const ARM_READY = 0.85;
+/** How often the welding light at the contact point flickers anew, ms (R3D-38). */
+const WELD_FLICKER_MS = 110;
 /** How long a dying hover hull takes to drop onto the ground, ms (SKM-4). */
 const HOVER_DROP_MS = 350;
 /** Air units fly this high (tiles). */
@@ -182,9 +189,13 @@ interface UnitObj {
   work: number;
   /** The howitzer's barrel elevation, 0 in its travel lock .. 1 raised (R3D-32), and when the hauler last breathed vapour. */
   elev: number;
-  /** Has a gun that pitches toward its target (SKM-4), and how far up it points, radians, eased. */
+  /** Has a gun or arm that pitches toward its target (SKM-4, R3D-38), and how far up it points, radians, eased. */
   pitches: boolean;
   aimPitch: number;
+  /** A Field Mender's crane arm: how far it is unfolded, 0 folded on the roof .. 1 reaching out (R3D-38). */
+  arm: number;
+  /** When its welding light last flickered, ms (R3D-38). */
+  lastWeld: number;
   /** The hauler's stop settle (R3D-30). */
   settle: Settle;
   lastPuff: number;
@@ -772,8 +783,10 @@ export class View3D {
       drum: 0,
       work: 0,
       elev: 0,
-      pitches: figures[0]!.anims.some((a) => a.anim.k === 'aim'),
+      pitches: figures[0]!.anims.some((a) => a.anim.k === 'aim' || (a.anim.k === 'crane' && a.anim.lo !== undefined)),
       aimPitch: 0,
+      arm: 0,
+      lastWeld: 0,
       settle: restingSettle(),
       lastPuff: 0,
       alive: size,
@@ -844,8 +857,9 @@ export class View3D {
     if (e.t === 'mend') {
       // Sparks where the repair lands, each time it does (R3D-38).
       const [x, z] = P(e.x, e.y);
+      const m = this.units.get(e.id);
       const u = this.units.get(e.to);
-      this.fx.sparks(this.v.set(x, this.groundAt(x, z) + (u ? Math.min(0.45, u.def.height * 0.6) : 0.3), z), false, now);
+      this.fx.sparks(this.mendContact(m ? m.x : x, m ? m.z : z, e.to, u ? u.x : x, u ? u.z : z, this.v), false, now);
       return;
     }
     if (e.t === 'boom') {
@@ -1351,7 +1365,8 @@ export class View3D {
       else if (tb) o.aim = Math.atan2(tb.ty + buildingDef(tb.kind).h / 2 - o.z, tb.tx + buildingDef(tb.kind).w / 2 - o.x);
       const aiming = !!tgt || !!tb || t <= o.aimHold;
       o.turretYaw = turnToward(o.turretYaw, aiming ? o.aim : o.motion.heading, TURRET_RATE * dt);
-      // A gun that pitches (the Skimmer's lance, SKM-4) tilts toward the middle of its target, and back to level without one.
+      // A gun or arm that pitches (the Skimmer's lance, SKM-4; the Mender's arm, R3D-38) tilts toward the middle of its
+      // target, and back to level without one.
       if (o.pitches) {
         let want = 0;
         if (tgt || tb) {
@@ -1363,6 +1378,8 @@ export class View3D {
         }
         o.aimPitch += (want - o.aimPitch) * Math.min(1, dt * 5);
       }
+      // A Field Mender unfolds its arm while it mends and folds it back onto the roof after (R3D-38).
+      if (u.kind === 'hum_mender') o.arm = slew(o.arm, u.mend !== undefined ? 1 : 0, dt, ARM_UNFOLD_MS, ARM_FOLD_MS);
       this.poseUnit(o, aiming, t, dt);
       // UI: selection ring on the ground, health bar over the model (both instanced, R3D-13).
       const sel = vs.selectedUnits.has(u.id);
@@ -1406,14 +1423,31 @@ export class View3D {
     }
   }
 
-  /** A Field Mender's repair stream (R3D-38): from its arm's tip, whose matrices are current, to the unit it mends. */
+  /**
+   * A Field Mender's repair stream (R3D-38), once its arm is out: from the tool head's tip, whose matrices are current, to
+   * the contact point on the side of the vehicle it mends facing the tip, where welding sparks spray and a light flickers.
+   */
   private mendStream(o: UnitObj, to: RenderUnit, t: number): void {
-    const arm = o.figures[0]?.drawn.find((d) => d.geo === 'arm');
-    if (!arm) return;
-    const from = this.v.set(...MENDER_TIP).applyMatrix4(arm.obj.matrixWorld);
-    const target = this.units.get(to.id);
-    const y = this.groundAt(to.tx, to.ty) + (target ? Math.min(0.45, target.def.height * (target.def.scale ?? 1) * 0.6) : 0.3);
-    this.fx.repairStream(from, this.v2.set(to.tx, y, to.ty), t);
+    if (o.arm < ARM_READY) return;
+    const tool = o.figures[0]?.drawn.find((d) => d.geo === 'tool');
+    if (!tool) return;
+    const from = this.v.set(...MENDER_TIP).applyMatrix4(tool.obj.matrixWorld);
+    const at = this.mendContact(from.x, from.z, to.id, to.tx, to.ty, this.v2);
+    const weld = t - o.lastWeld > WELD_FLICKER_MS;
+    if (weld) o.lastWeld = t;
+    this.fx.repairStream(from, at, t, o.seed, weld);
+  }
+
+  /** Where a repair lands on unit `id` at (`tx`, `ty`): on its side facing (`fx`, `fz`), at about half its height (R3D-38). */
+  private mendContact(fx: number, fz: number, id: number, tx: number, ty: number, out: THREE.Vector3): THREE.Vector3 {
+    const target = this.units.get(id);
+    const k = target ? (target.def.scale ?? 1) : 1;
+    const y = this.groundAt(tx, ty) + (target ? Math.min(0.45, target.def.height * k * 0.55) : 0.3);
+    const dx = fx - tx;
+    const dz = fz - ty;
+    const d = Math.hypot(dx, dz);
+    const r = target && d > 1e-3 ? Math.min(d * 0.8, target.def.radius * k * 0.6) / d : 0;
+    return out.set(tx + dx * r, y, ty + dz * r);
   }
 
   private drawUnit(o: UnitObj, tint: THREE.Color, t: number): void {
@@ -1578,6 +1612,7 @@ export class View3D {
         feed: o.work,
         elev: o.elev,
         aim: o.aimPitch,
+        arm: o.arm,
         pod: podOpen(t - o.podSince, salvoOf(o.kind, this.msPerTick)),
       });
     });

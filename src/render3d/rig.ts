@@ -65,6 +65,11 @@ export type Anim =
   | { k: 'elev'; lo: number; hi: number }
   /** A gun that pitches toward what it aims at (`RigPose.aim`, radians up), held within `lo`..`hi` radians (SKM-4). */
   | { k: 'aim'; lo: number; hi: number }
+  /**
+   * A crane joint (R3D-38): turned by `fold` radians while the arm is folded and by `out` once it is unfolded
+   * (`RigPose.arm`), easing between; unfolded, it also pitches by the aim (`RigPose.aim`) held within `lo`..`hi`, if given.
+   */
+  | { k: 'crane'; fold: number; out: number; lo?: number; hi?: number }
   /** Feeding limbs (mandibles, tendrils): swing about `axis` by up to `amp` in a cycle of `rate` rad/s while feeding (R3D-31). */
   | { k: 'feed'; axis: Axis; amp: number; rate: number; phase: number }
   /** A segment or throat that pulses in scale: with each swallow while feeding (`swallow`), in a wave front to back while unloading (`wave`) (R3D-31). */
@@ -241,6 +246,8 @@ export interface RigPose {
   elev?: number;
   /** How far up toward its target a pitching gun points, radians (negative down; SKM-4). */
   aim?: number;
+  /** How far a repair arm is unfolded, 0 folded on the roof .. 1 reaching out to what it mends (R3D-38). */
+  arm?: number;
 }
 
 /** Pose every animated node of a rig. Pure apart from writing the nodes' transforms. */
@@ -415,6 +422,12 @@ export function poseRig(tree: RigTree, p: RigPose): void {
       case 'aim':
         turn(obj, 'z', a.rot.z + Math.max(an.lo, Math.min(an.hi, p.aim ?? 0)));
         break;
+      case 'crane': {
+        const e = smoothstep(p.arm ?? 0);
+        const pitch = an.lo !== undefined && an.hi !== undefined ? Math.max(an.lo, Math.min(an.hi, p.aim ?? 0)) : 0;
+        turn(obj, 'z', a.rot.z + an.fold + (an.out - an.fold) * e + pitch * e);
+        break;
+      }
       case 'feed': {
         const f = Math.max(0, Math.min(1, p.feed ?? 0));
         turn(obj, an.axis, a.rot[an.axis] + an.amp * f * feedCycle(p.time, an.rate, an.phase));

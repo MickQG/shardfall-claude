@@ -85,7 +85,7 @@ export function factsHtml(c: UnitCard, max: UnitStats = statMax()): string {
   const strong = c.canAttack ? (c.strong.length ? c.strong.map((s) => (s.units.length ? `${s.armour} (${s.units.join(', ')})` : s.armour)).join('; ') : 'Nothing in particular') : 'Cannot attack';
   const bars = STAT_ROWS.map(([k, label, fmt]) => `<span>${label}</span><div class="bar"><i style="width:${(statFill(c.stats[k], max[k]) * 100).toFixed(1)}%"></i></div><em>${fmt(c.stats[k])}</em>`).join('');
   const where = `${c.trainedAt}${c.needs.length ? ` · needs ${c.needs.join(', ')}` : ''}`;
-  return `<h3>${esc(c.name)}</h3><div class="role">${esc(c.role)} · <span class="cost">◈ ${c.cost}</span></div><div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div><div class="bars">${bars}</div><p><b>Strong against:</b> ${esc(strong)}</p><p><b>Weak against:</b> ${esc(c.weak.length ? c.weak.join(', ') : 'Nothing in particular')}</p><p><b>Trained at:</b> ${esc(where)}</p>`;
+  return `<h3>${esc(c.name)}</h3><div class="role">${esc(c.role)} · <span class="cost">◈ ${c.cost}</span></div><div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div><div class="bars">${bars}</div><p><b>${c.work ? 'What it does' : 'Strong against'}:</b> ${esc(c.work ?? strong)}</p><p><b>Weak against:</b> ${esc(c.weak.length ? c.weak.join(', ') : 'Nothing in particular')}</p><p><b>Trained at:</b> ${esc(where)}</p>`;
 }
 
 export interface UnitSheet {

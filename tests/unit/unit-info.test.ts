@@ -33,6 +33,12 @@ describe('unit info cards', () => {
     expect(card('human', 'Rifleman').canAttack).toBe(true);
   });
 
+  it('INF-3, R3D-38: an unarmed support unit says what it does instead: the Field Mender repairs and carries a squad', () => {
+    expect(card('human', 'Field Mender')).toMatchObject({ canAttack: false, strong: [], work: 'Repairs vehicles within 3 tiles; carries one infantry squad' });
+    expect(card('human', 'Shard Hauler').work).toBeNull();
+    expect(card('human', 'Bulwark Tank').work).toBeNull();
+  });
+
   it('INF-4: weak against lists enemy kinds that can hit it for full damage or more', () => {
     expect(card('human', 'Rocketeer').weak).toEqual(['Skitterer', 'Stalker', 'Brute']);
     expect(card('human', 'Paladin').weak).toEqual(['Spitter', 'Glare Skimmer', 'Dreadstrider']);

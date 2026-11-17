@@ -53,6 +53,9 @@ export const REPAIR_COLOR = 0x4fffd0;
 
 /** How long a lance beam is held on its target, ms (SKM-4). */
 export const LANCE_BEAM_MS = 420;
+/** Welding sparks a second at a repair's contact point (half on lower quality), and how fast they fall, tiles per second squared (R3D-38). */
+export const WELD_SPARKS_PER_S = 120;
+export const WELD_G = 7;
 
 export const LOOKS: Record<WeaponLook, Look> = {
   rifle: { color: 0xffe2a0, intensity: 1.3, speed: 38, len: 0.26, width: 0.0065, arc: 0, flash: 0.09, flashColor: 0xffd27a, smokeTrail: false, hit: 'spark', shake: 0 },
@@ -273,6 +276,8 @@ export class CombatFx {
   warnings: { at: Vec; r: number; start: number; end: number; glow: number; core: number; lastRing: number; lastMote: number; lastLight: number }[] = [];
   /** Effects scheduled for later. */
   private later: { at: number; fn: (now: number) => void }[] = [];
+  /** When each welder (by key) last threw sparks, so the spray keeps its rate whatever the frame rate (R3D-38). */
+  private welds = new Map<number, number>();
   /** Harvesters at work, by unit id (R3D-19): mining from a crystal or unloading into a refinery. */
   links = new Map<number, { from: Vec; to: Vec; until: number; organic: boolean; unload: boolean; last: number; seed: number }>();
   private rng = new Rng(12345);
@@ -823,7 +828,7 @@ export class CombatFx {
    * A Field Mender's repair stream (R3D-38), called every frame it mends: a thin green-blue beam from the arm's tip to the
    * vehicle, flickering, with motes drifting along it now and then.
    */
-  repairStream(from: Vec, to: Vec, now: number): void {
+  repairStream(from: Vec, to: Vec, now: number, key = 0, flickerLight = false): void {
     const r = this.rng;
     const flicker = 0.75 + 0.25 * Math.sin(now * 0.05);
     this.beam(from, to, 0.018, REPAIR_COLOR, 1.6 * flicker, 45, now);
@@ -832,6 +837,50 @@ export class CombatFx {
       const k = r.range(0.2, 0.9);
       this.glow.emit({ x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k, z: from.z + (to.z - from.z) * k, vx: (to.x - from.x) * 0.8, vy: (to.y - from.y) * 0.8 + 0.2, vz: (to.z - from.z) * 0.8, life: 220, size0: 0.05, size1: 0.02, color0: REPAIR_COLOR, alpha: 0.9 }, now);
     }
+    this.weld(to, from, now, key, flickerLight);
+  }
+
+  /**
+   * Welding at a repair's contact point (R3D-38): a steady spray of bright sparks, so many a second whatever the frame
+   * rate, thrown back off the hull toward the arm and out, falling under gravity; some bounce once off the ground and
+   * fade. A hot white glow sits on the point, and a pooled light flickers there when asked (no new lights, PERF-5).
+   */
+  weld(at: Vec, toward: Vec, now: number, key: number, flickerLight: boolean): void {
+    const r = this.rng;
+    if (this.welds.size > 64) this.welds.clear();
+    const last = this.welds.get(key) ?? now - 16;
+    const rate = this.quality.rich ? WELD_SPARKS_PER_S : WELD_SPARKS_PER_S / 2;
+    const due = Math.min(8, ((now - last) / 1000) * rate);
+    const n = Math.floor(due) + (r.next() < due % 1 ? 1 : 0);
+    this.welds.set(key, now);
+    // Out of the hull, toward the arm, in the ground plane.
+    let ox = toward.x - at.x;
+    let oz = toward.z - at.z;
+    const ol = Math.hypot(ox, oz) || 1;
+    ox /= ol;
+    oz /= ol;
+    const ground = this.groundAt(at.x, at.z);
+    for (let i = 0; i < n; i++) {
+      const a = r.range(-1.3, 1.3);
+      const sp = r.range(0.6, 2.0);
+      const vx = (ox * Math.cos(a) - oz * Math.sin(a)) * sp;
+      const vz = (oz * Math.cos(a) + ox * Math.sin(a)) * sp;
+      const vy = r.range(0.4, 2.2);
+      const life = r.range(320, 620);
+      // When it would reach the ground (y = ground + vy t - g t^2 / 2), it goes out there and maybe bounces.
+      const h = at.y - ground;
+      const land = (vy + Math.sqrt(vy * vy + 2 * WELD_G * h)) / WELD_G;
+      const flight = Math.min(life, land * 1000);
+      this.glow.emit({ x: at.x, y: at.y, z: at.z, vx, vy, vz, life: flight, size0: 0.075, size1: 0.025, color0: 0xfff2b8, color1: 0xff8a20, alpha: 2.6, gravity: WELD_G }, now);
+      if (flight < life && r.next() < 0.55) {
+        const bx = at.x + vx * land;
+        const bz = at.z + vz * land;
+        const up = (WELD_G * land - vy) * 0.35;
+        this.later.push({ at: now + flight, fn: (t) => this.glow.emit({ x: bx, y: ground + 0.01, z: bz, vx: vx * 0.4, vy: up, vz: vz * 0.4, life: (life - flight) * 0.8 + 120, size0: 0.035, size1: 0.012, color0: 0xffc060, color1: 0xff5a10, alpha: 1.6, gravity: WELD_G }, t) });
+      }
+    }
+    this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 70, size0: r.range(0.14, 0.22), size1: 0.08, color0: 0xffffff, color1: 0xbff8ff, alpha: 1.8 }, now);
+    if (flickerLight) this.light(at.x + ox * 0.15, at.y + 0.1, at.z + oz * 0.15, 0xc8f4ff, r.range(0.7, 1.3), 70, now, 3);
   }
 
   /** A column of light drawn every frame for `life` ms, thinning and fading as it goes. */
