@@ -210,7 +210,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   },
   ali_lobber: {
     faction: 'alien', name: 'Lobber', speed: 25, hp: 240, radius: 100, vision: 8, cost: 800, buildTime: 500, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 2, role: 'artillery',
-    weapon: { damage: 62, range: 12, cooldown: 56, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
+    weapon: { damage: 62, range: 13, cooldown: 56, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
   },
   // A hovering anti-armour skimmer (SKM-1): out-ranges tanks with a lance beam it fires on the move (SKM-3); crushes nothing.
   ali_skimmer: {
