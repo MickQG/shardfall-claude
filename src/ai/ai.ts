@@ -463,7 +463,7 @@ export const BALL_RAID_GAP = 20 * 30;
 /** Against armour, Vrax keeps one Brute for every SCREEN_PER Skimmers it has or has queued (AI-33). */
 export const SCREEN_PER = 3;
 /** Where its second standing scout watches (AI-21): this far along the way from its staging point to the enemy start, and PICKET_SIDE tiles to one side. */
-export const PICKET_ALONG = 0.5;
+export const PICKET_ALONG = 0.3;
 export const PICKET_SIDE = 6;
 
 export interface AiStats {

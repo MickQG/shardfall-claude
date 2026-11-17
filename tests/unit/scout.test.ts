@@ -123,7 +123,7 @@ describe('the standing scout (AI-21)', () => {
 
   it('AI-21: with rules.twoScouts it keeps two standing scouts, one touring the enemy base and one at its post on the way between the bases, and replaces a lost one after the gap', () => {
     expect(DEFAULT_RULES.twoScouts).toBe(true);
-    expect([PICKET_ALONG, PICKET_SIDE]).toEqual([0.5, 6]);
+    expect([PICKET_ALONG, PICKET_SIDE]).toEqual([0.3, 6]);
     for (const faction of FACTIONS) {
       const scout = scoutOf(faction);
       const { g, cfg } = builtBase(faction, 20000);
