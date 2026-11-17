@@ -37,7 +37,8 @@ function base(army: string[], tickAt = 3000): Game {
   return g;
 }
 
-const ai = (rules?: Partial<AiRules>): AI => new AI(0, 'human', DIFFICULTIES.hard, MAP, 6, 'balanced', { rules, standingScout: false });
+/** The rule is measured and kept switched off (AI-34): these tests switch it on unless told otherwise. */
+const ai = (rules?: Partial<AiRules>): AI => new AI(0, 'human', DIFFICULTIES.hard, MAP, 6, 'balanced', { rules: { groupResponse: true, ...rules }, standingScout: false });
 const many = (kind: string, n: number): string[] => [...Array(n)].map(() => kind);
 
 interface Foe {

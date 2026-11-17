@@ -630,7 +630,7 @@ export interface AiRules {
   twoScouts: boolean;
   /** (AI-21) How far along the way from its staging point to the enemy start the second scout's post lies. */
   picketAlong: number;
-  /** (AI-34) Its standing units answer an attack as a group; off: each hit unit retaliates alone (the simulation's own rule). */
+  /** (AI-34) Its standing units answer an attack as a group; off (as the game plays): each hit unit retaliates alone (the simulation's own rule). */
   groupResponse: boolean;
 }
 
@@ -663,7 +663,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   screen: false,
   twoScouts: false,
   picketAlong: PICKET_ALONG,
-  groupResponse: true,
+  groupResponse: false,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -906,11 +906,10 @@ export class AI {
     this.structures(c, out);
     this.production(c, out);
     this.economy(c, out);
-    // Units retreating from an attack (AI-34) take no wave, gathering or reinforcement orders meanwhile; a counter-attack
-    // stays part of the army (a wave setting out takes its units with it).
+    // Units answering an attack (AI-34) take no wave, gathering or reinforcement orders meanwhile.
     const whole = c.army;
-    if (this.responses.some((r) => r.mode === 'retreat')) {
-      const answering = new Set(this.responses.flatMap((r) => (r.mode === 'retreat' ? [...r.members] : [])));
+    if (this.responses.length > 0) {
+      const answering = new Set(this.responses.flatMap((r) => [...r.members]));
       c.army = c.army.filter((u) => !answering.has(u.id));
     }
     this.attackLogic(c, out);
