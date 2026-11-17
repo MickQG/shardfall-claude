@@ -16,6 +16,7 @@ import { isoProjector, type Projector } from './projector';
 import type { WorldRenderer } from './worldRenderer';
 import type { RenderUnit } from './interp';
 import { TILE_H, TILE_W, tileToScreen } from './iso';
+import { selectedRings } from './rings';
 import type { RallyLine } from '../ui/rally';
 import type { AckMarker } from '../ui/acknowledge';
 import { animateUnit, drawRankPips, drawUnit, setFacing, setSquad, type UnitArt } from './unitArt';
@@ -479,12 +480,11 @@ export class GameView implements WorldRenderer {
   private drawOverlay(vs: ViewState, units: readonly RenderUnit[]): void {
     const g = this.overlay;
     g.clear();
-    // A selected Field Mender's repair reach (R3D-38): a thin green-blue ellipse on the ground.
+    // A selected Field Mender's repair reach (R3D-38) and a hero's aura (HERO-9): thin ellipses on the ground.
     for (const u of units) {
-      const reach = vs.selectedUnits.has(u.id) ? unitDef(u.kind).repair?.range : undefined;
-      if (!reach) continue;
+      if (!vs.selectedUnits.has(u.id)) continue;
       const c = tileToScreen(u.tx, u.ty);
-      g.ellipse(c.x, c.y, (reach * Math.SQRT2 * TILE_W) / 2, (reach * Math.SQRT2 * TILE_H) / 2).stroke({ color: 0x4fffd0, width: 1.5, alpha: 0.6 });
+      for (const r of selectedRings(u.kind)) g.ellipse(c.x, c.y, (r.range * Math.SQRT2 * TILE_W) / 2, (r.range * Math.SQRT2 * TILE_H) / 2).stroke({ color: r.color, width: 1.5, alpha: 0.6 });
     }
     const r = vs.rally;
     if (r) {

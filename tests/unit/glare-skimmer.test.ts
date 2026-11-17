@@ -24,13 +24,13 @@ const run = (g: Game, n: number, each?: (e: SimEvent) => void): void => {
 const unitAt = (g: Game, kind: string, owner = 0) => g.state.units.find((u) => u.kind === kind && u.owner === owner)!;
 
 describe('the Glare Skimmer in the simulation', () => {
-  it('SKM-1: a tier-2 Vrax heavy unit from the Brood Pit: 400 HP, speed 40, cost 950, a lance at range 8 that cannot hit air', () => {
+  it('SKM-1: a tier-2 Vrax heavy unit from the Brood Pit: 400 HP, speed 40, cost 950, a lance at range 9 that cannot hit air', () => {
     const d = unitDef(SKIM);
     expect(d).toMatchObject({ faction: 'alien', name: 'Glare Skimmer', builtAt: 'ali_pit', requires: [], armor: 'heavy', hp: 400, speed: 40, cost: 950, role: 'antiarmor', firesMoving: true });
     expect(d.crusher).toBeFalsy();
     expect(d.hero).toBeFalsy();
     expect(d.air).toBeFalsy();
-    expect(d.weapon).toMatchObject({ type: 'lance', range: 8, antiAir: false, antiGround: true });
+    expect(d.weapon).toMatchObject({ type: 'lance', range: 9, antiAir: false, antiGround: true });
     expect(d.vision).toBeGreaterThanOrEqual(d.weapon!.range);
     // Tier 2: it needs nothing beyond the Brood Pit, as the Brute.
     expect(d.requires).toEqual(unitDef('ali_brute').requires);
