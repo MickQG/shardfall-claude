@@ -601,6 +601,8 @@ export interface AiRules {
   screen: boolean;
   /** (AI-21) Two standing scouts: one tours the enemy base, the other watches the way between the bases; off: one. */
   twoScouts: boolean;
+  /** (AI-21) How far along the way from its staging point to the enemy start the second scout's post lies. */
+  picketAlong: number;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -631,6 +633,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   ballRaidShare: BALL_RAID_SHARE,
   screen: false,
   twoScouts: true,
+  picketAlong: PICKET_ALONG,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -2557,11 +2560,11 @@ export class AI {
     const dy = to.ty - stage.ty;
     const len = Math.hypot(dx, dy) || 1;
     for (const s of [1, -1]) {
-      const x = Math.round(stage.tx + dx * PICKET_ALONG + (s * dy * PICKET_SIDE) / len);
-      const y = Math.round(stage.ty + dy * PICKET_ALONG - (s * dx * PICKET_SIDE) / len);
+      const x = Math.round(stage.tx + dx * this.rules.picketAlong + (s * dy * PICKET_SIDE) / len);
+      const y = Math.round(stage.ty + dy * this.rules.picketAlong - (s * dx * PICKET_SIDE) / len);
       if (x >= 1 && y >= 1 && x < W - 1 && y < H - 1) return this.nearestFree(x, y);
     }
-    return this.nearestFree(Math.round(stage.tx + dx * PICKET_ALONG), Math.round(stage.ty + dy * PICKET_ALONG));
+    return this.nearestFree(Math.round(stage.tx + dx * this.rules.picketAlong), Math.round(stage.ty + dy * this.rules.picketAlong));
   }
 
   /**
