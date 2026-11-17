@@ -9,7 +9,7 @@ import { UNIT_MODELS } from '../../src/render/voxel/models';
 import { CombatFx, LANCE_BEAM_MS, LOOKS, shotDuration } from '../../src/render3d/fx3d';
 import { bodyPose, HOVER_BOB, restingMotion } from '../../src/render3d/motion';
 import { muzzleCount, poseRig, rigTree, turretReach, type RigPose } from '../../src/render3d/rig';
-import { SKIMMER_HOVER, UNIT_RIGS } from '../../src/render3d/units3d';
+import { LANCE_MOUNT, LANCE_PITCH, SKIMMER_HOVER, UNIT_RIGS } from '../../src/render3d/units3d';
 import { createGame, damageAgainst, FP, snapshot, submit, tick, type Command, type Game, type SimEvent, type UnitSpawn } from '../../src/sim';
 import { open } from './battle';
 
@@ -118,9 +118,9 @@ describe('the Glare Skimmer model, beam and sounds', () => {
   const def = UNIT_RIGS[SKIM]!();
 
   /** World-space points of every drawn part of a posed skimmer, by part name. */
-  const points = (turret: number): Map<string, THREE.Vector3[]> => {
+  const points = (turret: number, aim = 0): Map<string, THREE.Vector3[]> => {
     const t = rigTree(def);
-    poseRig(t, { ...STILL, turret });
+    poseRig(t, { ...STILL, turret, aim });
     t.root.updateMatrixWorld(true);
     const out = new Map<string, THREE.Vector3[]>();
     for (const d of t.drawn) {
@@ -146,7 +146,7 @@ describe('the Glare Skimmer model, beam and sounds', () => {
     expect(Math.abs(bodyPose('hover', { ...restingMotion(), speed: 1, turnRate: 1 }, 0, 0, 0).roll)).toBeGreaterThan(0);
   });
 
-  it('SKM-4: a glowing underside, a team carapace, and a long lance on its back that turns all round clear of the hull (AIM-2)', () => {
+  it('SKM-4: a glowing underside, a team carapace, and a long lance on its back that turns all round and pitches clear of the hull (AIM-2)', () => {
     const hull = def.shapes.hull!().pieces;
     expect(hull.some((p) => p.glow)).toBe(true);
     expect(hull.some((p) => p.paint === 'team')).toBe(true);
@@ -154,14 +154,49 @@ describe('the Glare Skimmer model, beam and sounds', () => {
     expect(muzzleCount(def)).toBe(1);
     expect(def.weapon).toBe('lance');
     const top = Math.max(...points(0).get('hull')!.map((v) => v.y));
+    const [mx, , mz] = LANCE_MOUNT;
     for (let a = -Math.PI; a < Math.PI; a += Math.PI / 8) {
-      const lance = points(a).get('lance')!;
-      // The emitter is long: it reaches well past the mount.
-      const reach = Math.max(...lance.map((v) => Math.hypot(v.x + 0.04, v.z)));
-      expect(reach).toBeGreaterThan(0.6);
-      // Everything of it away from the mount rides above the hull's highest point.
-      for (const v of lance) if (Math.hypot(v.x + 0.04, v.z) > 0.14) expect(v.y).toBeGreaterThan(top);
+      for (const aim of [-1, 0, 1]) {
+        const lance = points(a, aim).get('lance')!;
+        // The emitter is long: it reaches well past the mount.
+        const reach = Math.max(...lance.map((v) => Math.hypot(v.x - mx, v.z - mz)));
+        expect(reach).toBeGreaterThan(0.8);
+        // Everything of it away from the breech rides above the hull's highest point, pitched or not.
+        for (const v of lance) if (Math.hypot(v.x - mx, v.z - mz) > 0.14) expect(v.y).toBeGreaterThan(top);
+      }
     }
+  });
+
+  it('SKM-4: the lance lies forward along the back like a gun barrel, past the head, and the beam leaves its tip', () => {
+    const t = rigTree(def);
+    poseRig(t, STILL);
+    t.root.updateMatrixWorld(true);
+    const lance = points(0).get('lance')!;
+    const hull = points(0).get('hull')!;
+    const top = Math.max(...hull.map((v) => v.y));
+    // Low on the back: no part of it stands more than a barrel's width over the carapace; long: it reaches past the nose.
+    expect(Math.max(...lance.map((v) => v.y)) - top).toBeLessThan(0.15);
+    expect(Math.max(...lance.map((v) => v.x))).toBeGreaterThan(Math.max(...hull.filter((v) => Math.abs(v.z) < 0.1).map((v) => v.x)));
+    // The muzzle is at the tip, pointing forward along it.
+    const tip = t.muzzles[0]!.getWorldPosition(new THREE.Vector3());
+    expect(tip.x).toBeGreaterThan(Math.max(...lance.map((v) => v.x)) - 0.05);
+    expect(new THREE.Vector3().setFromMatrixColumn(t.muzzles[0]!.matrixWorld, 0).normalize().x).toBeCloseTo(1, 5);
+  });
+
+  it('SKM-4: the lance pitches a little toward its target, within its limits, and the beam leaves along it', () => {
+    const pitchAt = (aim: number): number => {
+      const t = rigTree(def);
+      poseRig(t, { ...STILL, turret: 1, aim });
+      t.root.updateMatrixWorld(true);
+      const d = new THREE.Vector3().setFromMatrixColumn(t.muzzles[0]!.matrixWorld, 0).normalize();
+      return Math.asin(d.y);
+    };
+    expect(pitchAt(0.08)).toBeCloseTo(0.08, 5);
+    expect(pitchAt(-0.02)).toBeCloseTo(-0.02, 5);
+    expect(pitchAt(1)).toBeCloseTo(LANCE_PITCH.hi, 5);
+    expect(pitchAt(-1)).toBeCloseTo(LANCE_PITCH.lo, 5);
+    expect(LANCE_PITCH.hi).toBeLessThanOrEqual(0.2);
+    expect(LANCE_PITCH.lo).toBeGreaterThanOrEqual(-0.05);
   });
 
   it('SKM-4: the classic model hovers too: its lowest voxel is well above the ground', () => {
