@@ -1204,7 +1204,7 @@ export class AI {
       if (step === null) continue;
       if (step.act === 'done') drop();
       else if (step.act === 'hop') out.push({ type: 'move', player: this.player, units: members.map((u) => u.id), x: Math.floor(step.to.x) * FP + FP / 2, y: Math.floor(step.to.y) * FP + FP / 2 });
-      else this.formUp(c, members, m, this.enemyFocus(c, m.x, m.y) ?? { x: 2 * m.x - r.to.x, y: 2 * m.y - r.to.y }, 'move', RETREAT_HOLD);
+      else this.formUp(c, members, m, this.enemyFocus(c, m.x, m.y) ?? { x: 2 * m.x - r.to.x, y: 2 * m.y - r.to.y }, 'attackmove', RETREAT_HOLD);
     }
     const away = new Set(this.retreats.flatMap((r) => [...r.members]));
     if (away.size > 0) c.army = c.army.filter((u) => !away.has(u.id));
@@ -2319,7 +2319,7 @@ export class AI {
           if (dist(m.x, m.y, spot.x, spot.y) > COVER_R) {
             this.stats.harassResponses.fallBack++;
             this.startRetreat(c, units, { at: spot, kind: 'defence' }, out, true);
-          } else if (!this.formUp(c, units, spot, t, 'move', 40)) out.push({ type: 'move', player: this.player, units: units.map((u) => u.id), x: Math.floor(spot.x) * FP + FP / 2, y: Math.floor(spot.y) * FP + FP / 2 });
+          } else if (!this.formUp(c, units, spot, t, 'attackmove', 40)) out.push({ type: 'move', player: this.player, units: units.map((u) => u.id), x: Math.floor(spot.x) * FP + FP / 2, y: Math.floor(spot.y) * FP + FP / 2 });
           return;
         }
       }
@@ -2331,7 +2331,7 @@ export class AI {
       if (isOverwhelmed(this.armyPower(units), defencePower(c.buildings, t.x, t.y, OVERWHELM_R), enemy)) {
         const to = this.fallbackFor(c, units, t, true) as { at: { x: number; y: number }; kind: FallbackKind };
         if (dist(m.x, m.y, to.at.x, to.at.y) > RETREAT_ARRIVED + 1) this.startRetreat(c, units, to, out);
-        else this.formUp(c, units, m, t, 'move', 40);
+        else this.formUp(c, units, m, t, 'attackmove', 40);
         return;
       }
     }
