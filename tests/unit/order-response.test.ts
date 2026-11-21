@@ -254,8 +254,9 @@ describe('route search (SIM-10, SIM-3, SIM-4)', () => {
         expect(walk(sx, sy, p)).toBe(exact[gy * W + gx]);
       }
     }
-    // A case the old search got wrong (it walked 680 where 672 will do).
-    expect(walk(24, 64, findPath(grid, 24, 64, 32, 0))).toBe(672);
+    // A long cross-map route through the lanes, with its exact cost pinned (the first pin, on the old Crossroads, was a case the old search got wrong: it walked 680 where 672 would do).
+    expect(walk(24, 10, findPath(grid, 24, 10, 70, 88))).toBe(964);
+    expect(distanceField(grid, 10 * W + 24)[88 * W + 70]).toBe(964);
   }, 30000);
 
   it('SIM-3 SIM-4 SIM-10: a group member’s route is at most twice its own tile’s distance from the group’s destination longer than shortest, on every map', () => {
