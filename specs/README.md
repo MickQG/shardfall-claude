@@ -36,5 +36,6 @@ Requirements live here, one file per area. Format: a bullet `- **ID**: text` (ID
 | `030-ai-against-steamroll.md` | The AI against a steamroll (one massed, mixed army around crushers): the harness steamroll opponent, the standing scout, production first, no feeding of losing waves, squads scatter from crushers, the pass mark, waves that vary their approach, hit squads at the economy; the tank-spam opponent, two standing scouts, Brutes that stop chasing kiting tanks | 30 |
 | `031-glare-skimmer.md` | The Glare Skimmer: a Vrax hover tank with a long-range lance against armour, the `lance` damage type, fire on the move apart from crushing, its model, beam, sounds and AI use | 31 |
 | `032-field-mender.md` | Field Mender: an Aegis repair vehicle that carries one infantry squad; repair, passenger, board and unload controls, panel, model, sound and AI use | 32 |
+| `033-ai-retreat-and-cohesion.md` | The AI judges strength fairly, retreats to friendly strength (fighting retreat when it cannot outrun), regroups, refuses harassers' bait, holds an army ball and a concave, keeps the ideal haulers per field and crawls to new fields; Crossroads redrawn around one massive centre field and three lanes; value-traded, kite and overwhelm harness scenarios | 33 |
 
 Umbrella spec: GitHub issue #1.
