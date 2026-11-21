@@ -147,10 +147,13 @@ describe('no feeding of losing waves (AI-23)', () => {
     const log = run(g, who, 16, [FAR]);
     expect(who.stats.retreats).toBe(1);
     expect(who.waveState).toBeNull();
-    // It falls back to its staging point (AI-8).
+    // It falls back to the nearest friendly strength (AI-8, AI-37): with nothing gathering at its staging point and no
+    // defences, its base.
     const back = log.find((c) => c.type === 'move' && left.every((id) => c.units.includes(id)));
     expect(back?.type).toBe('move');
-    if (back?.type === 'move') expect(Math.hypot(tile(back.x) - 20, tile(back.y) - 20)).toBeLessThanOrEqual(3);
+    const fb = who.retreatState.find((r) => left.every((id) => r.members.includes(id)));
+    expect(fb?.kind).toBe('base');
+    if (back?.type === 'move' && fb && !fb.fighting) expect(Math.hypot(tile(back.x) - fb.to.x, tile(back.y) - fb.to.y)).toBeLessThanOrEqual(1);
   }, LONG);
 
   it('AI-23 (b): reinforcements join a wave only while it is at least as strong as the enemy seen near it; otherwise they wait at the gathering point', () => {

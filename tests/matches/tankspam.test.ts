@@ -110,7 +110,7 @@ function report(p: Personality, f: Flavour, games: readonly TankspamGame[], rs: 
     rulesLine(),
     `AI-32 tankspam ${f} ${p}: Hard AI ${t.wins} won ${t.losses} lost ${t.undecided} undecided`,
     `length: median ${lengths.median.toFixed(1)} min, ${lengths.min.toFixed(1)} to ${lengths.max.toFixed(1)}`,
-    `AI: produced skimmers/at ${sum((s) => s.produced.at)}, tanks ${sum((s) => s.produced.tank)}, inf ${sum((s) => s.produced.inf)}, scouts ${sum((s) => s.produced.scout)}; scouts lost ${sum((s) => s.scoutsLost)}; hit squads ${sum((s) => s.hitSquads)}, tank-ball raids ${sum((s) => s.ballRaids)}; Brutes held back ${sum((s) => s.heldBack)}`,
+    `AI: produced skimmers/at ${sum((s) => s.produced.at)}, tanks ${sum((s) => s.produced.tank)}, inf ${sum((s) => s.produced.inf)}, scouts ${sum((s) => s.produced.scout)}; scouts lost ${sum((s) => s.scoutsLost)}; hit squads ${sum((s) => s.hitSquads)}, tank-ball raids ${sum((s) => s.ballRaids)}; retreats ${sum((s) => s.retreats)} (fighting ${sum((s) => s.fightingRetreats)}), regroups ${sum((s) => s.regroups)}, harassment chase/push/fall back ${sum((s) => s.harassResponses.chase)}/${sum((s) => s.harassResponses.push)}/${sum((s) => s.harassResponses.fallBack)}`,
     ...rs.map((r, i) => {
       const g = games[i]!;
       const opp = r.ai[1 - g.seat]!.steamroll;

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FAST_SPEED, HIT_MIN, HIT_SHARE, HIT_WAVE_MIN, RAIDER_SCOUTS, SPLIT_APART, SPLIT_MIN, SPLIT_RATIO, chooseUnitKind, type AI, type Personality } from '../../src/ai/ai';
 import { SteamrollAI } from '../../src/ai/steamroll';
 import { unitDef } from '../../src/data/defs';
-import { type Game } from '../../src/sim';
+import { type Command, type Game } from '../../src/sim';
 import { ai, base, BY_TARGET, kill, LONG, many, MAP, reinforce, run, runUntil, SEED, sentTo, sideOf, teleport, tile, type Foe } from './aiWaveBench';
 
 /**
@@ -32,6 +32,12 @@ function raid(sight: Foe[], rules?: Parameters<typeof ai>[1], army = [...many('h
   run(g, who, 24, [BY_TARGET, ...sight]);
   return { g, who };
 }
+
+/** A group fell back to friendly strength (AI-37): a plain move with these units to its fallback point, or the first hop of a fighting retreat. */
+const fellBack = (who: AI, log: readonly Command[], ids: readonly number[]): boolean => {
+  const r = who.retreatState.find((x) => ids.every((id) => x.members.includes(id)));
+  return r !== undefined && log.some((c) => c.type === 'move' && ids.every((id) => c.units.includes(id)) && (r.fighting || Math.hypot(tile(c.x) - r.to.x, tile(c.y) - r.to.y) <= 1));
+};
 
 describe('hit squads (AI-27)', () => {
   describe('(a) Raider splits a raid in two', () => {
@@ -115,11 +121,10 @@ describe('hit squads (AI-27)', () => {
     it('AI-27 (a): each squad is judged on its own: a beaten one goes back to the staging point while the other goes on; the split raid is one attack, beaten back once when both squads have ended', () => {
       const { g, who } = raid([hauler(A), hauler(B)]);
       const [s1, s2] = squads(who);
-      const stage = who.stagingPoint!;
-      // Three of the first squad's four are lost: it falls back; the second goes on.
+      // Three of the first squad's four are lost: it falls back to friendly strength (AI-37); the second goes on.
       kill(g, s1!.members.slice(0, 3));
       const log = run(g, who, 16, [BY_TARGET, hauler(A), hauler(B)]);
-      expect(log.some((c) => c.type === 'move' && c.units.includes(s1!.members[3]!) && Math.hypot(tile(c.x) - stage.tx - 0.5, tile(c.y) - stage.ty - 0.5) <= 1)).toBe(true);
+      expect(fellBack(who, log, [s1!.members[3]!])).toBe(true);
       expect(squads(who).map((s) => s.members)).toEqual([s2!.members]);
       expect(who.stats.retreats).toBe(1);
       expect(who.raidsBeatenBack).toBe(0);
@@ -276,18 +281,22 @@ describe('hit squads (AI-27)', () => {
       run(g, who, 600, [BY_TARGET, hauler(D), hauler(E)]);
       const alive = hit.members.filter((id) => g.state.units.some((u) => u.id === id));
       kill(g, alive.slice(0, alive.length - 2));
-      const stage = who.stagingPoint!;
       const log = run(g, who, 16, [BY_TARGET, hauler(D), hauler(E)]);
       expect(squads(who)).toEqual([]);
-      expect(log.some((c) => c.type === 'move' && alive.slice(-2).every((id) => c.units.includes(id)) && Math.hypot(tile(c.x) - stage.tx - 0.5, tile(c.y) - stage.ty - 0.5) <= 1)).toBe(true);
+      expect(fellBack(who, log, alive.slice(-2))).toBe(true);
       expect(who.stats.waves).toBe(1);
       // A fresh army sets out once the wave's cooldown is over, not a cooldown after the hit squad ended.
       reinforce(g, 'hum_tank', 6);
       runUntil(g, who, 2000, () => who.stats.waves > 1, [BY_TARGET, hauler(D), hauler(E)]);
       expect(who.stats.waves).toBe(2);
       expect(g.state.tick - beatenAt).toBeLessThan(1200 + 600);
-      // Its units rejoined the army: the two that came back set out with it.
-      expect(who.waveState!.members).toEqual(expect.arrayContaining(alive.slice(-2).filter((id) => g.state.units.some((u) => u.id === id))));
+      // Its units rejoin the army once back at friendly strength (AI-37): the two that came back set out with it, or, if
+      // the fresh army left while they were still retreating, are no longer retreating once there.
+      const back = alive.slice(-2).filter((id) => g.state.units.some((u) => u.id === id));
+      if (!back.every((id) => who.waveState!.members.includes(id))) {
+        runUntil(g, who, 1200, () => who.retreatState.length === 0, [BY_TARGET, hauler(D), hauler(E)]);
+        expect(who.retreatState).toEqual([]);
+      }
     }, LONG);
 
     it('AI-27 (b): a threat to the base calls the hit squad home like any other group (AI-7, AI-23 c)', () => {
@@ -298,7 +307,8 @@ describe('hit squads (AI-27)', () => {
       const raiders = [0, 1, 2].map((i) => ({ kind: 'ali_brute', tx: 14 + i, ty: 18 }));
       const log = run(one.g, one.who, 16, [BY_TARGET, hauler(D), hauler(E), ...raiders]);
       expect(one.who.groupState).toEqual([]);
-      expect(log.some((c) => c.type === 'attackmove' && hit.members.every((id) => c.units.includes(id)))).toBe(true);
+      // Every unit of it is sent at the threat: by one order, or by its slot in the concave (AI-42).
+      expect(hit.members.every((id) => log.some((c) => c.type === 'attackmove' && c.units.includes(id)))).toBe(true);
       // A big enemy force seen near the base, beyond the defence's reach: it comes home to the hold point (AI-23 c).
       const two = beside('balanced', 7, undefined, { ballRaid: false });
       const hit2 = two.who.groupState[1]!;

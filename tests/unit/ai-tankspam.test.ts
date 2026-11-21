@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI, BALL_AWAY, BALL_RAID_SHARE, CHASE_PATIENCE, CHASE_SEEN, DEFAULT_RULES, DIFFICULTIES, HOLD_BACK, MELEE_RANGE, SCREEN_PER, type AiRules } from '../../src/ai/ai';
+import { AI, BALL_AWAY, BALL_RAID_SHARE, DEFAULT_RULES, DIFFICULTIES, SCREEN_PER, type AiRules } from '../../src/ai/ai';
 import { KITE_GAP, KITE_ORDERS, KITE_STEP, kiteOrders, STEAMROLL_PRESETS, STEAMROLL_TUNING, TANKSPAM } from '../../src/ai/steamroll';
 import { UNIT_DEFS, unitDef } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
@@ -7,7 +7,7 @@ import { createGame, FP, snapshot, submit, tick, type Command, type Game, type U
 import { variant } from '../matches/variant';
 
 /**
- * The answer to tank spam (AI-30, AI-31, AI-33) and the tank-spam opponent's kiting (HAR-7). A Vrax base (player 0) on
+ * The answer to tank spam (AI-30 retired, AI-31, AI-33) and the tank-spam opponent's kiting (HAR-7). A Vrax base (player 0) on
  * seed 6; the enemy units it sees are put into its own snapshot, so each test controls exactly what it knows.
  */
 
@@ -53,55 +53,13 @@ const ids = (g: Game, kind: string): number[] => g.state.units.filter((u) => u.o
 const tanks = (n: number, x: number, y: number): Foe[] => [...Array(n)].map((_, i) => ({ kind: 'hum_tank', x: x + (i % 2), y: y + Math.floor(i / 2) }));
 
 describe('the answer to tank spam', () => {
-  it('AI-30: against mostly heavy armour, a Brute that has chased faster armour moving away for three seconds stops: it falls back to its Spine Spire', () => {
-    expect([MELEE_RANGE, CHASE_SEEN, HOLD_BACK, CHASE_PATIENCE]).toEqual([3, 10, 100, 60]);
-    expect(DEFAULT_RULES.noChase).toBe(true);
-    expect(unitDef('hum_tank').speed).toBeGreaterThan(unitDef('ali_brute').speed);
-    const g = vrax(['ali_brute', 'ali_brute']);
+  it('AI-30: retired in favour of AI-40: there is no Brute-only noChase rule; harassment discipline applies to every unit', () => {
+    // AI-30 held slow melee crushers back from faster armour moving away. AI-40 replaces it: harassers are judged for the
+    // whole army (harass.ts, ai-harass.test.ts), so the rule and its statistic are gone.
+    expect('noChase' in DEFAULT_RULES).toBe(false);
+    expect(DEFAULT_RULES.harass).toBe(true);
     const ai = vraxAi();
-    const brutes = ids(g, 'ali_brute');
-    // Tanks eight tiles off, moving away.
-    const b = g.state.units.find((u) => u.id === brutes[0])!;
-    const x0 = b.x / FP;
-    const y0 = b.y / FP;
-    // Moving away for CHASE_PATIENCE ticks (a decision every 8): not yet held before that.
-    const cmds: Command[] = [];
-    for (let k = 0; k <= CHASE_PATIENCE / 8 + 3; k++) {
-      const out = look(g, ai, tanks(4, x0 + 8 + 0.6 * k, y0));
-      if (k < CHASE_PATIENCE / 8) expect(ai.stats.heldBack).toBe(0);
-      cmds.push(...out);
-    }
-    const back = cmds.find((c) => c.type === 'move' && brutes.every((id) => c.units.includes(id)));
-    expect(back).toBeDefined();
-    // Beside the spire, on its side toward the headquarters.
-    expect(back && back.type === 'move' ? Math.hypot(back.x / FP - 24.5, back.y / FP - 24.5) : Infinity).toBeLessThan(3);
-    expect(ai.stats.heldBack).toBeGreaterThanOrEqual(2);
-  });
-
-  it('AI-30: it holds no Brute back from armour standing still or closing in, from armour in its reach, against an enemy that is not mostly armour, or with rules.noChase off', () => {
-    const run = (foes: (bx: number, by: number, k: number) => Foe[], rules?: Partial<AiRules>): number => {
-      const g = vrax(['ali_brute']);
-      const ai = vraxAi(rules);
-      const b = g.state.units.find((u) => u.owner === 0 && u.kind === 'ali_brute')!;
-      const x0 = b.x / FP;
-      const y0 = b.y / FP;
-      for (let k = 0; k < 14; k++) look(g, ai, foes(x0, y0, k));
-      return ai.stats.heldBack;
-    };
-    // Moving away: held (the case above), as a check of this bench.
-    expect(run((x, y, k) => tanks(2, x + 8 + 0.6 * k, y))).toBeGreaterThan(0);
-    expect(run((x, y) => tanks(2, x + 7, y))).toBe(0);
-    expect(run((x, y, k) => tanks(2, x + 20 - 1.2 * k, y))).toBe(0);
-    // Turning away for a moment and back: no hold.
-    expect(run((x, y, k) => tanks(2, x + 8 + (k % 4 < 2 ? 0.6 : 0), y))).toBe(0);
-    // A tank in its reach where it stands: it fights.
-    const g = vrax(['ali_brute']);
-    const ai = vraxAi();
-    const b = g.state.units.find((u) => u.owner === 0 && u.kind === 'ali_brute')!;
-    for (let k = 0; k < 12; k++) look(g, ai, [...tanks(2, 50 + k, 50), { kind: 'hum_tank', x: b.x / FP + 1.5, y: b.y / FP }]);
-    expect(ai.stats.heldBack).toBe(0);
-    expect(run((x, y, k) => [...tanks(1, x + 8 + 0.6 * k, y), ...[...Array(6)].map((_, i) => ({ kind: 'hum_rocketeer', x: x + 20, y: y + i }))])).toBe(0);
-    expect(run((x, y, k) => tanks(2, x + 8 + 0.6 * k, y), { noChase: false })).toBe(0);
+    expect('heldBack' in ai.stats).toBe(false);
   });
 
   it('AI-31: with rules.ballRaid, while the enemy armour is away from its base, fast units go for its economy as a hit squad, and a threat to the base does not call them home', () => {
