@@ -55,7 +55,7 @@ describe('main waves vary their approach (AI-26)', () => {
       expect(Math.hypot(p.tx + 0.5 - raw.x, p.ty + 0.5 - raw.y), side).toBeLessThanOrEqual(1);
       expect(sideOf(from, TARGET, p), side).toBe(s);
     }
-    // Measurement may change how far to the side it lies (rules.approachFlank). (11, not further out: 14 would lie on one of Crossroads' lane walls, MAP-10)
+    // Measurement may change how far to the side it lies (rules.approachFlank). (11 here: a point much further out can land on one of Crossroads' flank barriers, MAP-10)
     const wide = ai('balanced', { approachFlank: 11 }).flankPoint(from, TARGET, 'right')!;
     expect(Math.abs(Math.hypot(wide.tx + 0.5 - mid.x, wide.ty + 0.5 - mid.y) - 11)).toBeLessThanOrEqual(1);
     // Along the top edge, the left flank would lie off the map: not offered; the right one is.

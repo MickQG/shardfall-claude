@@ -109,12 +109,12 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
 
 - **MAP-10**: Crossroads is redrawn.
   - **Unchanged**: both bases, their starting buildings and their two home fields, so Highlands and the base-area tests are not affected.
-  - **Centre**: a massive centre field of at least 380,000 shards on flat open ground.
-  - **Flanks**: lakes and rock walls block the mid-map on both flanks.
-  - **Lanes**: three lanes cross between the bases. A middle lane at least 8 tiles wide runs through the centre field, and a side lane at least 4 tiles wide runs on each flank, for flanking and harassment.
-  - **Natural field**: each base has one beside the start of its side lane, holding about as much as a home field.
-  - **Elsewhere**: the scattered mid-map rocks are removed and the ground is flat. Some raised rock stays, as R3D-14 requires.
-  - **Rules**: MAP-2, MAP-3 and MAP-4 still hold, including equal road distance to every field and an AI that plays to a finish.
+  - **Home**: each base has its two home fields and no other field near it, so its next field is out in the middle.
+  - **Middle**: a forward field per base on the road between the bases, about halfway to the centre and about the size of a home field; and a massive centre field of at least 500,000 shards on flat open ground. Revised at the owner's request: the first drawing gave each base a natural field beside its side lane, so nobody had to go to the middle.
+  - **Lanes**: three lanes cross the mid-map between the bases. The middle lane is at least 24 tiles wide and runs past both forward fields through the centre field. A side lane at least 14 tiles wide runs far out on each flank, crossing the middle of the map at least 24 tiles off the road, for flanking and harassment. A side lane is at most 60% longer than the middle way.
+  - **Flanks**: on each flank a barrier, a hill at each end and a lake between, divides the middle lane from the side lane. A lake in each of the map's east and west corners closes the side lane's far edge. Water covers under 2,000 tiles, under half of the first drawing (4,024).
+  - **Elsewhere**: the ground is flat. The barrier hills are raised rock, as R3D-14 requires.
+  - **Rules**: MAP-2, MAP-3 and MAP-4 still hold, including equal road distance to every field and an AI that plays to a finish. The pond on each base's outer flank (MAP-3) moves a few tiles toward the base's corner to open the way into the side lane.
   - **Network version**: the network version goes to 12, since an older client would build the old Crossroads and fall out of step (NET-3).
 
 ## Harness

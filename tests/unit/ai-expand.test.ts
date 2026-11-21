@@ -8,10 +8,10 @@ import { createGame, EXPLORED, FP, snapshot, submit, tick, type BuildingSnap, ty
 
 /**
  * Economy and expansion (AI-43, AI-44) on the redrawn Crossroads (MAP-10). Player 0's headquarters stands at 10,10; its
- * home fields are centred at 22.5,12.5 and 12.5,24.5, its natural field at 37.5,13.5 and the centre field at 48,48.
+ * home fields are centred at 22.5,12.5 and 12.5,24.5, its forward field at 38.5,38.5 and the centre field at 48,48.
  */
 
-const NATURAL = { x: 37.5, y: 13.5 };
+const FORWARD = { x: 38.5, y: 38.5 };
 const CENTRE = { x: 48, y: 48 };
 const near = (f: ShardField, p: { x: number; y: number }): boolean => Math.hypot(f.cx - p.x, f.cy - p.y) < 1;
 
@@ -79,12 +79,12 @@ describe('AI-44: crawling toward a new field', () => {
 
   it('AI-44: the target is the nearest safe field; with none safe, the one nearest the map centre', () => {
     const f = (cx: number, cy: number): ShardField => ({ tiles: [cy * 96 + cx], cx, cy });
-    const natural = f(37, 13);
+    const forward = f(38, 38);
     const centre = f(48, 48);
     const enemy = f(58, 82);
-    const all = [natural, centre, enemy];
-    expect(crawlTarget(all, () => true, CENTRE)).toBe(natural);
-    expect(crawlTarget(all, (x) => x !== natural, CENTRE)).toBe(centre);
+    const all = [forward, centre, enemy];
+    expect(crawlTarget(all, () => true, CENTRE)).toBe(forward);
+    expect(crawlTarget(all, (x) => x !== forward, CENTRE)).toBe(centre);
     expect(crawlTarget(all, () => false, CENTRE)).toBe(centre);
     expect(crawlTarget([enemy], () => false, CENTRE)).toBe(enemy);
     expect(crawlTarget([], () => true, CENTRE)).toBeNull();
@@ -110,25 +110,25 @@ function drive(g: Game, ai: AI, ticks: number): void {
 }
 
 describe('AI-43, AI-44 in a skirmish on Crossroads', () => {
-  it('AI-43, AI-44: with no enemy pressure it builds a refinery at its natural field by minute 9 and staffs it', () => {
+  it('AI-43, AI-44: with no enemy pressure it builds a refinery at its forward field by minute 9 and staffs it', () => {
     const cfg = skirmishConfig(1);
     const g = createGame(cfg);
     const ai = new AI(0, 'human', DIFFICULTIES.hard, cfg.map, 1, 'balanced');
     drive(g, ai, 20 * 60 * 9);
-    const natural = shardFields(cfg.map).find((f) => near(f, NATURAL))!;
+    const forward = shardFields(cfg.map).find((f) => near(f, FORWARD))!;
     const refineries = g.state.buildings.filter((b) => b.owner === 0 && buildingDef(b.kind).refinery);
-    const serving = refineries.filter((b) => Math.hypot(b.tx + 1.5 - natural.cx, b.ty + 1 - natural.cy) <= 9);
+    const serving = refineries.filter((b) => Math.hypot(b.tx + 1.5 - forward.cx, b.ty + 1 - forward.cy) <= 9);
     expect(serving.length).toBeGreaterThan(0);
     const haulers = g.state.units.filter((u) => u.owner === 0 && unitDef(u.kind).capacity !== undefined);
-    // More than the old cap of eight, and some of them on the natural field.
+    // More than the old cap of eight, and some of them on the forward field.
     expect(haulers.length).toBeGreaterThan(8);
-    const onNatural = haulers.filter((u) => natural.tiles.some((t) => Math.hypot((t % 96) + 0.5 - u.x / FP, Math.floor(t / 96) + 0.5 - u.y / FP) <= 8));
-    expect(onNatural.length).toBeGreaterThanOrEqual(2);
+    const onForward = haulers.filter((u) => forward.tiles.some((t) => Math.hypot((t % 96) + 0.5 - u.x / FP, Math.floor(t / 96) + 0.5 - u.y / FP) <= 8));
+    expect(onForward.length).toBeGreaterThanOrEqual(2);
   }, 30000);
 
   it('AI-44: it does not crawl toward a field with an enemy army on it while a safe one exists', () => {
     const cfg = skirmishConfig(1);
-    // Its home field at 22.5,12.5 is all but mined out, so it wants to crawl at once; an enemy army sits on the natural
+    // Its home field at 22.5,12.5 is all but mined out, so it wants to crawl at once; an enemy army sits on the forward
     // field, watched by one of its rifle squads.
     const home = shardFields(cfg.map).find((f) => near(f, { x: 22.5, y: 12.5 }))!;
     const shards = [...(cfg.map.shards ?? [])];
@@ -147,8 +147,8 @@ describe('AI-43, AI-44 in a skirmish on Crossroads', () => {
         ],
         units: [
           ...(cfg.units ?? []),
-          { owner: 0, kind: 'hum_rifleman', tx: 32, ty: 13 },
-          ...(enemy ? [0, 1, 2, 3].map((i) => ({ owner: 1, kind: 'ali_brute', tx: 36 + i, ty: 14 })) : []),
+          { owner: 0, kind: 'hum_rifleman', tx: 33, ty: 33 },
+          ...(enemy ? [0, 1, 2, 3].map((i) => ({ owner: 1, kind: 'ali_brute', tx: 37 + i, ty: 38 })) : []),
         ],
       });
     const target = (enemy: boolean): { cx: number; cy: number } | null => {
@@ -159,9 +159,9 @@ describe('AI-43, AI-44 in a skirmish on Crossroads', () => {
       return ai.crawl;
     };
     const quiet = target(false)!;
-    expect(near({ tiles: [], cx: quiet.cx, cy: quiet.cy }, NATURAL)).toBe(true);
+    expect(near({ tiles: [], cx: quiet.cx, cy: quiet.cy }, FORWARD)).toBe(true);
     const held = target(true)!;
-    expect(near({ tiles: [], cx: held.cx, cy: held.cy }, NATURAL)).toBe(false);
+    expect(near({ tiles: [], cx: held.cx, cy: held.cy }, FORWARD)).toBe(false);
     expect(near({ tiles: [], cx: held.cx, cy: held.cy }, CENTRE)).toBe(true);
   });
 });

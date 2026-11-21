@@ -210,7 +210,8 @@ describe('the standing scout (AI-21)', () => {
       const cfg = config(faction);
       const scout = scoutOf(faction);
       const enemy = other(faction);
-      const spot = open(cfg, 50, 40);
+      // In the middle lane, clear of the flank barriers (MAP-10) for every threat placed east of it.
+      const spot = open(cfg, 44, 40);
       const threats: { what: string; spawn: { units?: UnitSpawn[]; buildings?: BuildingSpawn[] }; at: { tx: number; ty: number } }[] = [];
       const u = open(cfg, spot.tx + 8, spot.ty + 4);
       threats.push({ what: 'tank at 9', spawn: { units: [{ owner: 1, kind: enemy === 'human' ? 'hum_tank' : 'ali_brute', ...u }] }, at: u });

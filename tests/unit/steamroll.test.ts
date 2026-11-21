@@ -152,7 +152,7 @@ describe('the steamroll opponent', () => {
       const sr = ai.stats.steamroll!;
       expect(sr.peakRefineries, faction).toBe(3);
       expect(sr.peakHaulers, faction).toBeGreaterThan(8);
-      // Its third refinery is at Crossroads' natural field (MAP-10), the nearest after its two home fields and beyond where the AI places refineries (24 tiles from its HQ).
+      // Its third refinery is at Crossroads' forward field (MAP-10), the nearest after its two home fields and beyond where the AI places refineries (24 tiles from its HQ).
       const hq = g.state.buildings.find((b) => b.owner === 0 && buildingDef(b.kind).hq)!;
       const middle = shardFields(map).sort((p, q) => Math.hypot(p.cx - hq.tx, p.cy - hq.ty) - Math.hypot(q.cx - hq.tx, q.cy - hq.ty))[2]!;
       const refinery = g.state.buildings.find((b) => b.owner === 0 && buildingDef(b.kind).refinery && Math.hypot(b.tx + 1.5 - middle.cx, b.ty + 1 - middle.cy) <= 9);
