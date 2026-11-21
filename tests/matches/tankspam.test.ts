@@ -126,7 +126,7 @@ function report(p: Personality, f: Flavour, games: readonly TankspamGame[], rs: 
 describe('the Hard AI as Vrax against the tank-spam opponent', () => {
   for (const f of FLAVOURS) {
     for (const p of PERSONALITIES) {
-      it(`HAR-7: tankspam ${f} ${p}: the opponent plays Aegis, trains crushers and only the squads its Menders carry, kites, attacks, and replays the same game`, async () => {
+      it(`HAR-7, HAR-11: tankspam ${f} ${p}: the opponent plays Aegis, trains crushers and only the squads its Menders carry, kites, attacks, and replays the same game`, async () => {
         const started = Date.now();
         const { games, results: rs } = await series(p, f);
         report(p, f, games, rs, (Date.now() - started) / 60000);

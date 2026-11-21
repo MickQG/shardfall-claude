@@ -58,7 +58,7 @@ describe('AI personalities in full matches', () => {
     expect(share(rs)).toBeGreaterThan(share(b));
   }, LONG);
 
-  it('AI-15: Doomsday techs up first, fields more tanks, artillery and heroes but keeps rifles, builds its superweapon only when strong, and wins its share', async () => {
+  it('AI-15, HAR-11: Doomsday techs up first, fields more tanks, artillery and heroes but keeps rifles, builds its superweapon only when strong, and wins its share', async () => {
     const [d, b] = await Promise.all([series('doomsday'), series('balanced')]);
     // Value of what it trained: tanks, artillery and heroes against everything (unit costs of either faction, roughly).
     const value = (r: MatchResult): { tech: number; all: number } => {
