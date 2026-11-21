@@ -16,7 +16,7 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
 ## Judging strength
 
 - **AI-35**: The AI's strength estimate is fairer.
-  - A unit's power is its cost scaled by its health as a share of its **real** maximum health. That maximum includes veterancy, so a ranked unit counts for more than a fresh one.
+  - A unit's power is its cost scaled by its health as a share of its **real** maximum health. That maximum includes veterancy, so a ranked unit counts for more than a fresh one: each rank adds 10% to both its health and its damage (VET-2), so at full health it counts for its cost times (1 + 0.1 × rank) squared.
   - The enemy force near a group counts only enemy units seen in the last 10 game seconds (200 ticks), plus defence buildings at 1.5× their cost. The longer memory still feeds the attack decision and intel.
 - **AI-36**: An AI group is **overwhelmed** when the enemy power within 11 tiles of its centre is at least 1.5× its own power. Its own defence buildings within that radius count on its side.
   - The test applies to waves and strike groups (amending AI-8 and AI-23), to standing units answering an attack (amending AI-34), and to the army pulled home by base defence (amending AI-7).
@@ -40,7 +40,7 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
 ## Harassment
 
 - **AI-39**: An enemy group within 12 tiles of an AI army is a **harasser** when it is weaker than that army, and either of these holds:
-  - it out-ranges the units that make up most of that army's power;
+  - it out-ranges the units that make up most of that army's power (its longest gun reaches at least 1.5 tiles farther than theirs: one tile is no harassment);
   - it is faster than them and moved away from them while firing in the last 3 seconds (kiting).
 
   Anything else is a real fight, judged by AI-36.

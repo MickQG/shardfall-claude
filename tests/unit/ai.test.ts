@@ -145,9 +145,14 @@ describe('army behaviour', () => {
     const g = createGame({ ...cfg, units: [...(cfg.units ?? []), ...riflemen, ...raiders] });
     const army = g.state.units.filter((u) => u.owner === 0 && u.kind === 'hum_rifleman').map((u) => u.id);
     const cmds = ai.think(snapshot(g, 0));
-    const defend = cmds.find((c) => c.type === 'attackmove' && Math.hypot(c.x / FP - 19, c.y / FP - 13) < 6);
-    expect(defend, 'army sent at the raiders').toBeDefined();
-    expect(defend && defend.type === 'attackmove' && army.every((id) => defend.units.includes(id))).toBe(true);
+    // Every unit of the army is sent at the raiders: by one order, or (close by) to its slot in a concave facing them (AI-42).
+    const sent = cmds.filter((c) => c.type === 'attackmove' && Math.hypot(c.x / FP - 19, c.y / FP - 13) < 8);
+    expect(sent.length, 'army sent at the raiders').toBeGreaterThan(0);
+    const there = (id: number): boolean => {
+      const u = g.state.units.find((x) => x.id === id)!;
+      return Math.hypot(u.x / FP - 19, u.y / FP - 13) < 8;
+    };
+    expect(army.every((id) => there(id) || sent.some((c) => c.type === 'attackmove' && c.units.includes(id)))).toBe(true);
   });
 
   it('AI-8: attacks only when clearly stronger, and never with a handful of units', () => {
