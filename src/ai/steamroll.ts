@@ -1,5 +1,6 @@
 import { buildingDef, canCrush, UNIT_DEFS, unitDef, type Faction } from '../data/defs';
-import { BUILD_RANGE, EXPLORED, FP, type BuildingSnap, type Command, type MapDef, type Snapshot, type UnitSnap } from '../sim';
+import { EXPLORED, FP, type BuildingSnap, type Command, type MapDef, type Snapshot, type UnitSnap } from '../sim';
+import { inReach } from './expand';
 import { AI, DIFFICULTIES, homeFields, shardFields, type AiStats, type Difficulty, type Doctrine, type ShardField } from './ai';
 
 /**
@@ -143,12 +144,6 @@ export const rifleOf = (faction: Faction): string => find(faction, 'rifle', (u) 
 
 /** A faction's anti-armour infantry: its Rocketeer or Spitter (HAR-5). */
 export const antiArmourOf = (faction: Faction): string => find(faction, 'anti-armour', (u) => unitDef(u).role === 'antiarmor' && !unitDef(u).hero);
-
-/** Tiles between a building's footprint and a tile (0 when the tile is under it), as placement measures range. */
-const gap = (b: BuildingSnap, x: number, y: number): number => {
-  const d = buildingDef(b.kind);
-  return Math.max(b.tx - x, x - (b.tx + d.w - 1), 0, b.ty - y, y - (b.ty + d.h - 1));
-};
 
 /**
  * The harness's steamroll opponent, for measuring the AI only (HAR-5): not a personality, never drawn by Random and not
@@ -311,7 +306,7 @@ export class SteamrollAI extends AI {
       this.target = this.openingRifles >= 0 && served < this.tuning.fields ? (this.order.find((f) => !this.mines(f) && this.alive(f)) ?? null) : null;
       const W = snap.mapWidth;
       const t = this.target;
-      this.reachable = t !== null && t.tiles.some((i) => ((snap.fog?.[i] as number) & EXPLORED) !== 0 && own.some((b) => gap(b, i % W, Math.floor(i / W)) <= BUILD_RANGE - 1));
+      this.reachable = t !== null && inReach(t, own, snap.fog as Uint8Array, W);
     }
     const waves = this.stats.waves;
     let out = super.think(snap);
