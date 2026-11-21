@@ -357,19 +357,19 @@ export const APPROACH_SEEN = 20 * 120;
 export const APPROACH_DEFENDERS = 10;
 /** A group has passed its approach point once its centre is within this many tiles of it (AI-26). */
 export const APPROACH_PASSED = 4;
-/** A hit squad is at least this many units (AI-27). */
-export const HIT_MIN = 3;
+/** A strike group is at least this many units (AI-27). */
+export const STRIKE_MIN = 3;
 /** Raider splits a raid of at least this many units, between two targets at least SPLIT_APART tiles apart (AI-27 a). */
 export const SPLIT_MIN = 6;
 export const SPLIT_APART = 8;
 /** Scout units Raider may train beyond its standing scout, for its raids; they belong to the army (AI-27 a, amending AI-21). */
 export const RAIDER_SCOUTS = 3;
-/** A fast unit, which a hit squad beside a main wave is made of: a top speed of at least this (AI-27 b). */
+/** A fast unit, which a strike group beside a main wave is made of: a top speed of at least this (AI-27 b). */
 export const FAST_SPEED = 45;
-/** That hit squad takes at most this share of the army's value (AI-27 b). */
-export const HIT_SHARE = 0.1;
-/** The main wave it leaves behind keeps at least this many units: a hit squad never turns it into a lone wave (AI-27 b, HAR-2). */
-export const HIT_WAVE_MIN = 5;
+/** That strike group takes at most this share of the army's value (AI-27 b). */
+export const STRIKE_SHARE = 0.1;
+/** The main wave it leaves behind keeps at least this many units: a strike group never turns it into a lone wave (AI-27 b, HAR-2). */
+export const STRIKE_WAVE_MIN = 5;
 /**
  * Raider splits a raid only when each squad is worth at least SPLIT_RATIO times the armed enemy units it has seen within
  * APPROACH_SEEN ticks, so half a raid does not meet the whole enemy army (AI-27 a); 0 drops the condition.
@@ -378,10 +378,10 @@ export const SPLIT_RATIO = 1;
 
 /**
  * A group out on the map (AI-11, AI-27). 'wave': a main wave, or a raid that set out as one body; 'raid': one of the two
- * hit squads of Raider's split raid (AI-27 a); 'hit': the hit squad beside a main wave (AI-27 b), not part of it.
+ * strike groups of Raider's split raid (AI-27 a); 'strike': the strike group beside a main wave (AI-27 b), not part of it.
  */
 interface Wave {
-  kind: 'wave' | 'raid' | 'hit';
+  kind: 'wave' | 'raid' | 'strike';
   /** Its approach point (AI-26, AI-27) while it has one to go by, and whether its body has passed it. */
   via: { tx: number; ty: number } | null;
   passed: boolean;
@@ -402,7 +402,7 @@ interface Wave {
   /** Since when harassers have been near it, and its power then (AI-40). */
   harassSince?: number;
   harassStart?: number;
-  /** A hit squad sent while the enemy's armour was away (AI-31): no threat to the base calls it home. */
+  /** A strike group sent while the enemy's armour was away (AI-31): no threat to the base calls it home. */
   ball?: boolean;
 }
 
@@ -447,13 +447,13 @@ export const BEATEN_MEMORY = 2400;
 export const CONCAVE_STANDOFF = 4;
 /**
  * The enemy's armour is away from its base (AI-31) when the middle, by cost, of the heavy armed enemy units it has seen in
- * the last BALL_SEEN ticks is at least BALL_AWAY tiles from every enemy building it knows; then a hit squad of fast
+ * the last BALL_SEEN ticks is at least BALL_AWAY tiles from every enemy building it knows; then a strike group of fast
  * units, at most BALL_RAID_SHARE of its army's value, goes for the enemy economy.
  */
 export const BALL_SEEN = 20 * 30;
 export const BALL_AWAY = 20;
 export const BALL_RAID_SHARE = 0.25;
-/** No such hit squad sets out within BALL_RAID_GAP ticks of the last one (AI-31). */
+/** No such strike group sets out within BALL_RAID_GAP ticks of the last one (AI-31). */
 export const BALL_RAID_GAP = 20 * 30;
 /** Against armour, Vrax keeps one Brute for every SCREEN_PER Skimmers it has or has queued (AI-33). */
 export const SCREEN_PER = 3;
@@ -461,7 +461,7 @@ export const SCREEN_PER = 3;
 export const PICKET_ALONG = 0.3;
 export const PICKET_SIDE = 6;
 /**
- * Standing units answer an attack as a group (AI-34). Its units not out on a wave, raid or hit squad that lost health
+ * Standing units answer an attack as a group (AI-34). Its units not out on a wave, raid or strike group that lost health
  * since its last decision, with the armed enemy units it sees within RESPONSE_R tiles of them, call in its other such
  * units within RESPONSE_R tiles. A counter-attack goes no farther than RESPONSE_LEASH tiles from where the group stood and
  * lasts at most RESPONSE_MAX ticks, its order renewed every RESPONSE_STEP ticks; a retreat goes to a refuge at least
@@ -575,12 +575,12 @@ export interface AiStats {
    */
   approaches: Record<Approach, number>;
   approachLog: Approach[];
-  /** Raids that set out split in two (AI-27 a), and hit squads sent beside a main wave (AI-27 b). */
+  /** Raids that set out split in two (AI-27 a), and strike groups sent beside a main wave (AI-27 b). */
   splitRaids: number;
-  hitSquads: number;
+  strikeGroups: number;
   /** Raider's scout units that came out for its army, beyond its standing scout (AI-27 a). */
   raiderScouts: number;
-  /** Hit squads sent at the enemy economy while the enemy's armour was away from its base (AI-31). */
+  /** Strike groups sent at the enemy economy while the enemy's armour was away from its base (AI-31). */
   ballRaids: number;
   /** Beaten waves that regrouped at their fallback point (AI-38), and retreats made fighting (AI-37). */
   regroups: number;
@@ -626,14 +626,14 @@ export interface AiRules {
   doomGrowth: boolean;
   /** (AI-26) Main waves vary their approach; off: every wave goes straight. */
   approach: boolean;
-  /** (AI-27 a) Raider splits a raid into two hit squads, and may train scout units for its army; off: one body, one scout unit. */
+  /** (AI-27 a) Raider splits a raid into two strike groups, and may train scout units for its army; off: one body, one scout unit. */
   raidSplit: boolean;
-  /** (AI-27 b) Balanced and Doomsday send a hit squad of fast units beside a main wave; off: the fast units go with the wave. */
-  hitSquad: boolean;
+  /** (AI-27 b) Balanced and Doomsday send a strike group of fast units beside a main wave; off: the fast units go with the wave. */
+  strikeGroup: boolean;
   /** (AI-26, AI-27) How far (tiles) to the side of the straight line a flank's approach point lies. */
   approachFlank: number;
-  /** (AI-27 b) The largest share of the army's value a hit squad beside a main wave may take. */
-  hitShare: number;
+  /** (AI-27 b) The largest share of the army's value a strike group beside a main wave may take. */
+  strikeShare: number;
   /** (AI-27 a) Each squad of a split raid is worth at least this many times the enemy army seen lately; 0: no such condition. */
   splitRatio: number;
   /** (SKM-6) Trains Glare Skimmers against an enemy that is mostly heavy armour; off: never trains them. */
@@ -656,9 +656,9 @@ export interface AiRules {
   harass: boolean;
   /** (AI-41, AI-42) The army holds a ball and meets a near enemy in a concave; off: neither. */
   formation: boolean;
-  /** (AI-31) Against mostly heavy armour, a hit squad goes for the enemy economy whenever the enemy's armour is away from its base. */
+  /** (AI-31) Against mostly heavy armour, a strike group goes for the enemy economy whenever the enemy's armour is away from its base. */
   ballRaid: boolean;
-  /** (AI-31) The largest share of the army's value that hit squad may take. */
+  /** (AI-31) The largest share of the army's value that strike group may take. */
   ballRaidShare: number;
   /** (AI-33) Against mostly heavy armour, Vrax keeps a few Brutes beside its Skimmers to screen them. */
   screen: boolean;
@@ -683,9 +683,9 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   doomGrowth: true,
   approach: true,
   raidSplit: true,
-  hitSquad: true,
+  strikeGroup: true,
   approachFlank: APPROACH_FLANK,
-  hitShare: HIT_SHARE,
+  strikeShare: STRIKE_SHARE,
   splitRatio: SPLIT_RATIO,
   skimmers: true,
   skimAt: MOSTLY_HEAVY,
@@ -780,7 +780,7 @@ type Ctx = {
 export class AI {
   readonly kit: Kit;
   protected readonly doctrine: Doctrine = FULL_DOCTRINE;
-  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, hitSquads: 0, raiderScouts: 0, ballRaids: 0, counters: 0, withdrawals: 0, regroups: 0, fightingRetreats: 0, harassResponses: { chase: 0, push: 0, fallBack: 0 } };
+  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, strikeGroups: 0, raiderScouts: 0, ballRaids: 0, counters: 0, withdrawals: 0, regroups: 0, fightingRetreats: 0, harassResponses: { chase: 0, push: 0, fallBack: 0 } };
   /** Its Field Menders (AI-29): loading, following, fallback and unloading. */
   protected readonly menders: MenderPlan;
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
@@ -794,7 +794,7 @@ export class AI {
   private first: Command[] = [];
   private intel = new Map<number, Remembered>();
   private wave: Wave | null = null;
-  /** Hit squads out (AI-27): the two squads of a split raid, or the hit squad sent beside a main wave. */
+  /** Strike groups out (AI-27): the two squads of a split raid, or the strike group sent beside a main wave. */
   private squads: Wave[] = [];
   /** A split raid (AI-27 a): whether a squad of it was beaten back, or called home, before both ended. */
   private splitBeaten = false;
@@ -869,7 +869,7 @@ export class AI {
   private regroupAt: { tx: number; ty: number } | null = null;
   /** When it last pulled stragglers back into the ball at the gathering point (AI-41). */
   private lastBall = -1000;
-  /** When its last hit squad went for the economy while the enemy's armour was away (AI-31). */
+  /** When its last strike group went for the economy while the enemy's armour was away (AI-31). */
   private ballRaidAt = -100000;
   /** Its second standing scout (AI-21), watching the way between the bases: its unit or -1, when it stood, and where it flees to. */
   private picket = -1;
@@ -1156,6 +1156,12 @@ export class AI {
     return this.retreats.map((r) => ({ members: [...r.members], to: { ...r.to }, kind: r.kind, fighting: r.fight !== null }));
   }
 
+  /** Where its army regroups after a beaten wave, and the strength that beat it as it remembers it now (AI-38), or null: for tests only. */
+  regroupState(tick: number): { at: { tx: number; ty: number } | null; power: number } | null {
+    const b = this.beatenBy;
+    return b ? { at: this.regroupAt, power: b.power * Math.max(0, 1 - (tick - b.tick) / BEATEN_MEMORY) } : null;
+  }
+
   /**
    * Its standing units answer an attack as a group (AI-34). A unit of its army not out on a wave, raid or strike group (nor
    * retreating, nor busy with a Field Mender, AI-29) that has less health than at its last decision has been hit. With the
@@ -1295,9 +1301,9 @@ export class AI {
       const near = this.armedNear(c, g.x, g.y, HARASS_R);
       if (isHarasser(near, group, (id) => this.kites.kited(id, c.tick))) {
         const foe = this.middle(near);
-        const to = leashed(home, foe, HARASS_LEASH);
         const h = harassAnswer(group, near);
-        return h.mode === 'chase' ? { mode: 'chase', chasers: h.chasers, to, foe } : { mode: 'push', to, foe };
+        // A pushing body's concave bulges ahead of its front row's middle: that stands a little short of the leash.
+        return h.mode === 'chase' ? { mode: 'chase', chasers: h.chasers, to: leashed(home, foe, HARASS_LEASH), foe } : { mode: 'push', to: leashed(home, foe, HARASS_LEASH - 2), foe };
       }
     }
     return { mode: 'counter', to: leashed(home, a, RESPONSE_LEASH), foe: a };
@@ -1344,10 +1350,10 @@ export class AI {
   }
 
   /**
-   * Its groups out (AI-26, AI-27): the main wave or a raid as one body first, then its hit squads; each with its objective,
+   * Its groups out (AI-26, AI-27): the main wave or a raid as one body first, then its strike groups; each with its objective,
    * the approach point it goes by (null: straight), whether it has passed it, and its units: for tests and measurement only.
    */
-  get groupState(): { kind: 'wave' | 'raid' | 'hit'; tx: number; ty: number; via: { tx: number; ty: number } | null; passed: boolean; members: readonly number[]; trail: readonly number[]; peak: number }[] {
+  get groupState(): { kind: 'wave' | 'raid' | 'strike'; tx: number; ty: number; via: { tx: number; ty: number } | null; passed: boolean; members: readonly number[]; trail: readonly number[]; peak: number }[] {
     return [...(this.wave ? [this.wave] : []), ...this.squads].map((g) => ({ kind: g.kind, tx: g.tx, ty: g.ty, via: g.via, passed: g.passed, members: [...g.members], trail: [...g.trail], peak: g.peak }));
   }
 
@@ -2046,10 +2052,10 @@ export class AI {
       this.wave = null;
       this.waveCooldown = c.tick + 500;
     }
-    // Hit squads come home like any other group (AI-7, AI-27); a split raid called home starts the cooldown a wave would.
+    // Strike groups come home like any other group (AI-7, AI-27); a split raid called home starts the cooldown a wave would.
     if (this.squads.length > 0 && !pressing) {
       if (this.squads.some((s) => s.kind === 'raid')) this.waveCooldown = c.tick + 500;
-      // A hit squad out at the economy while the enemy's armour is away carries on (AI-31).
+      // A strike group out at the economy while the enemy's armour is away carries on (AI-31).
       this.squads = this.squads.filter((s) => s.ball);
     }
     const away = new Set(this.squads.flatMap((s) => (s.ball ? [...s.members] : [])));
@@ -2293,9 +2299,9 @@ export class AI {
     };
     const centre = (us: UnitSnap[]): { x: number; y: number } => ({ x: us.reduce((s, u) => s + u.x, 0) / us.length / FP, y: us.reduce((s, u) => s + u.y, 0) / us.length / FP });
 
-    // While the enemy's armour is away from its base, a hit squad goes for its economy (AI-31).
+    // While the enemy's armour is away from its base, a strike group goes for its economy (AI-31).
     if (ordinary && this.rules.ballRaid && this.plan !== 'raider' && this.squads.length === 0) this.ballRaid(c, army, order, centre);
-    // Units out in a hit squad (AI-27) are no part of the wave, its reinforcements or the gathering.
+    // Units out in a strike group (AI-27) are no part of the wave, its reinforcements or the gathering.
     const inSquad = new Set(this.squads.flatMap((s) => [...s.members]));
     const free = inSquad.size > 0 ? army.filter((u) => !inSquad.has(u.id)) : army;
     const drive: Drive = { out, order, centre, own, ordinary, danger: undefined };
@@ -2411,14 +2417,14 @@ export class AI {
       if (!t) return;
       target = t;
     }
-    // Raider splits its raid into two hit squads when it can (AI-27 a); otherwise the raid sets out as one body.
+    // Raider splits its raid into two strike groups when it can (AI-27 a); otherwise the raid sets out as one body.
     const split = raiding && ordinary && this.rules.raidSplit ? this.splitRaid(c, setOut) : null;
     if (split) target = split[0].target;
-    // Balanced and Doomsday send a hit squad of fast units beside the main wave (AI-27 b): not part of the wave.
+    // Balanced and Doomsday send a strike group of fast units beside the main wave (AI-27 b): not part of the wave.
     const main = !raiding && ordinary && !launch;
-    // It leaves a wave of at least HIT_WAVE_MIN units behind it, never a lone one, or the fast units go with the wave.
-    const hitOf = main && this.rules.hitSquad && (this.plan === 'balanced' || this.plan === 'doomsday') && this.squads.length === 0 ? this.hitSquadOf(c, setOut, target) : null;
-    const hit = hitOf && setOut.length - hitOf.units.length >= HIT_WAVE_MIN ? hitOf : null;
+    // It leaves a wave of at least STRIKE_WAVE_MIN units behind it, never a lone one, or the fast units go with the wave.
+    const hitOf = main && this.rules.strikeGroup && (this.plan === 'balanced' || this.plan === 'doomsday') && this.squads.length === 0 ? this.strikeGroupOf(c, setOut, target) : null;
+    const hit = hitOf && setOut.length - hitOf.units.length >= STRIKE_WAVE_MIN ? hitOf : null;
     const wave = hit ? setOut.filter((u) => !hit.units.includes(u)) : setOut;
     this.stats.waves++;
     this.lastWaveAt = c.tick;
@@ -2461,8 +2467,8 @@ export class AI {
     this.wave = group('wave', wave, target, via);
     if (hit) {
       const side = approach === 'left' ? 'right' : approach === 'right' ? 'left' : (this.sideOf(stage, target, hit.target) ?? 'left');
-      this.stats.hitSquads++;
-      this.squads = [group('hit', hit.units, hit.target, this.flankPoint(stage, hit.target, side))];
+      this.stats.strikeGroups++;
+      this.squads = [group('strike', hit.units, hit.target, this.flankPoint(stage, hit.target, side))];
     }
   }
 
@@ -2496,10 +2502,10 @@ export class AI {
   }
 
   /**
-   * A hit squad at the enemy economy while its armour is away (AI-31): while the armed enemies it has seen in the last two
+   * A strike group at the enemy economy while its armour is away (AI-31): while the armed enemies it has seen in the last two
    * minutes are mostly heavy armour by cost (SKM-6) and their armour is away from its base (ballAway), at most once in
    * BALL_RAID_GAP ticks, the fastest of its fast units not out in a wave (FAST_SPEED; no hero), as many as stay within
-   * rules.ballRaidShare of the army's value and at least HIT_MIN, set out at the economy target it may go for (AI-23 e)
+   * rules.ballRaidShare of the army's value and at least STRIKE_MIN, set out at the economy target it may go for (AI-23 e)
    * that is farthest from that armour, by the flank away from it. A threat to the base does not call it home.
    */
   private ballRaid(c: Ctx, army: readonly UnitSnap[], order: Drive['order'], centre: Drive['centre']): void {
@@ -2508,7 +2514,7 @@ export class AI {
     if (!ball) return;
     const w = this.wave;
     const fast = army.filter((u) => !w?.members.has(u.id) && unitDef(u.kind).speed >= FAST_SPEED && !unitDef(u.kind).hero).sort((a, b) => unitDef(b.kind).speed - unitDef(a.kind).speed || a.id - b.id);
-    if (fast.length < HIT_MIN) return;
+    if (fast.length < STRIKE_MIN) return;
     const cap = this.rules.ballRaidShare * this.armyPower(army);
     const units: UnitSnap[] = [];
     let v = 0;
@@ -2518,7 +2524,7 @@ export class AI {
       units.push(u);
       v += uv;
     }
-    if (units.length < HIT_MIN) return;
+    if (units.length < STRIKE_MIN) return;
     let best: { tx: number; ty: number } | null = null;
     let bd = -1;
     for (const t of this.economyTargets(c)) {
@@ -2532,7 +2538,7 @@ export class AI {
     const stage = this.staging as { tx: number; ty: number };
     const side = this.sideOf(stage, best, { tx: ball.x, ty: ball.y }) === 'left' ? 'right' : 'left';
     const via = this.flankPoint(stage, best, side);
-    this.squads = [{ kind: 'hit', ball: true, via, passed: false, trail: new Set(), tx: best.tx, ty: best.ty, peak: v, start: v, lastOrder: c.tick, members: new Set(units.map((u) => u.id)), size: units.length, held: false }];
+    this.squads = [{ kind: 'strike', ball: true, via, passed: false, trail: new Set(), tx: best.tx, ty: best.ty, peak: v, start: v, lastOrder: c.tick, members: new Set(units.map((u) => u.id)), size: units.length, held: false }];
     this.ballRaidAt = c.tick;
     this.stats.ballRaids++;
     const aim = via ?? best;
@@ -2579,15 +2585,15 @@ export class AI {
   }
 
   /**
-   * The hit squad beside a main wave (AI-27 b): the fastest of the fast units setting out (FAST_SPEED; never a hero, and
-   * the standing scout is no part of the army), as many as stay within rules.hitShare of the army's value, at least
-   * HIT_MIN; bound for the economy target it may go for that lies farthest from the wave's target. Null when there is
+   * The strike group beside a main wave (AI-27 b): the fastest of the fast units setting out (FAST_SPEED; never a hero, and
+   * the standing scout is no part of the army), as many as stay within rules.strikeShare of the army's value, at least
+   * STRIKE_MIN; bound for the economy target it may go for that lies farthest from the wave's target. Null when there is
    * no such squad or target: the fast units go with the wave.
    */
-  private hitSquadOf(c: Ctx, setOut: readonly UnitSnap[], target: { tx: number; ty: number }): { units: UnitSnap[]; target: { tx: number; ty: number } } | null {
+  private strikeGroupOf(c: Ctx, setOut: readonly UnitSnap[], target: { tx: number; ty: number }): { units: UnitSnap[]; target: { tx: number; ty: number } } | null {
     const fast = setOut.filter((u) => unitDef(u.kind).speed >= FAST_SPEED && !unitDef(u.kind).hero).sort((a, b) => unitDef(b.kind).speed - unitDef(a.kind).speed || a.id - b.id);
-    if (fast.length < HIT_MIN) return null;
-    const cap = this.rules.hitShare * this.armyPower(c.army);
+    if (fast.length < STRIKE_MIN) return null;
+    const cap = this.rules.strikeShare * this.armyPower(c.army);
     const units: UnitSnap[] = [];
     let v = 0;
     for (const u of fast) {
@@ -2596,7 +2602,7 @@ export class AI {
       units.push(u);
       v += uv;
     }
-    if (units.length < HIT_MIN) return null;
+    if (units.length < STRIKE_MIN) return null;
     let best: { tx: number; ty: number } | null = null;
     let bd = -1;
     for (const t of this.economyTargets(c)) {
@@ -2694,7 +2700,7 @@ export class AI {
     const known = c.enemyBuildings.some((b) => dist(b.tx, b.ty, g.tx, g.ty) < 4);
     if (near && !known) {
       const nb = this.nearestEnemyBuilding(c, Math.floor(cx), Math.floor(cy));
-      // A raid, or a hit squad, moves on to the next part of the economy it knows of (AI-14, AI-27).
+      // A raid, or a strike group, moves on to the next part of the economy it knows of (AI-14, AI-27).
       const t = (this.plan === 'raider' || g.kind !== 'wave' ? this.economyTarget(c) : null) ?? (nb ? { tx: nb.tx, ty: nb.ty } : this.searchPoint(c));
       g.tx = t.tx;
       g.ty = t.ty;
@@ -2756,7 +2762,7 @@ export class AI {
     const m = this.middle(members);
     const to = this.fallbackFor(c, members, this.enemyFocus(c, m.x, m.y, OVERWHELM_R), true) as { at: { x: number; y: number }; kind: FallbackKind };
     this.startRetreat(c, members, to, h.out);
-    if (this.rules.regroup && g.kind !== 'hit') {
+    if (this.rules.regroup && g.kind !== 'strike') {
       this.beatenBy = { power: beatenBy, tick: c.tick };
       this.regroupAt = { tx: Math.floor(to.at.x), ty: Math.floor(to.at.y) };
       this.stats.regroups++;
@@ -2764,7 +2770,7 @@ export class AI {
   }
 
   /**
-   * Its hit squads' turns (AI-27): each judged on its own. One that ends rejoins the army; a split raid ends when both its
+   * Its strike groups' turns (AI-27): each judged on its own. One that ends rejoins the army; a split raid ends when both its
    * squads have, counting as beaten back once if either was (AI-16). `pool`, when given, reinforces the split raid's
    * squad with fewer units left.
    */
@@ -2781,7 +2787,7 @@ export class AI {
       if (end === 'beaten') this.splitBeaten = true;
       if (end === 'recalled') this.splitRecalled = true;
     }
-    // A hit squad beside a main wave starts no wave cooldown (AI-27 b); a split raid's end is the raid's end.
+    // A strike group beside a main wave starts no wave cooldown (AI-27 b); a split raid's end is the raid's end.
     if (raid && !this.squads.some((s) => s.kind === 'raid')) {
       this.lastWaveEnd = c.tick;
       if (this.splitBeaten && this.doctrine.retreats && this.rules.regroup) {

@@ -166,14 +166,14 @@ function gameLine(g: SteamrollGame, r: MatchResult): string {
   ].join('; ');
 }
 
-/** The Hard AI's main waves by approach and the order chosen in each game (AI-26), its split raids and hit squads (AI-27). */
+/** The Hard AI's main waves by approach and the order chosen in each game (AI-26), its split raids and strike groups (AI-27). */
 export function groupsLine(games: readonly SteamrollGame[], rs: readonly MatchResult[]): string {
   const stats = rs.map((r, i) => r.ai[games[i]!.seat]!);
   const by = APPROACHES.map((a) => `${a} ${stats.reduce((n, s) => n + s.approaches[a], 0)}`).join(', ');
   const repeats = stats.reduce((n, s) => n + s.approachLog.filter((a, i) => i > 0 && a === s.approachLog[i - 1]).length, 0);
   const orders = stats.map((s) => s.approachLog.map((a) => a[0]).join('') || '-').join(' ');
   const sum = (f: (s: (typeof stats)[number]) => number): number => stats.reduce((n, s) => n + f(s), 0);
-  return `AI-26/AI-27: main waves by approach ${by} (same twice running ${repeats}); orders by game ${orders}; split raids ${sum((s) => s.splitRaids)}, hit squads ${sum((s) => s.hitSquads)}, Raider's army scout units ${sum((s) => s.raiderScouts)}`;
+  return `AI-26/AI-27: main waves by approach ${by} (same twice running ${repeats}); orders by game ${orders}; split raids ${sum((s) => s.splitRaids)}, strike groups ${sum((s) => s.strikeGroups)}, Raider's army scout units ${sum((s) => s.raiderScouts)}`;
 }
 
 /** Prints the tally, every game's facts and their medians, and adds them to the CI job summary when there is one. */

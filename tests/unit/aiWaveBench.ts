@@ -5,7 +5,7 @@ import { createGame, FP, snapshot, submit, tick, type BuildingSnap, type Command
 import { addUnit } from '../../src/sim/state';
 
 /**
- * A bench for the AI's waves and hit squads (AI-26, AI-27), as in ai-hold.test.ts: a small human base on seed 6
+ * A bench for the AI's waves and strike groups (AI-26, AI-27), as in ai-hold.test.ts: a small human base on seed 6
  * (headquarters at 10,10, the enemy's at 83,83 on a 96 by 96 map) with no credits, so it builds and trains nothing, and
  * its army standing at its staging point (about 19 to 21 tiles out along the diagonal). What it has seen of the enemy is
  * added to its own snapshot, so each test controls exactly what it knows.

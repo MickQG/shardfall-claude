@@ -62,7 +62,7 @@ describe('the answer to tank spam', () => {
     expect('heldBack' in ai.stats).toBe(false);
   });
 
-  it('AI-31: with rules.ballRaid, while the enemy armour is away from its base, fast units go for its economy as a hit squad, and a threat to the base does not call them home', () => {
+  it('AI-31: with rules.ballRaid, while the enemy armour is away from its base, fast units go for its economy as a strike group, and a threat to the base does not call them home', () => {
     expect([BALL_AWAY, BALL_RAID_SHARE]).toEqual([20, 0.25]);
     // Off by default: measured, it did not help (see the spec); rules.ballRaid switches it on.
     expect(DEFAULT_RULES.ballRaid).toBe(false);
@@ -71,7 +71,7 @@ describe('the answer to tank spam', () => {
     const g = vrax(army);
     const ai = vraxAi({ ballRaid: true });
     look(g, ai, tanks(4, 40, 40));
-    const hit = ai.groupState.filter((s) => s.kind === 'hit');
+    const hit = ai.groupState.filter((s) => s.kind === 'strike');
     expect(hit).toHaveLength(1);
     expect(ai.stats.ballRaids).toBe(1);
     const skitters = ids(g, 'ali_skitter');
@@ -82,10 +82,10 @@ describe('the answer to tank spam', () => {
     expect(hit[0]!.members.length * value('ali_skitter')).toBeLessThanOrEqual(BALL_RAID_SHARE * army.reduce((s, k) => s + value(k), 0) + 1);
     // The armour at its base: the squad carries on.
     look(g, ai, tanks(4, 16, 16));
-    expect(ai.groupState.filter((s) => s.kind === 'hit')).toHaveLength(1);
+    expect(ai.groupState.filter((s) => s.kind === 'strike')).toHaveLength(1);
   });
 
-  it('AI-31: no such hit squad while the armour is at home, when the enemy is not mostly armour, or with rules.ballRaid off', () => {
+  it('AI-31: no such strike group while the armour is at home, when the enemy is not mostly armour, or with rules.ballRaid off', () => {
     const army = [...Array(8)].map(() => 'ali_skitter').concat(['ali_brute', 'ali_brute']);
     const sent = (foes: Foe[], rules?: Partial<AiRules>): number => {
       const g = vrax(army);
