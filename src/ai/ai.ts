@@ -1750,6 +1750,11 @@ export class AI {
     if (grow) return powered(grow);
     // A refinery at the field it crawls to once that is in reach (AI-44); with the rule off, a third refinery (AI-18).
     if (this.rules.expand ? this.expansion(c).reachable : refineries < 3 && haulers >= 4 && c.credits > 1100) return powered(k.refinery);
+    // EXPERIMENT: crawling, a power plant toward the field as a regular step once 600 is banked.
+    if (this.rules.expand && this.plan !== 'raider' && c.credits > 600) {
+      const e = this.expansion(c);
+      if (e.target && !e.reachable) return k.power;
+    }
     // Turrets wait for six production buildings or an attack on the base (AI-22); after an attack they come ahead of the lab.
     const turrets = production >= TURRETS_FROM || this.attacks > 0;
     if (this.attacks > 0 && n(k.turret) < turretsWanted) return k.turret;
