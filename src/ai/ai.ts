@@ -1,5 +1,6 @@
 import { BUILDING_DEFS, buildingDef, canCrush, choosePad, UNIT_DEFS, unitDef, type Faction, type UnitDef } from '../data/defs';
 import { BUILD_RANGE, canPlace, EXPLORED, FP, QUEUE_MAX, Rng, VISIBLE, type BuildingSnap, type Command, type MapDef, type Snapshot, type UnitSnap } from '../sim';
+import { CRAWL_FILLER_BANK, CRAWL_SAFE, CRAWL_SAFE_R, crawlTarget, HAULERS_IN_PRODUCTION, inReach, minedFields, RAMP_PER_REFINERY, SERVE_R, wantsCrawl, type MinedField } from './expand';
 import { kitOf, type Kit } from './kit';
 import { isTank, MENDER_FALLBACK, MenderPlan, menderOf, mendersWanted } from './menders';
 
@@ -632,6 +633,8 @@ export interface AiRules {
   picketAlong: number;
   /** (AI-34) Its standing units answer an attack as a group; off: each hit unit retaliates alone (the simulation's own rule). */
   groupResponse: boolean;
+  /** (AI-43, AI-44) Ideal hauler counts per mined field and the building crawl to new fields; off: three haulers a refinery, at most eight, and a third refinery at most (AI-18). */
+  expand: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -664,6 +667,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   twoScouts: false,
   picketAlong: PICKET_ALONG,
   groupResponse: true,
+  expand: true,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -805,6 +809,12 @@ export class AI {
   private fields: ShardField[] = [];
   private haulerField = new Map<number, number>();
   private lastRebalance = -1000;
+  /** Each field's shards at the start (AI-44), by its index in `fields`. */
+  private fieldStart: number[] = [];
+  /** The economy plan worked out this decision (AI-43, AI-44), the field it crawls to (an index in `fields`, or -1), and whether its second factory has stood. */
+  private expandPlan: { tick: number; mined: MinedField[]; want: number; target: ShardField | null; reachable: boolean } | null = null;
+  private crawlTo = -1;
+  private rampDone = false;
   /** The exact centre of our HQ, in tiles; on a point-symmetric map the two players' centres mirror exactly. */
   private centre: { x: number; y: number } = { x: 0, y: 0 };
   private attacks = 0;
@@ -1302,6 +1312,7 @@ export class AI {
       .filter((f) => !homes.some((h) => h.tiles[0] === f.tiles[0]))
       .sort((a, b) => dist(a.cx, a.cy, hx, hy) - dist(b.cx, b.cy, hx, hy) || a.tiles[0]! - b.tiles[0]!);
     this.fields = [...homes, ...rest];
+    this.fieldStart = this.fields.map((f) => f.tiles.reduce((s, t) => s + (this.map.shards?.[t] ?? 0), 0));
     // Symmetric map: the opponent starts opposite us. A human can read this off the map too.
     const ex = W - hx;
     const ey = H - hy;
@@ -1415,7 +1426,8 @@ export class AI {
     // Another barracks or factory whenever every one is busy and the bank is full, whichever it has fewer of (AI-22).
     const grow = this.growth(c);
     if (grow) return powered(grow);
-    if (refineries < 3 && haulers >= 4 && c.credits > 1100) return powered(k.refinery);
+    // A refinery at the field it crawls to once that is in reach (AI-44); with the rule off, a third refinery (AI-18).
+    if (this.rules.expand ? this.expansion(c).reachable : refineries < 3 && haulers >= 4 && c.credits > 1100) return powered(k.refinery);
     // Turrets wait for six production buildings or an attack on the base (AI-22); after an attack they come ahead of the lab.
     const turrets = production >= TURRETS_FROM || this.attacks > 0;
     if (this.attacks > 0 && n(k.turret) < turretsWanted) return k.turret;
@@ -1434,6 +1446,11 @@ export class AI {
     if (c.credits > 4000 && !factoriesOnly && (n(k.barracks) < GROWTH_MAX || n(k.factory) < GROWTH_MAX)) return powered(n(k.factory) <= n(k.barracks) && n(k.factory) < GROWTH_MAX ? k.factory : k.barracks);
     if (teching && turrets && n(k.turret) < 6 && c.credits > 1800) return k.turret;
     if (n(k.power) < 8 && margin < 80 && c.credits > 1200) return k.power;
+    // Crawling with nothing else due: a power plant toward the field once the bank is full (AI-44); none in Raider's opening (AI-14).
+    if (this.rules.expand && this.plan !== 'raider' && c.credits > CRAWL_FILLER_BANK) {
+      const e = this.expansion(c);
+      if (e.target && !e.reachable) return k.power;
+    }
     return null;
   }
 
@@ -1519,7 +1536,9 @@ export class AI {
     // Every third tile counted from the player's own corner of the map, so both players sample mirror-image tiles.
     const n = snap.shards.length;
     // A new refinery goes beside the first field without one, home fields first (AI-18).
-    const unserved = d.refinery ? this.fields.find((f) => f.tiles.some((t) => (snap.shards[t] as number) > 0) && !c.buildings.some((b) => buildingDef(b.kind).refinery && dist(b.tx + 1.5, b.ty + 1, f.cx, f.cy) <= 9)) : undefined;
+    // A refinery for a crawl goes beside the field it crawls to (AI-44).
+    const crawl = d.refinery && this.rules.expand && !this.doctrine.place ? this.expansion(c) : null;
+    const unserved = crawl?.target && crawl.reachable ? crawl.target : d.refinery ? this.fields.find((f) => f.tiles.some((t) => (snap.shards[t] as number) > 0) && !c.buildings.some((b) => buildingDef(b.kind).refinery && dist(b.tx + 1.5, b.ty + 1, f.cx, f.cy) <= 9)) : undefined;
     if (unserved) for (const t of unserved.tiles) if ((snap.shards[t] as number) > 0) fields.push([(t % W) + 0.5, Math.floor(t / W) + 0.5]);
     if (d.refinery && fields.length === 0)
       for (let k = 0; k < n; k += 3) {
@@ -1532,7 +1551,7 @@ export class AI {
       return m;
     };
     // The steamroll opponent may build far from its HQ, and crawl toward a field (HAR-5); the AI's own rules otherwise.
-    const aim = this.doctrine.place?.(kind);
+    const aim = this.doctrine.place ? this.doctrine.place(kind) : this.crawlPlace(c, kind);
     const reach = aim ? aim.reach : d.refinery ? 24 : d.weapon ? 13 : 16;
     let best: { tx: number; ty: number } | null = null;
     let bs = Infinity;
@@ -1639,7 +1658,9 @@ export class AI {
     const rifles = this.plan === 'doomsday' ? infantryNeeded(this.intelSummary(c, RIFLE_INTEL)) : 0;
     // Doomsday saving for its superweapon does not spend on the floor (AI-15, AI-19).
     const floor = doom && next === this.kit.superweapon ? 0 : artilleryNeeded(intel);
-    const haulerWanted = this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0);
+    // At most HAULERS_IN_PRODUCTION haulers in production at once (AI-43); the steamroll opponent keeps its own (HAR-5).
+    const haulerCap = this.rules.expand && !this.doctrine.haulers ? HAULERS_IN_PRODUCTION - (queued.get(this.kit.hauler) ?? 0) : Infinity;
+    const haulerWanted = Math.min(haulerCap, this.haulerTarget(c) - c.haulers.length - (queued.get(this.kit.hauler) ?? 0));
     // Haulers queued before this turn; those ordered during it count against haulerWanted (the steamroll's pick, HAR-5).
     const queuedBefore = queued.get(this.kit.hauler) ?? 0;
     // The standing scout (AI-21): one from the building that trains it, ahead of its other combat units, when none lives
@@ -1757,9 +1778,74 @@ export class AI {
 
   private haulerTarget(c: Ctx): number {
     const refs = c.buildings.filter((b) => buildingDef(b.kind).refinery).length;
-    // Three haulers a refinery fill both home fields (AI-18).
+    // Three haulers a refinery, at most eight (AI-18): the steamroll opponent's fallback (HAR-5), and the AI's with rules.expand off.
     const standard = refs === 0 ? 0 : Math.min(8, refs * 3);
-    return this.doctrine.haulers ? this.doctrine.haulers(standard) : standard;
+    if (this.doctrine.haulers) return this.doctrine.haulers(standard);
+    // The ideal count on each field it mines (AI-43).
+    return this.rules.expand ? this.expansion(c).want : standard;
+  }
+
+  /**
+   * The economy plan for this decision, worked out once (AI-43, AI-44): the fields it mines and the haulers each wants,
+   * their sum (three a refinery at most until its second factory stands, so the opening is unchanged), and the field it
+   * crawls to with whether a refinery can go there now.
+   */
+  private expansion(c: Ctx): { tick: number; mined: MinedField[]; want: number; target: ShardField | null; reachable: boolean } {
+    if (this.expandPlan?.tick === c.tick) return this.expandPlan;
+    const { snap } = c;
+    const W = snap.mapWidth;
+    const kind = this.kit.hauler;
+    const mined = minedFields(this.fields, this.fieldStart, c.buildings, snap.shards, W, kind, unitDef(kind).cost);
+    const refineries = c.buildings.filter((b) => buildingDef(b.kind).refinery).length;
+    const factories = c.buildings.filter((b) => b.kind === this.kit.factory).length;
+    if (factories >= 2) this.rampDone = true;
+    const ideal = mined.reduce((s, m) => s + m.want, 0);
+    const want = this.rampDone ? ideal : Math.min(ideal, RAMP_PER_REFINERY * refineries);
+    // Haulers at work on each field, by its index.
+    const alive = new Set(c.haulers.map((h) => h.id));
+    const load = new Map<number, number>();
+    for (const [id, fi] of this.haulerField) if (alive.has(id)) load.set(fi, (load.get(fi) ?? 0) + 1);
+    // Fields it may crawl to: not its own, shards left as far as it knows, and no enemy refinery seen beside them.
+    const fog = snap.fog as Uint8Array;
+    const own = new Set(mined.map((m) => m.index));
+    const known = (t: number): boolean => ((fog[t] as number) & EXPLORED ? (snap.shards[t] as number) > 0 : (this.map.shards?.[t] ?? 0) > 0);
+    const enemyRefinery = (f: ShardField): boolean =>
+      c.enemyBuildings.some((b) => {
+        const d = buildingDef(b.kind);
+        return !!d.refinery && Math.hypot(b.tx + d.w / 2 - f.cx, b.ty + d.h / 2 - f.cy) <= SERVE_R;
+      });
+    const candidates = this.fields.filter((f, i) => !own.has(i) && f.tiles.some(known) && !enemyRefinery(f));
+    const safe = (f: ShardField): boolean => this.enemyPowerNear(c, Math.floor(f.cx), Math.floor(f.cy), CRAWL_SAFE_R) <= CRAWL_SAFE;
+    // It crawls once its opening is over (a factory and two refineries stand) and its fields are staffed or one runs low
+    // (AI-44); a crawl under way goes on to its field while that is still a candidate and safe.
+    const prev = this.crawlTo >= 0 ? this.fields[this.crawlTo] : undefined;
+    const going = prev !== undefined && candidates.includes(prev) && safe(prev);
+    const ready = this.rules.expand && factories > 0 && refineries >= 2 && (going || wantsCrawl(mined, (m) => (load.get(m.index) ?? 0) >= m.want));
+    const target = !ready ? null : going ? prev : crawlTarget(candidates, safe, { x: W / 2, y: snap.mapHeight / 2 });
+    this.crawlTo = target ? this.fields.indexOf(target) : -1;
+    const reachable = target !== null && inReach(target, c.buildings, fog, W, known);
+    this.expandPlan = { tick: c.tick, mined, want, target, reachable };
+    return this.expandPlan;
+  }
+
+  /** The field it crawls to and whether a refinery can go there now (AI-44); null while it is not crawling. */
+  get crawl(): { cx: number; cy: number; reachable: boolean } | null {
+    const e = this.expandPlan;
+    return e?.target ? { cx: e.target.cx, cy: e.target.cy, reachable: e.reachable } : null;
+  }
+
+  /**
+   * Where a building goes while it crawls (AI-44): a refinery anywhere once the field is in reach; power and production
+   * toward the field, the base-size cap lifted, until then. Anything else keeps the compact base.
+   */
+  private crawlPlace(c: Ctx, kind: string): { reach: number; toward?: { x: number; y: number } } | undefined {
+    if (!this.rules.expand) return undefined;
+    const e = this.expansion(c);
+    if (!e.target) return undefined;
+    if (buildingDef(kind).refinery) return e.reachable ? { reach: Infinity } : undefined;
+    const k = this.kit;
+    if (!e.reachable && (kind === k.power || kind === k.barracks || kind === k.factory)) return { reach: Infinity, toward: { x: e.target.cx, y: e.target.cy } };
+    return undefined;
   }
 
   /** Whether a field still has shards and one of our refineries beside it (AI-18). */
@@ -1807,6 +1893,11 @@ export class AI {
     const alive = new Set(c.haulers.map((h) => h.id));
     for (const id of [...this.haulerField.keys()]) if (!alive.has(id)) this.haulerField.delete(id);
     const load = (fi: number): number => [...this.haulerField.values()].filter((v) => v === fi).length;
+    // Haulers each field wants (AI-43): a field is judged by its haulers less those, so each moves toward its ideal; all
+    // alike (0) with rules.expand off, the even split of AI-18.
+    const wants = new Map<number, number>();
+    if (this.rules.expand && !this.doctrine.haulers) for (const m of this.expansion(c).mined) wants.set(m.index, m.want);
+    const surplus = (fi: number): number => load(fi) - (wants.get(fi) ?? 0);
     const send = (h: UnitSnap, fi: number): boolean => {
       const t = this.fieldTile(c, fi, tileOf(h.x), tileOf(h.y));
       if (!t) return false;
@@ -1814,9 +1905,9 @@ export class AI {
       out.push({ type: 'harvest', player: this.player, units: [h.id], x: t.x * FP + FP / 2, y: t.y * FP + FP / 2 });
       return true;
     };
-    // The field with the fewest haulers for its refinery, the nearer on a tie (AI-18).
+    // The field furthest below the haulers it wants (AI-43; the fewest haulers with rules.expand off, AI-18), the nearer on a tie.
     const leastWorked = (h: UnitSnap): number | undefined =>
-      [...open].sort((a, b) => load(a) - load(b) || dist(this.fields[a]!.cx, this.fields[a]!.cy, tileOf(h.x), tileOf(h.y)) - dist(this.fields[b]!.cx, this.fields[b]!.cy, tileOf(h.x), tileOf(h.y)) || a - b)[0];
+      [...open].sort((a, b) => surplus(a) - surplus(b) || dist(this.fields[a]!.cx, this.fields[a]!.cy, tileOf(h.x), tileOf(h.y)) - dist(this.fields[b]!.cx, this.fields[b]!.cy, tileOf(h.x), tileOf(h.y)) || a - b)[0];
     for (const h of c.haulers) {
       // A hauler already at work on a field we know counts for that field.
       if (!this.haulerField.has(h.id) && h.dest === null && h.load > 0) {
@@ -1836,17 +1927,17 @@ export class AI {
         this.idle.set(h.id, { x: h.x, y: h.y, n: 0 });
       }
     }
-    // New haulers, and an uneven split: move one hauler from the busiest field to the least worked (AI-18).
+    // New haulers, and an uneven split: move one hauler from the field most over its want to the one most under it (AI-18, AI-43).
     for (const h of c.haulers) {
       if (this.haulerField.has(h.id)) continue;
       const fi = leastWorked(h);
       if (fi !== undefined) send(h, fi);
     }
     if (open.length >= 2 && c.tick - this.lastRebalance >= 200) {
-      const byLoad = [...open].sort((a, b) => load(a) - load(b) || a - b);
+      const byLoad = [...open].sort((a, b) => surplus(a) - surplus(b) || a - b);
       const low = byLoad[0]!;
       const high = byLoad[byLoad.length - 1]!;
-      if (load(high) - load(low) >= 2) {
+      if (surplus(high) - surplus(low) >= 2) {
         const h = c.haulers.filter((u) => this.haulerField.get(u.id) === high).sort((a, b) => a.load - b.load || a.id - b.id)[0];
         if (h && send(h, low)) this.lastRebalance = c.tick;
       }

@@ -90,10 +90,18 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
 
   - Between measured points the lookup interpolates and rounds down; outside them it takes the nearest edge. At the ideal count a refinery earns about 11,000 shards a minute, which empties a 3000 a tile field in roughly 0.3 minutes a tile: a 13 tile field in about 4 minutes, 21 in 6, 44 in 12, 80 in 22 to 25.
 - **AI-43**: The AI keeps the **ideal hauler count** (ECO-10) on each field it mines, for that field's size and pad distance. This replaces the old cap of three a refinery and at most eight (AI-18 amended). A field is not overfilled once its remaining shards would run out before a new hauler paid back its cost.
+  - **Counting**: a field is mined when one of the AI's refineries stands within 9 tiles of its centre (AI-18). Its size is the tiles still holding shards; its distance runs from that refinery's dock pad to the nearest of them. The haulers it wants are the ideal count, but no more than its remaining shards divided by a hauler's cost (each hauler's share of what is left must pay for it). The AI's target is the sum over its mined fields.
+  - **Opening ramp**: until its second factory stands, it keeps at most three haulers a refinery, so the opening (AI-3, AI-22) is unchanged.
+  - **Trickle**: at most two haulers are in production at once, so new haulers come in beside the army rather than stalling the factories.
+  - **Assignment**: a new or idle hauler goes to the field furthest below its count, and one moves over when one field is two or more further over its count than another (AI-18 amended).
 - **AI-44**: The AI **crawls** toward a new shard field when every field it mines has its ideal hauler count, or any of them has less than a quarter of its shards left.
   - **Target**: the nearest field it does not yet mine where no more than 150 cost of recent enemy armed units or defences stand within 8 tiles. If no field is safe, it targets the contested centre field, or the only field left.
   - **Building toward it**: it places the buildings it needs anyway (power, production) in a chain toward the target, then a refinery once the field is within build range. The base-size cap does not apply to these buildings.
   - The approach is the one the steamroll test opponent uses (HAR-5).
+  - **When**: only once its opening is over (a factory and two refineries stand). A crawl under way keeps its target while the target is still unmined and safe. Fields with an enemy refinery seen beside them are never targets.
+  - **In reach**: one of its buildings stands within 5 tiles (build range less one) of an explored tile of the field that still holds shards. Until then its power plants, barracks and factories go toward the field; defences, the lab and the superweapon keep the compact base.
+  - **Filler**: when nothing else is due and more than 1 500 credits are banked, it builds a power plant toward the field. Raider builds none in its opening (AI-14).
+  - `rules.expand` switches AI-43 and AI-44 off together for measurement (AI-18's three a refinery, at most eight, and a third refinery).
 
 ## Map
 

@@ -200,12 +200,13 @@ describe('production first (AI-22)', () => {
     expect(art).toBeLessThanOrEqual(ARTILLERY_IN_PRODUCTION); // ... but no more than four at once
   });
 
-  it('AI-22: fields and haulers are unchanged: a third refinery, never a fourth, and eight haulers at most', () => {
-    expect(hqOrder(base({ barracks: 2, factories: 3, lab: true, refineries: 2, haulers: 4 }))).toBe('hum_refinery');
-    expect(hqOrder(base({ barracks: 5, factories: 5, lab: true, turrets: 6, refineries: 3, credits: 20000 }))).not.toBe('hum_refinery');
+  it('AI-22: with rules.expand off (AI-43, AI-44) fields and haulers are as AI-22 left them: a third refinery, never a fourth, and eight haulers at most', () => {
+    const off = { expand: false };
+    expect(hqOrder(base({ barracks: 2, factories: 3, lab: true, refineries: 2, haulers: 4 }), 'balanced', off)).toBe('hum_refinery');
+    expect(hqOrder(base({ barracks: 5, factories: 5, lab: true, turrets: 6, refineries: 3, credits: 20000 }), 'balanced', off)).not.toBe('hum_refinery');
     const haulersOrdered = (haulers: number): number => {
       const g = base({ barracks: 2, factories: 3, lab: true, turrets: 6, haulers });
-      return ai()
+      return ai('balanced', off)
         .think(snapshot(g, 0))
         .filter((c) => c.type === 'produce' && c.kind === 'hum_hauler').length;
     };
