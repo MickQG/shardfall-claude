@@ -1805,7 +1805,7 @@ export class AI {
    */
   private canAffordDoom(c: Ctx): boolean {
     const refineries = c.buildings.filter((b) => buildingDef(b.kind).refinery).length;
-    return this.armyPower(this.strengthOf(c)) >= SUPERWEAPON_ARMY && refineries >= 2 && c.haulers.length >= Math.max(SUPERWEAPON_HAULERS, this.rules.expand ? this.haulerTarget(c) - 2 : 0) && c.tick - this.lastThreat > 600;
+    return this.armyPower(this.strengthOf(c)) >= SUPERWEAPON_ARMY && refineries >= 2 && c.haulers.length >= SUPERWEAPON_HAULERS && c.tick - this.lastThreat > 600;
   }
 
   private structures(c: Ctx, out: Command[]): void {
