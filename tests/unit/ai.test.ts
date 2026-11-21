@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AI, chooseUnitKind, DIFFICULTIES, shouldAttack, type Intel, type Role } from '../../src/ai/ai';
+import { AI, chooseUnitKind, DIFFICULTIES, shouldAttack, WAVE_HOP, type Intel, type Role } from '../../src/ai/ai';
+import { CONCAVE_BEND, CONCAVE_R, ROW_MAX, SLOT_GAP } from '../../src/ai/formation';
 import { playMatch, totalViolations } from '../../src/ai/harness';
 import { kitOf } from '../../src/ai/kit';
 import { buildingDef, unitDef } from '../../src/data/defs';
@@ -270,13 +271,32 @@ describe('clustered attacks', () => {
       const base = skirmishConfig(5, { factions: faction === 'human' ? ['human', 'alien'] : ['alien', 'human'], credits: 6000 });
       const game = createGame(base);
       const ai = new AI(0, faction, DIFFICULTIES.hard, base.map, 5);
-      const log = drive(game, ai, 7000);
+      // A unit's own order inside a group already out is its slot in the group's concave (AI-42): it goes with the group,
+      // not alone. Such orders are checked as they are given: every unit a member of a group out (three units or more),
+      // the slot no farther from that group's centre than a concave can put it: its front row at most a hop ahead, and a
+      // full row's half width, its ends bent forward, to the side.
+      const SLOT_REACH = WAVE_HOP + ROW_MAX * SLOT_GAP * (0.5 + CONCAVE_BEND / 2);
+      const slotOrders = new Set<Command>();
+      const log = drive(game, ai, 7000, (cmds, g) => {
+        for (const c of cmds) {
+          if (c.type !== 'attackmove' || c.units.length >= 3) continue;
+          const group = ai.groupState.find((x) => c.units.every((id) => x.members.includes(id)));
+          // The body the unit is in: its group's members within CONCAVE_R tiles of it (reinforcements still on their way from
+          // the staging point are members too, but not with it).
+          const me = g.state.units.find((u) => u.id === c.units[0]);
+          const us = group && me ? g.state.units.filter((u) => group.members.includes(u.id) && Math.hypot(u.x - me.x, u.y - me.y) <= CONCAVE_R * FP) : [];
+          if (us.length < 3) continue;
+          const cx = us.reduce((t, u) => t + u.x, 0) / us.length / FP;
+          const cy = us.reduce((t, u) => t + u.y, 0) / us.length / FP;
+          if (Math.hypot(c.x / FP - cx, c.y / FP - cy) <= SLOT_REACH) slotOrders.add(c);
+        }
+      });
       expect(ai.stats.waves, faction).toBeGreaterThan(0);
       // Orders into the enemy's half of the map (beyond the centre line, x + y > 100 tiles) are for groups.
       // (The scout travels alone by design, with plain move orders; attacks are attack-moves.)
       const forward = log.filter((l) => l.cmd.type === 'attackmove' && l.cmd.x / FP + l.cmd.y / FP > 100);
       expect(forward.length, faction).toBeGreaterThan(0);
-      for (const l of forward) expect((l.cmd as { units: number[] }).units.length, `${faction} @${l.tick}`).toBeGreaterThanOrEqual(3);
+      for (const l of forward) if (!slotOrders.has(l.cmd)) expect((l.cmd as { units: number[] }).units.length, `${faction} @${l.tick}`).toBeGreaterThanOrEqual(3);
       // A wave advances in hops: no forward order sends the wave more than a hop or two past its centre at a time.
       const hops = forward.filter((l) => (l.cmd as { units: number[] }).units.length >= 3);
       expect(hops.length, faction).toBeGreaterThan(3);

@@ -2887,8 +2887,12 @@ export class AI {
     // with rules.overwhelm off, everything seen in the last 1800 ticks against the group alone.
     const fresh = ordinary && this.rules.overwhelm;
     const local = fresh ? freshEnemyPower(this.intel.values(), c.enemyBuildings, c.tick, cx, cy, OVERWHELM_R) : this.enemyPowerNear(c, Math.floor(cx), Math.floor(cy), LOCAL_R);
-    // On the move it judges what it sees ahead as well, within WAVE_SIGHT_R tiles, so it turns before contact (AI-36).
-    const ahead = fresh ? freshEnemyPower(this.intel.values(), c.enemyBuildings, c.tick, cx, cy, WAVE_SIGHT_R) : local;
+    // On the move it judges what it sees ahead of it (toward where it is going) as well, within WAVE_SIGHT_R tiles, so it
+    // turns before contact (AI-36).
+    const goal = g.via && !g.passed ? g.via : { tx: g.tx, ty: g.ty };
+    const before = (e: { x: number; y: number }): boolean => (e.x / FP - cx) * (goal.tx + 0.5 - cx) + (e.y / FP - cy) * (goal.ty + 0.5 - cy) > 0;
+    // (A strike group slips past armies to the economy: it judges only what is about it.)
+    const ahead = fresh && g.kind !== 'strike' ? freshEnemyPower([...this.intel.values()].filter(before), [], c.tick, cx, cy, WAVE_SIGHT_R) : local;
     const swamped = fresh ? isOverwhelmed(p, defencePower(c.buildings, cx, cy, OVERWHELM_R), Math.max(local, ahead)) : local >= 1.5 * p;
     // Harassers near it (AI-39): the units that can catch them chase, or it keeps on as one body (AI-40).
     let chase: { units: Set<number>; to: { x: number; y: number } } | null = null;
