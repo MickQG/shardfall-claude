@@ -115,6 +115,7 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
   - **Natural field**: each base has one beside the start of its side lane, holding about as much as a home field.
   - **Elsewhere**: the scattered mid-map rocks are removed and the ground is flat. Some raised rock stays, as R3D-14 requires.
   - **Rules**: MAP-2, MAP-3 and MAP-4 still hold, including equal road distance to every field and an AI that plays to a finish.
+  - **Network version**: the network version goes to 12, since an older client would build the old Crossroads and fall out of step (NET-3).
 
 ## Harness
 
