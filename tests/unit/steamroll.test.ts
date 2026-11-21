@@ -158,9 +158,10 @@ describe('the steamroll opponent', () => {
       const refinery = g.state.buildings.find((b) => b.owner === 0 && buildingDef(b.kind).refinery && Math.hypot(b.tx + 1.5 - middle.cx, b.ty + 1 - middle.cy) <= 9);
       expect(refinery, faction).toBeDefined();
       expect(Math.hypot(refinery!.tx - hq.tx, refinery!.ty - hq.ty), faction).toBeGreaterThan(24);
-      // The ordinary AI stops at eight haulers.
+      // The ordinary AI as AI-18 had it stops at eight haulers (since AI-43 it keeps the ideal count per field instead,
+      // so the contrast is with rules.expand off).
       const plain = fresh(faction);
-      const other = new AI(0, faction, DIFFICULTIES.hard, plain.map, 1);
+      const other = new AI(0, faction, DIFFICULTIES.hard, plain.map, 1, 'balanced', { rules: { expand: false } });
       let most = 0;
       drive(plain.g, other, 7200, () => (most = Math.max(most, plain.g.state.units.filter((u) => u.owner === 0 && u.kind === kitOf(faction).hauler).length)));
       expect(most, faction).toBeLessThanOrEqual(8);

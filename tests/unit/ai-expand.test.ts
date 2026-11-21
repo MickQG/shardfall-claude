@@ -37,7 +37,7 @@ describe('AI-43: the ideal hauler count on each mined field', () => {
   });
 
   it('AI-43: the distance runs from the serving refinery’s dock pad to the nearest tile still holding shards; size counts only live tiles', () => {
-    const { f, shards } = rowField(13, 3000);
+    const { f, shards } = rowField(7, 3000);
     const ref = refinery(4, 4, [7, 5]);
     expect(servingRefinery([ref], f)).toBe(ref);
     expect(padDistance(ref, f, shards, 40)).toBe(3);
@@ -45,20 +45,20 @@ describe('AI-43: the ideal hauler count on each mined field', () => {
     shards[5 * 40 + 10] = 0;
     shards[5 * 40 + 11] = 0;
     expect(padDistance(ref, f, shards, 40)).toBe(5);
-    expect(fieldStock(shards, f)).toEqual({ left: 11 * 3000, tiles: 11 });
+    expect(fieldStock(shards, f)).toEqual({ left: 5 * 3000, tiles: 5 });
     // A refinery more than 9 tiles from the field's centre does not serve it.
     expect(servingRefinery([refinery(30, 15, [30, 14])], f)).toBeUndefined();
   });
 
   it('AI-43: its target is the sum over the fields it mines; a field without a refinery beside it wants none', () => {
-    const { f, shards } = rowField(13, 3000);
+    const { f, shards } = rowField(7, 3000);
     const far: ShardField = { tiles: [15 * 40 + 30], cx: 30.5, cy: 15.5 };
     shards[15 * 40 + 30] = 3000;
-    const mined = minedFields([f, far], [39000, 3000], [refinery(4, 4, [7, 5])], shards, 40, 'hum_hauler', 400);
-    expect(mined).toEqual([{ index: 0, want: idealHaulers('hum_hauler', 13, 3), low: false }]);
+    const mined = minedFields([f, far], [21000, 3000], [refinery(4, 4, [7, 5])], shards, 40, 'hum_hauler', 400);
+    expect(mined).toEqual([{ index: 0, want: idealHaulers('hum_hauler', 7, 3), low: false }]);
     // Below a quarter of its starting shards it is low (AI-44).
     for (const t of f.tiles) shards[t] = 600;
-    expect(minedFields([f], [39000], [refinery(4, 4, [7, 5])], shards, 40, 'hum_hauler', 400)[0]!.low).toBe(true);
+    expect(minedFields([f], [21000], [refinery(4, 4, [7, 5])], shards, 40, 'hum_hauler', 400)[0]!.low).toBe(true);
   });
 });
 
@@ -94,10 +94,10 @@ describe('AI-44: crawling toward a new field', () => {
     const { f } = rowField(13, 3000);
     const fog = new Uint8Array(40 * 20).fill(EXPLORED);
     const at = (tx: number): BuildingSnap => ({ ...refinery(tx, 5), kind: 'hum_reactor' }) as BuildingSnap;
-    // A 2-wide reactor at x 3..4 is 5 tiles short of x = 10.
-    expect(inReach(f, [at(3)], fog, 40)).toBe(true);
-    expect(inReach(f, [at(2)], fog, 40)).toBe(false);
-    expect(inReach(f, [at(3)], new Uint8Array(40 * 20), 40)).toBe(false);
+    // A 2-wide reactor at x 4..5 is 5 tiles short of x = 10.
+    expect(inReach(f, [at(4)], fog, 40)).toBe(true);
+    expect(inReach(f, [at(3)], fog, 40)).toBe(false);
+    expect(inReach(f, [at(4)], new Uint8Array(40 * 20), 40)).toBe(false);
   });
 });
 
@@ -147,13 +147,14 @@ describe('AI-43, AI-44 in a skirmish on Crossroads', () => {
         ],
         units: [
           ...(cfg.units ?? []),
-          { owner: 0, kind: 'hum_rifleman', tx: 33, ty: 10 },
-          ...(enemy ? [0, 1, 2, 3].map((i) => ({ owner: 1, kind: 'ali_brute', tx: 37 + i, ty: 16 })) : []),
+          { owner: 0, kind: 'hum_rifleman', tx: 32, ty: 13 },
+          ...(enemy ? [0, 1, 2, 3].map((i) => ({ owner: 1, kind: 'ali_brute', tx: 36 + i, ty: 14 })) : []),
         ],
       });
     const target = (enemy: boolean): { cx: number; cy: number } | null => {
       const g = base(enemy);
-      const ai = new AI(0, 'human', DIFFICULTIES.hard, { ...cfg.map, shards }, 1, 'balanced');
+      const ai = new AI(0, 'human', DIFFICULTIES.hard, cfg.map, 1, 'balanced');
+      tick(g);
       ai.think(snapshot(g, 0));
       return ai.crawl;
     };
