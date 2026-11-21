@@ -67,7 +67,28 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
 
 - **ECO-10**: The **ideal hauler count** for one refinery is the largest number of haulers for which adding one more still raises income by at least half a lone hauler's income.
   - It depends on how big the field is and how far it lies from the dock pad.
-  - A deterministic bench measures it for both haulers, for fields of 13, 21, 44 and 80 tiles, at pad distances from 2 to 12 tiles. The resulting table lives in src/data and is quoted here.
+  - A deterministic bench measures it for both haulers, for fields of 13, 21, 44 and 80 tiles, at pad distances from 2 to 12 tiles. The resulting table lives in src/data/haulers.ts (`idealHaulers`) and is quoted here.
+  - **Measured** (npm run bench:haulers; flat open ground, one refinery, income over 3 minutes after 30 seconds, depletion ignored). Rows are field sizes in tiles, columns the distance in tiles from the dock pad to the field's nearest shard tile. The pad itself moves at most 10 shards a tick, so about 11,000 shards a minute is the ceiling for one refinery.
+
+    Shard Hauler (humans):
+
+    | Field | 2 | 4 | 6 | 8 | 10 | 12 |
+    |---|---|---|---|---|---|---|
+    | 13 | 6 | 8 | 10 | 12 | 14 | 16 |
+    | 21 | 5 | 7 | 9 | 10 | 12 | 14 |
+    | 44 | 5 | 7 | 9 | 11 | 12 | 14 |
+    | 80 | 6 | 9 | 11 | 12 | 14 | 16 |
+
+    Gorger (aliens):
+
+    | Field | 2 | 4 | 6 | 8 | 10 | 12 |
+    |---|---|---|---|---|---|---|
+    | 13 | 6 | 8 | 11 | 12 | 13 | 14 |
+    | 21 | 5 | 6 | 8 | 9 | 11 | 13 |
+    | 44 | 5 | 6 | 8 | 10 | 11 | 13 |
+    | 80 | 7 | 8 | 9 | 11 | 12 | 14 |
+
+  - Between measured points the lookup interpolates and rounds down; outside them it takes the nearest edge. At the ideal count a refinery earns about 11,000 shards a minute, which empties a 3000 a tile field in roughly 0.3 minutes a tile: a 13 tile field in about 4 minutes, 21 in 6, 44 in 12, 80 in 22 to 25.
 - **AI-43**: The AI keeps the **ideal hauler count** (ECO-10) on each field it mines, for that field's size and pad distance. This replaces the old cap of three a refinery and at most eight (AI-18 amended). A field is not overfilled once its remaining shards would run out before a new hauler paid back its cost.
 - **AI-44**: The AI **crawls** toward a new shard field when every field it mines has its ideal hauler count, or any of them has less than a quarter of its shards left.
   - **Target**: the nearest field it does not yet mine where no more than 150 cost of recent enemy armed units or defences stand within 8 tiles. If no field is safe, it targets the contested centre field, or the only field left.
