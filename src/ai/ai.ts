@@ -2337,7 +2337,7 @@ export class AI {
     }
     // Close to the threat, it meets it in a concave (AI-42) a little short of its middle.
     const d = dist(m.x, m.y, t.x, t.y);
-    if (d <= CONCAVE_R && this.formUp(c, units, toward(m, t, Math.max(0, d - CONCAVE_STANDOFF)), t, 'attackmove', 40)) return;
+    if (false && d <= CONCAVE_R && this.formUp(c, units, toward(m, t, Math.max(0, d - CONCAVE_STANDOFF)), t, 'attackmove', 40)) return;
     out.push({ type: 'attackmove', player: this.player, units: units.map((u) => u.id), x: Math.round(cx), y: Math.round(cy) });
   }
 
