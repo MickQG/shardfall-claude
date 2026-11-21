@@ -205,7 +205,7 @@ function report(p: Personality, games: readonly SteamrollGame[], rs: readonly Ma
 
 describe('the Hard AI against the steamroll opponent', () => {
   for (const p of PERSONALITIES) {
-    it(`HAR-5, AI-22, AI-23, AI-26: against ${p}, the steamroll opponent trains only rifle and anti-armour squads, crushers and haulers, never retreats, attacks, and replays the same game`, async () => {
+    it(`HAR-5, HAR-11, AI-22, AI-23, AI-26: against ${p}, the steamroll opponent trains only rifle and anti-armour squads, crushers and haulers, never retreats, attacks, and replays the same game`, async () => {
       const started = Date.now();
       const { games, results: rs } = await steamrollSeries(p);
       report(p, games, rs, (Date.now() - started) / 60000);

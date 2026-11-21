@@ -20,8 +20,8 @@ function builtBase(faction: Faction, credits: number, units: UnitSpawn[] = [], b
   const hq = cfg.buildings!.find((b) => b.owner === 0 && b.kind === k.hq)!;
   const at = (kind: string, dx: number, dy: number): BuildingSpawn => ({ owner: 0, kind, tx: hq.tx + dx, ty: hq.ty + dy });
   const power = [[4, 0], [6, 0], [4, 2], [6, 2], [8, 0], [8, 2]].map(([x, y]) => at(k.power, x!, y!));
-  // Eight haulers, so the factories train combat units.
-  const haulers = [...Array(8)].map((_, i): UnitSpawn => ({ owner: 0, kind: k.hauler, tx: hq.tx + 10 + i, ty: hq.ty + 15 }));
+  // Enough haulers to staff its fields at their ideal counts (AI-43), so the factories train combat units.
+  const haulers = [...Array(28)].map((_, i): UnitSpawn => ({ owner: 0, kind: k.hauler, tx: hq.tx + 10 + (i % 14), ty: hq.ty + 15 + Math.floor(i / 14) }));
   const g = createGame({
     ...cfg,
     players: [{ faction, credits }, cfg.players![1]!],
