@@ -48,6 +48,10 @@ export interface BenchSetup {
    * it from setting out on a wave, so the scenario is about an army that stands.
    */
   hold?: string;
+  /** Buildings of the AI's beside its headquarters (kinds at tiles), such as a power plant and defences. */
+  base?: { kind: string; tx: number; ty: number }[];
+  /** Called after every tick, for debugging a scenario. */
+  watch?: (g: Game, ai: AI) => void;
 }
 
 export interface BenchResult {
@@ -100,6 +104,7 @@ export function runBench(o: BenchSetup): BenchResult {
     units,
     buildings: [
       { owner: me, kind: hqKind(o.ai.faction), ...AI_HQ },
+      ...(o.base ?? []).map((b) => ({ owner: me, ...b })),
       { owner: them, kind: hqKind(o.foe.faction), ...FOE_HQ },
     ],
   });
@@ -125,9 +130,12 @@ export function runBench(o: BenchSetup): BenchResult {
     if (t % ai.diff.thinkEvery === 0) for (const c of aiThink()) submit(g, c);
     if ((t - t0) % FOE_EVERY === 0) for (const c of o.foe.policy(g, them, me, t - t0)) submit(g, c);
     tick(g);
+    o.watch?.(g, ai);
     for (const e of g.state.events) if (e.t === 'die' && e.owner >= 0 && UNIT_DEFS[e.kind]) lost[e.owner] = (lost[e.owner] as number) + unitDef(e.kind).cost;
     if ((t - t0) % SAMPLE_EVERY === 0) {
-      const us = combat(g, me);
+      // A unit out scouting is no part of the army: it leaves on purpose (AI-17).
+      const scouts = new Set(ai.scoutingUnits);
+      const us = combat(g, me).filter((u) => !scouts.has(u.id));
       const c = centre(us);
       for (const u of us) {
         maxStray = Math.max(maxStray, Math.hypot(tile(u.x) - c.x, tile(u.y) - c.y));
@@ -230,21 +238,34 @@ export const bulwarkPolicy: Policy = (g, me, them) => {
 
 export type KiteVariant = 'skimmer' | 'bulwark';
 
+/**
+ * What a Hard AI has standing by the time harassers come: a power plant behind its headquarters and two defences a few
+ * tiles in front of it, toward the harassers (Pulse Turrets for Aegis, Spine Spires for Vrax).
+ */
+export const KITE_DEFENCES: [number, number][] = [
+  [16, 18],
+  [18, 16],
+];
+export const kiteBase = (f: Faction): { kind: string; tx: number; ty: number }[] => [
+  { kind: f === 'human' ? 'hum_reactor' : 'ali_generator', tx: 5, ty: 10 },
+  ...KITE_DEFENCES.map(([tx, ty]) => ({ kind: f === 'human' ? 'hum_turret' : 'ali_spire', tx, ty })),
+];
+
 /** The Aegis army the Skimmers harass: 10 Riflemen, 6 Rocketeers and 2 Bulwarks, 4100 credits against their 3800. */
 export const AEGIS_ARMY: string[] = [...rep('hum_rifleman', 10), ...rep('hum_rocketeer', 6), ...rep('hum_tank', 2)];
 /** The Vrax army the Bulwarks harass: 3 Brutes, 4 Spitters and 6 Skitterers, 3850 credits against their 3200. */
 export const VRAX_ARMY: string[] = [...rep('ali_brute', 3), ...rep('ali_spitter', 4), ...rep('ali_skitter', 6)];
 
 /**
- * The kite scenario (HAR-9): the AI's army against four harassers, for `seconds` of game time (90 by default).
+ * The kite scenario (HAR-9): the AI's army, with its base's power plant and two defences (kiteBase), against four harassers, for `seconds` of game time (90 by default).
  * 'skimmer': Aegis AI (seat 0) against four Glare Skimmers (Vrax); 'bulwark': Vrax AI (seat 1) against four Bulwark Tanks.
  */
-export function kiteBench(variant: KiteVariant, o: { seconds?: number; seed?: number; rules?: Partial<AiRules> } = {}): BenchResult {
+export function kiteBench(variant: KiteVariant, o: { seconds?: number; seed?: number; rules?: Partial<AiRules>; watch?: BenchSetup['watch'] } = {}): BenchResult {
   const seconds = o.seconds ?? 90;
   if (variant === 'skimmer') {
-    return runBench({ seconds, seed: o.seed, ai: { seat: 0, faction: 'human', army: AEGIS_ARMY, rules: o.rules }, foe: { faction: 'alien', army: rep('ali_skimmer', 4), from: HARASS_FROM, policy: skimmerPolicy }, hold: 'ali_brute' });
+    return runBench({ seconds, seed: o.seed, ai: { seat: 0, faction: 'human', army: AEGIS_ARMY, rules: o.rules }, foe: { faction: 'alien', army: rep('ali_skimmer', 4), from: HARASS_FROM, policy: skimmerPolicy }, hold: 'ali_brute', base: kiteBase('human'), watch: o.watch });
   }
-  return runBench({ seconds, seed: o.seed, ai: { seat: 1, faction: 'alien', army: VRAX_ARMY, rules: o.rules }, foe: { faction: 'human', army: rep('hum_tank', 4), from: HARASS_FROM, policy: bulwarkPolicy }, hold: 'hum_tank' });
+  return runBench({ seconds, seed: o.seed, ai: { seat: 1, faction: 'alien', army: VRAX_ARMY, rules: o.rules }, foe: { faction: 'human', army: rep('hum_tank', 4), from: HARASS_FROM, policy: bulwarkPolicy }, hold: 'hum_tank', base: kiteBase('alien'), watch: o.watch });
 }
 
 // ---- HAR-10 overwhelm scenario ----
@@ -266,12 +287,13 @@ export const marchPolicy: Policy = (g, me) => {
  * across open ground. The AI knows where the enemy headquarters is (so it sets out), but has not seen the army. It reports
  * `survival`: the share of the wave's starting value left after 60 s, and `stats.retreats`.
  */
-export function overwhelmBench(o: { seconds?: number; seed?: number; rules?: Partial<AiRules> } = {}): BenchResult {
+export function overwhelmBench(o: { seconds?: number; seed?: number; rules?: Partial<AiRules>; watch?: BenchSetup['watch'] } = {}): BenchResult {
   return runBench({
     seconds: o.seconds ?? 60,
     seed: o.seed,
     intel: true,
     ai: { seat: 0, faction: 'human', army: WAVE_ARMY, rules: o.rules },
     foe: { faction: 'alien', army: OVERWHELMING_ARMY, from: [50, 50], policy: marchPolicy },
+    watch: o.watch,
   });
 }
