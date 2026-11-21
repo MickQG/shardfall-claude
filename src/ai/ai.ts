@@ -456,6 +456,8 @@ export const COVER_WATCH = 20;
 export const LEASH_SLACK = 2;
 export const COVER_CLEAR = 20 * 10;
 export const CONCAVE_STANDOFF = 4;
+/** A wave or strike group judges the enemy it has seen within WAVE_SIGHT_R tiles, so it turns before contact (AI-36). */
+export const WAVE_SIGHT_R = 14;
 /**
  * The enemy's armour is away from its base (AI-31) when the middle, by cost, of the heavy armed enemy units it has seen in
  * the last BALL_SEEN ticks is at least BALL_AWAY tiles from every enemy building it knows; then a strike group of fast
@@ -1143,7 +1145,9 @@ export class AI {
     const ids = group.map((u) => u.id);
     const r: Retreat = { members: new Set(ids), to: { ...to.at }, kind: to.kind, fight: null, since: c.tick };
     let p = to.at;
-    if (!run && chasers.length > 0 && !canOutrun(group, chasers)) {
+    // Pursuers not yet within their reach of it: it runs while it can (AI-37).
+    const close = chasers.some((f) => group.some((u) => Math.hypot(f.x - u.x, f.y - u.y) <= (reachOf(f.kind) + RETREAT_CLEAR_R) * FP));
+    if (!run && close && !canOutrun(group, chasers)) {
       p = toward(m, to.at, RETREAT_HOP);
       r.fight = { phase: 'hop', since: c.tick, hop: p, lastNear: c.tick };
       this.stats.fightingRetreats++;
@@ -1320,7 +1324,7 @@ export class AI {
 
   /** Where its standing army belongs (AI-40, AI-41): its cover from harassers, else where it regroups, else its staging point. */
   private anchor(c: Ctx): { x: number; y: number } {
-    const a = this.cover ?? this.regroupAt ?? (this.staging as { tx: number; ty: number });
+    const a = this.coverAt(c) ?? this.regroupAt ?? (this.staging as { tx: number; ty: number });
     return { x: a.tx + 0.5, y: a.ty + 0.5 };
   }
 
@@ -2883,7 +2887,9 @@ export class AI {
     // with rules.overwhelm off, everything seen in the last 1800 ticks against the group alone.
     const fresh = ordinary && this.rules.overwhelm;
     const local = fresh ? freshEnemyPower(this.intel.values(), c.enemyBuildings, c.tick, cx, cy, OVERWHELM_R) : this.enemyPowerNear(c, Math.floor(cx), Math.floor(cy), LOCAL_R);
-    const swamped = fresh ? isOverwhelmed(p, defencePower(c.buildings, cx, cy, OVERWHELM_R), local) : local >= 1.5 * p;
+    // On the move it judges what it sees ahead as well, within WAVE_SIGHT_R tiles, so it turns before contact (AI-36).
+    const ahead = fresh ? freshEnemyPower(this.intel.values(), c.enemyBuildings, c.tick, cx, cy, WAVE_SIGHT_R) : local;
+    const swamped = fresh ? isOverwhelmed(p, defencePower(c.buildings, cx, cy, OVERWHELM_R), Math.max(local, ahead)) : local >= 1.5 * p;
     // Harassers near it (AI-39): the units that can catch them chase, or it keeps on as one body (AI-40).
     let chase: { units: Set<number>; to: { x: number; y: number } } | null = null;
     let harassed = false;

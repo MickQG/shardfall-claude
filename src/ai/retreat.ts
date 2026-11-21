@@ -69,13 +69,19 @@ export interface FightingRetreat {
  * One step of a fighting retreat (AI-37): what to do now. 'done' once its centre is within RETREAT_ARRIVED tiles of the
  * fallback point or no enemy has been near for RETREAT_CLEAR ticks; 'hop' to a point RETREAT_HOP tiles nearer the
  * fallback point once a hold is over (or at the start); 'hold' (form the concave) once a hop has arrived or run out of
- * time; null to carry on with the current phase. Updates the state.
+ * time (with no enemy in reach it hops on at once, 2 * RETREAT_HOP tiles); null to carry on with the current phase. Updates the state.
  */
 export function retreatStep(s: FightingRetreat, tick: number, centre: Point, to: Point, enemyNear: boolean): { act: 'hop'; to: Point } | { act: 'hold' } | { act: 'done' } | null {
   if (enemyNear) s.lastNear = tick;
   if (Math.hypot(centre.x - to.x, centre.y - to.y) <= RETREAT_ARRIVED || tick - s.lastNear >= RETREAT_CLEAR) return { act: 'done' };
   if (s.phase === 'hop') {
     if (Math.hypot(centre.x - s.hop.x, centre.y - s.hop.y) <= 1.5 || tick - s.since >= RETREAT_HOP_MAX) {
+      // No pursuer in reach: no point holding to fire, it hops on, twice as far.
+      if (!enemyNear) {
+        s.since = tick;
+        s.hop = toward(centre, to, 2 * RETREAT_HOP);
+        return { act: 'hop', to: s.hop };
+      }
       s.phase = 'hold';
       s.since = tick;
       return { act: 'hold' };
