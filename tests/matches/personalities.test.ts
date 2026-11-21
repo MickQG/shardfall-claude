@@ -71,7 +71,7 @@ describe('AI personalities in full matches', () => {
     const strikes = d.filter((m) => m.ai[0].strikeAt >= 0).length;
     await printTally([
       `AI-15: Doomsday ${d.filter((m) => m.winner === 0).length} - Balanced ${d.filter((m) => m.winner === 1).length}, ${d.filter((m) => m.winner === null).length} undecided of ${d.length}; strikes in ${strikes} games; games ${d.map((m, i) => `${SIDES[i]![0]}${SIDES[i]![1][0][0]}:${m.winner === 0 ? 'D' : m.winner === 1 ? 'B' : '-'}`).join(' ')}; tech share ${share(d).toFixed(3)} vs ${share(b).toFixed(3)}; ${rulesLine()}`,
-      ...d.map((m, i) => `game ${i}: winner ${String(m.winner)}; Doomsday produced ${JSON.stringify(m.ai[0].produced)}, Balanced ${JSON.stringify(m.ai[1].produced)}`),
+      ...d.map((m, i) => `game ${i}: winner ${String(m.winner)} at ${m.ticks}; Doomsday produced ${JSON.stringify(m.ai[0].produced)}, Balanced ${JSON.stringify(m.ai[1].produced)}; lab ${m.ai[0].labAt}/${b[i]!.ai[0].labAt}; superweapon order ${JSON.stringify(m.ai[0].superweaponOrder)} built ${m.ai[0].superweaponAt} strike ${m.ai[0].strikeAt} arrival ${m.ai[0].strikeArrival} shots ${m.ai[0].superweaponShots}; waves ${m.ai[0].waves}/${m.ai[1].waves} retreats ${m.ai[0].retreats}/${m.ai[1].retreats}; peak haulers ${m.peak.haulers.join('/')} army ${m.peak.armyValue.join('/')}; lost ${m.traded[0].lost}/${m.traded[1].lost}`),
     ]);
     d.forEach((m, i) => {
       // Its lab before Balanced's, in every game.

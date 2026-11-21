@@ -46,6 +46,8 @@ export const RAID_MIN_ARMY = 5;
 export const RAID_FROM = 20 * 75;
 /** Doomsday fires when its wave is this close (tiles) to the strike, so the wave arrives just after it lands (AI-15). */
 export const STRIKE_LEAD = 16;
+/** Doomsday's wave stays committed (no retreat, harassment answer or concave) this long (ticks) after its strike (AI-15). */
+export const STRIKE_COMMIT = 400;
 /** Doomsday holds a charged superweapon at most this long (ticks) for its wave before it fires anyway. */
 export const STRIKE_HOLD = 20 * 90;
 /** Doomsday goes for its superweapon only with an army worth this much and this many haulers working (AI-15). */
@@ -69,6 +71,13 @@ export const QUEUE_DEEP = 5;
 export const QUEUE_DEEP_BANK = 3000;
 /** Artillery pieces in production (queued or being built) at once, at most (AI-22). */
 export const ARTILLERY_IN_PRODUCTION = 4;
+/** One more artillery piece may be in production for every this many armed units in its army (AI-19, amending AI-22). */
+export const ARTILLERY_PER_ARMY = 15;
+
+/** Artillery pieces it may have in production at once (AI-19, AI-22): the base cap, and one more per ARTILLERY_PER_ARMY armed units. */
+export function artilleryInProduction(base: number, army: number): number {
+  return base + Math.floor(army / ARTILLERY_PER_ARMY);
+}
 
 /** How far (tiles) to one side of the straight line a scout's route swings, around the enemy's front (AI-17). */
 export const SCOUT_FLANK = 22;
@@ -1950,6 +1959,8 @@ export class AI {
     const steamroll = this.doctrine.pick !== undefined;
     // Artillery in production now (AI-22): at most ARTILLERY_IN_PRODUCTION (rules.artilleryCap) at once.
     let guns = 0;
+    // The cap grows with its army, so artillery keeps its share as AI-43's economy fields bigger armies (AI-19).
+    const gunCap = steamroll ? this.rules.artilleryCap : artilleryInProduction(this.rules.artilleryCap, c.army.length);
     for (const b of c.buildings) for (const q of b.queue) if (UNIT_DEFS[q.kind] && roleOf(unitDef(q.kind)) === 'art') guns++;
     const urgent = this.urgent(c);
     const tilt = this.plan === 'raider' ? RAIDER_TILT : this.plan === 'doomsday' ? TECH_TILT : undefined;
@@ -1995,7 +2006,7 @@ export class AI {
       // A hero only while the player has none, alive or queued (HERO-1).
       // No more artillery while rules.artilleryCap pieces are in production (AI-22); the steamroll opponent trains none.
       const allowed = trainable.filter(
-        (k) => unitDef(k).requires.every((r) => c.buildings.some((x) => x.kind === r)) && !(unitDef(k).hero && (queued.has(k) || c.own.some((u) => u.kind === k))) && !(roleOf(unitDef(k)) === 'art' && guns >= this.rules.artilleryCap),
+        (k) => unitDef(k).requires.every((r) => c.buildings.some((x) => x.kind === r)) && !(unitDef(k).hero && (queued.has(k) || c.own.some((u) => u.kind === k))) && !(roleOf(unitDef(k)) === 'art' && guns >= gunCap),
       );
       // Its hero takes the field whenever it is available and affordable with credits to spare (HERO-1).
       const hero = allowed.find((k) => unitDef(k).hero && c.credits >= unitDef(k).cost + 400);
@@ -2544,7 +2555,7 @@ export class AI {
     if (this.wave) {
       const w = this.wave;
       // Doomsday commits while its strike is charged or has just landed: the strike, not a retreat, answers resistance (AI-15).
-      const committed = this.plan === 'doomsday' && (c.buildings.some((b) => buildingDef(b.kind).superweapon && b.charge >= 100) || (this.lastStrike >= 0 && c.tick - this.lastStrike < 400));
+      const committed = this.plan === 'doomsday' && (c.buildings.some((b) => buildingDef(b.kind).superweapon && b.charge >= 100) || (this.lastStrike >= 0 && c.tick - this.lastStrike < STRIKE_COMMIT));
       // The wave is the units that set out together (AI-11) and the reinforcements that joined it; others wait.
       const end = this.driveGroup(c, w, drive, free.filter((u) => !w.members.has(u.id)), committed);
       if (end !== null) {
@@ -2959,16 +2970,21 @@ export class AI {
     // Spread: how far most of the group (four in five) is from its centre; a big group is naturally wider.
     const ds = body.map((u) => dist(u.x / FP, u.y / FP, cx, cy)).sort((a, b) => a - b);
     const spread = ds[Math.floor(0.8 * (ds.length - 1))] ?? 0;
-    const strung = spread > WAVE_SPREAD + Math.sqrt(body.length) && !g.held;
+    // A committed Doomsday wave (AI-15) does not wait for stragglers: it drives into what its strike is clearing.
+    const strung = !committed && spread > WAVE_SPREAD + Math.sqrt(body.length) && !g.held;
     g.held = strung; // never hold back two hops running
     const aim = g.via && !g.passed ? g.via : { tx: g.tx, ty: g.ty };
     const d = dist(cx, cy, aim.tx, aim.ty);
-    const k = strung ? 0 : d <= WAVE_HOP + 2 ? 1 : WAVE_HOP / d;
+    // Once its strike has landed it goes straight in, not hop by hop (AI-15).
+    const struck = committed && this.lastStrike >= 0 && c.tick - this.lastStrike < STRIKE_COMMIT;
+    const k = strung ? 0 : struck || d <= WAVE_HOP + 2 ? 1 : WAVE_HOP / d;
     // Chasers go after the harassers, at most HARASS_LEASH tiles from its centre; the rest keep on (AI-40).
     const moving = chase ? body.filter((u) => !chase.units.has(u.id)) : body;
     if (chase) order('attackmove', body.filter((u) => chase.units.has(u.id)), chase.to.x, chase.to.y);
     // A known enemy force near it: it advances on it in a concave, the front row stopping short of its middle (AI-42).
-    const foe = ordinary && !strung ? this.enemyFocus(c, cx, cy) : null;
+    // A committed Doomsday wave forms no concave: it drives into the struck target (AI-15), and any concave it held is let go.
+    if (committed) this.formations = this.formations.filter((f) => !f.ids.some((id) => g.members.has(id)));
+    const foe = ordinary && !strung && !committed ? this.enemyFocus(c, cx, cy) : null;
     const fd = foe ? dist(cx, cy, foe.x, foe.y) : 0;
     if (!foe || !this.formUp(c, moving, toward({ x: cx, y: cy }, foe, Math.min(WAVE_HOP, Math.max(0, fd - CONCAVE_STANDOFF))), foe, 'attackmove', WAVE_STEP)) order('attackmove', moving, cx + (aim.tx - cx) * k, cy + (aim.ty - cy) * k);
     // Reinforcements still on their way go by the approach point (AI-26).
@@ -3790,6 +3806,8 @@ export class AI {
       w.via = null;
       w.trail.clear();
       w.lastOrder = c.tick;
+      // No concave (AI-42) holds its units back from the struck area.
+      this.formations = this.formations.filter((f) => !f.ids.some((id) => w.members.has(id)));
       this.first.push({ type: 'attackmove', player: this.player, units: members.map((u) => u.id), x: best.tx * FP + FP / 2, y: best.ty * FP + FP / 2 });
     }
     if (this.stats.strikeAt < 0) {

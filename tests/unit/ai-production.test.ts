@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI, ARTILLERY_IN_PRODUCTION, DIFFICULTIES, GROWTH_BANK, GROWTH_MAX, LAB_FROM, QUEUE_DEEP, QUEUE_DEEP_BANK, QUEUE_SHALLOW, TURRETS_FROM, type AiRules, type Personality } from '../../src/ai/ai';
+import { AI, ARTILLERY_IN_PRODUCTION, ARTILLERY_PER_ARMY, DIFFICULTIES, artilleryInProduction, GROWTH_BANK, GROWTH_MAX, LAB_FROM, QUEUE_DEEP, QUEUE_DEEP_BANK, QUEUE_SHALLOW, TURRETS_FROM, type AiRules, type Personality } from '../../src/ai/ai';
 import { SteamrollAI } from '../../src/ai/steamroll';
 import { unitDef } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
@@ -191,7 +191,15 @@ describe('production first (AI-22)', () => {
     for (const n of unitQueue(deep, 'hum_barracks')) expect(n).toBe(5);
   });
 
-  it('AI-22: at most four artillery pieces are in production at once', () => {
+  it('AI-19, AI-22: the artillery cap grows by one for every fifteen armed units in the army', () => {
+    expect(ARTILLERY_PER_ARMY).toBe(15);
+    expect(artilleryInProduction(ARTILLERY_IN_PRODUCTION, 0)).toBe(4);
+    expect(artilleryInProduction(ARTILLERY_IN_PRODUCTION, 14)).toBe(4);
+    expect(artilleryInProduction(ARTILLERY_IN_PRODUCTION, 15)).toBe(5);
+    expect(artilleryInProduction(ARTILLERY_IN_PRODUCTION, 90)).toBe(10);
+  });
+
+  it('AI-22: at most four artillery pieces are in production at once with a small army', () => {
     expect(ARTILLERY_IN_PRODUCTION).toBe(4);
     const g = base({ barracks: 2, factories: 5, lab: true, turrets: 6, haulers: 8, infantrySeen: 24 });
     decide(g, ai(), 10, 20000);
