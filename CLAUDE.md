@@ -14,3 +14,6 @@ Shardfall: an original RTS (Humans vs Aliens) for the browser, drawn in real-tim
 
 ## Layout
 `src/sim` deterministic core · `src/ai` AI client · `src/render3d` three.js renderer (default) · `src/render` classic PixiJS renderer and the shared projector · `src/ui` HUD and input · `src/data` factions, units, maps · `scripts` tooling · `specs` requirements · `docs/adr` decisions
+
+# Communicating clearly
+Write for an intelligent but low-context reader. The person reading has not seen your tool calls, your reasoning or the files you opened, and may be switching in from other work

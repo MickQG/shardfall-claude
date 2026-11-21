@@ -40,9 +40,7 @@ describe('faction balance in full matches', () => {
       };
       return `DIAG ${g.map} s${g.seed} winner ${r.winner === null ? '-' : g.factions[r.winner] === 'human' ? 'A' : 'V'} t${r.ticks} | ${side(0)} | ${side(1)}`;
     });
-    process.stdout.write(diag.join('
-') + '
-');
+    process.stdout.write(diag.join(String.fromCharCode(10)) + String.fromCharCode(10));
     await printTally([`ROS-4: Aegis ${wins.human} - Vrax ${wins.alien}, ${results.length - decided} undecided of ${results.length} (FACTION_SEEDS=${env('FACTION_SEEDS') || '-'} MATCH_SHARD=${env('MATCH_SHARD') || '-'})`]);
     if (env('MATCH_SHARD')) return;
     expect(decided).toBeGreaterThanOrEqual(8);
