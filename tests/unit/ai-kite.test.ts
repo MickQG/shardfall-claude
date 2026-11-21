@@ -21,6 +21,8 @@ import { AEGIS_ARMY, kiteBench, overwhelmBench, STRAGGLE, VRAX_ARMY, WAVE_ARMY, 
  */
 
 /** The pass marks of spec 033, to switch on once the AI changes land. HARASS_LEASH (8, AI-40) plus 4 tiles. */
+/** The benches take a few seconds each, and several seconds more when the whole suite runs in parallel. */
+const TIMEOUT = 90_000;
 const STRAY_LIMIT = 8 + 4;
 const BASELINE = { skimmerAiLost: 4100, bulwarkAiLost: 3630 };
 
@@ -61,7 +63,7 @@ describe('the kite scenario (HAR-9)', () => {
     expect({ ...again, stats: undefined }).toEqual({ ...r, stats: undefined });
     // The harassers did something: either side lost value, or the army moved.
     expect(r.aiLost + r.foeLost + r.drift).toBeGreaterThan(0);
-  });
+  }, TIMEOUT);
 
   it('HAR-9: Bulwark Tanks kite a Vrax army with HAR-7 kiteOrders: the bench runs, is deterministic, and reports value traded and stray', () => {
     const r = bulwark();
@@ -72,7 +74,7 @@ describe('the kite scenario (HAR-9)', () => {
     expect(again.hash).toBe(r.hash);
     expect({ ...again, stats: undefined }).toEqual({ ...r, stats: undefined });
     expect(r.aiLost + r.foeLost + r.drift).toBeGreaterThan(0);
-  });
+  }, TIMEOUT);
 
   it('HAR-9: today the harassers win: the Aegis army loses most of its value to Skimmers that lose none, and the Vrax army chases past 12 tiles', () => {
     const s = skimmer();
@@ -81,7 +83,7 @@ describe('the kite scenario (HAR-9)', () => {
     const b = bulwark();
     expect(b.stats.heldBack).toBeGreaterThan(0);
     expect(b.everStraggled).toBeGreaterThan(0);
-  });
+  }, TIMEOUT);
 
   // The pass marks of spec 033 (HAR-9), for when the AI's discipline lands: remove `.skip`.
   it.skip('HAR-9 pass mark: against Glare Skimmers the AI loses less value than the baseline (4100) and strays at most HARASS_LEASH + 4 tiles from its army centre', () => {
@@ -110,13 +112,13 @@ describe('the overwhelm scenario (HAR-10)', () => {
     expect(again.hash).toBe(r.hash);
     expect(again.survival).toBe(r.survival);
     expect(again.stats.retreats).toBe(r.stats.retreats);
-  });
+  }, TIMEOUT);
 
   it('HAR-10: today the wave is wiped out whatever it does: less than 40% survives after 60 s', () => {
     const r = overwhelm();
     expect(r.survival).toBeLessThan(0.4);
     expect(STRAGGLE).toBe(12);
-  });
+  }, TIMEOUT);
 
   // The pass mark of spec 033 (HAR-10), for when the AI retreats and regroups: remove `.skip`.
   it.skip('HAR-10 pass mark: the wave retreats and keeps at least 40% of its value after 60 s', () => {

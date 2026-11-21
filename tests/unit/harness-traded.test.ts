@@ -28,7 +28,7 @@ describe('value traded (HAR-8)', () => {
       expect(Number.isFinite(r.aCostLost) && Number.isFinite(r.bCostLost)).toBe(true);
       expect(r.aCostLost + r.bCostLost).toBeGreaterThan(0);
     }
-  });
+  }, 60_000);
 
   it('HAR-8: the match harness reports, per AI, the cost of its units and buildings lost and of the enemy\'s it destroyed', () => {
     const r = playMatch({ seed: 1, factions: ['human', 'alien'], difficulties: [DIFFICULTIES.hard, DIFFICULTIES.hard], maxTicks: 3000 });
@@ -42,5 +42,5 @@ describe('value traded (HAR-8)', () => {
     }
     // The per-AI reactions are in the result too.
     for (const s of r.ai) expect(Number.isFinite(s.retreats) && Number.isFinite(s.defends)).toBe(true);
-  });
+  }, 60_000);
 });
