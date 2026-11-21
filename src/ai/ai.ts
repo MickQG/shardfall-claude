@@ -50,6 +50,9 @@ export const STRIKE_LEAD = 16;
 export const STRIKE_COMMIT = 400;
 /** Doomsday holds a charged superweapon at most this long (ticks) for its wave before it fires anyway. */
 export const STRIKE_HOLD = 20 * 90;
+/** ... and at most this long while no wave is out or its wave is still closing in by STRIKE_CLOSING tiles (AI-15). */
+export const STRIKE_HOLD_MAX = 20 * 240;
+export const STRIKE_CLOSING = 3;
 /** Doomsday goes for its superweapon only with an army worth this much and this many haulers working (AI-15). */
 export const SUPERWEAPON_ARMY = 5000;
 export const SUPERWEAPON_HAULERS = 5;
@@ -818,6 +821,9 @@ export class AI {
   private strike: { tx: number; ty: number } | null = null;
   private lastStrike = -1;
   private strikeNoted = false;
+  /** Doomsday holding a charged strike: its wave's nearest approach to its objective so far, and when it last closed in (AI-15). */
+  private closest = Infinity;
+  private closingAt = -1;
   /** Orders that must not be cut by the command budget this tick. */
   private first: Command[] = [];
   private intel = new Map<number, Remembered>();
@@ -1733,6 +1739,12 @@ export class AI {
     const production = n(k.barracks) + n(k.factory);
     // Raider spends on its army, not on tech, until its opening is over (AI-14).
     const teching = this.plan !== 'raider';
+    // Doomsday, once it can afford its superweapon, orders it ahead of further growth, expansion and turrets: on the open
+    // Crossroads (MAP-10) games are decided sooner, and a later strike came after the game was settled (AI-15).
+    if (tech && n(k.lab) > 0 && n(k.superweapon) === 0 && this.canAffordDoom(c)) {
+      const sw = buildingDef(k.superweapon);
+      return margin < -sw.power + 10 ? k.power : k.superweapon;
+    }
     // Another barracks or factory whenever every one is busy and the bank is full, whichever it has fewer of (AI-22).
     const grow = this.growth(c);
     if (grow) return powered(grow);
@@ -3789,7 +3801,15 @@ export class AI {
     if (this.plan === 'doomsday') {
       // Hold the charged weapon until the wave is about to arrive, then clear the defences in its path (AI-15).
       if (this.chargedAt < 0) this.chargedAt = c.tick;
-      const waiting = c.tick - this.chargedAt < STRIKE_HOLD;
+      // It holds for STRIKE_HOLD, and longer (up to STRIKE_HOLD_MAX) while no wave is out yet or its wave is still closing
+      // in: a strike with no army arriving behind it is the plan wasted (AI-15).
+      const gap = w && mid ? dist(mid.x, mid.y, w.tx, w.ty) : Infinity;
+      if (!w || gap < this.closest - STRIKE_CLOSING) {
+        this.closest = gap;
+        this.closingAt = c.tick;
+      }
+      const closing = !w || c.tick - this.closingAt < STRIKE_HOLD / 3;
+      const waiting = c.tick - this.chargedAt < STRIKE_HOLD || (closing && c.tick - this.chargedAt < STRIKE_HOLD_MAX);
       if (w && mid) {
         // An enemy army standing in the wave's way is struck first; otherwise the defences at its objective.
         best = this.fieldStrike(c, sw, mid);
@@ -3805,6 +3825,7 @@ export class AI {
     if (this.plan === 'doomsday' && this.stats.strikeNotes.length < 12) this.stats.strikeNotes.push(`S${c.tick}:wave${members.length}:d${mid ? dist(mid.x, mid.y, best.tx, best.ty).toFixed(0) : '-'}:w${w ? `${w.tx},${w.ty}` : '-'}:b${best.tx},${best.ty}:held${c.tick - this.chargedAt}`);
     this.stats.superweaponShots++;
     this.chargedAt = -1;
+    this.closest = Infinity;
     this.lastStrike = c.tick;
     // The wave goes straight into the struck area, to arrive while the defenders reel (AI-15).
     const doomsday = this.plan === 'doomsday';
