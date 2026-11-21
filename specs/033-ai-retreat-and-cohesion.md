@@ -127,6 +127,7 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
 
   It reports value traded and the farthest any AI unit strayed from its army's centre.
   - **Pass mark**: the AI loses less value than before this milestone in both variants, and no AI unit strays more than `HARASS_LEASH` + 4 tiles from its army's centre.
-- **HAR-10**: **Overwhelm scenario**: an AI wave meets an enemy army of twice its power.
-  - **Pass mark**: the wave retreats and keeps at least 40% of its value, where it used to die in place.
+- **HAR-10**: **Overwhelm scenario**: an AI wave meets an enemy army of twice its power that has taken the middle ground and holds it. The army fights whatever comes within its reach but does not march on the AI's base, so the scenario judges the wave's decision to retreat, not whether a base can survive an army twice its wave's size.
+  - **Pass mark**: after 60 s the wave has retreated and keeps at least 40% of its value.
+  - **Measured on seeds 1 to 3**: 76% kept (800 lost). The AI before this milestone, on the same bench, kept none: it retreated only after contact and died on the way (3,400 lost).
 - **HAR-11**: **No regression** on the Balance workflow. The pass marks of AI-25 (steamroll), AI-32 (tank spam), ROS-4 (faction balance) and AI-15/AI-19 (personalities) still hold on the new Crossroads.

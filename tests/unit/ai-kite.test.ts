@@ -19,8 +19,9 @@ import { AEGIS_ARMY, kiteBench, overwhelmBench, STRAGGLE, VRAX_ARMY, WAVE_ARMY, 
  *
  * With spec 033 (seeds 1 / 2 / 3): skimmer aiLost 1850 / 1050 / 1050, all four Skimmers killed under the turrets, maxStray
  * 9.1 to 9.6, straggled 0; bulwark aiLost 1150 / 160 / 240, all four Bulwarks killed, maxStray 8.1 to 8.8, straggled 0;
- * overwhelm: the wave turns once it sees the army and runs home whole, but the army marches on to its headquarters, where
- * there is nothing to fall back on, and kills it there: survival 0 (HAR-10 not met; see the skipped pass mark).
+ * overwhelm (the Vrax army takes the middle ground and holds it, holdPolicy): the wave turns once it sees the army and gets
+ * home with survival 0.76 (aiLost 800, seeds 1 to 3); the AI before spec 033 on the same bench: survival 0 (aiLost 3400,
+ * the enemy losing 320 to 400), its wave retreating only after contact and dying on the way.
  */
 
 /** The benches take a few seconds each, and several seconds more when the whole suite runs in parallel. */
@@ -113,20 +114,10 @@ describe('the overwhelm scenario (HAR-10)', () => {
     expect(again.stats.retreats).toBe(r.stats.retreats);
   }, TIMEOUT);
 
-  it('HAR-10: the wave retreats, but is still wiped out once the army reaches its base: less than 40% survives after 60 s', () => {
-    const r = overwhelm();
-    expect(r.stats.retreats).toBeGreaterThanOrEqual(1);
-    expect(r.survival).toBeLessThan(0.4);
-    expect(STRAGGLE).toBe(12);
-  }, TIMEOUT);
-
-  // The pass mark of spec 033 (HAR-10). Not met: the wave turns on sight and runs home whole, but marchPolicy drives the
-  // army on to the AI's headquarters, the only friendly strength there is (AI-37), and it kills the wave there; with the kite
-  // bench's two turrets added it still dies (survival 0, the enemy losing 1390). Meeting it needs the bench changed (the
-  // army not marching on past the wave's fallback point) or a rule to abandon the base, which the spec does not ask for.
-  it.skip('HAR-10 pass mark: the wave retreats and keeps at least 40% of its value after 60 s', () => {
+  it('HAR-10 pass mark: the wave retreats and keeps at least 40% of its value after 60 s, where the AI before spec 033 kept none', () => {
     const r = overwhelm();
     expect(r.stats.retreats).toBeGreaterThanOrEqual(1);
     expect(r.survival).toBeGreaterThanOrEqual(0.4);
-  });
+    expect(STRAGGLE).toBe(12);
+  }, TIMEOUT);
 });

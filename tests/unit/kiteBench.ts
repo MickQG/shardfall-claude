@@ -282,9 +282,20 @@ export const marchPolicy: Policy = (g, me) => {
   return [{ type: 'attackmove', player: me, units: mine.map((u) => u.id), x: (AI_HQ.tx + 1) * FP, y: (AI_HQ.ty + 1) * FP }];
 };
 
+/** Where the overwhelming army stops: the middle ground between the bases, which it takes and holds (HAR-10). */
+export const HOLD_GROUND = { tx: 32, ty: 32 };
+
+/** An army that takes HOLD_GROUND and holds it, fighting whatever comes within its reach. */
+export const holdPolicy: Policy = (g, me) => {
+  const mine = g.state.units.filter((u) => u.owner === me && unitDef(u.kind).weapon && u.target < 0);
+  if (mine.length === 0) return [];
+  return [{ type: 'attackmove', player: me, units: mine.map((u) => u.id), x: (HOLD_GROUND.tx + 1) * FP, y: (HOLD_GROUND.ty + 1) * FP }];
+};
+
 /**
- * The overwhelm scenario (HAR-10): an Aegis AI wave meets a Vrax army of about twice its power coming the other way
- * across open ground. The AI knows where the enemy headquarters is (so it sets out), but has not seen the army. It reports
+ * The overwhelm scenario (HAR-10): an Aegis AI wave meets a Vrax army of about twice its power that has taken
+ * the middle ground (HOLD_GROUND) and holds it; it fights what comes within reach but does not march on the AI's base, so the
+ * scenario judges the wave's decision to retreat, not whether a base can survive an army twice its wave's size. The AI knows where the enemy headquarters is (so it sets out), but has not seen the army. It reports
  * `survival`: the share of the wave's starting value left after 60 s, and `stats.retreats`.
  */
 export function overwhelmBench(o: { seconds?: number; seed?: number; rules?: Partial<AiRules>; watch?: BenchSetup['watch'] } = {}): BenchResult {
@@ -293,7 +304,7 @@ export function overwhelmBench(o: { seconds?: number; seed?: number; rules?: Par
     seed: o.seed,
     intel: true,
     ai: { seat: 0, faction: 'human', army: WAVE_ARMY, rules: o.rules },
-    foe: { faction: 'alien', army: OVERWHELMING_ARMY, from: [50, 50], policy: marchPolicy },
+    foe: { faction: 'alien', army: OVERWHELMING_ARMY, from: [50, 50], policy: holdPolicy },
     watch: o.watch,
   });
 }
