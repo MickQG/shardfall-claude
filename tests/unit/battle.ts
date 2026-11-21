@@ -16,6 +16,9 @@ export interface Result {
   bLost: number;
   /** Squads run over by a crusher (BAL-1). */
   crushed: number;
+  /** Credits of full cost each side lost (HAR-8): the cost of every unit of it that died, however hurt the survivors are. */
+  aCostLost: number;
+  bCostLost: number;
 }
 
 /**
@@ -35,6 +38,7 @@ export function battle(a: Army, b: Army, seat: 0 | 1, micro = false): Result {
   submit(g, { type: 'attackmove', player: 0, units: ids(0), x: 44 * FP, y: 22 * FP });
   submit(g, { type: 'attackmove', player: 1, units: ids(1), x: 4 * FP, y: 22 * FP });
   let crushed = 0;
+  const costLost = [0, 0];
   for (let t = 0; t < 20 * 180 && ids(0).length && ids(1).length; t++) {
     if (micro && t % 10 === 0) {
       for (const p of [0, 1]) {
@@ -43,12 +47,16 @@ export function battle(a: Army, b: Army, seat: 0 | 1, micro = false): Result {
       }
     }
     tick(g);
-    for (const e of g.state.events) if (e.t === 'die' && e.crushed) crushed++;
+    for (const e of g.state.events) {
+      if (e.t !== 'die') continue;
+      if (e.crushed) crushed++;
+      costLost[e.owner] = (costLost[e.owner] as number) + unitDef(e.kind).cost;
+    }
   }
   const value = (p: number): number => g.state.units.filter((u) => u.owner === p).reduce((s, u) => s + (unitDef(u.kind).cost * u.hp) / unitDef(u.kind).hp, 0);
   const va = value(seat);
   const vb = value(1 - seat);
-  return { margin: (100 * (va - vb)) / ((cost(a) + cost(b)) / 2), aLost: 100 * (1 - va / cost(a)), bLost: 100 * (1 - vb / cost(b)), crushed };
+  return { margin: (100 * (va - vb)) / ((cost(a) + cost(b)) / 2), aLost: 100 * (1 - va / cost(a)), bLost: 100 * (1 - vb / cost(b)), crushed, aCostLost: costLost[seat] as number, bCostLost: costLost[1 - seat] as number };
 }
 
 /** Results over two army sizes, fought from both seats. */

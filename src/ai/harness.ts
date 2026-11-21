@@ -82,8 +82,23 @@ export interface MatchResult {
   watch: [ScoutWatch, ScoutWatch];
   /** How each player's economy and production grew (AI-22): read off the game state, which the harness may see. */
   economy: [EconomyLog, EconomyLog];
+  /** Value traded (HAR-8): what each side lost, and so what it destroyed of the other's. */
+  traded: [Traded, Traded];
   /** Both players' stock (AI-22) at the first attack a steamroll opponent (HAR-5) launched, or null if none did. */
   atLaunch: { tick: number; by: number; at: [EconomyAt, EconomyAt]; army: [ArmyAt, ArmyAt] } | null;
+}
+
+/**
+ * One player's trade over a match (HAR-8): the full cost (credits) of the units and buildings of its that died, and of the
+ * enemy's that it destroyed. Every unit counts (haulers and scouts too), a building sold or never finished does not.
+ */
+export interface Traded {
+  lostUnits: number;
+  lostBuildings: number;
+  /** lostUnits + lostBuildings. */
+  lost: number;
+  /** Cost of the other player's units and buildings that died (the other's `lost`). */
+  destroyed: number;
 }
 
 /** One player's army at the steamroll opponent's first attack (AI-23), read from the true state. */
@@ -168,6 +183,8 @@ export function playMatch(o: MatchOptions): MatchResult {
   // Armed units alive at the last look, by id, with owner and cost; their cost is counted lost when they are gone (AI-23).
   const alive = new Map<number, { owner: number; cost: number }>();
   const lost = [0, 0];
+  const tradeUnits = [0, 0];
+  const tradeBuildings = [0, 0];
   const sweep = (): void => {
     const now = new Set<number>();
     for (const u of s.units) {
@@ -272,6 +289,12 @@ export function playMatch(o: MatchOptions): MatchResult {
       }
     }
     tick(game);
+    for (const e of s.events) {
+      if (e.t !== 'die') continue;
+      const d = UNIT_DEFS[e.kind];
+      if (d) tradeUnits[e.owner] = (tradeUnits[e.owner] as number) + d.cost;
+      else tradeBuildings[e.owner] = (tradeBuildings[e.owner] as number) + buildingDef(e.kind).cost;
+    }
     if (s.tick % 10 !== 0) continue;
     if (atLaunch === null) sweep();
 
@@ -369,7 +392,11 @@ export function playMatch(o: MatchOptions): MatchResult {
     (viol[p] as Violations).lone = (ais[p] as AI).stats.lone;
   }
   const watched = watch.map((w): ScoutWatch => ({ samples: w.samples, coverage: w.counted > 0 ? w.covered / w.counted : 0, alive: w.samples > 0 ? w.alive / w.samples : 0 })) as [ScoutWatch, ScoutWatch];
-  return { winner, reason, ticks: s.tick, material: m, hash: hash(game), violations: viol, ai: [ais[0].stats, ais[1].stats], peak, orders, watch: watched, economy, atLaunch };
+  const traded = [0, 1].map((p): Traded => {
+    const own = (tradeUnits[p] as number) + (tradeBuildings[p] as number);
+    return { lostUnits: tradeUnits[p] as number, lostBuildings: tradeBuildings[p] as number, lost: own, destroyed: (tradeUnits[1 - p] as number) + (tradeBuildings[1 - p] as number) };
+  }) as [Traded, Traded];
+  return { winner, reason, ticks: s.tick, material: m, hash: hash(game), violations: viol, ai: [ais[0].stats, ais[1].stats], peak, orders, watch: watched, economy, traded, atLaunch };
 }
 
 /** Shared by tests and the CLI: sum of every violation counter. */
