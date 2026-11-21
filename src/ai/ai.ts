@@ -609,6 +609,8 @@ export interface AiStats {
   fightingRetreats: number;
   /** Answers to harassers (AI-40): chasing with the units that can catch them, pushing as one body, falling back. */
   harassResponses: { chase: number; push: number; fallBack: number; hold: number };
+  /** Doomsday's strikes and what its wave did after them (AI-15), for measuring. */
+  strikeNotes: string[];
   /** Groups of its standing units that answered an attack (AI-34): by counter-attacking together, and by retreating. */
   counters: number;
   withdrawals: number;
@@ -805,7 +807,7 @@ type Ctx = {
 export class AI {
   readonly kit: Kit;
   protected readonly doctrine: Doctrine = FULL_DOCTRINE;
-  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, strikeGroups: 0, raiderScouts: 0, ballRaids: 0, counters: 0, withdrawals: 0, regroups: 0, fightingRetreats: 0, harassResponses: { chase: 0, push: 0, fallBack: 0, hold: 0 } };
+  readonly stats: AiStats = { waves: 0, retreats: 0, suicides: 0, lone: 0, scoutedAt: -1, defends: 0, superweaponShots: 0, firstWaveAt: -1, earlyWaves: 0, economyWaves: 0, superweaponAt: -1, strikeAt: -1, strikeArrival: -1, labAt: -1, produced: { inf: 0, at: 0, tank: 0, art: 0, air: 0, scout: 0, hero: 0 }, superweaponOrder: null, scoutsLost: 0, scoutLifetimes: [], scoutingSince: [], intelThinks: 0, intelFresh: 0, standingLives: [], standingSince: -1, approaches: { straight: 0, left: 0, right: 0 }, approachLog: [], splitRaids: 0, strikeGroups: 0, raiderScouts: 0, ballRaids: 0, counters: 0, withdrawals: 0, regroups: 0, fightingRetreats: 0, harassResponses: { chase: 0, push: 0, fallBack: 0, hold: 0 }, strikeNotes: [] };
   /** Its Field Menders (AI-29): loading, following, fallback and unloading. */
   protected readonly menders: MenderPlan;
   /** Raider or Doomsday has abandoned its plan and plays as Balanced (AI-16). */
@@ -815,6 +817,7 @@ export class AI {
   private chargedAt = -1;
   private strike: { tx: number; ty: number } | null = null;
   private lastStrike = -1;
+  private strikeNoted = false;
   /** Orders that must not be cut by the command budget this tick. */
   private first: Command[] = [];
   private intel = new Map<number, Remembered>();
@@ -2558,6 +2561,7 @@ export class AI {
       const committed = this.plan === 'doomsday' && (c.buildings.some((b) => buildingDef(b.kind).superweapon && b.charge >= 100) || (this.lastStrike >= 0 && c.tick - this.lastStrike < STRIKE_COMMIT));
       // The wave is the units that set out together (AI-11) and the reinforcements that joined it; others wait.
       const end = this.driveGroup(c, w, drive, free.filter((u) => !w.members.has(u.id)), committed);
+      if (end !== null && this.lastStrike >= 0 && c.tick - this.lastStrike < 800 && this.stats.strikeNotes.length < 12) this.stats.strikeNotes.push(`E${c.tick - this.lastStrike}:${end}:${c.army.filter((u) => w.members.has(u.id)).length}`);
       if (end !== null) {
         this.wave = null;
         this.lastWaveEnd = c.tick;
@@ -3774,6 +3778,11 @@ export class AI {
     // How soon after the first strike its army (three units or more) reached the struck area (AI-15).
     const struck = this.strike;
     if (struck && this.stats.strikeArrival < 0 && c.army.filter((u) => dist(u.x / FP, u.y / FP, struck.tx, struck.ty) <= 8).length >= 3) this.stats.strikeArrival = c.tick - this.stats.strikeAt;
+    if (struck && this.stats.strikeArrival < 0 && c.tick - this.stats.strikeAt >= 200 && !this.strikeNoted) {
+      this.strikeNoted = true;
+      const ds = c.army.map((u) => dist(u.x / FP, u.y / FP, struck.tx, struck.ty)).sort((a, b) => a - b);
+      this.stats.strikeNotes.push(`A:wave${w ? members.length : '-'}:d3=${(ds[2] ?? -1).toFixed(0)}:army${c.army.length}:retr${this.retreats.length}`);
+    }
     const sw = c.buildings.find((b) => buildingDef(b.kind).superweapon && b.charge >= 100);
     if (!sw) return;
     let best: { tx: number; ty: number } | null = null;
@@ -3793,6 +3802,7 @@ export class AI {
     }
     best ??= this.bestStrike(c, sw, null);
     if (!best) return;
+    if (this.plan === 'doomsday' && this.stats.strikeNotes.length < 12) this.stats.strikeNotes.push(`S${c.tick}:wave${members.length}:d${mid ? dist(mid.x, mid.y, best.tx, best.ty).toFixed(0) : '-'}:w${w ? `${w.tx},${w.ty}` : '-'}:b${best.tx},${best.ty}:held${c.tick - this.chargedAt}`);
     this.stats.superweaponShots++;
     this.chargedAt = -1;
     this.lastStrike = c.tick;

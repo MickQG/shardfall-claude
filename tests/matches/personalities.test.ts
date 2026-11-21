@@ -3,6 +3,7 @@ import { SUPERWEAPON_ARMY, SUPERWEAPON_HAULERS, type Personality } from '../../s
 import { DIFFICULTIES, printTally } from './levels';
 import type { MatchResult } from '../../src/ai/harness';
 import { playMatches } from './pool';
+import { mapIdOf } from '../../src/data/maps';
 import { aiRules, rulesLine } from './aiRules';
 
 /**
@@ -37,7 +38,7 @@ function series(p: Personality): Promise<MatchResult[]> {
   const key = p;
   const hit = cache.get(key);
   if (hit) return hit;
-  const rs = playMatches(SIDES.map(([seed, f]) => ({ seed, factions: [f[0], f[1]], difficulties: [DIFFICULTIES.medium, DIFFICULTIES.medium], maxTicks: SERIES_TICKS[p], personalities: [p, 'balanced'] as [Personality, Personality], rules: aiRules() })));
+  const rs = playMatches(SIDES.map(([seed, f]) => ({ seed, factions: [f[0], f[1]], difficulties: [DIFFICULTIES.medium, DIFFICULTIES.medium], maxTicks: SERIES_TICKS[p], map: mapIdOf(process.env['MATCH_MAP']), personalities: [p, 'balanced'] as [Personality, Personality], rules: aiRules() })));
   cache.set(key, rs);
   return rs;
 }
@@ -71,7 +72,7 @@ describe('AI personalities in full matches', () => {
     const strikes = d.filter((m) => m.ai[0].strikeAt >= 0).length;
     await printTally([
       `AI-15: Doomsday ${d.filter((m) => m.winner === 0).length} - Balanced ${d.filter((m) => m.winner === 1).length}, ${d.filter((m) => m.winner === null).length} undecided of ${d.length}; strikes in ${strikes} games; games ${d.map((m, i) => `${SIDES[i]![0]}${SIDES[i]![1][0][0]}:${m.winner === 0 ? 'D' : m.winner === 1 ? 'B' : '-'}`).join(' ')}; tech share ${share(d).toFixed(3)} vs ${share(b).toFixed(3)}; ${rulesLine()}`,
-      ...d.map((m, i) => `game ${i}: winner ${String(m.winner)} at ${m.ticks}; Doomsday produced ${JSON.stringify(m.ai[0].produced)}, Balanced ${JSON.stringify(m.ai[1].produced)}; lab ${m.ai[0].labAt}/${b[i]!.ai[0].labAt}; superweapon order ${JSON.stringify(m.ai[0].superweaponOrder)} built ${m.ai[0].superweaponAt} strike ${m.ai[0].strikeAt} arrival ${m.ai[0].strikeArrival} shots ${m.ai[0].superweaponShots}; waves ${m.ai[0].waves}/${m.ai[1].waves} retreats ${m.ai[0].retreats}/${m.ai[1].retreats}; peak haulers ${m.peak.haulers.join('/')} army ${m.peak.armyValue.join('/')}; lost ${m.traded[0].lost}/${m.traded[1].lost}`),
+      ...d.map((m, i) => `game ${i}: winner ${String(m.winner)} at ${m.ticks}; Doomsday produced ${JSON.stringify(m.ai[0].produced)}, Balanced ${JSON.stringify(m.ai[1].produced)}; lab ${m.ai[0].labAt}/${b[i]!.ai[0].labAt}; superweapon order ${JSON.stringify(m.ai[0].superweaponOrder)} built ${m.ai[0].superweaponAt} strike ${m.ai[0].strikeAt} arrival ${m.ai[0].strikeArrival} shots ${m.ai[0].superweaponShots}; waves ${m.ai[0].waves}/${m.ai[1].waves} retreats ${m.ai[0].retreats}/${m.ai[1].retreats}; peak haulers ${m.peak.haulers.join('/')} army ${m.peak.armyValue.join('/')}; lost ${m.traded[0].lost}/${m.traded[1].lost}; notes ${m.ai[0].strikeNotes.join(' ')}`),
     ]);
     d.forEach((m, i) => {
       // Its lab before Balanced's, in every game.
