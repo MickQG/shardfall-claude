@@ -1705,7 +1705,7 @@ export class AI {
           : chooseUnitKind(mix.filter((k) => k !== this.kit.hauler && !unitDef(k).hero && !unitDef(k).repair && k !== scoutKind), counts, intel, tilt);
       const pick: string | null = this.doctrine.pick
         ? this.doctrine.pick(b.kind, allowed.filter((k) => !unitDef(k).repair || k === mender), haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore))
-        : b.kind === this.kit.factory && haulerWanted > 0 && allowed.includes(this.kit.hauler)
+        : b.kind === this.kit.factory && haulerWanted - ((queued.get(this.kit.hauler) ?? 0) - queuedBefore) > 0 && allowed.includes(this.kit.hauler)
           ? this.kit.hauler
           : (scout ??
             hero ??
