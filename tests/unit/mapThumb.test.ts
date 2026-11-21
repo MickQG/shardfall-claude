@@ -14,7 +14,7 @@ describe('map thumbnails', () => {
         for (let i = 0; i < m.width * m.height; i++) if (at(i).every((v, k) => v === c[k])) n++;
         return n;
       };
-      expect(count(THUMB.ground)).toBeGreaterThan(m.width * m.height * 0.5);
+      expect(count(THUMB.ground)).toBeGreaterThan(m.width * m.height * 0.4);
       expect(count(THUMB.shards)).toBeGreaterThan(20);
       expect(count(THUMB.water)).toBeGreaterThan(10);
       expect(count(THUMB.rock1) + count(THUMB.rock2)).toBeGreaterThan(20);

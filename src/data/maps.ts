@@ -13,26 +13,40 @@ const HOME_FIELDS: Field[] = [
 ];
 
 /**
- * Crossroads: rock outcrops funnel the armies through chokepoints; a pond on each base's outer flank (cover at its back,
- * clear of its exits) and lakes beside the mid-map routes that narrow them without closing them (MAP-3).
+ * A chain of overlapping round outcrops along a diagonal ridge: the line x - y = `across` (waving by up to `wave` tiles),
+ * from x + y = `from` to `to`. Every ridge is mirrored through the map centre by buildMap, so a chain on one side of the
+ * road between the bases gets its twin on the other.
+ */
+function diagonalWall(across: number, from: number, to: number, wave: number): Blob[] {
+  const out: Blob[] = [];
+  for (let along = from; along <= to; along += 2) {
+    // The wave is even about the map centre (along = 95), so a ridge and its mirror image are the same shape.
+    const a = across + Math.sign(across) * wave * Math.cos((along - (MAP_SIZE - 1)) * 0.17);
+    out.push({ cx: Math.round((along + a) / 2), cy: Math.round((along - a) / 2), rx: 1, ry: 1 });
+  }
+  return out;
+}
+
+/**
+ * Crossroads (MAP-10): flat open ground between the bases, split into three lanes by two rock walls (x - y = +-18) with
+ * a lake on each flank beyond them (x - y past +-30). The middle lane runs along the road between the bases through a
+ * massive centre field; a narrower side lane on each flank is the way to flank or harass. Each base has a natural field
+ * where its side lane starts. A pond on each base's outer flank keeps its back covered, clear of its exits (MAP-3).
  */
 const CROSSROADS: MapPlan = {
-  rocks: [
-    { cx: 30, cy: 18, rx: 5, ry: 2 },
-    { cx: 18, cy: 32, rx: 2, ry: 5 },
-    { cx: 38, cy: 34, rx: 4, ry: 3 },
-    { cx: 28, cy: 50, rx: 3, ry: 6 },
-    { cx: 46, cy: 22, rx: 2, ry: 3 },
-    { cx: 58, cy: 40, rx: 3, ry: 2 },
-  ],
+  rocks: [...diagonalWall(-18, 62, 94, 1), ...diagonalWall(18, 62, 94, 1)],
   lakes: [
     { cx: 5, cy: 34, rx: 2, ry: 4 },
     { cx: 36, cy: 4, rx: 4, ry: 2 },
-    { cx: 15, cy: 52, rx: 3, ry: 3 },
-    { cx: 60, cy: 25, rx: 3, ry: 3 },
   ],
-  fields: [...HOME_FIELDS, { cx: 34, cy: 64, r: 2, amount: 3500 }],
-  centre: { r: 3.6, amount: 5000 },
+  fields: [...HOME_FIELDS, { cx: 37, cy: 13, r: 2, amount: 3000 }],
+  centre: { r: 5, amount: 5000 },
+  // The flank lakes: beyond the side lanes, across the mid-map. Even in the side and about the map centre along the road,
+  // so the shape is its own mirror image.
+  water: (x, y) => {
+    // Its ends are cut square to the grid, not to a point.
+    return Math.abs(x - y) > 30 && Math.max(x, y) > 44 && Math.min(x, y) < 51;
+  },
 };
 
 /**
@@ -120,7 +134,7 @@ export type MapId = HandMadeMapId | 'generated';
 
 /** The skirmish maps in menu order; the first is the default (MAP-4). */
 export const MAPS: readonly { id: HandMadeMapId; name: string; blurb: string; plan: MapPlan }[] = [
-  { id: 'crossroads', name: 'Crossroads', blurb: 'Rock outcrops and lakes funnel the fight through chokepoints.', plan: CROSSROADS },
+  { id: 'crossroads', name: 'Crossroads', blurb: 'A huge centre field in a wide middle lane, with a narrow side lane on each flank.', plan: CROSSROADS },
   { id: 'riverbed', name: 'Riverbed', blurb: 'A river between the bases: hold the bridge and the two fords.', plan: RIVERBED },
   { id: 'highlands', name: 'Highlands', blurb: 'A ring of ridges around a rich basin, entered by its passes and corner gaps.', plan: HIGHLANDS },
 ];

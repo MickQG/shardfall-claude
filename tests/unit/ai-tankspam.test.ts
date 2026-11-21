@@ -192,8 +192,9 @@ describe('the tank-spam opponent (HAR-7)', () => {
     expect(kiteOrders(1, [tank, at(2, 0, 'ali_skitter', 41.5, 40.5)], CFG.map)).toHaveLength(0);
     expect(kiteOrders(1, [tank, at(2, 0, 'ali_skimmer', 42.5, 40.5)], CFG.map)).toHaveLength(0);
     // At most KITE_ORDERS, the nearest threats first.
-    const many = [...Array(8)].map((_, i) => at(10 + i, 1, 'hum_tank', 10.5 + 10 * i, 60.5));
-    const brutes = many.map((t, i) => at(30 + i, 0, 'ali_brute', t.x / FP + 1 + 0.2 * i, 60.5));
+    // On the road between the bases (open ground right along it on Crossroads, MAP-10).
+    const many = [...Array(8)].map((_, i) => at(10 + i, 1, 'hum_tank', 12.5 + 11 * i, 12.5 + 11 * i));
+    const brutes = many.map((t, i) => at(30 + i, 0, 'ali_brute', t.x / FP + 1 + 0.2 * i, t.y / FP));
     const all = kiteOrders(1, [...many, ...brutes], CFG.map);
     expect(all).toHaveLength(KITE_ORDERS);
     expect(all.map((c) => (c.type === 'move' ? c.units[0] : -1)).slice(0, 4)).toEqual([10, 11, 12, 13]);
