@@ -3002,7 +3002,7 @@ export class AI {
     if (committed) this.formations = this.formations.filter((f) => !f.ids.some((id) => g.members.has(id)));
     const foe = ordinary && !strung && !committed ? this.enemyFocus(c, cx, cy) : null;
     const fd = foe ? dist(cx, cy, foe.x, foe.y) : 0;
-    if (!foe || !this.formUp(c, moving, toward({ x: cx, y: cy }, foe, Math.min(WAVE_HOP, Math.max(0, fd - CONCAVE_STANDOFF))), foe, 'attackmove', WAVE_STEP)) order('attackmove', moving, cx + (aim.tx - cx) * k, cy + (aim.ty - cy) * k);
+    if (!foe || true || !this.formUp(c, moving, toward({ x: cx, y: cy }, foe, Math.min(WAVE_HOP, Math.max(0, fd - CONCAVE_STANDOFF))), foe, 'attackmove', WAVE_STEP)) order('attackmove', moving, cx + (aim.tx - cx) * k, cy + (aim.ty - cy) * k);
     // Reinforcements still on their way go by the approach point (AI-26).
     if (g.via && g.trail.size > 0) order('attackmove', members.filter((u) => g.trail.has(u.id) && u.dest === null), g.via.tx, g.via.ty);
     if (pool === null) return null;
