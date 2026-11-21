@@ -52,7 +52,7 @@ const CROSSROADS: MapPlan = {
   ],
   // Beyond the home fields, the middle: a forward field on the road halfway to the centre (the mirror gives the other
   // base its own), and the centre field.
-  fields: [...HOME_FIELDS, { cx: 38, cy: 38, r: 3, amount: 3000 }],
+  fields: [...HOME_FIELDS, { cx: 32, cy: 32, r: 3, amount: 3000 }],
   centre: { r: 6, amount: 4500 },
   water: (x, y) => {
     // The corner lakes past the side lanes. The shore waves a little, so it is not a straight staircase; the wave is even
