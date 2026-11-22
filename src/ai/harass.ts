@@ -57,24 +57,20 @@ export const effectiveSpeed = (kind: string): number => (unitDef(kind).firesMovi
  * from the nearest of the AI's armed units than at the previous decision moved away while firing.
  */
 export class KiteWatch {
-  private last = new Map<number, { x: number; y: number }>();
+  private last = new Map<number, number>();
   private kitedAt = new Map<number, number>();
 
   /** Record one decision: the enemy units it sees and its own armed units (fixed point). */
   see(tick: number, foes: readonly Seen[], own: readonly { x: number; y: number }[]): void {
-    const now = new Map<number, { x: number; y: number }>();
-    const nearest = (x: number, y: number): number => {
-      let d = Infinity;
-      for (const u of own) d = Math.min(d, Math.hypot(u.x - x, u.y - y));
-      return d;
-    };
+    const now = new Map<number, number>();
     for (const f of foes) {
       if (!unitDef(f.kind).weapon) continue;
-      now.set(f.id, { x: f.x, y: f.y });
+      let d = Infinity;
+      for (const u of own) d = Math.min(d, Math.hypot(u.x - f.x, u.y - f.y));
+      if (d === Infinity) continue;
+      now.set(f.id, d);
       const was = this.last.get(f.id);
-      if (was === undefined || f.target < 0 || own.length === 0) continue;
-      // Its own move took it away from the AI's units where they stand now: the AI backing off is no kiting.
-      if (nearest(f.x, f.y) > nearest(was.x, was.y) + FP / 16) this.kitedAt.set(f.id, tick);
+      if (was !== undefined && f.target >= 0 && d > was + FP / 16) this.kitedAt.set(f.id, tick);
     }
     this.last = now;
     for (const [id, t] of this.kitedAt) if (tick - t > KITE_WINDOW) this.kitedAt.delete(id);
@@ -112,9 +108,7 @@ export function isHarasser(group: readonly Seen[], army: readonly Pos[], kited: 
   if (group.length === 0 || army.length === 0 || armyPower(group) >= armyPower(army)) return false;
   const main = mainUnits(army);
   const theirSpeed = Math.max(...group.map((f) => speed(f.kind)));
-  // Out-ranging marks a harasser only when it keeps its distance on purpose: it kited lately, or its main units fire on
-  // the move. An army that merely has the longer guns and stands its ground is no harasser.
-  if (outranges(group, army) && (group.some((f) => kited(f.id)) || mainUnits(group).every((f) => unitDef(f.kind).firesMoving))) return true;
+  if (outranges(group, army)) return true;
   return theirSpeed > Math.max(...main.map((u) => speed(u.kind))) && group.some((f) => kited(f.id));
 }
 
