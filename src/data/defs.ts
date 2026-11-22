@@ -225,6 +225,22 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   },
 };
 
+// EXPERIMENT: BAL_TUNE="kind.field:mult,..." scales unit numbers for balance sweeps (fields: hp, cost, speed, damage, cooldown, range).
+{
+  const spec = typeof process !== 'undefined' ? (process.env['BAL_TUNE'] ?? '') : '';
+  for (const part of spec.split(',').filter(Boolean)) {
+    const [key, mult] = part.split(':');
+    const [kind, field] = (key ?? '').split('.');
+    const d = (UNIT_DEFS as Record<string, UnitDef>)[kind ?? ''] as unknown as Record<string, unknown> | undefined;
+    const m = Number(mult);
+    if (!d || !field || !Number.isFinite(m)) throw new Error(`BAL_TUNE: bad part ${part}`);
+    const w = d['weapon'] as Record<string, number> | undefined;
+    if (field === 'damage' || field === 'cooldown') w![field] = Math.max(1, Math.round(w![field]! * m));
+    else if (field === 'range') w!['range'] = Math.round(w!['range']! * m * 10) / 10;
+    else d[field] = Math.max(1, Math.round((d[field] as number) * m));
+  }
+}
+
 export const unitDef = (kind: string): UnitDef => {
   const d = UNIT_DEFS[kind];
   if (!d) throw new Error(`unknown unit kind: ${kind}`);
