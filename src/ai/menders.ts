@@ -138,7 +138,8 @@ export class MenderPlan {
 
     // Follow (AI-29): Menders go to the middle of the tanks still fighting (or of the army without any), when far from it.
     const lead = tanks.filter((u) => !busy.has(u.id));
-    const group = lead.length > 0 ? lead : army.filter((u) => !busy.has(u.id));
+    const rest = army.filter((u) => !busy.has(u.id));
+    const group = rest.length > 0 ? rest : lead;
     if (group.length > 0) {
       const cx = group.reduce((s, u) => s + u.x, 0) / group.length;
       const cy = group.reduce((s, u) => s + u.y, 0) / group.length;
