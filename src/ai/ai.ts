@@ -3,7 +3,7 @@ import { BUILD_RANGE, canPlace, EXPLORED, FP, QUEUE_MAX, Rng, VISIBLE, type Buil
 import { CRAWL_FILLER_BANK, CRAWL_SAFE, CRAWL_SAFE_R, crawlTarget, HAULERS_IN_PRODUCTION, inReach, minedFields, RAMP_PER_REFINERY, SERVE_R, wantsCrawl, type MinedField } from './expand';
 import { kitOf, type Kit } from './kit';
 import { CONCAVE_R, ballStragglers, concaveSlots, middleOf, slotMoves, type FormUnit } from './formation';
-import { setCatchByEffectiveSpeed, HARASS_LEASH, HARASS_PATIENCE, HARASS_R, KiteWatch, harassAnswer, isHarasser, leashed, mainUnits, outranges, reachOf } from './harass';
+import { setCatchByEffectiveSpeed, setOutrangeNeedsKite, HARASS_LEASH, HARASS_PATIENCE, HARASS_R, KiteWatch, harassAnswer, isHarasser, leashed, mainUnits, outranges, reachOf } from './harass';
 import { isTank, MENDER_FALLBACK, MenderPlan, menderOf, mendersWanted } from './menders';
 import { RETREAT_ARRIVED, RETREAT_CLEAR_R, RETREAT_HOLD, chooseFallback, retreatStep, toward, RETREAT_HOP, type FallbackKind, type FightingRetreat } from './retreat';
 import { armyPower as powerOf, canOutrun, defencePower, edgeDist, FRESH_SIGHT, freshEnemyPower, isOverwhelmed, OVERWHELM_R, OVERWHELM_RATIO } from './strength';
@@ -709,6 +709,8 @@ export interface AiRules {
   xGatherIdle: boolean;
   xStuck: number;
   xRecall: boolean;
+  xCoverSkim: boolean;
+  xKiteOut: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -757,6 +759,8 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   xGatherIdle: false,
   xStuck: 1.5,
   xRecall: false,
+  xCoverSkim: false,
+  xKiteOut: false,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -968,6 +972,7 @@ export class AI {
     this.approachTurn = r.int(APPROACHES.length);
     this.rules = { ...DEFAULT_RULES, ...options.rules };
     setCatchByEffectiveSpeed(this.rules.xSpeed);
+    setOutrangeNeedsKite(this.rules.xKiteOut);
   }
 
   /** Decide this tick's orders from a fog-limited snapshot. */
@@ -1457,14 +1462,15 @@ export class AI {
       const near = this.armedNear(c, g.x, g.y, HARASS_R);
       const harasser = isHarasser(near, group, (id) => this.kites.kited(id, c.tick));
       // Guns that out-reach it and that it cannot catch are answered the same way whatever their strength (AI-40).
-      if (harasser || (this.rules.xCover && outranges(near, group))) {
+      const coverOk = this.rules.xCover && (!this.rules.xCoverSkim || mainUnits(near).every((u) => unitDef(u.kind).firesMoving));
+      if (harasser || (coverOk && !this.rules.xKiteOut && outranges(near, group))) {
         const foe = this.middle(near);
         const h = harassAnswer(group, near);
         if (h.mode === 'chase') return { mode: 'chase', chasers: h.chasers, to: leashed(home, foe, HARASS_LEASH), foe };
         // It cannot catch them: onto its defences at once, so they must come into the defences' reach to keep shooting.
         const spot = this.coverSpot(c, g, foe, Math.max(...near.map((f) => reachOf(f.kind))));
-        if (this.rules.xCover && spot && dist(g.x, g.y, spot.x, spot.y) <= COVER_R) return { mode: 'hold', to: spot, foe };
-        if (this.rules.xCover && spot) return { mode: 'retreat', to: { at: spot, kind: 'defence' }, run: true };
+        if (coverOk && spot && dist(g.x, g.y, spot.x, spot.y) <= COVER_R) return { mode: 'hold', to: spot, foe };
+        if (coverOk && spot) return { mode: 'retreat', to: { at: spot, kind: 'defence' }, run: true };
         // A pushing body's concave bulges ahead of its front row's middle: that stands a little short of the leash.
         if (harasser) return { mode: 'push', to: leashed(home, foe, HARASS_LEASH - 2), foe };
       }
@@ -2340,9 +2346,9 @@ export class AI {
     this.stats.defends++;
     const t = { x: cx / FP, y: cy / FP };
     const m = this.middle(units);
-    if (this.doctrine.retreats && this.rules.harass && this.rules.xCover) {
+    if (this.doctrine.retreats && this.rules.harass && this.rules.xCover && (!this.rules.xCoverSkim || mainUnits(threats).every((u) => unitDef(u.kind).firesMoving))) {
       // Harassers it cannot catch, or guns that out-reach it (AI-39, AI-40): it holds under its defences' cover.
-      const harassed = isHarasser(threats, units, (id) => this.kites.kited(id, c.tick)) || outranges(threats, units);
+      const harassed = isHarasser(threats, units, (id) => this.kites.kited(id, c.tick)) || (!this.rules.xKiteOut && outranges(threats, units));
       const answer = harassed ? harassAnswer(units, threats) : null;
       if (answer?.mode === 'chase') {
         // Only the units that can catch them go, no farther than HARASS_LEASH tiles (AI-40).
