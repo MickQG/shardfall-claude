@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FAST_SPEED, STRIKE_MIN, STRIKE_SHARE, STRIKE_WAVE_MIN, RAIDER_SCOUTS, SPLIT_APART, SPLIT_MIN, SPLIT_RATIO, chooseUnitKind, type AI, type Personality } from '../../src/ai/ai';
+import { DOOM_HOLD_MAX, FAST_SPEED, STRIKE_MIN, STRIKE_SHARE, STRIKE_WAVE_MIN, RAIDER_SCOUTS, SPLIT_APART, SPLIT_MIN, SPLIT_RATIO, chooseUnitKind, type AI, type Personality } from '../../src/ai/ai';
 import { SteamrollAI } from '../../src/ai/steamroll';
 import { unitDef } from '../../src/data/defs';
 import { type Command, type Game } from '../../src/sim';
@@ -200,7 +200,8 @@ describe('strike groups (AI-27)', () => {
     it('AI-27 (b): the fastest of its fast units, at most a tenth of the army and at least three, set out as a strike group at the economy target farthest from the wave; the wave and its strength do not count them', () => {
       expect([FAST_SPEED, STRIKE_SHARE]).toEqual([45, 0.1]);
       expect(unitDef('hum_buggy').speed).toBeGreaterThanOrEqual(FAST_SPEED);
-      for (const p of ['balanced', 'doomsday'] as const) {
+      // (Doomsday with this army holds it at home until its superweapon stands: AI-15.)
+      for (const p of ['balanced'] as const) {
         // Ten tanks (8 000) and six buggies in the army (1 500): a tenth is 950, room for three.
         const { g, who, fast } = beside(p, 7);
         expect(fast).toHaveLength(6);
@@ -218,6 +219,14 @@ describe('strike groups (AI-27)', () => {
         expect(wave!.peak).toBeCloseTo(value(g, wave!.members), 6);
         expect(who.waveState!.peak).toBeCloseTo(value(g, wave!.members), 6);
       }
+    }, LONG);
+
+    it('AI-15: Doomsday keeps its army at home to defend until its superweapon stands, unless that army is worth 15 000 or more', () => {
+      expect(DOOM_HOLD_MAX).toBe(15000);
+      // The same army that sets out for Balanced (9 500) stays home for Doomsday with no superweapon.
+      const { who } = beside('doomsday', 7);
+      expect(who.stats.waves).toBe(0);
+      expect(who.stats.strikeGroups).toBe(0);
     }, LONG);
 
     it('AI-27 (b): the strike group goes by the flank on the other side from the main wave\'s approach, or, when the wave goes straight, the flank on its target\'s side', () => {

@@ -22,7 +22,7 @@ export interface Difficulty {
 export const DIFFICULTIES: Readonly<Record<'easy' | 'medium' | 'hard', Difficulty>> = {
   easy: { name: 'easy', thinkEvery: 60, maxCommands: 2, bonus: -10 },
   medium: { name: 'medium', thinkEvery: 22, maxCommands: 8, bonus: 0 },
-  hard: { name: 'hard', thinkEvery: 8, maxCommands: 12, bonus: 15 },
+  hard: { name: 'hard', thinkEvery: 8, maxCommands: 12, bonus: 10 },
 };
 
 /**
@@ -641,7 +641,7 @@ export interface AiRules {
   artilleryCap: number;
   /** (AI-24) Its infantry squads scatter from enemy crushers. */
   scatter: boolean;
-  /** (AI-22, AI-15) Doomsday grows by factories alone, whenever every factory is busy; off: it grows as Balanced does. */
+  /** (AI-22, AI-15) Doomsday grows by factories alone, whenever every factory is busy (for measurement; off by default since spec 033: it grows as Balanced does). */
   doomGrowth: boolean;
   /** (AI-26) Main waves vary their approach; off: every wave goes straight. */
   approach: boolean;
@@ -701,7 +701,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   queueDepthRich: QUEUE_DEEP,
   artilleryCap: ARTILLERY_IN_PRODUCTION,
   scatter: true,
-  doomGrowth: true,
+  doomGrowth: false,
   approach: true,
   raidSplit: true,
   strikeGroup: true,

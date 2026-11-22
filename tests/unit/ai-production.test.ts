@@ -127,21 +127,21 @@ describe('production first (AI-22)', () => {
     expect(hqOrder(base({ barracks: 2, factories: 3, lab: true, busy: true, credits: 2000, attacked: true }))).toBe('hum_barracks');
   });
 
-  it('AI-22: Doomsday grows by factories alone, whenever every factory is busy, and idle barracks do not hold it back', () => {
-    const grown = (o: Base, rules?: Partial<AiRules>): string | null => hqOrder(base({ lab: true, turrets: 6, ...o }), 'doomsday', rules);
+  it('AI-22: with rules.doomGrowth on (for measurement) Doomsday grows by factories alone, whenever every factory is busy, and idle barracks do not hold it back; by default it grows as Balanced does', () => {
+    const grown = (o: Base, rules: Partial<AiRules> = { doomGrowth: true }): string | null => hqOrder(base({ lab: true, turrets: 6, ...o }), 'doomsday', rules);
     // Factories busy, barracks idle: another factory, up to five; never a third barracks.
     const idleBarracks = (o: Base): Game => {
       const g = base({ lab: true, turrets: 6, busy: true, ...o });
       for (const b of g.state.buildings) if (b.owner === 0 && b.kind === 'hum_barracks') b.queue.length = 0;
       return g;
     };
-    expect(hqOrder(idleBarracks({ barracks: 2, factories: 3, credits: 2000 }), 'doomsday')).toBe('hum_factory');
+    expect(hqOrder(idleBarracks({ barracks: 2, factories: 3, credits: 2000 }), 'doomsday', { doomGrowth: true })).toBe('hum_factory');
     expect(grown({ barracks: 2, factories: 4, busy: true, credits: 2000 })).toBe('hum_factory');
     expect(['hum_barracks', 'hum_factory']).not.toContain(grown({ barracks: 2, factories: 5, busy: true, credits: 2000 }));
     // Not with an idle factory, and not with 1 500 banked or less.
     expect(['hum_barracks', 'hum_factory']).not.toContain(grown({ barracks: 2, factories: 3, busy: false, credits: 2000 }));
     expect(['hum_barracks', 'hum_factory']).not.toContain(grown({ barracks: 2, factories: 3, busy: true, credits: 1500 }));
-    // Balanced with the same base takes a barracks; Doomsday with the rule off grows as Balanced does.
+    // Balanced with the same base takes a barracks; Doomsday with the rule off (the default) grows as Balanced does.
     expect(hqOrder(base({ lab: true, turrets: 6, barracks: 2, factories: 3, busy: true, credits: 2000 }))).toBe('hum_barracks');
     expect(grown({ barracks: 2, factories: 3, busy: true, credits: 2000 }, { doomGrowth: false })).toBe('hum_barracks');
   });
