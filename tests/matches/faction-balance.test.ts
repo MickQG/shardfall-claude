@@ -31,6 +31,16 @@ describe('faction balance in full matches', () => {
       if (side) wins[side]++;
     });
     const decided = wins.human + wins.alien;
+    const diag = results.map((r, i) => {
+      const g = games[i]!;
+      const side = (p: 0 | 1): string => {
+        const k = ((r.traded[p] as unknown as { kinds?: Record<string, number> }).kinds ?? {});
+        const prod = r.ai[p].produced;
+        return `${g.factions[p] === 'human' ? 'A' : 'V'}: lost ${Object.entries(k).sort((x, y) => y[1] - x[1]).map(([kk, n]) => `${kk.replace(/^(hum|ali)_/, '')}${n}`).join(' ')} | prod i${prod.inf} at${prod.at} t${prod.tank} ar${prod.art}`;
+      };
+      return `DIAG ${g.map} s${g.seed} winner ${r.winner === null ? '-' : g.factions[r.winner] === 'human' ? 'A' : 'V'} t${r.ticks} || ${side(0)} || ${side(1)}`;
+    });
+    process.stdout.write(diag.join(String.fromCharCode(10)) + String.fromCharCode(10));
     await printTally([`ROS-4: Aegis ${wins.human} - Vrax ${wins.alien}, ${results.length - decided} undecided of ${results.length} (FACTION_SEEDS=${env('FACTION_SEEDS') || '-'} MATCH_SHARD=${env('MATCH_SHARD') || '-'})`]);
     if (env('MATCH_SHARD')) return;
     expect(decided).toBeGreaterThanOrEqual(8);
