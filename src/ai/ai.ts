@@ -909,6 +909,8 @@ export class AI {
   private regroupAt: { tx: number; ty: number } | null = null;
   /** Its cover from harassers (AI-40): where its army gathers while they are about, and when it last saw one near there. */
   private cover: { tx: number; ty: number; seen: number } | null = null;
+  /** Where its cover was, once cover is over, until the units there are called back (AI-41). */
+  private coverLeft: { tx: number; ty: number } | null = null;
   /** When the base defence last fought a threat that was no harassment (AI-7): the leash does not hold it back then. */
   private fighting = -100000;
   /** When it last pulled stragglers back into the ball at the gathering point (AI-41). */
@@ -1376,7 +1378,11 @@ export class AI {
     const k = this.cover;
     if (!k) return null;
     if (this.armedNear(c, k.tx + 0.5, k.ty + 0.5, COVER_WATCH).length > 0) k.seen = c.tick;
-    if (c.tick - k.seen > COVER_CLEAR) this.cover = null;
+    if (c.tick - k.seen > COVER_CLEAR) {
+      // Cover over: the units it sent there are called back to the staging point once (AI-40, AI-41).
+      this.coverLeft = { tx: k.tx, ty: k.ty };
+      this.cover = null;
+    }
     return this.cover;
   }
 
@@ -2599,8 +2605,13 @@ export class AI {
     if (!threatened) {
       // Gather at the staging point (AI-11).
       // Units not already bound there (a unit keeps its last destination once it stands idle at it).
-      const away = free.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7 && (u.dest === null || dist(u.dest[0], u.dest[1], stage.tx, stage.ty) > 7) && u.target < 0);
-      if (away.length > 0 && c.tick % 3 === 0) order('attackmove', away, stage.tx, stage.ty);
+      const left = this.coverLeft;
+      // Idle units away from it, and the units its cover sent away once that cover is over (AI-41).
+      const away = free.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7 && (u.dest === null || (left !== null && u.target < 0 && dist(u.dest[0], u.dest[1], left.tx, left.ty) <= COVER_R + 1)));
+      if (away.length > 0 && c.tick % 3 === 0) {
+        order('attackmove', away, stage.tx, stage.ty);
+        this.coverLeft = null;
+      }
       // Those gathered hold a ball (AI-41): a straggler more than 4 + √n tiles from the group's centre comes back to it.
       if (ordinary && this.rules.formation && c.tick - this.lastBall >= WAVE_STEP) {
         const here = free.filter((u) => !away.includes(u) && dist(u.x / FP, u.y / FP, stage.tx + 0.5, stage.ty + 0.5) <= GATHER_R);
