@@ -19,7 +19,7 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
   - A unit's power is its cost scaled by its health as a share of its **real** maximum health. That maximum includes veterancy, so a ranked unit counts for more than a fresh one: each rank adds 10% to both its health and its damage (VET-2), so at full health it counts for its cost times (1 + 0.1 × rank) squared.
   - The enemy force near a group counts only enemy units seen in the last 10 game seconds (200 ticks), plus defence buildings at 1.5× their cost. The longer memory still feeds the attack decision and intel.
 - **AI-36**: An AI group is **overwhelmed** when the enemy power within 11 tiles of its centre is at least 1.5× its own power. Its own defence buildings within that radius count on its side.
-  - The test applies to waves and strike groups (amending AI-8 and AI-23), to standing units answering an attack (amending AI-34), and to the army pulled home by base defence (amending AI-7). A wave on the move also counts the enemy it has seen within 14 tiles ahead of it (toward where it is going), so it turns as soon as it sees the army that would overwhelm it, before contact; a strike group, which slips past armies to the economy, does not.
+  - The test applies to waves and strike groups (amending AI-8 and AI-23), to standing units answering an attack (amending AI-34), and to the army pulled home by base defence (amending AI-7).
   - An overwhelmed group retreats (AI-37) instead of fighting on. Base defence that is not overwhelmed still attacks as before.
   - Doomsday keeps its exemption while a charged superweapon strike is under way.
 
@@ -30,9 +30,9 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
   2. the nearest own defence buildings;
   3. the base.
 
-  How the army moves depends on whether it can outrun the enemy. It can outrun them when its slowest unit is faster than the fastest of the chasing enemy units that carry most of their power (light fast units alone are answered when they arrive).
+  How the army moves depends on whether it can outrun the enemy. It can outrun them when its slowest unit is faster than the fastest enemy unit chasing it.
   - **It can outrun them**: every unit runs to the fallback point at full speed with a plain move.
-  - **It can't**: until those pursuers come within their reach + 2 tiles of it, it still runs. Then the whole army makes a **fighting retreat** together. It falls back in hops of about 3 tiles. Between hops it turns into its concave (AI-42) and fires for about one second. With no enemy within reach after a hop it skips the hold and hops on, twice as far. It stops once it reaches friendly strength, or once no enemy has been within its reach + 2 tiles for 3 seconds.
+  - **It can't**: the whole army makes a **fighting retreat** together. It falls back in hops of about 3 tiles. Between hops it turns into its concave (AI-42) and fires for about one second. It stops once it reaches friendly strength, or once no enemy has been within its reach + 2 tiles for 3 seconds.
 - **AI-38**: A retreated army **regroups** at its fallback point, and the 1200-tick cooldown after a beaten wave is removed.
   - The retreated units and new reinforcements gather there as one army.
   - The next wave launches only when the normal attack test (AI-11 / AI-23) passes against an estimate no lower than the enemy strength that beat the last wave. That memory fades as the AI's intel ages.
@@ -43,14 +43,12 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
   - it out-ranges the units that make up most of that army's power (its longest gun reaches at least 1.5 tiles farther than theirs: one tile is no harassment);
   - it is faster than them and moved away from them while firing in the last 3 seconds (kiting).
 
-  An enemy group that out-ranges the army that way is answered as a harasser whatever its strength, since the army cannot hurt it by fighting on. Anything else is a real fight, judged by AI-36.
+  Anything else is a real fight, judged by AI-36.
 - **AI-40**: Under harassment the AI never sends single units chasing.
-  - **Chasing**: it chases only when its units that can **catch or reach** the harassers (as fast as the harassers' fastest really gets away, or with at least their longest range; a harasser that fires on the move counts its full speed, one that must stop to fire, CMB-4, counts 0.6 of it) have at least 1.5× the harassers' power. Only those units chase.
-  - **Otherwise, with defence buildings of its own**: a standing or gathering army (and the army pulled home by base defence) falls back at once behind its nearest defence, far enough that a harasser shooting at it from its full reach stands inside the defence's reach, and holds there in its concave; its army gathers there until no enemy has come within 20 tiles of it for 10 seconds. A harasser that wants to keep shooting must come into the defence's reach.
+  - **Chasing**: it chases only when its units that can **catch or reach** the harassers (as fast as the harassers' fastest, or with at least their longest range) have at least 1.5× the harassers' power. Only those units chase.
   - **Otherwise, if it is a standing army or a gathering army**: it tightens into its army ball or concave and advances **as one body** toward the harassers. It goes no further than 8 tiles from where it stood (`HARASS_LEASH`).
   - **Otherwise, if it is a wave**: it keeps advancing toward its target as one body.
   - **Falling back**: if the harassers are not pushed off within 10 seconds and the army is still losing value, it falls back out of their range onto friendly strength (AI-37).
-  - **Leash**: no unit of the standing army chases farther than `HARASS_LEASH` + 2 tiles from where the army belongs (its cover, its regroup point or its staging point); one that has is called back, unless the base defence is fighting a real attack.
   - This replaces AI-30's Brute-only rule; its `noChase` rule is retired in favour of this one.
 
 ## Army ball and concave
@@ -128,8 +126,6 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
 - **HAR-9**: **Kite scenario**: a harness bench where a scripted harasser kites an AI army on open ground. It has two variants:
   - Glare Skimmers firing from range 9 at an Aegis army;
   - Bulwark Tanks kiting a Vrax army, using HAR-7's `kiteOrders`.
-
-  The AI has what a Hard AI has by then: a power plant and two defences (Pulse Turrets or Spine Spires) a few tiles in front of its headquarters, toward the harassers. A unit out scouting is not counted as part of the army.
 
   It reports value traded and the farthest any AI unit strayed from its army's centre.
   - **Pass mark**: the AI loses less value than before this milestone in both variants, and no AI unit strays more than `HARASS_LEASH` + 4 tiles from its army's centre.
