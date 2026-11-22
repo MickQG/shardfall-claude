@@ -21,7 +21,7 @@ export interface Difficulty {
 
 export const DIFFICULTIES: Readonly<Record<'easy' | 'medium' | 'hard', Difficulty>> = {
   easy: { name: 'easy', thinkEvery: 60, maxCommands: 2, bonus: -10 },
-  medium: { name: 'medium', thinkEvery: 26, maxCommands: 7, bonus: 0 },
+  medium: { name: 'medium', thinkEvery: 22, maxCommands: 8, bonus: 0 },
   hard: { name: 'hard', thinkEvery: 8, maxCommands: 12, bonus: 15 },
 };
 
@@ -55,6 +55,8 @@ export const STRIKE_HOLD_MAX = 20 * 240;
 export const STRIKE_CLOSING = 3;
 /** Doomsday goes for its superweapon only with an army worth this much and this many haulers working (AI-15). */
 export const SUPERWEAPON_ARMY = 5000;
+/** Doomsday keeps its army home until its superweapon stands, unless the army is worth at least this much (AI-15). */
+export const DOOM_HOLD_MAX = 15000;
 export const SUPERWEAPON_HAULERS = 5;
 /** Doomsday sizes its rifle floor on enemy infantry seen within this many ticks (AI-15): "lately", not everything it has seen since the sight lingers (FOG-7). */
 export const RIFLE_INTEL = 20 * 30;
@@ -2477,6 +2479,8 @@ export class AI {
     }
 
     if (threatened || c.tick < this.waveCooldown) return;
+    // Doomsday builds up its army at home to defend until its superweapon stands, unless that army grows very big (AI-15).
+    if (this.plan === 'doomsday' && ordinary && !c.buildings.some((b) => buildingDef(b.kind).superweapon) && this.armyPower(free) < DOOM_HOLD_MAX) return;
     const p = inSquad.size > 0 ? this.armyPower(free) + riding : own;
     const raiding = this.plan === 'raider';
     const sw = c.buildings.find((b) => buildingDef(b.kind).superweapon && b.charge >= 100);
