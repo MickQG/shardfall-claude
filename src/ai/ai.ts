@@ -708,6 +708,7 @@ export interface AiRules {
   xGatherCover: boolean;
   xGatherIdle: boolean;
   xStuck: number;
+  xRecall: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -755,6 +756,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   xGatherCover: false,
   xGatherIdle: false,
   xStuck: 1.5,
+  xRecall: false,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -931,6 +933,7 @@ export class AI {
   private regroupAt: { tx: number; ty: number } | null = null;
   /** Its cover from harassers (AI-40): where its army gathers while they are about, and when it last saw one near there. */
   private cover: { tx: number; ty: number; seen: number } | null = null;
+  private coverLeft: { tx: number; ty: number } | null = null;
   /** When the base defence last fought a threat that was no harassment (AI-7): the leash does not hold it back then. */
   private fighting = -100000;
   /** When it last pulled stragglers back into the ball at the gathering point (AI-41). */
@@ -1399,7 +1402,10 @@ export class AI {
     const k = this.cover;
     if (!k) return null;
     if (this.armedNear(c, k.tx + 0.5, k.ty + 0.5, COVER_WATCH).length > 0) k.seen = c.tick;
-    if (c.tick - k.seen > COVER_CLEAR) this.cover = null;
+    if (c.tick - k.seen > COVER_CLEAR) {
+      if (this.rules.xRecall) this.coverLeft = { tx: k.tx, ty: k.ty };
+      this.cover = null;
+    }
     return this.cover;
   }
 
@@ -2628,8 +2634,14 @@ export class AI {
     if (!threatened) {
       // Gather at the staging point (AI-11).
       // Units not already bound there (a unit keeps its last destination once it stands idle at it).
-      const away = this.rules.xGatherIdle ? free.filter((u) => u.target < 0 && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7 && (u.dest === null || (dist(u.dest[0], u.dest[1], stage.tx, stage.ty) > 7 && dist(u.x / FP, u.y / FP, u.dest[0] + 0.5, u.dest[1] + 0.5) <= 1.5))) : this.rules.xGather || (this.rules.xGatherCover && this.cover !== null) ? free.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7 && (u.dest === null || dist(u.dest[0], u.dest[1], stage.tx, stage.ty) > 7) && u.target < 0) : free.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7);
-      if (away.length > 0 && c.tick % 3 === 0) order('attackmove', away, stage.tx, stage.ty);
+      const left = this.coverLeft;
+      const recalled = left ? free.filter((u) => u.target < 0 && u.dest !== null && dist(u.dest[0], u.dest[1], left.tx, left.ty) <= COVER_R + 1 && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7) : [];
+      const away0 = this.rules.xGatherIdle ? free.filter((u) => u.target < 0 && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7 && (u.dest === null || (dist(u.dest[0], u.dest[1], stage.tx, stage.ty) > 7 && dist(u.x / FP, u.y / FP, u.dest[0] + 0.5, u.dest[1] + 0.5) <= 1.5))) : this.rules.xGather || (this.rules.xGatherCover && this.cover !== null) ? free.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7 && (u.dest === null || dist(u.dest[0], u.dest[1], stage.tx, stage.ty) > 7) && u.target < 0) : free.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7);
+      const away = [...away0, ...recalled.filter((u) => !away0.includes(u))];
+      if (away.length > 0 && c.tick % 3 === 0) {
+        order('attackmove', away, stage.tx, stage.ty);
+        this.coverLeft = null;
+      }
       // Those gathered hold a ball (AI-41): a straggler more than 4 + √n tiles from the group's centre comes back to it.
       if (ordinary && this.rules.formation && c.tick - this.lastBall >= WAVE_STEP) {
         const here = free.filter((u) => !away.includes(u) && dist(u.x / FP, u.y / FP, stage.tx + 0.5, stage.ty + 0.5) <= GATHER_R);
