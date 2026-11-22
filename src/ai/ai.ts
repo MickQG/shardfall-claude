@@ -3,7 +3,7 @@ import { BUILD_RANGE, canPlace, EXPLORED, FP, QUEUE_MAX, Rng, VISIBLE, type Buil
 import { CRAWL_FILLER_BANK, CRAWL_SAFE, CRAWL_SAFE_R, crawlTarget, HAULERS_IN_PRODUCTION, inReach, minedFields, RAMP_PER_REFINERY, SERVE_R, wantsCrawl, type MinedField } from './expand';
 import { kitOf, type Kit } from './kit';
 import { CONCAVE_R, ballStragglers, concaveSlots, middleOf, slotMoves, type FormUnit } from './formation';
-import { HARASS_LEASH, HARASS_PATIENCE, HARASS_R, KiteWatch, harassAnswer, isHarasser, leashed, mainUnits, outranges, reachOf } from './harass';
+import { setCatchByEffectiveSpeed, HARASS_LEASH, HARASS_PATIENCE, HARASS_R, KiteWatch, harassAnswer, isHarasser, leashed, mainUnits, outranges, reachOf } from './harass';
 import { isTank, MENDER_FALLBACK, MenderPlan, menderOf, mendersWanted } from './menders';
 import { RETREAT_ARRIVED, RETREAT_CLEAR_R, RETREAT_HOLD, chooseFallback, retreatStep, toward, RETREAT_HOP, type FallbackKind, type FightingRetreat } from './retreat';
 import { armyPower as powerOf, canOutrun, defencePower, edgeDist, FRESH_SIGHT, freshEnemyPower, isOverwhelmed, OVERWHELM_R } from './strength';
@@ -697,6 +697,14 @@ export interface AiRules {
   groupResponse: boolean;
   /** (AI-43, AI-44) Ideal hauler counts per mined field and the building crawl to new fields; off: three haulers a refinery, at most eight, and a third refinery at most (AI-18). */
   expand: boolean;
+  xSpeed: boolean;
+  xCover: boolean;
+  xLeash: boolean;
+  xGather: boolean;
+  xFallback: boolean;
+  xChasers: boolean;
+  xSight: boolean;
+  xClose: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -733,6 +741,14 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   picketAlong: PICKET_ALONG,
   groupResponse: true,
   expand: true,
+  xSpeed: true,
+  xCover: true,
+  xLeash: true,
+  xGather: true,
+  xFallback: true,
+  xChasers: true,
+  xSight: true,
+  xClose: true,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -942,6 +958,7 @@ export class AI {
     // Where its turn through the approaches starts (AI-26): drawn after the jitter, so the jitter is what it was.
     this.approachTurn = r.int(APPROACHES.length);
     this.rules = { ...DEFAULT_RULES, ...options.rules };
+    setCatchByEffectiveSpeed(this.rules.xSpeed);
   }
 
   /** Decide this tick's orders from a fog-limited snapshot. */
@@ -1007,7 +1024,7 @@ export class AI {
     }
     this.attackLogic(c, out);
     c.army = whole;
-    this.leash(c, out);
+    if (this.rules.xLeash) this.leash(c, out);
     this.maintain(c, out);
     this.superweapon(c, out);
     // Crush orders go last so they override this tick's wave orders for the same units, and always get a share of the
@@ -1137,7 +1154,7 @@ export class AI {
         const d = buildingDef(b.kind);
         const bx = b.tx + d.w / 2;
         const by = b.ty + d.h / 2;
-        const from = enemy ?? { x: 2 * bx - this.centre.x, y: 2 * by - this.centre.y };
+        const from = (this.rules.xFallback ? enemy : null) ?? { x: 2 * bx - this.centre.x, y: 2 * by - this.centre.y };
         const l = dist(bx, by, from.x, from.y) || 1;
         const back = Math.max(DEFENCE_BEHIND, (o.reach ?? 0) - (d.weapon?.range ?? 0) + HARASS_BEHIND);
         const t = this.nearestFree(Math.floor(bx + (back * (bx - from.x)) / l), Math.floor(by + (back * (by - from.y)) / l));
@@ -1159,13 +1176,13 @@ export class AI {
   private startRetreat(c: Ctx, group: readonly UnitSnap[], to: { at: { x: number; y: number }; kind: FallbackKind }, out: Command[], run = false): void {
     const m = this.middle(group);
     // The pursuers that matter carry most of the enemy's power near it: fast light units alone are swatted on arrival.
-    const chasers = mainUnits(this.armedNear(c, m.x, m.y, HARASS_R));
+    const chasers = this.rules.xChasers ? mainUnits(this.armedNear(c, m.x, m.y, HARASS_R)) : this.armedNear(c, m.x, m.y, HARASS_R);
     const ids = group.map((u) => u.id);
     const r: Retreat = { members: new Set(ids), to: { ...to.at }, kind: to.kind, fight: null, since: c.tick };
     let p = to.at;
     // Pursuers not yet within their reach of it: it runs while it can (AI-37).
     const close = chasers.some((f) => group.some((u) => Math.hypot(f.x - u.x, f.y - u.y) <= (reachOf(f.kind) + RETREAT_CLEAR_R) * FP));
-    if (!run && close && !canOutrun(group, chasers)) {
+    if (!run && (close || !this.rules.xClose) && chasers.length > 0 && !canOutrun(group, chasers)) {
       p = toward(m, to.at, RETREAT_HOP);
       r.fight = { phase: 'hop', since: c.tick, hop: p, lastNear: c.tick };
       this.stats.fightingRetreats++;
@@ -1200,7 +1217,7 @@ export class AI {
         continue;
       }
       const near = c.foes.some((f) => unitDef(f.kind).weapon && members.some((u) => Math.hypot(f.x - u.x, f.y - u.y) <= ((unitDef(u.kind).weapon?.range ?? 0) + RETREAT_CLEAR_R) * FP));
-      const step = retreatStep(r.fight, c.tick, m, r.to, near);
+      const step = retreatStep(r.fight, c.tick, m, r.to, near, this.rules.xClose);
       if (step === null) continue;
       if (step.act === 'done') drop();
       else if (step.act === 'hop') out.push({ type: 'move', player: this.player, units: members.map((u) => u.id), x: Math.floor(step.to.x) * FP + FP / 2, y: Math.floor(step.to.y) * FP + FP / 2 });
@@ -1424,14 +1441,14 @@ export class AI {
       const near = this.armedNear(c, g.x, g.y, HARASS_R);
       const harasser = isHarasser(near, group, (id) => this.kites.kited(id, c.tick));
       // Guns that out-reach it and that it cannot catch are answered the same way whatever their strength (AI-40).
-      if (harasser || outranges(near, group)) {
+      if (harasser || (this.rules.xCover && outranges(near, group))) {
         const foe = this.middle(near);
         const h = harassAnswer(group, near);
         if (h.mode === 'chase') return { mode: 'chase', chasers: h.chasers, to: leashed(home, foe, HARASS_LEASH), foe };
         // It cannot catch them: onto its defences at once, so they must come into the defences' reach to keep shooting.
         const spot = this.coverSpot(c, g, foe, Math.max(...near.map((f) => reachOf(f.kind))));
-        if (spot && dist(g.x, g.y, spot.x, spot.y) <= COVER_R) return { mode: 'hold', to: spot, foe };
-        if (spot) return { mode: 'retreat', to: { at: spot, kind: 'defence' }, run: true };
+        if (this.rules.xCover && spot && dist(g.x, g.y, spot.x, spot.y) <= COVER_R) return { mode: 'hold', to: spot, foe };
+        if (this.rules.xCover && spot) return { mode: 'retreat', to: { at: spot, kind: 'defence' }, run: true };
         // A pushing body's concave bulges ahead of its front row's middle: that stands a little short of the leash.
         if (harasser) return { mode: 'push', to: leashed(home, foe, HARASS_LEASH - 2), foe };
       }
@@ -2301,7 +2318,7 @@ export class AI {
     this.stats.defends++;
     const t = { x: cx / FP, y: cy / FP };
     const m = this.middle(units);
-    if (this.doctrine.retreats && this.rules.harass) {
+    if (this.doctrine.retreats && this.rules.harass && this.rules.xCover) {
       // Harassers it cannot catch, or guns that out-reach it (AI-39, AI-40): it holds under its defences' cover.
       const harassed = isHarasser(threats, units, (id) => this.kites.kited(id, c.tick)) || outranges(threats, units);
       const answer = harassed ? harassAnswer(units, threats) : null;
@@ -2599,7 +2616,7 @@ export class AI {
     if (!threatened) {
       // Gather at the staging point (AI-11).
       // Units not already bound there (a unit keeps its last destination once it stands idle at it).
-      const away = free.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7 && (u.dest === null || dist(u.dest[0], u.dest[1], stage.tx, stage.ty) > 7) && u.target < 0);
+      const away = this.rules.xGather ? free.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7 && (u.dest === null || dist(u.dest[0], u.dest[1], stage.tx, stage.ty) > 7) && u.target < 0) : free.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7);
       if (away.length > 0 && c.tick % 3 === 0) order('attackmove', away, stage.tx, stage.ty);
       // Those gathered hold a ball (AI-41): a straggler more than 4 + √n tiles from the group's centre comes back to it.
       if (ordinary && this.rules.formation && c.tick - this.lastBall >= WAVE_STEP) {
@@ -2919,7 +2936,7 @@ export class AI {
     const goal = g.via && !g.passed ? g.via : { tx: g.tx, ty: g.ty };
     const before = (e: { x: number; y: number }): boolean => (e.x / FP - cx) * (goal.tx + 0.5 - cx) + (e.y / FP - cy) * (goal.ty + 0.5 - cy) > 0;
     // (A strike group slips past armies to the economy: it judges only what is about it.)
-    const ahead = fresh && g.kind !== 'strike' ? freshEnemyPower([...this.intel.values()].filter(before), [], c.tick, cx, cy, WAVE_SIGHT_R) : local;
+    const ahead = fresh && this.rules.xSight && g.kind !== 'strike' ? freshEnemyPower([...this.intel.values()].filter(before), [], c.tick, cx, cy, WAVE_SIGHT_R) : local;
     const swamped = fresh ? isOverwhelmed(p, defencePower(c.buildings, cx, cy, OVERWHELM_R), Math.max(local, ahead)) : local >= 1.5 * p;
     // Harassers near it (AI-39): the units that can catch them chase, or it keeps on as one body (AI-40).
     let chase: { units: Set<number>; to: { x: number; y: number } } | null = null;

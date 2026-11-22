@@ -44,6 +44,11 @@ const range = (kind: string): number => Math.max(unitDef(kind).weapon?.range ?? 
 const speed = (kind: string): number => unitDef(kind).speed;
 /** A unit's longest gun (tiles). */
 export const reachOf = range;
+/** EXPERIMENT switch (xSpeed). */
+let catchByEffectiveSpeed = true;
+export function setCatchByEffectiveSpeed(v: boolean): void {
+  catchByEffectiveSpeed = v;
+}
 /**
  * A harasser that holds fire while it moves (CMB-4) must stop to shoot, so it is in motion only part of the time while
  * kiting: KITE_DUTY of it, a conservative share (AI-40).
@@ -121,7 +126,7 @@ export function outranges(group: readonly { kind: string }[], army: readonly Pos
 /** The units of an army that can catch or reach a group (AI-40): as fast as its fastest really gets away (effectiveSpeed), or with at least its longest range. */
 export function catchers<T extends Pos>(army: readonly T[], group: readonly { kind: string }[]): T[] {
   if (group.length === 0) return [];
-  const s = Math.max(...group.map((f) => effectiveSpeed(f.kind)));
+  const s = Math.max(...group.map((f) => (catchByEffectiveSpeed ? effectiveSpeed(f.kind) : speed(f.kind))));
   const r = Math.max(...group.map((f) => range(f.kind)));
   return army.filter((u) => speed(u.kind) >= s || range(u.kind) >= r);
 }
