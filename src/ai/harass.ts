@@ -13,6 +13,8 @@ export const HARASS_R = 12;
 export const KITE_WINDOW = 60;
 /** It out-ranges the army when its longest gun reaches at least OUTRANGE tiles farther than theirs: a tile's difference is no harassment. */
 export const OUTRANGE = 1.5;
+/** A unit kites only with a gun of at least this range (tiles): melee units cannot (AI-39). */
+export const KITE_MIN_RANGE = 3;
 /** Chasers need CHASE_RATIO times the harassers' power (AI-40). */
 export const CHASE_RATIO = 1.5;
 /** A standing or gathering army answering harassers goes no farther than HARASS_LEASH tiles from where it stood (AI-40). */
@@ -109,13 +111,17 @@ export function isHarasser(group: readonly Seen[], army: readonly Pos[], kited: 
   const main = mainUnits(army);
   const theirSpeed = Math.max(...group.map((f) => speed(f.kind)));
   if (outranges(group, army)) return true;
-  return theirSpeed > Math.max(...main.map((u) => speed(u.kind))) && group.some((f) => kited(f.id));
+  // Only a unit with a real gun can kite: a melee unit drifting between targets is no harasser.
+  return theirSpeed > Math.max(...main.map((u) => speed(u.kind))) && group.some((f) => kited(f.id) && range(f.kind) >= KITE_MIN_RANGE);
 }
 
-/** Whether a group out-ranges the units making up most of an army's power by OUTRANGE tiles or more (AI-39). */
-export function outranges(group: readonly { kind: string }[], army: readonly Pos[]): boolean {
+/**
+ * Whether a group out-ranges an army by OUTRANGE tiles or more (AI-39), judged on the units making up most of each side's
+ * power: a few long guns (artillery) in a big army do not make that army a harasser.
+ */
+export function outranges(group: readonly Pos[], army: readonly Pos[]): boolean {
   if (group.length === 0 || army.length === 0) return false;
-  return Math.max(...group.map((f) => range(f.kind))) >= Math.max(...mainUnits(army).map((u) => range(u.kind))) + OUTRANGE;
+  return Math.max(...mainUnits(group).map((f) => range(f.kind))) >= Math.max(...mainUnits(army).map((u) => range(u.kind))) + OUTRANGE;
 }
 
 /** The units of an army that can catch or reach a group (AI-40): as fast as its fastest really gets away (effectiveSpeed), or with at least its longest range. */

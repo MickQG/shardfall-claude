@@ -3,7 +3,7 @@ import { BUILD_RANGE, canPlace, EXPLORED, FP, QUEUE_MAX, Rng, VISIBLE, type Buil
 import { CRAWL_FILLER_BANK, CRAWL_SAFE, CRAWL_SAFE_R, crawlTarget, HAULERS_IN_PRODUCTION, inReach, minedFields, RAMP_PER_REFINERY, SERVE_R, wantsCrawl, type MinedField } from './expand';
 import { kitOf, type Kit } from './kit';
 import { CONCAVE_R, ballStragglers, concaveSlots, middleOf, slotMoves, type FormUnit } from './formation';
-import { HARASS_LEASH, HARASS_PATIENCE, HARASS_R, KiteWatch, harassAnswer, isHarasser, leashed, mainUnits, outranges, reachOf } from './harass';
+import { HARASS_LEASH, HARASS_PATIENCE, HARASS_R, KiteWatch, harassAnswer, isHarasser, leashed, mainUnits, reachOf } from './harass';
 import { isTank, MENDER_FALLBACK, MenderPlan, menderOf, mendersWanted } from './menders';
 import { RETREAT_ARRIVED, RETREAT_CLEAR_R, RETREAT_HOLD, chooseFallback, retreatStep, toward, RETREAT_HOP, type FallbackKind, type FightingRetreat } from './retreat';
 import { armyPower as powerOf, canOutrun, defencePower, edgeDist, FRESH_SIGHT, freshEnemyPower, isOverwhelmed, OVERWHELM_R } from './strength';
@@ -1428,7 +1428,7 @@ export class AI {
       const near = this.armedNear(c, g.x, g.y, HARASS_R);
       const harasser = isHarasser(near, group, (id) => this.kites.kited(id, c.tick));
       // Guns that out-reach it and that it cannot catch are answered the same way whatever their strength (AI-40).
-      if (harasser || outranges(near, group)) {
+      if (harasser) {
         const foe = this.middle(near);
         const h = harassAnswer(group, near);
         if (h.mode === 'chase') return { mode: 'chase', chasers: h.chasers, to: leashed(home, foe, HARASS_LEASH), foe };
@@ -2307,7 +2307,7 @@ export class AI {
     const m = this.middle(units);
     if (this.doctrine.retreats && this.rules.harass) {
       // Harassers it cannot catch, or guns that out-reach it (AI-39, AI-40): it holds under its defences' cover.
-      const harassed = isHarasser(threats, units, (id) => this.kites.kited(id, c.tick)) || outranges(threats, units);
+      const harassed = isHarasser(threats, units, (id) => this.kites.kited(id, c.tick));
       const answer = harassed ? harassAnswer(units, threats) : null;
       if (answer?.mode === 'chase') {
         // Only the units that can catch them go, no farther than HARASS_LEASH tiles (AI-40).
