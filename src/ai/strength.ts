@@ -78,8 +78,8 @@ export function defencePower(buildings: Iterable<{ tx: number; ty: number; kind:
 }
 
 /** Overwhelmed (AI-36): the enemy power near a group is at least OVERWHELM_RATIO times the group's power plus its own defences there. */
-export function isOverwhelmed(own: number, ownDefences: number, enemy: number): boolean {
-  return enemy > 0 && enemy >= OVERWHELM_RATIO * (own + ownDefences);
+export function isOverwhelmed(own: number, ownDefences: number, enemy: number, ratio = OVERWHELM_RATIO): boolean {
+  return enemy > 0 && enemy >= ratio * (own + ownDefences);
 }
 
 /** Whether a group can outrun its chasers (AI-34, AI-37): its slowest unit is faster than the fastest of them. */

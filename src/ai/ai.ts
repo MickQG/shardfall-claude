@@ -6,7 +6,7 @@ import { CONCAVE_R, ballStragglers, concaveSlots, middleOf, slotMoves, type Form
 import { setCatchByEffectiveSpeed, HARASS_LEASH, HARASS_PATIENCE, HARASS_R, KiteWatch, harassAnswer, isHarasser, leashed, mainUnits, outranges, reachOf } from './harass';
 import { isTank, MENDER_FALLBACK, MenderPlan, menderOf, mendersWanted } from './menders';
 import { RETREAT_ARRIVED, RETREAT_CLEAR_R, RETREAT_HOLD, chooseFallback, retreatStep, toward, RETREAT_HOP, type FallbackKind, type FightingRetreat } from './retreat';
-import { armyPower as powerOf, canOutrun, defencePower, edgeDist, FRESH_SIGHT, freshEnemyPower, isOverwhelmed, OVERWHELM_R } from './strength';
+import { armyPower as powerOf, canOutrun, defencePower, edgeDist, FRESH_SIGHT, freshEnemyPower, isOverwhelmed, OVERWHELM_R, OVERWHELM_RATIO } from './strength';
 
 /** Difficulty changes only how fast the AI reacts, how many orders it can give, and a shard-income bonus. */
 export interface Difficulty {
@@ -707,6 +707,7 @@ export interface AiRules {
   xClose: boolean;
   xGatherCover: boolean;
   xGatherIdle: boolean;
+  xStuck: number;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -753,6 +754,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   xClose: true,
   xGatherCover: false,
   xGatherIdle: false,
+  xStuck: 1.5,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -1459,7 +1461,7 @@ export class AI {
     }
     if (this.rules.overwhelm) {
       const enemy = freshEnemyPower(this.intel.values(), c.enemyBuildings, c.tick, g.x, g.y, OVERWHELM_R);
-      if (isOverwhelmed(mine, defencePower(c.buildings, g.x, g.y, OVERWHELM_R), enemy)) {
+      if (isOverwhelmed(mine, defencePower(c.buildings, g.x, g.y, OVERWHELM_R), enemy, this.retreatRatio(c, group, g.x, g.y))) {
         const to = this.fallbackFor(c, group, a, false);
         if (to) return { mode: 'retreat', to };
       }
@@ -1718,6 +1720,12 @@ export class AI {
   }
 
   /** Its power (AI-35): cost scaled by health over real maximum health, veterancy included. */
+  /** EXPERIMENT (xStuck): a group that cannot outrun the armed enemies it sees near it retreats only at 2x, not 1.5x. */
+  private retreatRatio(c: Ctx, group: readonly UnitSnap[], x: number, y: number): number {
+    const near = this.armedNear(c, x, y, WAVE_SIGHT_R);
+    return near.length > 0 && !canOutrun(group, near) ? this.rules.xStuck : OVERWHELM_RATIO;
+  }
+
   private armyPower(units: readonly UnitSnap[]): number {
     return powerOf(units);
   }
@@ -2349,7 +2357,7 @@ export class AI {
     if (this.doctrine.retreats && this.rules.overwhelm) {
       // Overwhelmed at home (AI-36): it falls back to friendly strength (AI-37), and holds there in its concave.
       const enemy = freshEnemyPower(this.intel.values(), c.enemyBuildings, c.tick, t.x, t.y, OVERWHELM_R);
-      if (isOverwhelmed(this.armyPower(units), defencePower(c.buildings, t.x, t.y, OVERWHELM_R), enemy)) {
+      if (isOverwhelmed(this.armyPower(units), defencePower(c.buildings, t.x, t.y, OVERWHELM_R), enemy, this.retreatRatio(c, units, m.x, m.y))) {
         const to = this.fallbackFor(c, units, t, true) as { at: { x: number; y: number }; kind: FallbackKind };
         if (dist(m.x, m.y, to.at.x, to.at.y) > RETREAT_ARRIVED + 1) this.startRetreat(c, units, to, out);
         else this.formUp(c, units, m, t, 'move', 40);
@@ -2941,7 +2949,7 @@ export class AI {
     const before = (e: { x: number; y: number }): boolean => (e.x / FP - cx) * (goal.tx + 0.5 - cx) + (e.y / FP - cy) * (goal.ty + 0.5 - cy) > 0;
     // (A strike group slips past armies to the economy: it judges only what is about it.)
     const ahead = fresh && this.rules.xSight && g.kind !== 'strike' ? freshEnemyPower([...this.intel.values()].filter(before), [], c.tick, cx, cy, WAVE_SIGHT_R) : local;
-    const swamped = fresh ? isOverwhelmed(p, defencePower(c.buildings, cx, cy, OVERWHELM_R), Math.max(local, ahead)) : local >= 1.5 * p;
+    const swamped = fresh ? isOverwhelmed(p, defencePower(c.buildings, cx, cy, OVERWHELM_R), Math.max(local, ahead), this.retreatRatio(c, body, cx, cy)) : local >= 1.5 * p;
     // Harassers near it (AI-39): the units that can catch them chase, or it keeps on as one body (AI-40).
     let chase: { units: Set<number>; to: { x: number; y: number } } | null = null;
     let harassed = false;
