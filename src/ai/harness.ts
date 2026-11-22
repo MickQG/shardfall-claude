@@ -183,6 +183,7 @@ export function playMatch(o: MatchOptions): MatchResult {
   // Armed units alive at the last look, by id, with owner and cost; their cost is counted lost when they are gone (AI-23).
   const alive = new Map<number, { owner: number; cost: number }>();
   const lost = [0, 0];
+  const lostKinds: Record<string, number>[] = [{}, {}];
   const tradeUnits = [0, 0];
   const tradeBuildings = [0, 0];
   const sweep = (): void => {
@@ -293,6 +294,7 @@ export function playMatch(o: MatchOptions): MatchResult {
       if (e.t !== 'die') continue;
       const d = UNIT_DEFS[e.kind];
       if (d) tradeUnits[e.owner] = (tradeUnits[e.owner] as number) + d.cost;
+      if (d) (lostKinds[e.owner] as Record<string, number>)[e.kind] = ((lostKinds[e.owner] as Record<string, number>)[e.kind] ?? 0) + 1;
       else tradeBuildings[e.owner] = (tradeBuildings[e.owner] as number) + buildingDef(e.kind).cost;
     }
     if (s.tick % 10 !== 0) continue;
@@ -394,7 +396,7 @@ export function playMatch(o: MatchOptions): MatchResult {
   const watched = watch.map((w): ScoutWatch => ({ samples: w.samples, coverage: w.counted > 0 ? w.covered / w.counted : 0, alive: w.samples > 0 ? w.alive / w.samples : 0 })) as [ScoutWatch, ScoutWatch];
   const traded = [0, 1].map((p): Traded => {
     const own = (tradeUnits[p] as number) + (tradeBuildings[p] as number);
-    return { lostUnits: tradeUnits[p] as number, lostBuildings: tradeBuildings[p] as number, lost: own, destroyed: (tradeUnits[1 - p] as number) + (tradeBuildings[1 - p] as number) };
+    return { lostUnits: tradeUnits[p] as number, lostBuildings: tradeBuildings[p] as number, lost: own, destroyed: (tradeUnits[1 - p] as number) + (tradeBuildings[1 - p] as number), kinds: lostKinds[p] } as Traded;
   }) as [Traded, Traded];
   return { winner, reason, ticks: s.tick, material: m, hash: hash(game), violations: viol, ai: [ais[0].stats, ais[1].stats], peak, orders, watch: watched, economy, traded, atLaunch };
 }
