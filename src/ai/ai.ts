@@ -1165,7 +1165,7 @@ export class AI {
     let p = to.at;
     // Pursuers not yet within their reach of it: it runs while it can (AI-37).
     const close = chasers.some((f) => group.some((u) => Math.hypot(f.x - u.x, f.y - u.y) <= (reachOf(f.kind) + RETREAT_CLEAR_R) * FP));
-    if (!run && close && !canOutrun(group, chasers)) {
+    if (false && !run && close && !canOutrun(group, chasers)) {
       p = toward(m, to.at, RETREAT_HOP);
       r.fight = { phase: 'hop', since: c.tick, hop: p, lastNear: c.tick };
       this.stats.fightingRetreats++;
