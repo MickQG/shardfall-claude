@@ -2599,7 +2599,7 @@ export class AI {
     if (!threatened) {
       // Gather at the staging point (AI-11).
       // Units not already bound there (a unit keeps its last destination once it stands idle at it).
-      const away = free.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7 && (u.dest === null || dist(u.dest[0], u.dest[1], stage.tx, stage.ty) > 7) && u.target < 0);
+      const away = free.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7);
       if (away.length > 0 && c.tick % 3 === 0) order('attackmove', away, stage.tx, stage.ty);
       // Those gathered hold a ball (AI-41): a straggler more than 4 + √n tiles from the group's centre comes back to it.
       if (ordinary && this.rules.formation && c.tick - this.lastBall >= WAVE_STEP) {
