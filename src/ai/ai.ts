@@ -711,6 +711,7 @@ export interface AiRules {
   xRecall: boolean;
   xCoverSkim: boolean;
   xKiteOut: boolean;
+  xCoverDef: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -761,6 +762,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   xRecall: false,
   xCoverSkim: false,
   xKiteOut: false,
+  xCoverDef: true,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -2346,7 +2348,7 @@ export class AI {
     this.stats.defends++;
     const t = { x: cx / FP, y: cy / FP };
     const m = this.middle(units);
-    if (this.doctrine.retreats && this.rules.harass && this.rules.xCover && (!this.rules.xCoverSkim || mainUnits(threats).every((u) => unitDef(u.kind).firesMoving))) {
+    if (this.doctrine.retreats && this.rules.harass && this.rules.xCoverDef && (!this.rules.xCoverSkim || mainUnits(threats).every((u) => unitDef(u.kind).firesMoving))) {
       // Harassers it cannot catch, or guns that out-reach it (AI-39, AI-40): it holds under its defences' cover.
       const harassed = isHarasser(threats, units, (id) => this.kites.kited(id, c.tick)) || (!this.rules.xKiteOut && outranges(threats, units));
       const answer = harassed ? harassAnswer(units, threats) : null;
