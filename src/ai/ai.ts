@@ -1198,6 +1198,10 @@ export class AI {
     }
     out.push({ type: 'move', player: this.player, units: ids, x: Math.floor(p.x) * FP + FP / 2, y: Math.floor(p.y) * FP + FP / 2 });
     this.retreats.push(r);
+    // EXPERIMENT e18: its Menders near the group go back with it, to where it falls back to.
+    const kind = this.menders.kind;
+    const mend = kind ? c.own.filter((u) => u.kind === kind && dist(u.x / FP, u.y / FP, m.x, m.y) <= 12).map((u) => u.id) : [];
+    if (mend.length > 0) out.push({ type: 'move', player: this.player, units: mend, x: Math.floor(to.at.x) * FP + FP / 2, y: Math.floor(to.at.y) * FP + FP / 2 });
   }
 
   /**
