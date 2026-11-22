@@ -183,6 +183,7 @@ export function playMatch(o: MatchOptions): MatchResult {
   // Armed units alive at the last look, by id, with owner and cost; their cost is counted lost when they are gone (AI-23).
   const alive = new Map<number, { owner: number; cost: number }>();
   const lost = [0, 0];
+  const timeline: string[] = [];
   const tradeUnits = [0, 0];
   const tradeBuildings = [0, 0];
   const sweep = (): void => {
@@ -295,6 +296,23 @@ export function playMatch(o: MatchOptions): MatchResult {
       if (d) tradeUnits[e.owner] = (tradeUnits[e.owner] as number) + d.cost;
       else tradeBuildings[e.owner] = (tradeBuildings[e.owner] as number) + buildingDef(e.kind).cost;
     }
+    if (s.tick % 1200 === 0) {
+      const row: string[] = [`m${s.tick / 1200}`];
+      for (const p of [0, 1]) {
+        let army = 0;
+        let haul = 0;
+        for (const u of game.state.units) {
+          if (u.owner !== p) continue;
+          const d = UNIT_DEFS[u.kind]!;
+          if (d.capacity !== undefined) haul++;
+          else if (d.weapon || d.repair) army += (d.cost * u.hp) / d.hp;
+        }
+        const st = (ais[p] as AI).stats as unknown as Record<string, unknown>;
+        const hr = (st['harassResponses'] ?? {}) as Record<string, number>;
+        row.push(`p${p} army ${Math.round(army)} haul ${haul} bld ${game.state.buildings.filter((b) => b.owner === p).length} lost ${tradeUnits[p]} w${String(st['waves'])} r${String(st['retreats'])} fr${String(st['fightingRetreats'] ?? '-')} wd${String(st['withdrawals'] ?? '-')} h${hr['chase'] ?? 0}/${hr['push'] ?? 0}/${hr['fallBack'] ?? 0}/${hr['hold'] ?? 0}`);
+      }
+      timeline.push(row.join(' '));
+    }
     if (s.tick % 10 !== 0) continue;
     if (atLaunch === null) sweep();
 
@@ -396,7 +414,8 @@ export function playMatch(o: MatchOptions): MatchResult {
     const own = (tradeUnits[p] as number) + (tradeBuildings[p] as number);
     return { lostUnits: tradeUnits[p] as number, lostBuildings: tradeBuildings[p] as number, lost: own, destroyed: (tradeUnits[1 - p] as number) + (tradeBuildings[1 - p] as number) };
   }) as [Traded, Traded];
-  return { winner, reason, ticks: s.tick, material: m, hash: hash(game), violations: viol, ai: [ais[0].stats, ais[1].stats], peak, orders, watch: watched, economy, traded, atLaunch };
+  (globalThis as unknown as { __timeline?: string[] }).__timeline = timeline;
+  return { timeline, winner, reason, ticks: s.tick, material: m, hash: hash(game), violations: viol, ai: [ais[0].stats, ais[1].stats], peak, orders, watch: watched, economy, traded, atLaunch };
 }
 
 /** Shared by tests and the CLI: sum of every violation counter. */
