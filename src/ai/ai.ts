@@ -705,6 +705,7 @@ export interface AiRules {
   xChasers: boolean;
   xSight: boolean;
   xClose: boolean;
+  xGatherCover: boolean;
 }
 
 export const DEFAULT_RULES: Readonly<AiRules> = {
@@ -749,6 +750,7 @@ export const DEFAULT_RULES: Readonly<AiRules> = {
   xChasers: true,
   xSight: true,
   xClose: true,
+  xGatherCover: false,
 };
 
 /** Its infantry squads within SCATTER_R tiles of an enemy crusher it sees scatter (AI-24), each at most once in SCATTER_GAP ticks. */
@@ -2616,7 +2618,7 @@ export class AI {
     if (!threatened) {
       // Gather at the staging point (AI-11).
       // Units not already bound there (a unit keeps its last destination once it stands idle at it).
-      const away = this.rules.xGather ? free.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7 && (u.dest === null || dist(u.dest[0], u.dest[1], stage.tx, stage.ty) > 7) && u.target < 0) : free.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7);
+      const away = this.rules.xGather || (this.rules.xGatherCover && this.cover !== null) ? free.filter((u) => dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7 && (u.dest === null || dist(u.dest[0], u.dest[1], stage.tx, stage.ty) > 7) && u.target < 0) : free.filter((u) => u.dest === null && dist(tileOf(u.x), tileOf(u.y), stage.tx, stage.ty) > 7);
       if (away.length > 0 && c.tick % 3 === 0) order('attackmove', away, stage.tx, stage.ty);
       // Those gathered hold a ball (AI-41): a straggler more than 4 + √n tiles from the group's centre comes back to it.
       if (ordinary && this.rules.formation && c.tick - this.lastBall >= WAVE_STEP) {
