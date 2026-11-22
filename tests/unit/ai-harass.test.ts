@@ -25,6 +25,24 @@ describe('harassers (AI-39)', () => {
     expect(isHarasser(skimmers, [...own('hum_artillery', 3), ...own('hum_rifleman', 3)], () => false)).toBe(false);
   });
 
+  it('AI-39: a smaller army that merely has the longer guns and stands its ground is no harasser; one that kites, or Skimmers that fire on the move, is', () => {
+    // Bulwarks and rifles out-range Brutes by far, but standing and shooting is a real fight (judged by AI-36).
+    const aegis = [seen(1, 'hum_tank', 10, 10, 50), seen(2, 'hum_tank', 11, 10, 50), seen(3, 'hum_rifleman', 10, 11, 50)];
+    expect(isHarasser(aegis, own('ali_brute', 6), () => false)).toBe(false);
+    // The same group kiting is a harasser.
+    expect(isHarasser(aegis, own('ali_brute', 6), (id) => id === 1)).toBe(true);
+    // Skimmers fire on the move (SKM-3): out-ranging is enough.
+    expect(isHarasser([seen(4, 'ali_skimmer', 10, 10)], own('hum_tank', 6), () => false)).toBe(true);
+  });
+
+  it('AI-39: kiting is the enemy unit’s own move away while firing; the AI’s units backing off from one that stands and fires is no kiting', () => {
+    const watch = new KiteWatch();
+    // A Bulwark stands at 15,10 firing; the AI's unit backs off from 10,10 to 8,10.
+    watch.see(100, [seen(1, 'hum_tank', 15, 10, 77)], [{ x: 10 * FP, y: 10 * FP }]);
+    watch.see(108, [seen(1, 'hum_tank', 15, 10, 77)], [{ x: 8 * FP, y: 10 * FP }]);
+    expect(watch.kited(1, 108)).toBe(false);
+  });
+
   it('AI-39: a faster group that moved away while firing in the last 3 seconds is a harasser (Bulwarks kiting Brutes); one merely turning away is not', () => {
     const watch = new KiteWatch();
     const army = [{ x: 10 * FP, y: 10 * FP }];

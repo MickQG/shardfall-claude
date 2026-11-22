@@ -30,9 +30,12 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
   2. the nearest own defence buildings;
   3. the base.
 
-  How the army moves depends on whether it can outrun the enemy. It can outrun them when its slowest unit is faster than the fastest of the chasing enemy units that carry most of their power (light fast units alone are answered when they arrive).
+  How the army moves depends on whether it can outrun the enemy. It can outrun them when its slowest unit is faster than the fastest armed enemy unit within 12 tiles of it.
   - **It can outrun them**: every unit runs to the fallback point at full speed with a plain move.
-  - **It can't**: until those pursuers come within their reach + 2 tiles of it, it still runs. Then the whole army makes a **fighting retreat** together. It falls back in hops of about 3 tiles. Between hops it turns into its concave (AI-42) and fires for about one second. With no enemy within reach after a hop it skips the hold and hops on, twice as far. It stops once it reaches friendly strength, or once no enemy has been within its reach + 2 tiles for 3 seconds.
+  - **It can't**: the whole army makes a **fighting retreat** together. It falls back in hops of about 3 tiles. Between hops it turns into its concave (AI-42) and fires for about one second. It stops once it reaches friendly strength, or once no enemy has been within its reach + 2 tiles for 3 seconds.
+  - **Its Menders** within 12 tiles of the group go back with it, to its fallback point (AI-29).
+  - A defence's fallback spot lies 2 tiles behind it as seen from the base's centre (further against harassers that out-range it, AI-40).
+  - **Revised** with the Crossroads redraw (MAP-10): the first version ran until the pursuers came within reach, judged only the pursuers carrying most of the enemy's power, hopped on twice as far with no enemy near, and put a defence's fallback spot behind it as seen from the enemy. Each of those, with the gather rule in AI-41, tilted equal-AI games toward the faster Vrax (ROS-4); measured on the Balance workflow, 24 games a run.
 - **AI-38**: A retreated army **regroups** at its fallback point, and the 1200-tick cooldown after a beaten wave is removed.
   - The retreated units and new reinforcements gather there as one army.
   - The next wave launches only when the normal attack test (AI-11 / AI-23) passes against an estimate no lower than the enemy strength that beat the last wave. That memory fades as the AI's intel ages.
@@ -40,10 +43,12 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
 ## Harassment
 
 - **AI-39**: An enemy group within 12 tiles of an AI army is a **harasser** when it is weaker than that army, and either of these holds:
-  - it out-ranges the units that make up most of that army's power (its longest gun reaches at least 1.5 tiles farther than theirs: one tile is no harassment);
-  - it is faster than them and moved away from them while firing in the last 3 seconds (kiting).
+  - it out-ranges the units that make up most of that army's power (its longest gun reaches at least 1.5 tiles farther than theirs: one tile is no harassment), and it keeps its distance on purpose: one of it kited in the last 3 seconds, or the units carrying most of its power fire on the move (SKM-3);
+  - it is faster than them and kited in the last 3 seconds.
 
-  An enemy group that out-ranges the army that way is answered as a harasser whatever its strength, since the army cannot hurt it by fighting on. Anything else is a real fight, judged by AI-36.
+  **Kiting**: an enemy unit kites when it is firing and its own move since the last decision took it farther from the AI's units where they stand now (the AI backing off is no kiting).
+
+  Anything else is a real fight, judged by AI-36. **Revised** (ROS-4): the first version answered any group that out-ranged the army as a harasser, whatever its strength and whether or not it kited. The Aegis army out-ranges the Vrax one (rifles and tanks against claws and bites), so the Vrax AI treated every smaller Aegis force as harassment and fought it under its own defences, which the Aegis AI could never do in return.
 - **AI-40**: Under harassment the AI never sends single units chasing.
   - **Chasing**: it chases only when its units that can **catch or reach** the harassers (as fast as the harassers' fastest really gets away, or with at least their longest range; a harasser that fires on the move counts its full speed, one that must stop to fire, CMB-4, counts 0.6 of it) have at least 1.5× the harassers' power. Only those units chase.
   - **Otherwise, with defence buildings of its own**: a standing or gathering army (and the army pulled home by base defence) falls back at once behind its nearest defence, far enough that a harasser shooting at it from its full reach stands inside the defence's reach, and holds there in its concave; its army gathers there until no enemy has come within 20 tiles of it for 10 seconds. A harasser that wants to keep shooting must come into the defence's reach.
@@ -58,6 +63,8 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
 - **AI-41**: While travelling or idle, an AI army holds an **army ball**.
   - **Waves**: the existing close-up (spread above 4 + √n) stays.
   - **Units gathering at the staging point and standing units**: any unit more than 4 + √n tiles from the group's centre is moved back toward it.
+  - **Gathering**: units with no destination of their own go to the staging point. When its cover from harassers (AI-40) is over, the concave it held there is let go, and for 20 seconds the units it sent there, and any standing idle at an old destination, are called back to the staging point too.
+  - **Revised** (ROS-4): the first version sent every unit not fighting and bound anywhere but the staging point back to it, constantly. On its own that moved equal-AI games from Aegis 8, Vrax 14 to Aegis 1, Vrax 23 (24 games; Balance workflow).
 - **AI-42**: When a known enemy force (a real army or harassers) is within 12 tiles, the AI army forms a **concave** facing it.
   - **Shape**: an arc centred on the line from the army's centre to the enemy's centre, its ends bent toward the enemy. It is wide enough that every ranged unit has a clear line of fire.
   - **Front of the arc**: heavy units (tanks, Brutes, Skimmers, the hero).
