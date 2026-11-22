@@ -20,6 +20,8 @@ export const MENDER_CALM = 8;
 export const MENDER_FALLBACK = 0.5;
 export const MENDER_DONE = 0.9;
 /** A Mender follows when it is this many tiles from its tanks' middle (AI-29). */
+/** A Mender's group (AI-29): the army units within this many tiles of the army unit nearest it. */
+export const GROUP_R = 8;
 export const MENDER_LEASH = 4;
 /** Ticks before a board order that has not landed is given again to another squad, and before a Mender that let its squad out takes another. */
 export const BOARD_PATIENCE = 20 * 20;
@@ -136,17 +138,19 @@ export class MenderPlan {
       }
     }
 
-    // Follow (AI-29): Menders go to the middle of the tanks still fighting (or of the army without any), when far from it.
-    const lead = tanks.filter((u) => !busy.has(u.id));
-    const group = lead.length > 0 ? lead : army.filter((u) => !busy.has(u.id));
-    if (group.length > 0) {
-      const cx = group.reduce((s, u) => s + u.x, 0) / group.length;
-      const cy = group.reduce((s, u) => s + u.y, 0) / group.length;
-      const centre = { x: Math.round(cx), y: Math.round(cy) };
+    // Follow (AI-29): each Mender goes to the middle of the group nearest it (the army units within GROUP_R tiles of the
+    // nearest one), when far from it, so it stays with that group, among its rows, rather than between groups.
+    const fighting = army.filter((u) => !busy.has(u.id));
+    if (fighting.length > 0) {
       // A Mender with tanks falling back to it waits for them.
       const waited = new Set([...this.mending].map((id) => tanks.find((u) => u.id === id)).filter((u): u is UnitSnap => !!u).map((t) => menders.slice().sort((a, b) => d2(a, t) - d2(b, t) || a.id - b.id)[0]!.id));
-      const far = menders.filter((m) => !waited.has(m.id) && d2(m, centre) > (MENDER_LEASH * FP) ** 2 && (tick + m.id) % 40 < 20);
-      if (far.length > 0) orders.push(this.move(far.map((m) => m.id), centre));
+      for (const m of menders) {
+        if (waited.has(m.id) || (tick + m.id) % 40 >= 20) continue;
+        const near = fighting.slice().sort((a, b) => d2(a, m) - d2(b, m) || a.id - b.id)[0]!;
+        const group = fighting.filter((u) => d2(u, near) <= (GROUP_R * FP) ** 2);
+        const centre = { x: Math.round(group.reduce((s, u) => s + u.x, 0) / group.length), y: Math.round(group.reduce((s, u) => s + u.y, 0) / group.length) };
+        if (d2(m, centre) > (MENDER_LEASH * FP) ** 2) orders.push(this.move([m.id], centre));
+      }
     }
     return { orders, busy };
   }
