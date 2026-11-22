@@ -1137,10 +1137,11 @@ export class AI {
         const d = buildingDef(b.kind);
         const bx = b.tx + d.w / 2;
         const by = b.ty + d.h / 2;
-        const from = enemy ?? { x: 2 * bx - this.centre.x, y: 2 * by - this.centre.y };
-        const l = dist(bx, by, from.x, from.y) || 1;
-        const back = Math.max(DEFENCE_BEHIND, (o.reach ?? 0) - (d.weapon?.range ?? 0) + HARASS_BEHIND);
-        const t = this.nearestFree(Math.floor(bx + (back * (bx - from.x)) / l), Math.floor(by + (back * (by - from.y)) / l));
+        const l = dist(bx, by, this.centre.x, this.centre.y) || 1;
+        const back = o.reach !== undefined ? Math.max(DEFENCE_BEHIND, o.reach - (d.weapon?.range ?? 0) + HARASS_BEHIND) : 2;
+        const t = o.reach !== undefined
+          ? this.nearestFree(Math.floor(bx + (back * (bx - (enemy?.x ?? bx))) / (dist(bx, by, enemy?.x ?? bx, enemy?.y ?? by) || 1)), Math.floor(by + (back * (by - (enemy?.y ?? by))) / (dist(bx, by, enemy?.x ?? bx, enemy?.y ?? by) || 1)))
+          : this.nearestFree(Math.floor(bx + (2 * (this.centre.x - bx)) / l), Math.floor(by + (2 * (this.centre.y - by)) / l));
         return { x: t.tx + 0.5, y: t.ty + 0.5 };
       });
     const hold = this.holdPoint(c);
@@ -1159,13 +1160,13 @@ export class AI {
   private startRetreat(c: Ctx, group: readonly UnitSnap[], to: { at: { x: number; y: number }; kind: FallbackKind }, out: Command[], run = false): void {
     const m = this.middle(group);
     // The pursuers that matter carry most of the enemy's power near it: fast light units alone are swatted on arrival.
-    const chasers = mainUnits(this.armedNear(c, m.x, m.y, HARASS_R));
+    const chasers = this.armedNear(c, m.x, m.y, HARASS_R);
     const ids = group.map((u) => u.id);
     const r: Retreat = { members: new Set(ids), to: { ...to.at }, kind: to.kind, fight: null, since: c.tick };
     let p = to.at;
     // Pursuers not yet within their reach of it: it runs while it can (AI-37).
     const close = chasers.some((f) => group.some((u) => Math.hypot(f.x - u.x, f.y - u.y) <= (reachOf(f.kind) + RETREAT_CLEAR_R) * FP));
-    if (!run && close && !canOutrun(group, chasers)) {
+    if (!run && chasers.length > 0 && !canOutrun(group, chasers)) {
       p = toward(m, to.at, RETREAT_HOP);
       r.fight = { phase: 'hop', since: c.tick, hop: p, lastNear: c.tick };
       this.stats.fightingRetreats++;

@@ -125,7 +125,7 @@ export function outranges(group: readonly { kind: string }[], army: readonly Pos
 /** The units of an army that can catch or reach a group (AI-40): as fast as its fastest really gets away (effectiveSpeed), or with at least its longest range. */
 export function catchers<T extends Pos>(army: readonly T[], group: readonly { kind: string }[]): T[] {
   if (group.length === 0) return [];
-  const s = Math.max(...group.map((f) => effectiveSpeed(f.kind)));
+  const s = Math.max(...group.map((f) => speed(f.kind)));
   const r = Math.max(...group.map((f) => range(f.kind)));
   return army.filter((u) => speed(u.kind) >= s || range(u.kind) >= r);
 }
