@@ -33,6 +33,7 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
   How the army moves depends on whether it can outrun the enemy. It can outrun them when its slowest unit is faster than the fastest enemy unit chasing it.
   - **It can outrun them**: every unit runs to the fallback point at full speed with a plain move.
   - **It can't**: the whole army makes a **fighting retreat** together. It falls back in hops of about 3 tiles. Between hops it turns into its concave (AI-42) and fires for about one second. It stops once it reaches friendly strength, or once no enemy has been within its reach + 2 tiles for 3 seconds.
+  - **Its Menders** within 12 tiles of the group go back with it, to its fallback point (AI-29).
 - **AI-38**: A retreated army **regroups** at its fallback point, and the 1200-tick cooldown after a beaten wave is removed.
   - The retreated units and new reinforcements gather there as one army.
   - The next wave launches only when the normal attack test (AI-11 / AI-23) passes against an estimate no lower than the enemy strength that beat the last wave. That memory fades as the AI's intel ages.
@@ -129,8 +130,9 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
 
   It reports value traded and the farthest any AI unit strayed from its army's centre.
   - **Pass mark**: the AI loses less value than before this milestone in both variants, and no AI unit strays more than `HARASS_LEASH` + 4 tiles from its army's centre.
+  - **Not met in this milestone**: the harassment discipline that met it (falling back under its defences from harassers it cannot catch, gathering at the staging point, a leash, effective speed of kiters) tilted equal-AI games heavily toward Vrax and was taken out; it continues in issue #210. Measured on seeds 1 to 3 as this milestone ships: Skimmers 4,100 lost of 4,100; kiting Bulwarks 3,850 of 3,850. The pass marks stay as skipped tests.
 - **HAR-10**: **Overwhelm scenario**: an AI wave meets an enemy army of twice its power that has taken the middle ground and holds it. The army fights whatever comes within its reach but does not march on the AI's base, so the scenario judges the wave's decision to retreat, not whether a base can survive an army twice its wave's size.
   - **Pass mark**: after 60 s the wave has retreated and keeps at least 40% of its value.
-  - **Measured on seeds 1 to 3**: 76% kept (800 lost). The AI before this milestone, on the same bench, kept none: it retreated only after contact and died on the way (3,400 lost).
+  - **Not met in this milestone**: a wave that turned back on sight of the army ahead kept 76%, but that rule was taken out with the harassment discipline (HAR-9, issue #210). As this milestone ships the wave retreats only once in contact and keeps none, as before. The pass mark stays as a skipped test.
 - **HAR-11**: **No regression** on the Balance workflow. The pass marks of AI-25 (steamroll), AI-32 (tank spam), ROS-4 (faction balance) and AI-15/AI-19 (personalities) still hold on the new Crossroads.
   - **Measured** (Balance workflow, commit 098c72d): steamroll 46 won, 50 lost of 96 (run 44930627980); tank spam 66 won, 30 lost of 96 (44930631479); faction balance Aegis 2, Vrax 8, 2 undecided of 12 (44930634571); personalities: Doomsday 3, Balanced 5, strikes in 4 games, arrival median 52 ticks (44930638011); artillery share 0.140, 0.180, 0.171 (44930641115). Before the fixes: Doomsday 1 to 7 with its strike wave never arriving (its wave was held in the concave, and the superweapon fired at the end of its hold with the wave far off or not out), and artillery 0.076, 0.113, 0.136 (AI-15 and AI-19 amended). For comparison, main before this milestone: Doomsday 5 to 3, strikes in 6.

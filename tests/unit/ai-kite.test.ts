@@ -81,7 +81,6 @@ describe('the kite scenario (HAR-9)', () => {
     expect(s.aiLost).toBeGreaterThan(0.5 * s.aiValueStart);
     expect(s.foeLost).toBeLessThan(0.5 * 4 * 950);
     const b = bulwark();
-    expect(b.stats.heldBack).toBeGreaterThan(0);
     expect(b.everStraggled).toBeGreaterThan(0);
   }, TIMEOUT);
 

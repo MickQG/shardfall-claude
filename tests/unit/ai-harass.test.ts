@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_RULES } from '../../src/ai/ai';
-import { catchers, CHASE_RATIO, effectiveSpeed, KITE_DUTY, HARASS_LEASH, HARASS_PATIENCE, HARASS_R, harassAnswer, isHarasser, KITE_WINDOW, KiteWatch, leashed, mainUnits, type Seen } from '../../src/ai/harass';
+import { catchers, CHASE_RATIO, HARASS_LEASH, HARASS_PATIENCE, HARASS_R, harassAnswer, isHarasser, KITE_WINDOW, KiteWatch, leashed, mainUnits, type Seen } from '../../src/ai/harass';
 import { unitDef } from '../../src/data/defs';
 import { FP, type Command } from '../../src/sim';
 import { ai, base, LONG, many, run, tile, type Foe } from './aiWaveBench';
@@ -62,12 +62,8 @@ describe('harassment discipline (AI-40)', () => {
     if (a.mode === 'chase') expect(a.chasers.every((u) => u.kind === 'hum_tank')).toBe(true);
     // One Bulwark (800) is not 1.5 times as strong: push as one body.
     expect(harassAnswer([...own('hum_tank', 1), ...own('hum_rifleman', 9)], skim).mode).toBe('push');
-    // A Bulwark holds fire while it moves (CMB-4): kiting, it really gets away at KITE_DUTY of its speed (42 * 0.6 = 25.2),
-    // so Brutes (38) catch it as well as Skimmers (range 9 against 6) reach it. A Skimmer fires on the move: full speed (40).
-    expect(KITE_DUTY).toBe(0.6);
-    expect(effectiveSpeed('hum_tank')).toBeCloseTo(25.2);
-    expect(effectiveSpeed('ali_skimmer')).toBe(40);
-    expect(catchers([...own('ali_brute', 3), ...own('ali_skimmer', 2)], [seen(1, 'hum_tank', 0, 0)]).map((u) => u.kind)).toEqual(['ali_brute', 'ali_brute', 'ali_brute', 'ali_skimmer', 'ali_skimmer']);
+    // Against kiting Bulwarks, Vrax's Skimmers reach them (range 9 against 6); Brutes neither catch nor reach.
+    expect(catchers([...own('ali_brute', 3), ...own('ali_skimmer', 2)], [seen(1, 'hum_tank', 0, 0)]).map((u) => u.kind)).toEqual(['ali_skimmer', 'ali_skimmer']);
     expect(catchers(own('hum_rifleman', 3), [seen(1, 'ali_skimmer', 0, 0)])).toEqual([]);
     // The leash.
     expect(leashed({ x: 0, y: 0 }, { x: 20, y: 0 })).toEqual({ x: HARASS_LEASH, y: 0 });

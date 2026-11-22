@@ -458,6 +458,8 @@ export const RAID_GUARD_SHARE = 0.5;
  */
 export const BEATEN_MEMORY = 2400;
 export const CONCAVE_STANDOFF = 4;
+/** Menders within this many tiles of a retreating group go back with it (AI-29). */
+export const MENDER_WITH_GROUP = 12;
 /**
  * The enemy's armour is away from its base (AI-31) when the middle, by cost, of the heavy armed enemy units it has seen in
  * the last BALL_SEEN ticks is at least BALL_AWAY tiles from every enemy building it knows; then a strike group of fast
@@ -1141,6 +1143,10 @@ export class AI {
     }
     out.push({ type: 'move', player: this.player, units: ids, x: Math.floor(p.x) * FP + FP / 2, y: Math.floor(p.y) * FP + FP / 2 });
     this.retreats.push(r);
+    // Its Menders with the group go back with it, to where it falls back to (AI-29).
+    const kind = this.menders.kind;
+    const mend = kind ? c.own.filter((u) => u.kind === kind && dist(u.x / FP, u.y / FP, m.x, m.y) <= MENDER_WITH_GROUP).map((u) => u.id) : [];
+    if (mend.length > 0) out.push({ type: 'move', player: this.player, units: mend, x: Math.floor(to.at.x) * FP + FP / 2, y: Math.floor(to.at.y) * FP + FP / 2 });
   }
 
   /**

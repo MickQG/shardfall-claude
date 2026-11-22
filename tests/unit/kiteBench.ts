@@ -284,6 +284,5 @@ export function overwhelmBench(o: { seconds?: number; seed?: number; rules?: Par
     intel: true,
     ai: { seat: 0, faction: 'human', army: WAVE_ARMY, rules: o.rules },
     foe: { faction: 'alien', army: OVERWHELMING_ARMY, from: [50, 50], policy: holdPolicy },
-    watch: o.watch,
   });
 }
