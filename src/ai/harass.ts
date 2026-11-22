@@ -42,15 +42,6 @@ interface Pos {
 
 const range = (kind: string): number => Math.max(unitDef(kind).weapon?.range ?? 0, unitDef(kind).weapon2?.range ?? 0);
 const speed = (kind: string): number => unitDef(kind).speed;
-/** A unit's longest gun (tiles). */
-export const reachOf = range;
-/**
- * A harasser that holds fire while it moves (CMB-4) must stop to shoot, so it is in motion only part of the time while
- * kiting: KITE_DUTY of it, a conservative share (AI-40).
- */
-export const KITE_DUTY = 0.6;
-/** How fast a harasser really gets away (AI-40): full speed for one that fires on the move (SKM-3), else KITE_DUTY of it. */
-export const effectiveSpeed = (kind: string): number => (unitDef(kind).firesMoving ? speed(kind) : speed(kind) * KITE_DUTY);
 
 /**
  * Which enemy units kited lately (AI-39): at each decision, an enemy unit that is firing (it has a target) and is farther
@@ -107,21 +98,16 @@ export function mainUnits<T extends Pos>(army: readonly T[]): T[] {
 export function isHarasser(group: readonly Seen[], army: readonly Pos[], kited: (id: number) => boolean): boolean {
   if (group.length === 0 || army.length === 0 || armyPower(group) >= armyPower(army)) return false;
   const main = mainUnits(army);
+  const theirRange = Math.max(...group.map((f) => range(f.kind)));
   const theirSpeed = Math.max(...group.map((f) => speed(f.kind)));
-  if (outranges(group, army)) return true;
+  if (theirRange >= Math.max(...main.map((u) => range(u.kind))) + OUTRANGE) return true;
   return theirSpeed > Math.max(...main.map((u) => speed(u.kind))) && group.some((f) => kited(f.id));
 }
 
-/** Whether a group out-ranges the units making up most of an army's power by OUTRANGE tiles or more (AI-39). */
-export function outranges(group: readonly { kind: string }[], army: readonly Pos[]): boolean {
-  if (group.length === 0 || army.length === 0) return false;
-  return Math.max(...group.map((f) => range(f.kind))) >= Math.max(...mainUnits(army).map((u) => range(u.kind))) + OUTRANGE;
-}
-
-/** The units of an army that can catch or reach a group (AI-40): as fast as its fastest really gets away (effectiveSpeed), or with at least its longest range. */
+/** The units of an army that can catch or reach a group (AI-40): as fast as its fastest, or with at least its longest range. */
 export function catchers<T extends Pos>(army: readonly T[], group: readonly { kind: string }[]): T[] {
   if (group.length === 0) return [];
-  const s = Math.max(...group.map((f) => effectiveSpeed(f.kind)));
+  const s = Math.max(...group.map((f) => speed(f.kind)));
   const r = Math.max(...group.map((f) => range(f.kind)));
   return army.filter((u) => speed(u.kind) >= s || range(u.kind) >= r);
 }
