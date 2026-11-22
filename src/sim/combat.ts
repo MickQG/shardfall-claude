@@ -18,6 +18,8 @@ export const SUPERWEAPON_DELAY = 60;
 export const REGEN_DELAY = 100;
 
 const rangeFp = (w: WeaponDef): number => Math.round(w.range * FP);
+/** Its minimum range (CMB-19), fixed point: 0 for most weapons. */
+const minRangeFp = (w: WeaponDef): number => Math.round((w.minRange ?? 0) * FP);
 
 function pos(e: Entity): { x: number; y: number } {
   if (!isBuilding(e)) return { x: e.x, y: e.y };
@@ -206,7 +208,8 @@ function acquire(s: State, owner: number, x: number, y: number, w: WeaponDef, re
   const consider = (e: Entity, armed: boolean): void => {
     if (e.owner === owner || !canHit(w, e)) return;
     const d = distTo(x, y, e);
-    if (d > reach || !visibleTo(s, owner, e) || !clear(e)) return;
+    // Nothing inside its minimum range (CMB-19).
+    if (d > reach || d < minRangeFp(w) || !visibleTo(s, owner, e) || !clear(e)) return;
     const score = d + (armed ? 0 : isBuilding(e) ? 6 * FP : 3 * FP);
     if (score < bs || (score === bs && e.id < best)) {
       bs = score;
@@ -334,6 +337,11 @@ function tickUnit(s: State, u: Unit, byId: Map<number, Entity>, occ: Int32Array)
   // In range but behind a building: move for a clear shot instead of firing through it (CMB-14).
   if (d <= rangeFp(w) && !lineOfFire(s, occ, u.x, u.y, t, w, !!def.air)) {
     if (rechase(s, u, t)) chase(s, u, t);
+    return;
+  }
+  // Too close for it to fire (CMB-19): it lets go of a target it picked itself and looks for another; an ordered target it holds.
+  if (d < minRangeFp(w)) {
+    if (u.mode !== 'attack') u.target = -1;
     return;
   }
   if (d <= rangeFp(w)) {
