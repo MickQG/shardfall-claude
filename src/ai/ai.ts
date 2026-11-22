@@ -1430,8 +1430,8 @@ export class AI {
         if (h.mode === 'chase') return { mode: 'chase', chasers: h.chasers, to: leashed(home, foe, HARASS_LEASH), foe };
         // It cannot catch them: onto its defences at once, so they must come into the defences' reach to keep shooting.
         const spot = this.coverSpot(c, g, foe, Math.max(...near.map((f) => reachOf(f.kind))));
-        if (spot && dist(g.x, g.y, spot.x, spot.y) <= COVER_R) return { mode: 'hold', to: spot, foe };
-        if (spot) return { mode: 'retreat', to: { at: spot, kind: 'defence' }, run: true };
+        if (false && spot && dist(g.x, g.y, spot.x, spot.y) <= COVER_R) return { mode: 'hold', to: spot, foe };
+        if (false && spot) return { mode: 'retreat', to: { at: spot, kind: 'defence' }, run: true };
         // A pushing body's concave bulges ahead of its front row's middle: that stands a little short of the leash.
         if (harasser) return { mode: 'push', to: leashed(home, foe, HARASS_LEASH - 2), foe };
       }
