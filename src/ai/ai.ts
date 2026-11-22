@@ -1681,6 +1681,9 @@ export class AI {
       return factories.length > 0 && factories.every((b) => b.queue.length > 0) && nf < GROWTH_MAX ? k.factory : null;
     }
     if (plants.length === 0 || plants.some((b) => b.queue.length === 0)) return null;
+    // Doomsday by default grows by factories first, up to the most, and only then by barracks: its army stays tanks,
+    // artillery and its hero while it still turns a big income into army (AI-15).
+    if (this.plan === 'doomsday' && nf < GROWTH_MAX) return k.factory;
     if (nf <= nb && nf < GROWTH_MAX) return k.factory;
     if (nb < GROWTH_MAX) return k.barracks;
     if (nf < GROWTH_MAX) return k.factory;
