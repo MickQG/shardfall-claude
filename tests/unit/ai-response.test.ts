@@ -134,10 +134,11 @@ describe('standing units answer an attack as a group (AI-34)', () => {
     expect(who.responseState).toEqual([]);
   }, LONG);
 
-  it('AI-34: a large attacking force the group can outrun: it retreats to its base, not toward the attackers', () => {
-    // Three Bulwarks (2400, speed 42) hit by four Brutes (3320, speed 38).
+  it('AI-34: a large attacking force the group can outrun: it retreats to its base, not toward the attackers (overwhelmed, AI-36)', () => {
+    // Three Bulwarks (2400, speed 42) hit by five Brutes (4150, speed 38): at least 1.5 times their power, so they are
+    // overwhelmed (AI-36; four Brutes, 3320, were enough before it).
     const { g, who, ids } = standing(many('hum_tank', 3));
-    const brutes = with_([{ kind: 'ali_brute', tx: 24, ty: 24 }, { kind: 'ali_brute', tx: 25, ty: 24 }, { kind: 'ali_brute', tx: 24, ty: 25 }, { kind: 'ali_brute', tx: 25, ty: 25 }]);
+    const brutes = with_([{ kind: 'ali_brute', tx: 24, ty: 24 }, { kind: 'ali_brute', tx: 25, ty: 24 }, { kind: 'ali_brute', tx: 24, ty: 25 }, { kind: 'ali_brute', tx: 25, ty: 25 }, { kind: 'ali_brute', tx: 26, ty: 24 }]);
     hurt(g, ids[0]!, 60);
     const log = run(g, who, 8, brutes);
     expect(orders(log, 'attackmove', ids)).toEqual([]);
@@ -154,10 +155,11 @@ describe('standing units answer an attack as a group (AI-34)', () => {
     expect(later.some((c) => c.type !== 'scatter' && 'units' in c && c.units.some((id) => ids.includes(id)))).toBe(false);
   }, LONG);
 
-  it('AI-34: a large attacking force the group cannot outrun: it stands and fights together', () => {
-    // Six rifle squads (600, speed 28) hit by four Spitters (880, speed 29): running only gets them shot in the back.
+  it('AI-34: a larger attacking force that does not overwhelm the group: it stands and fights together', () => {
+    // Six rifle squads (580 once one is hurt) hit by three Spitters (660): stronger, but less than 1.5 times as strong,
+    // so not overwhelmed (AI-36), and it fights. (Four Spitters, 880, now overwhelm it: see ai-retreat.test.ts.)
     const { g, who, ids } = standing(many('hum_rifleman', 6));
-    const spitters = with_([{ kind: 'ali_spitter', tx: 26, ty: 22 }, { kind: 'ali_spitter', tx: 26, ty: 23 }, { kind: 'ali_spitter', tx: 27, ty: 22 }, { kind: 'ali_spitter', tx: 27, ty: 23 }]);
+    const spitters = with_([{ kind: 'ali_spitter', tx: 26, ty: 22 }, { kind: 'ali_spitter', tx: 26, ty: 23 }, { kind: 'ali_spitter', tx: 27, ty: 22 }]);
     hurt(g, ids[2]!);
     const log = run(g, who, 8, spitters);
     expect(orders(log, 'move', ids)).toEqual([]);

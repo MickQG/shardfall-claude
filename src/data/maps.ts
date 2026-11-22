@@ -13,26 +13,53 @@ const HOME_FIELDS: Field[] = [
 ];
 
 /**
- * Crossroads: rock outcrops funnel the armies through chokepoints; a pond on each base's outer flank (cover at its back,
- * clear of its exits) and lakes beside the mid-map routes that narrow them without closing them (MAP-3).
+ * A hill: a chain of overlapping round outcrops of radius `r` along a diagonal ridge, the line x - y = `across` (waving by
+ * up to `wave` tiles), from x + y = `from` to `to`. Every ridge is mirrored through the map centre by buildMap, so a hill
+ * near one base gets its twin near the other.
+ */
+function diagonalRidge(across: number, from: number, to: number, r: number, wave: number): Blob[] {
+  const out: Blob[] = [];
+  for (let along = from; along <= to; along += 2) {
+    // The wave is even about the map centre (along = 95), so a ridge and its mirror image are the same shape.
+    const a = across + Math.sign(across) * wave * Math.cos((along - (MAP_SIZE - 1)) * 0.17);
+    out.push({ cx: Math.round((along + a) / 2), cy: Math.round((along - a) / 2), rx: r, ry: r });
+  }
+  return out;
+}
+
+/** Where each side lane begins and ends, in x - y (MAP-10): it runs from the barrier to the lake in the map's corner. */
+const CROSSROADS_SIDE = [34, 62] as const;
+
+/**
+ * Crossroads (MAP-10): flat open ground between the bases, split into three lanes across the mid-map (x + y from 62 to
+ * 128). The middle lane runs along the road between the bases (x - y within +-22) past a forward field in front of each
+ * base to a massive centre field. On each flank a barrier, a hill at each end and a lake between, divides it from a wide
+ * side lane (x - y from 34 to 62), the way to flank or harass; a lake in the map's east and west corners closes the side
+ * lane's far edge. Each base has its two home fields only, so the next field is in the middle. A pond on each base's
+ * outer flank keeps its back covered, clear of its exits (MAP-3).
  */
 const CROSSROADS: MapPlan = {
-  rocks: [
-    { cx: 30, cy: 18, rx: 5, ry: 2 },
-    { cx: 18, cy: 32, rx: 2, ry: 5 },
-    { cx: 38, cy: 34, rx: 4, ry: 3 },
-    { cx: 28, cy: 50, rx: 3, ry: 6 },
-    { cx: 46, cy: 22, rx: 2, ry: 3 },
-    { cx: 58, cy: 40, rx: 3, ry: 2 },
-  ],
+  // The barrier hills nearest player 0 on both flanks; the mirror adds the ones nearest player 1.
+  rocks: [...diagonalRidge(28, 68, 84, 3, 0), ...diagonalRidge(-28, 68, 84, 3, 0)],
   lakes: [
-    { cx: 5, cy: 34, rx: 2, ry: 4 },
-    { cx: 36, cy: 4, rx: 4, ry: 2 },
-    { cx: 15, cy: 52, rx: 3, ry: 3 },
-    { cx: 60, cy: 25, rx: 3, ry: 3 },
+    { cx: 4, cy: 30, rx: 2, ry: 4 },
+    { cx: 30, cy: 4, rx: 4, ry: 2 },
+    // Each barrier's lake, between its two hills: two round lakes along x - y = +-28 and their mirror images.
+    ...[88, 94].flatMap((along) => [
+      { cx: (along + 28) / 2, cy: (along - 28) / 2, rx: 5, ry: 5 },
+      { cx: (along - 28) / 2, cy: (along + 28) / 2, rx: 5, ry: 5 },
+    ]),
   ],
-  fields: [...HOME_FIELDS, { cx: 34, cy: 64, r: 2, amount: 3500 }],
-  centre: { r: 3.6, amount: 5000 },
+  // Beyond the home fields, the middle: a forward field on the road halfway to the centre (the mirror gives the other
+  // base its own), and the centre field.
+  fields: [...HOME_FIELDS, { cx: 38, cy: 38, r: 3, amount: 3000 }],
+  centre: { r: 6, amount: 4500 },
+  water: (x, y) => {
+    // The corner lakes past the side lanes. The shore waves a little, so it is not a straight staircase; the wave is even
+    // about the map centre along the road, so each lake is its own mirror image.
+    const wave = 1.5 * Math.cos((x + y - (MAP_SIZE - 1)) * 0.35);
+    return Math.abs(x - y) > CROSSROADS_SIDE[1] + wave;
+  },
 };
 
 /**
@@ -120,7 +147,7 @@ export type MapId = HandMadeMapId | 'generated';
 
 /** The skirmish maps in menu order; the first is the default (MAP-4). */
 export const MAPS: readonly { id: HandMadeMapId; name: string; blurb: string; plan: MapPlan }[] = [
-  { id: 'crossroads', name: 'Crossroads', blurb: 'Rock outcrops and lakes funnel the fight through chokepoints.', plan: CROSSROADS },
+  { id: 'crossroads', name: 'Crossroads', blurb: 'Two fields at home; the rest lie in a wide middle lane, with a wide side lane far out on each flank.', plan: CROSSROADS },
   { id: 'riverbed', name: 'Riverbed', blurb: 'A river between the bases: hold the bridge and the two fords.', plan: RIVERBED },
   { id: 'highlands', name: 'Highlands', blurb: 'A ring of ridges around a rich basin, entered by its passes and corner gaps.', plan: HIGHLANDS },
 ];

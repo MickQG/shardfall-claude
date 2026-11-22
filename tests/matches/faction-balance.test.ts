@@ -19,7 +19,7 @@ const seeds = (): number[] => {
 };
 
 describe('faction balance in full matches', () => {
-  it('ROS-4: equal hard AIs on every map, from both sides, and neither faction wins more than three quarters', async () => {
+  it('ROS-4, HAR-11: equal hard AIs on every map, from both sides, and neither faction wins more than three quarters', async () => {
     const { DIFFICULTIES, printTally } = await import('./levels');
     const { MAPS } = await import('../../src/data/maps');
     const wins = { human: 0, alien: 0 };

@@ -5,6 +5,7 @@
 - **Hauler** – the unit that carries shards from a shard field to a refinery (Shard Hauler, Gorger). _Avoid_: harvester.
 - **Hopper** – the Shard Hauler's load box: it fills in plain sight as the hauler mines and tips up to pour the load out at the dock pad. _Avoid_: cargo, bed.
 - **Home field** – a shard field beside a player's start; every start has two.
+- **Forward field** – a shard field out in the middle of the map, on the way to the centre and nearer one base than the other; the first field a base expands to beyond its two home fields. _Avoid_: natural field.
 - **Dock pad** – the one place at a refinery where a hauler unloads; other haulers wait their turn beside it.
 - **Tick** – one fixed simulation step; game time is counted in ticks (20 to a game second).
 - **Game speed** – how fast game time passes in real time (×0.8 by default); it never changes what happens in the game.
@@ -34,3 +35,14 @@
 - **Unit kind** – what a unit is (Rifleman, Bulwark Tank, Brute…). "Type" is reserved for damage types and armour types.
 - **Difficulty** – how well the AI plays (Easy, Medium, Hard): its reaction time, actions per minute and resource bonus; never its vision or the rules.
 - **Personality** – the strategy an AI opponent commits to for a match (Raider, Balanced or Doomsday); chosen independently of Difficulty, and changes only what the AI chooses to do.
+- **Staging point** – where an AI gathers its army before sending it out, a short way from its headquarters toward the enemy.
+- **Wave** – an AI army sent out together from the staging point to attack. _Avoid_: push, attack group.
+- **Standing army** – an AI's combat units that are not in a wave, a raid or scouting: the units holding at home.
+- **Harasser** – an enemy force that hits units and pulls away faster than those units can catch it, such as Glare Skimmers, or Bulwark Tanks backing off as they fire. _Avoid_: raider, kiter.
+- **Army ball** – an army kept close around its centre so it fights as one body and no unit strays out alone. _Avoid_: blob, clump, deathball.
+- **Strike group** – a small AI group of fast combat units sent to raid apart from the main army. _Avoid_: hit squad (a squad is an infantry squad).
+- **Retreat** – an AI pulling an army back toward friendly strength because the enemy facing it is too strong.
+- **Fighting retreat** – a retreat by an army that cannot outrun its pursuers, so it keeps facing them and firing as it falls back.
+- **Regroup** – retreated units and reinforcements gathering into one army at friendly strength before going out again.
+- **Concave** – an army drawn up in an arc or line facing the enemy, so every unit can fire and a charging crusher meets the whole line. _Avoid_: formation, wall.
+- **Watchpost** – a neutral building on the map that infantry squads can garrison for cover, sight and a place to fire from; held by whoever is inside. _Avoid_: garrison (the Aegis barracks), bunker.

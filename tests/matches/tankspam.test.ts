@@ -34,9 +34,11 @@ export const FLAVOURS: readonly Flavour[] = ['no menders', 'with menders'];
  * mark of about half), and for Raider without Menders 1 (it won from 2 to 7 over the measured runs): measured 2, 14 and
  * 12 without Menders and 14, 15 and 16 with them (Raider, Balanced, Doomsday), so a change that costs games still fails.
  */
+// Spec 033 (owner's choices): with Hard at +10% and Doomsday defending until its superweapon stands, Doomsday's marks are
+// what was measured then (5 without Menders, 4 with them); before, 8 and 8.
 export const PASS_WINS: Readonly<Record<Flavour, Readonly<Record<Personality, number>>>> = {
-  'no menders': { raider: 1, balanced: 8, doomsday: 8 },
-  'with menders': { raider: 8, balanced: 8, doomsday: 8 },
+  'no menders': { raider: 1, balanced: 8, doomsday: 5 },
+  'with menders': { raider: 8, balanced: 8, doomsday: 4 },
 };
 
 const SERIES_TIMEOUT = 3_000_000;
@@ -110,7 +112,7 @@ function report(p: Personality, f: Flavour, games: readonly TankspamGame[], rs: 
     rulesLine(),
     `AI-32 tankspam ${f} ${p}: Hard AI ${t.wins} won ${t.losses} lost ${t.undecided} undecided`,
     `length: median ${lengths.median.toFixed(1)} min, ${lengths.min.toFixed(1)} to ${lengths.max.toFixed(1)}`,
-    `AI: produced skimmers/at ${sum((s) => s.produced.at)}, tanks ${sum((s) => s.produced.tank)}, inf ${sum((s) => s.produced.inf)}, scouts ${sum((s) => s.produced.scout)}; scouts lost ${sum((s) => s.scoutsLost)}; hit squads ${sum((s) => s.hitSquads)}, tank-ball raids ${sum((s) => s.ballRaids)}; Brutes held back ${sum((s) => s.heldBack)}`,
+    `AI: produced skimmers/at ${sum((s) => s.produced.at)}, tanks ${sum((s) => s.produced.tank)}, inf ${sum((s) => s.produced.inf)}, scouts ${sum((s) => s.produced.scout)}; scouts lost ${sum((s) => s.scoutsLost)}; strike groups ${sum((s) => s.strikeGroups)}, tank-ball raids ${sum((s) => s.ballRaids)}; retreats ${sum((s) => s.retreats)} (fighting ${sum((s) => s.fightingRetreats)}), regroups ${sum((s) => s.regroups)}, harassment chase/push/fall back ${sum((s) => s.harassResponses.chase)}/${sum((s) => s.harassResponses.push)}/${sum((s) => s.harassResponses.fallBack)}`,
     ...rs.map((r, i) => {
       const g = games[i]!;
       const opp = r.ai[1 - g.seat]!.steamroll;
@@ -126,7 +128,7 @@ function report(p: Personality, f: Flavour, games: readonly TankspamGame[], rs: 
 describe('the Hard AI as Vrax against the tank-spam opponent', () => {
   for (const f of FLAVOURS) {
     for (const p of PERSONALITIES) {
-      it(`HAR-7: tankspam ${f} ${p}: the opponent plays Aegis, trains crushers and only the squads its Menders carry, kites, attacks, and replays the same game`, async () => {
+      it(`HAR-7, HAR-11: tankspam ${f} ${p}: the opponent plays Aegis, trains crushers and only the squads its Menders carry, kites, attacks, and replays the same game`, async () => {
         const started = Date.now();
         const { games, results: rs } = await series(p, f);
         report(p, f, games, rs, (Date.now() - started) / 60000);

@@ -432,6 +432,19 @@ describe('AI-29: the AI and its Field Menders', () => {
     expect(orders.some((o) => o.type === 'move' && o.units.includes(1) && Math.abs(o.x - 31 * FP - FP / 2) < 2 && Math.abs(o.y - 30 * FP - FP / 2) < 2)).toBe(true);
   });
 
+  it('AI-29: each Mender sticks with the group of tanks nearest it, not the middle of all its tanks', () => {
+    const plan = new MenderPlan(0, kind);
+    // Two tank groups far apart (a wave out, the rest at home); the Mender is near the second, but 5 tiles off its middle.
+    const m = snapUnit(1, 0, kind, 45, 45);
+    const tanks = [snapUnit(2, 0, 'hum_tank', 10, 10), snapUnit(3, 0, 'hum_tank', 12, 10), snapUnit(4, 0, 'hum_tank', 50, 48), snapUnit(5, 0, 'hum_tank', 50, 50)];
+    const orders: Command[] = [];
+    for (let at = 100; at < 160; at += 8) orders.push(...plan.turn(at, [m, ...tanks], [], tanks, 64, true).orders);
+    const moves = orders.filter((o) => o.type === 'move' && o.units.includes(1)) as Extract<Command, { type: 'move' }>[];
+    expect(moves.length).toBeGreaterThan(0);
+    // To the middle of its own group (50.5, 49.5), never toward the middle of all four (30, 30).
+    for (const o of moves) expect(Math.hypot(o.x / FP - 50.5, o.y / FP - 49.5)).toBeLessThan(1);
+  });
+
   it('AI-29: on every difficulty the Aegis AI trains a Mender at its factory once it has three tanks, and the steamroll opponent too', () => {
     const cfg = skirmishConfig(6, { factions: ['human', 'alien'] });
     const spots = [...Array(20)].map((_, i) => ({ tx: 16 + (i % 6) * 4, ty: 4 + Math.floor(i / 6) * 4 }));

@@ -33,7 +33,9 @@ const LAUNCH_BY = 20 * 60 * 15;
  * The pass mark (AI-25): wins of each personality's 32 games, at least. Since Hard's shard bonus fell to +15% (AI-28) these
  * are floors under what was measured with AI-26 and AI-27 (Raider 18, Balanced 21, Doomsday 8), so a change that costs games still fails.
  */
-export const PASS_WINS: Readonly<Record<Personality, number>> = { raider: 12, balanced: 16, doomsday: 6 };
+// Spec 033 (owner's choices): Hard's bonus fell to +10% and Doomsday defends until its superweapon stands, so the marks
+// are what was measured then (Raider 14, Balanced 13, Doomsday 2); before, 12, 16 and 6.
+export const PASS_WINS: Readonly<Record<Personality, number>> = { raider: 12, balanced: 13, doomsday: 2 };
 
 /** One personality's 32 games on a four-core runner, with margin. */
 const SERIES_TIMEOUT = 3_000_000;
@@ -166,14 +168,14 @@ function gameLine(g: SteamrollGame, r: MatchResult): string {
   ].join('; ');
 }
 
-/** The Hard AI's main waves by approach and the order chosen in each game (AI-26), its split raids and hit squads (AI-27). */
+/** The Hard AI's main waves by approach and the order chosen in each game (AI-26), its split raids and strike groups (AI-27). */
 export function groupsLine(games: readonly SteamrollGame[], rs: readonly MatchResult[]): string {
   const stats = rs.map((r, i) => r.ai[games[i]!.seat]!);
   const by = APPROACHES.map((a) => `${a} ${stats.reduce((n, s) => n + s.approaches[a], 0)}`).join(', ');
   const repeats = stats.reduce((n, s) => n + s.approachLog.filter((a, i) => i > 0 && a === s.approachLog[i - 1]).length, 0);
   const orders = stats.map((s) => s.approachLog.map((a) => a[0]).join('') || '-').join(' ');
   const sum = (f: (s: (typeof stats)[number]) => number): number => stats.reduce((n, s) => n + f(s), 0);
-  return `AI-26/AI-27: main waves by approach ${by} (same twice running ${repeats}); orders by game ${orders}; split raids ${sum((s) => s.splitRaids)}, hit squads ${sum((s) => s.hitSquads)}, Raider's army scout units ${sum((s) => s.raiderScouts)}`;
+  return `AI-26/AI-27: main waves by approach ${by} (same twice running ${repeats}); orders by game ${orders}; split raids ${sum((s) => s.splitRaids)}, strike groups ${sum((s) => s.strikeGroups)}, Raider's army scout units ${sum((s) => s.raiderScouts)}`;
 }
 
 /** Prints the tally, every game's facts and their medians, and adds them to the CI job summary when there is one. */
@@ -205,7 +207,7 @@ function report(p: Personality, games: readonly SteamrollGame[], rs: readonly Ma
 
 describe('the Hard AI against the steamroll opponent', () => {
   for (const p of PERSONALITIES) {
-    it(`HAR-5, AI-22, AI-23, AI-26: against ${p}, the steamroll opponent trains only rifle and anti-armour squads, crushers and haulers, never retreats, attacks, and replays the same game`, async () => {
+    it(`HAR-5, HAR-11, AI-22, AI-23, AI-26: against ${p}, the steamroll opponent trains only rifle and anti-armour squads, crushers and haulers, never retreats, attacks, and replays the same game`, async () => {
       const started = Date.now();
       const { games, results: rs } = await steamrollSeries(p);
       report(p, games, rs, (Date.now() - started) / 60000);

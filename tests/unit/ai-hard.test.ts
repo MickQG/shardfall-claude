@@ -10,10 +10,10 @@ describe('difficulty levels (AI-20, AI-28)', () => {
     expect(Object.keys(DIFFICULTIES.hard).sort()).toEqual(['bonus', 'maxCommands', 'name', 'thinkEvery']);
   });
 
-  it('AI-28: Easy 60 ticks, 2 orders, -10%; Medium 26 ticks, 7 orders, 0%; Hard 8 ticks, 12 orders, +15%; the order Easy < Medium < Hard holds on every figure', () => {
+  it('AI-28: Easy 60 ticks, 2 orders, -10%; Medium 22 ticks, 8 orders, 0%; Hard 8 ticks, 12 orders, +10%; the order Easy < Medium < Hard holds on every figure', () => {
     expect(DIFFICULTIES.easy).toEqual({ name: 'easy', thinkEvery: 60, maxCommands: 2, bonus: -10 });
-    expect(DIFFICULTIES.medium).toEqual({ name: 'medium', thinkEvery: 26, maxCommands: 7, bonus: 0 });
-    expect(DIFFICULTIES.hard).toEqual({ name: 'hard', thinkEvery: 8, maxCommands: 12, bonus: 15 });
+    expect(DIFFICULTIES.medium).toEqual({ name: 'medium', thinkEvery: 22, maxCommands: 8, bonus: 0 });
+    expect(DIFFICULTIES.hard).toEqual({ name: 'hard', thinkEvery: 8, maxCommands: 12, bonus: 10 });
     expect(DIFFICULTIES.easy.thinkEvery).toBeGreaterThan(DIFFICULTIES.medium.thinkEvery);
     expect(DIFFICULTIES.medium.thinkEvery).toBeGreaterThan(DIFFICULTIES.hard.thinkEvery);
     expect(DIFFICULTIES.easy.maxCommands).toBeLessThan(DIFFICULTIES.medium.maxCommands);
@@ -34,7 +34,7 @@ describe('difficulty levels (AI-20, AI-28)', () => {
     expect(base).toBeGreaterThan(400);
     // Within a credit per load of the exact share (rounding down on every tick paid +10% for +15%, and +20% for +25%).
     const loads = Math.ceil(base / 200) + 1;
-    for (const bonus of [15, 25, -10, 30]) {
+    for (const bonus of [10, 15, 25, -10, 30]) {
       const got = income(bonus);
       expect(got, `bonus ${bonus}`).toBeLessThanOrEqual((base * (100 + bonus)) / 100 + 1); // a load still unloading may be a fraction ahead
       expect(got, `bonus ${bonus}`).toBeGreaterThanOrEqual((base * (100 + bonus)) / 100 - loads);

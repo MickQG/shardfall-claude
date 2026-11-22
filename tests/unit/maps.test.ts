@@ -78,6 +78,177 @@ describe('skirmish water', () => {
   });
 });
 
+describe('Crossroads lanes (MAP-10)', () => {
+  const W = MAP_SIZE;
+  const m = skirmishMap('crossroads');
+  const [a, b] = homes('crossroads');
+  /** Distance from each tile to the nearest blocked tile (the map edge counts as blocked): about half a lane's width. */
+  const clearance = ((): Float32Array => {
+    const blocked: number[] = [];
+    m.blocked!.forEach((v, i) => v && blocked.push(i));
+    return Float32Array.from({ length: W * W }, (_, i) => {
+      const x = i % W;
+      const y = Math.floor(i / W);
+      let d = Math.min(x + 1, y + 1, W - x, W - y);
+      for (const j of blocked) d = Math.min(d, Math.hypot(x - (j % W), y - Math.floor(j / W)));
+      return d;
+    });
+  })();
+  // p = x - y is the side of the road between the bases (0 on it), q = x + y how far along it (95 at the centre).
+  type Shut = (p: number, q: number) => boolean;
+  // The barriers between the lanes run along x - y = +-28; the corner lakes start past +-62.
+  const mid: Shut = (p, q) => q >= 62 && q <= 128 && Math.abs(p) <= 28;
+  const east: Shut = (p, q) => q >= 62 && q <= 128 && p > 28 && p <= 70;
+  const west: Shut = (p, q) => q >= 62 && q <= 128 && p < -28 && p >= -70;
+  const lanes = [mid, east, west];
+  /** Whether the bases are joined by ground at least `width` tiles wide everywhere (a corridor `w` wide leaves its middle tile (w + 1) / 2 from either wall), with the tiles `shut` closed. */
+  const joined = (width: number, shut: Shut = () => false): boolean => {
+    const ok = (i: number): boolean => !m.blocked![i] && clearance[i]! >= (width + 1) / 2 - 1e-9 && !shut((i % W) - Math.floor(i / W), (i % W) + Math.floor(i / W));
+    const seen = new Uint8Array(W * W);
+    const todo = [a[1] * W + a[0]];
+    seen[todo[0]!] = 1;
+    while (todo.length) {
+      const i = todo.pop()!;
+      if (i === b[1] * W + b[0]) return true;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+        const nx = (i % W) + dx;
+        const ny = Math.floor(i / W) + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= W) continue;
+        const j = ny * W + nx;
+        if (!seen[j] && ok(j)) {
+          seen[j] = 1;
+          todo.push(j);
+        }
+      }
+    }
+    return false;
+  };
+
+  it('MAP-10: the centre field holds at least 500000 shards on flat open ground', () => {
+    // The centre field is the connected patch of shards around the map's middle.
+    const seen = new Set<number>();
+    const todo = [47 * W + 47];
+    let total = 0;
+    while (todo.length) {
+      const i = todo.pop()!;
+      if (seen.has(i) || !m.shards![i]) continue;
+      seen.add(i);
+      total += m.shards![i]!;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (((i % W) + dx) >= 0 && ((i % W) + dx) < W) todo.push(i + dy * W + dx);
+    }
+    expect(total).toBeGreaterThanOrEqual(500000);
+    // Open all round it (the walls start further out), and no raised ground close by.
+    for (let y = 0; y < W; y++)
+      for (let x = 0; x < W; x++) {
+        const d = Math.hypot(x - 47.5, y - 47.5);
+        if (d <= 6) expect(m.blocked![y * W + x], `${x},${y} blocked`).toBe(0);
+        if (d <= 6) expect(m.heights[y * W + x]).toBe(0);
+      }
+  });
+
+  it('MAP-10: three lanes cross between the bases, and walls and lakes close everything else', () => {
+    expect(joined(1)).toBe(true);
+    // Shut all three lanes across the middle of the map and the bases are cut off: nothing else gets through.
+    expect(joined(1, (p, q) => q >= 90 && q <= 100 && Math.abs(p) <= 70)).toBe(false);
+    // Any two lanes shut, the third alone joins the bases; and any one shut, the other two still do.
+    for (const keep of lanes) expect(joined(1, (p, q) => lanes.some((lane) => lane !== keep && lane(p, q))), 'one lane open').toBe(true);
+    for (const shut of lanes) expect(joined(1, shut), 'one lane shut').toBe(true);
+  });
+
+
+  it('MAP-10: the middle lane is at least 24 tiles wide and each side lane at least 14', () => {
+    expect(joined(24, (p, q) => east(p, q) || west(p, q))).toBe(true);
+    expect(joined(14, (p, q) => mid(p, q) || west(p, q))).toBe(true);
+    expect(joined(14, (p, q) => mid(p, q) || east(p, q))).toBe(true);
+  });
+
+  it('MAP-10: the side lanes lie far apart, out toward the east and west corners', () => {
+    // With the middle lane shut, the way through a side lane crosses the middle of the map at least 24 tiles off the road
+    // between the bases (x - y of 34 or more; the old side lanes lay 13 to 21 tiles off it).
+    for (const side of [east, west]) {
+      const blocked = Uint8Array.from(m.blocked!, (v, i) => (v || mid((i % W) - Math.floor(i / W), (i % W) + Math.floor(i / W)) || side((i % W) - Math.floor(i / W), (i % W) + Math.floor(i / W)) ? 1 : 0));
+      const path = findPath({ width: W, height: W, blocked }, a[0], a[1], b[0], b[1]);
+      const across = path.filter((i) => Math.abs((i % W) + Math.floor(i / W) - 95) <= 1).map((i) => Math.abs((i % W) - Math.floor(i / W)));
+      expect(across.length).toBeGreaterThan(0);
+      expect(Math.min(...across)).toBeGreaterThanOrEqual(34);
+    }
+  });
+
+  it('MAP-10: water covers under 2000 tiles, under half of the earlier drawing (4024)', () => {
+    let water = 0;
+    for (let i = 0; i < W * W; i++) if (m.blocked![i] && m.heights[i] === 0) water++;
+    expect(water).toBeLessThan(2000);
+  });
+
+  it('MAP-10: a side lane is a real alternative to the middle one, not a huge detour', () => {
+    const length = (shut: Shut): number => {
+      const blocked = Uint8Array.from(m.blocked!, (v, i) => (v || shut((i % W) - Math.floor(i / W), (i % W) + Math.floor(i / W)) ? 1 : 0));
+      return findPath({ width: W, height: W, blocked }, a[0], a[1], b[0], b[1]).length;
+    };
+    const direct = length(() => false);
+    expect(direct).toBeGreaterThan(60);
+    // The shortest way, through the middle lane, runs over the centre field.
+    const road = findPath({ width: W, height: W, blocked: Uint8Array.from(m.blocked!) }, a[0], a[1], b[0], b[1]);
+    expect(road.some((i) => m.shards![i] && Math.hypot((i % W) - 47.5, Math.floor(i / W) - 47.5) <= 5)).toBe(true);
+    // The side lanes lie far out, so the way round is longer, but not more than 60% longer.
+    expect(length((p, q) => mid(p, q) || west(p, q))).toBeLessThanOrEqual(direct * 1.6);
+    expect(length((p, q) => mid(p, q) || east(p, q))).toBeLessThanOrEqual(direct * 1.6);
+  });
+
+  it('MAP-10: each base has its two home fields only; the next field is a forward field out in the middle lane; and a pond on its outer flank', () => {
+    // Separate the shard patches (8-way connected).
+    const patch = new Int32Array(W * W).fill(-1);
+    const fields: { tiles: number[]; shards: number }[] = [];
+    for (let s = 0; s < W * W; s++) {
+      if (!m.shards![s] || patch[s]! >= 0) continue;
+      const f = { tiles: [] as number[], shards: 0 };
+      const todo = [s];
+      patch[s] = fields.length;
+      while (todo.length) {
+        const i = todo.pop()!;
+        f.tiles.push(i);
+        f.shards += m.shards![i]!;
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const x = (i % W) + dx;
+            const y = Math.floor(i / W) + dy;
+            const j = y * W + x;
+            if (x >= 0 && y >= 0 && x < W && y < W && m.shards![j] && patch[j]! < 0) {
+              patch[j] = fields.length;
+              todo.push(j);
+            }
+          }
+      }
+      fields.push(f);
+    }
+    // Two home fields and a forward field per base, and the centre field.
+    expect(fields).toHaveLength(7);
+    const centre = fields.reduce((best, f) => (f.shards > best.shards ? f : best));
+    const small = fields.filter((f) => f !== centre);
+    for (const f of small) expect(f.tiles.length).toBeGreaterThanOrEqual(15);
+    for (const f of small) expect(f.tiles.length).toBeLessThanOrEqual(40);
+    const at = (f: { tiles: number[] }): [number, number] => [f.tiles.reduce((s, i) => s + (i % W), 0) / f.tiles.length, f.tiles.reduce((s, i) => s + Math.floor(i / W), 0) / f.tiles.length];
+    for (const start of mapStarts('crossroads')) {
+      const hq: [number, number] = [start.tx + 1, start.ty + 1];
+      const near = small.map((f) => ({ f, d: Math.hypot(at(f)[0] - hq[0], at(f)[1] - hq[1]) })).sort((x, y) => x.d - y.d);
+      // Its own two home fields lie beside it. The next is its forward field: out in the middle lane on the road between
+      // the bases, about halfway to the centre field (the old natural field lay 27 tiles out, at a side lane).
+      expect(near[1]!.d, 'home fields beside the base').toBeLessThan(16);
+      const forward = near[2]!;
+      expect(forward.d, 'out in the middle').toBeGreaterThan(34);
+      expect(forward.d, 'halfway to the centre').toBeLessThan(42);
+      expect(Math.abs(at(forward.f)[0] - at(forward.f)[1]), 'on the road').toBeLessThan(2);
+      expect(forward.f.shards, 'about a home field').toBeGreaterThan(40000);
+      expect(forward.f.shards, 'about a home field').toBeLessThan(120000);
+    }
+    // The ponds of MAP-3 stay on each base's outer flank.
+    for (const [x, y] of [[4, 30], [30, 4], [91, 65], [65, 91]] as const) {
+      expect(m.blocked![y * W + x]).toBe(1);
+      expect(m.heights[y * W + x]).toBe(0);
+    }
+  });
+});
+
 describe('every skirmish map', () => {
   const W = MAP_SIZE;
   const reachOn = (blocked: ArrayLike<number>) => {

@@ -104,8 +104,14 @@ describe('Doomsday, the tech personality', () => {
     const army = [...Array(8)].map((_, i) => ({ kind: 'hum_tank', dx: 14 + (i % 4), dy: 12 + Math.floor(i / 4) }));
     const haulers = [...Array(4)].map((_, i) => ({ kind: 'hum_hauler', dx: 13 + i, dy: 15 }));
     const strong = doomBase(3000, [...army, ...haulers]);
-    const ai2 = new AI(0, 'human', DIFFICULTIES.hard, strong.cfg.map, 6, 'doomsday');
+    // Five haulers is a working economy, with AI-43's ideal hauler counts or without them: its superweapon comes before it
+    // crawls to new fields (spec 033, at the owner's request).
+    const ai2 = new AI(0, 'human', DIFFICULTIES.hard, strong.cfg.map, 6, 'doomsday', { rules: { expand: false } });
     expect(lanceOrdered(ai2.think(snapshot(strong.g, 0)))).toBe(true);
+    expect(lanceOrdered(new AI(0, 'human', DIFFICULTIES.hard, strong.cfg.map, 6, 'doomsday').think(snapshot(doomBase(3000, [...army, ...haulers]).g, 0)))).toBe(true);
+    const full = [...Array(24)].map((_, i) => ({ kind: 'hum_hauler', dx: 13 + (i % 8), dy: 15 + Math.floor(i / 8) }));
+    const saturated = doomBase(3000, [...army, ...full]);
+    expect(lanceOrdered(new AI(0, 'human', DIFFICULTIES.hard, saturated.cfg.map, 6, 'doomsday').think(snapshot(saturated.g, 0)))).toBe(true);
     expect(SUPERWEAPON_ARMY).toBe(5000);
     expect(SUPERWEAPON_HAULERS).toBe(5);
     // Balanced is unchanged: it does not wait for an army before its superweapon.

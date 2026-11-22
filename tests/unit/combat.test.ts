@@ -99,6 +99,52 @@ describe('targeting and firing', () => {
   });
 });
 
+describe('artillery shells and minimum range', () => {
+  it('CMB-18: an artillery shell flies 30 ticks (1.5 s) and lands where its target stood when it was fired, so a target that moves off is missed', () => {
+    for (const kind of ['hum_artillery', 'ali_lobber']) expect(unitDef(kind).weapon!.flight, kind).toBe(30);
+    // A standing target 10 tiles off is hit 30 ticks after the shot.
+    const g = createGame(cfg({ units: [sp(0, 'hum_artillery', 10, 10), sp(0, 'hum_hauler', 14, 10), sp(1, 'ali_gorger', 20, 10)] }));
+    const target = byKind(g, 'ali_gorger');
+    let shotTick = -1;
+    let hitTick = -1;
+    for (let i = 0; i < 200 && hitTick < 0; i++) {
+      tick(g);
+      const s = snapshot(g);
+      if (shotTick < 0 && s.events.some((e) => e.t === 'shot' && e.owner === 0)) shotTick = s.tick;
+      if (shotTick >= 0 && units(g).find((u) => u.id === target.id)!.hp < unitDef('ali_gorger').hp) hitTick = s.tick;
+    }
+    expect(shotTick).toBeGreaterThan(0);
+    expect(hitTick - shotTick).toBe(30);
+    // A target that drives off as the shell is fired is not hurt: the shell lands where it was.
+    const g2 = createGame(cfg({ units: [sp(0, 'hum_artillery', 10, 10), sp(0, 'hum_hauler', 14, 10), sp(1, 'hum_buggy', 20, 10)] }));
+    const runner = units(g2).find((u) => u.owner === 1)!;
+    for (let i = 0; i < 200; i++) {
+      tick(g2);
+      if (snapshot(g2).events.some((e) => e.t === 'shot' && e.owner === 0)) break;
+    }
+    submit(g2, { type: 'move', player: 1, units: [runner.id], x: 20 * FP + FP / 2, y: 30 * FP + FP / 2 });
+    run(g2, 40);
+    expect(units(g2).find((u) => u.id === runner.id)!.hp).toBe(unitDef('hum_buggy').hp);
+  });
+
+  it('CMB-19: artillery cannot fire at anything within 4 tiles of it; it fires at a target further out', () => {
+    for (const kind of ['hum_artillery', 'ali_lobber']) expect(unitDef(kind).weapon!.minRange, kind).toBe(4);
+    for (const [kind, foe] of [['hum_artillery', 'ali_gorger'], ['ali_lobber', 'hum_hauler']] as const) {
+      // An enemy 3 tiles away: never fired at, even when ordered to attack it.
+      const g = createGame(cfg({ units: [sp(0, kind, 10, 10), sp(1, foe, 13, 10)] }));
+      const art = byKind(g, kind).id;
+      const near = units(g).find((u) => u.owner === 1)!.id;
+      const ev = run(g, 100);
+      submit(g, { type: 'attack', player: 0, units: [art], target: near });
+      ev.push(...run(g, 100));
+      expect(shotsBy(ev, 0), kind).toBe(0);
+      // Beyond it (6 tiles), it fires.
+      const g2 = createGame(cfg({ units: [sp(0, kind, 10, 10), sp(1, foe, 16, 10)] }));
+      expect(shotsBy(run(g2, 100), 0), kind).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('projectiles and splash', () => {
   it('CMB-7: projectiles land after their flight time; splash hits enemies near the impact but spares friendlies', () => {
     const g = createGame(cfg({ units: [sp(0, 'hum_rocketeer', 20, 20), sp(1, 'hum_hauler', 24, 20)] }));
@@ -360,9 +406,10 @@ describe('lingering sight', () => {
 
 describe('line of fire', () => {
   // A rifleman (or artillery) at x 10 and a target 4 tiles east, with a reactor in between on row 20.
+  // Artillery stands further back, beyond its minimum range (CMB-19), with the reactor still between.
   const setup = (kind: string, wall: boolean) => createGame(cfg({
     buildings: [...(wall ? [{ owner: 0, kind: 'hum_reactor', tx: 12, ty: 19 }] : []), { owner: 0, kind: 'hum_hq', tx: 2, ty: 40 }, { owner: 1, kind: 'ali_hq', tx: 44, ty: 44 }],
-    units: [sp(0, kind, 10, 20), sp(1, 'ali_gorger', 14, 20)],
+    units: [sp(0, kind, kind === 'hum_artillery' ? 8 : 10, 20), sp(1, 'ali_gorger', 14, 20)],
   }));
   const shots = (g: Game, n: number): number => run(g, n).filter((e) => e.t === 'shot' && e.owner === 0).length;
 

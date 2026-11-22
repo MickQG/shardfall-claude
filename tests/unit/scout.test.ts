@@ -20,8 +20,8 @@ function builtBase(faction: Faction, credits: number, units: UnitSpawn[] = [], b
   const hq = cfg.buildings!.find((b) => b.owner === 0 && b.kind === k.hq)!;
   const at = (kind: string, dx: number, dy: number): BuildingSpawn => ({ owner: 0, kind, tx: hq.tx + dx, ty: hq.ty + dy });
   const power = [[4, 0], [6, 0], [4, 2], [6, 2], [8, 0], [8, 2]].map(([x, y]) => at(k.power, x!, y!));
-  // Eight haulers, so the factories train combat units.
-  const haulers = [...Array(8)].map((_, i): UnitSpawn => ({ owner: 0, kind: k.hauler, tx: hq.tx + 10 + i, ty: hq.ty + 15 }));
+  // Enough haulers to staff its fields at their ideal counts (AI-43), so the factories train combat units.
+  const haulers = [...Array(28)].map((_, i): UnitSpawn => ({ owner: 0, kind: k.hauler, tx: hq.tx + 10 + (i % 14), ty: hq.ty + 15 + Math.floor(i / 14) }));
   const g = createGame({
     ...cfg,
     players: [{ faction, credits }, cfg.players![1]!],
@@ -210,7 +210,8 @@ describe('the standing scout (AI-21)', () => {
       const cfg = config(faction);
       const scout = scoutOf(faction);
       const enemy = other(faction);
-      const spot = open(cfg, 50, 40);
+      // In the middle lane, clear of the flank barriers (MAP-10) for every threat placed east of it.
+      const spot = open(cfg, 44, 40);
       const threats: { what: string; spawn: { units?: UnitSpawn[]; buildings?: BuildingSpawn[] }; at: { tx: number; ty: number } }[] = [];
       const u = open(cfg, spot.tx + 8, spot.ty + 4);
       threats.push({ what: 'tank at 9', spawn: { units: [{ owner: 1, kind: enemy === 'human' ? 'hum_tank' : 'ali_brute', ...u }] }, at: u });

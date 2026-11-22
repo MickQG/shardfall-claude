@@ -41,6 +41,12 @@ for (const { id: map } of maps) {
       }
       violations += totalViolations(r.violations[hardSide] as never);
       matches++;
+      const tr = r.traded;
+      const reacts = [0, 1].map((p) => {
+        const st = r.ai[p] as unknown as Record<string, unknown>;
+        return ['retreats', 'regroups', 'harassResponses', 'defends', 'counters', 'withdrawals', 'heldBack'].filter((k) => typeof st[k] === 'number').map((k) => `${k}=${st[k]}`).join(' ');
+      });
+      console.log(`  traded (HAR-8): p0 lost ${tr[0].lost} (units ${tr[0].lostUnits}, buildings ${tr[0].lostBuildings}) destroyed ${tr[0].destroyed}; p1 lost ${tr[1].lost} (units ${tr[1].lostUnits}, buildings ${tr[1].lostBuildings}) destroyed ${tr[1].destroyed}; p0 ${reacts[0]}; p1 ${reacts[1]}`);
       console.log(`${map} seed ${seed} ${swap ? 'easy/hard' : 'hard/easy'}: winner=${r.winner} (${r.reason}) @${r.ticks} peakArmy=${r.peak.army} violations=${JSON.stringify(r.violations[hardSide])}`);
     }
   }

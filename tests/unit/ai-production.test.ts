@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI, ARTILLERY_IN_PRODUCTION, DIFFICULTIES, GROWTH_BANK, GROWTH_MAX, LAB_FROM, QUEUE_DEEP, QUEUE_DEEP_BANK, QUEUE_SHALLOW, TURRETS_FROM, type AiRules, type Personality } from '../../src/ai/ai';
+import { AI, ARTILLERY_IN_PRODUCTION, ARTILLERY_PER_ARMY, DIFFICULTIES, artilleryInProduction, GROWTH_BANK, GROWTH_MAX, LAB_FROM, QUEUE_DEEP, QUEUE_DEEP_BANK, QUEUE_SHALLOW, TURRETS_FROM, type AiRules, type Personality } from '../../src/ai/ai';
 import { SteamrollAI } from '../../src/ai/steamroll';
 import { unitDef } from '../../src/data/defs';
 import { skirmishConfig } from '../../src/data/maps';
@@ -127,23 +127,25 @@ describe('production first (AI-22)', () => {
     expect(hqOrder(base({ barracks: 2, factories: 3, lab: true, busy: true, credits: 2000, attacked: true }))).toBe('hum_barracks');
   });
 
-  it('AI-22: Doomsday grows by factories alone, whenever every factory is busy, and idle barracks do not hold it back', () => {
-    const grown = (o: Base, rules?: Partial<AiRules>): string | null => hqOrder(base({ lab: true, turrets: 6, ...o }), 'doomsday', rules);
+  it('AI-22: with rules.doomGrowth on (for measurement) Doomsday grows by factories alone, whenever every factory is busy, and idle barracks do not hold it back; by default it grows by factories first, up to five, then by barracks', () => {
+    const grown = (o: Base, rules: Partial<AiRules> = { doomGrowth: true }): string | null => hqOrder(base({ lab: true, turrets: 6, ...o }), 'doomsday', rules);
     // Factories busy, barracks idle: another factory, up to five; never a third barracks.
     const idleBarracks = (o: Base): Game => {
       const g = base({ lab: true, turrets: 6, busy: true, ...o });
       for (const b of g.state.buildings) if (b.owner === 0 && b.kind === 'hum_barracks') b.queue.length = 0;
       return g;
     };
-    expect(hqOrder(idleBarracks({ barracks: 2, factories: 3, credits: 2000 }), 'doomsday')).toBe('hum_factory');
+    expect(hqOrder(idleBarracks({ barracks: 2, factories: 3, credits: 2000 }), 'doomsday', { doomGrowth: true })).toBe('hum_factory');
     expect(grown({ barracks: 2, factories: 4, busy: true, credits: 2000 })).toBe('hum_factory');
     expect(['hum_barracks', 'hum_factory']).not.toContain(grown({ barracks: 2, factories: 5, busy: true, credits: 2000 }));
     // Not with an idle factory, and not with 1 500 banked or less.
     expect(['hum_barracks', 'hum_factory']).not.toContain(grown({ barracks: 2, factories: 3, busy: false, credits: 2000 }));
     expect(['hum_barracks', 'hum_factory']).not.toContain(grown({ barracks: 2, factories: 3, busy: true, credits: 1500 }));
-    // Balanced with the same base takes a barracks; Doomsday with the rule off grows as Balanced does.
+    // Balanced with the same base takes a barracks; Doomsday with the rule off (the default) takes a factory first, and a
+    // barracks once it has five factories, all busy with its barracks too.
     expect(hqOrder(base({ lab: true, turrets: 6, barracks: 2, factories: 3, busy: true, credits: 2000 }))).toBe('hum_barracks');
-    expect(grown({ barracks: 2, factories: 3, busy: true, credits: 2000 }, { doomGrowth: false })).toBe('hum_barracks');
+    expect(grown({ barracks: 2, factories: 3, busy: true, credits: 2000 }, { doomGrowth: false })).toBe('hum_factory');
+    expect(grown({ barracks: 2, factories: 5, busy: true, credits: 2000 }, { doomGrowth: false })).toBe('hum_barracks');
   });
 
   it('AI-22: turrets wait until it has six production buildings or its base has been attacked', () => {
@@ -191,7 +193,15 @@ describe('production first (AI-22)', () => {
     for (const n of unitQueue(deep, 'hum_barracks')) expect(n).toBe(5);
   });
 
-  it('AI-22: at most four artillery pieces are in production at once', () => {
+  it('AI-19, AI-22: the artillery cap grows by one for every fifteen armed units in the army', () => {
+    expect(ARTILLERY_PER_ARMY).toBe(15);
+    expect(artilleryInProduction(ARTILLERY_IN_PRODUCTION, 0)).toBe(4);
+    expect(artilleryInProduction(ARTILLERY_IN_PRODUCTION, 14)).toBe(4);
+    expect(artilleryInProduction(ARTILLERY_IN_PRODUCTION, 15)).toBe(5);
+    expect(artilleryInProduction(ARTILLERY_IN_PRODUCTION, 90)).toBe(10);
+  });
+
+  it('AI-22: at most four artillery pieces are in production at once with a small army', () => {
     expect(ARTILLERY_IN_PRODUCTION).toBe(4);
     const g = base({ barracks: 2, factories: 5, lab: true, turrets: 6, haulers: 8, infantrySeen: 24 });
     decide(g, ai(), 10, 20000);
@@ -200,12 +210,13 @@ describe('production first (AI-22)', () => {
     expect(art).toBeLessThanOrEqual(ARTILLERY_IN_PRODUCTION); // ... but no more than four at once
   });
 
-  it('AI-22: fields and haulers are unchanged: a third refinery, never a fourth, and eight haulers at most', () => {
-    expect(hqOrder(base({ barracks: 2, factories: 3, lab: true, refineries: 2, haulers: 4 }))).toBe('hum_refinery');
-    expect(hqOrder(base({ barracks: 5, factories: 5, lab: true, turrets: 6, refineries: 3, credits: 20000 }))).not.toBe('hum_refinery');
+  it('AI-22: with rules.expand off (AI-43, AI-44) fields and haulers are as AI-22 left them: a third refinery, never a fourth, and eight haulers at most', () => {
+    const off = { expand: false };
+    expect(hqOrder(base({ barracks: 2, factories: 3, lab: true, refineries: 2, haulers: 4 }), 'balanced', off)).toBe('hum_refinery');
+    expect(hqOrder(base({ barracks: 5, factories: 5, lab: true, turrets: 6, refineries: 3, credits: 20000 }), 'balanced', off)).not.toBe('hum_refinery');
     const haulersOrdered = (haulers: number): number => {
       const g = base({ barracks: 2, factories: 3, lab: true, turrets: 6, haulers });
-      return ai()
+      return ai('balanced', off)
         .think(snapshot(g, 0))
         .filter((c) => c.type === 'produce' && c.kind === 'hum_hauler').length;
     };
