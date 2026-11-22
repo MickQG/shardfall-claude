@@ -22,8 +22,6 @@ export interface WeaponDef {
   flight?: number;
   /** Lobbed: fires over buildings (CMB-14). */
   indirect?: boolean;
-  /** Tiles within which it cannot fire (CMB-19): artillery cannot hit what is right beside it. */
-  minRange?: number;
   /** A salvo (HERO-7): `count` missiles per shot, one launched every `gap` ticks, each landing on its own. */
   salvo?: { count: number; gap: number };
   /** Half-width of the firing cone in facing steps for a slow turner (default FIRE_ARC); the Paladin pods fire in a wide cone (HERO-8). */
@@ -153,11 +151,6 @@ export const BUILDING_DEFS: Readonly<Record<string, BuildingDef>> = {
   },
 };
 
-/** Ticks an artillery shell is in the air (CMB-18): it lands where its target stood when it was fired, so a target on the move can get clear. */
-export const ARTILLERY_FLIGHT = 30;
-/** Artillery cannot fire at anything within this many tiles of it (CMB-19). */
-export const ARTILLERY_MIN_RANGE = 4;
-
 export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   // ---- Humans ----
   hum_hauler: { faction: 'human', name: 'Shard Hauler', speed: 30, hp: 400, radius: 96, vision: 6, cost: 400, buildTime: 450, builtAt: 'hum_factory', requires: ['hum_refinery'], armor: 'heavy', capacity: 200, role: 'harvester' },
@@ -179,7 +172,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   },
   hum_artillery: {
     faction: 'human', name: 'Hammer Artillery', speed: 24, hp: 250, radius: 100, vision: 8, cost: 900, buildTime: 520, builtAt: 'hum_factory', requires: ['hum_lab'], armor: 'heavy', role: 'artillery',
-    weapon: { damage: 64, range: 13, cooldown: 60, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: ARTILLERY_FLIGHT, indirect: true, minRange: ARTILLERY_MIN_RANGE },
+    weapon: { damage: 64, range: 13, cooldown: 60, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
   },
   // A repair vehicle with no gun of its own (CMB-15): it mends one damaged friendly vehicle at a time and itself (CMB-16,
   // CMB-17), and carries one Rifleman or Rocketeer squad that fires from inside (SQD-3, SQD-4). It never crushes.
@@ -217,7 +210,7 @@ export const UNIT_DEFS: Readonly<Record<string, UnitDef>> = {
   },
   ali_lobber: {
     faction: 'alien', name: 'Lobber', speed: 25, hp: 240, radius: 100, vision: 8, cost: 800, buildTime: 500, builtAt: 'ali_pit', requires: ['ali_evolver'], armor: 'heavy', regen: 2, role: 'artillery',
-    weapon: { damage: 68, range: 13, cooldown: 56, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: ARTILLERY_FLIGHT, indirect: true, minRange: ARTILLERY_MIN_RANGE },
+    weapon: { damage: 68, range: 13, cooldown: 56, type: 'blast', antiAir: false, antiGround: true, splash: 1.5, flight: 14, indirect: true },
   },
   // A hovering anti-armour skimmer (SKM-1): out-ranges tanks with a lance beam it fires on the move (SKM-3); crushes nothing.
   ali_skimmer: {

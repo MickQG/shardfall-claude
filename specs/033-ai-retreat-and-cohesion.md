@@ -124,11 +124,6 @@ Terms used below (see GLOSSARY.md): Staging point, Wave, Standing army, Strike g
   - **Rules**: MAP-2, MAP-3 and MAP-4 still hold, including equal road distance to every field and an AI that plays to a finish. The pond on each base's outer flank (MAP-3) moves a few tiles toward the base's corner to open the way into the side lane.
   - **Network version**: the network version goes to 12, since an older client would build the old Crossroads and fall out of step (NET-3).
 
-## Combat
-
-- **CMB-18**: An artillery shell (Aegis artillery, Vrax Lobber) is in the air for 30 ticks (1.5 s; it was 14). It lands where its target stood when it was fired, so a target on the move can get clear of it. Requested by the owner with the AI balance work.
-- **CMB-19**: Artillery has a **minimum range** of 4 tiles: it cannot fire at anything closer. It never picks such a target. One it picked itself that comes that close is dropped for another; one it was ordered to attack it holds without firing.
-
 ## Harness
 
 - **HAR-8**: The battle harness and the full-match harness report **value traded**: the cost each side lost. The match harness reports it per AI, along with each AI's retreats, regroups and harassment responses.
