@@ -2547,7 +2547,7 @@ export class AI {
     // The steamroll opponent keeps its own attack rule and never retreats (HAR-5).
     const ordinary = this.doctrine.retreats;
     // The squads riding in its Menders go with the army and fire from inside: they count in its strength (AI-29).
-    const riding = c.riders.length > 0 ? this.armyPower(c.riders) : 0;
+    const riding = 0;
     const own = this.armyPower(army) + riding;
     if (army.length === 0 && this.retreats.length === 0) {
       if (this.wave) this.wave = null;
