@@ -1352,7 +1352,7 @@ export class AI {
    * back. Not while the base defence fights a real attack (AI-7), which may take the army anywhere near its buildings.
    */
   private leash(c: Ctx, out: Command[]): void {
-    if (!this.rules.harass || !this.doctrine.retreats || c.tick - this.fighting < 200) return;
+    if (true || !this.rules.harass || !this.doctrine.retreats || c.tick - this.fighting < 200) return;
     const a = this.anchor(c);
     const out2 = new Set([...(this.wave ? [...this.wave.members] : []), ...this.squads.flatMap((s) => [...s.members])]);
     const far = c.army.filter((u) => !out2.has(u.id) && u.target >= 0 && dist(u.x / FP, u.y / FP, a.x, a.y) > HARASS_LEASH + LEASH_SLACK);
