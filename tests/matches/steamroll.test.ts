@@ -33,7 +33,9 @@ const LAUNCH_BY = 20 * 60 * 15;
  * The pass mark (AI-25): wins of each personality's 32 games, at least. Since Hard's shard bonus fell to +15% (AI-28) these
  * are floors under what was measured with AI-26 and AI-27 (Raider 18, Balanced 21, Doomsday 8), so a change that costs games still fails.
  */
-export const PASS_WINS: Readonly<Record<Personality, number>> = { raider: 12, balanced: 16, doomsday: 6 };
+// Spec 033 (owner's choices): Hard's bonus fell to +10% and Doomsday defends until its superweapon stands, so the marks
+// are what was measured then (Raider 14, Balanced 13, Doomsday 2); before, 12, 16 and 6.
+export const PASS_WINS: Readonly<Record<Personality, number>> = { raider: 12, balanced: 13, doomsday: 2 };
 
 /** One personality's 32 games on a four-core runner, with margin. */
 const SERIES_TIMEOUT = 3_000_000;

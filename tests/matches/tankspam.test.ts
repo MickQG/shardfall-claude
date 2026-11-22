@@ -34,9 +34,11 @@ export const FLAVOURS: readonly Flavour[] = ['no menders', 'with menders'];
  * mark of about half), and for Raider without Menders 1 (it won from 2 to 7 over the measured runs): measured 2, 14 and
  * 12 without Menders and 14, 15 and 16 with them (Raider, Balanced, Doomsday), so a change that costs games still fails.
  */
+// Spec 033 (owner's choices): with Hard at +10% and Doomsday defending until its superweapon stands, Doomsday's marks are
+// what was measured then (5 without Menders, 4 with them); before, 8 and 8.
 export const PASS_WINS: Readonly<Record<Flavour, Readonly<Record<Personality, number>>>> = {
-  'no menders': { raider: 1, balanced: 8, doomsday: 8 },
-  'with menders': { raider: 8, balanced: 8, doomsday: 8 },
+  'no menders': { raider: 1, balanced: 8, doomsday: 5 },
+  'with menders': { raider: 8, balanced: 8, doomsday: 4 },
 };
 
 const SERIES_TIMEOUT = 3_000_000;
